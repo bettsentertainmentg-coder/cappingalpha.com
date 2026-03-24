@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CappperBoss</title>
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --text:    #c9d1d9;
+      --muted:   #8b949e;
+      --accent:  #58a6ff;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 1.3rem; color: var(--accent); font-weight: 700; letter-spacing: 1px; }
+    header .sub { color: var(--muted); font-size: 0.8rem; }
+    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--surface); padding: 0 24px; }
+    .tab { padding: 12px 20px; cursor: pointer; font-size: 0.9rem; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .panel { display: none; padding: 24px; }
+    .panel.active { display: block; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.15s; }
+    .card:hover { border-color: var(--accent); }
+    .card.expanded { border-color: var(--accent); }
+    .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .pick-name { font-weight: 600; font-size: 1rem; color: var(--text); }
+    .score-badge { background: var(--accent); color: #000; font-weight: 700; font-size: 0.8rem; border-radius: 4px; padding: 2px 8px; white-space: nowrap; }
+    .score-badge.hot { background: var(--yellow); }
+    .meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .meta span { display: flex; align-items: center; gap: 4px; }
+    .wr { color: var(--green); font-weight: 600; }
+    .channel-main { color: var(--accent); }
+    .channel-community { color: var(--muted); }
+    .mention-badge { background: var(--border); color: var(--text); font-weight: 700; font-size: 0.75rem; border-radius: 10px; padding: 2px 8px; }
+    .mention-count { font-weight: 600; font-size: 0.8rem; color: var(--accent); margin-right: 6px; }
+    .mention-channels { color: var(--muted); font-size: 0.75rem; }
+    /* Game status */
+    .game-status { font-size: 0.8rem; font-weight: 500; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .game-pre  { color: var(--muted); }
+    .game-in   { color: var(--green); font-weight: 600; }
+    .game-post-win  { color: var(--green); }
+    .game-post-loss { color: var(--red); }
+    .game-none { color: var(--muted); }
+    .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 1.4s ease-in-out infinite; flex-shrink: 0; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.75); }
+    }
+    /* Detail panel */
+    .detail-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .detail-panel.open { display: block; }
+    .breakdown { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .breakdown-item { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 0.8rem; }
+    .breakdown-item .label { color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; }
+    .breakdown-item .val { font-weight: 700; color: var(--accent); }
+    .breakdown-total { border-color: var(--accent); }
+    .breakdown-total .val { color: var(--yellow); font-size: 1rem; }
+    .raw-messages { margin-top: 10px; }
+    .raw-messages h4 { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .raw-msg { background: var(--bg); border-left: 3px solid var(--border); padding: 8px 10px; margin-bottom: 6px; border-radius: 0 4px 4px 0; }
+    .raw-msg .msg-meta { font-size: 0.7rem; color: var(--muted); margin-bottom: 4px; display: flex; gap: 10px; }
+    .raw-msg .msg-text { font-size: 0.85rem; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .channel-badge { display: inline-block; font-size: 0.65rem; font-weight: 700; border-radius: 3px; padding: 1px 5px; }
+    .channel-badge.free-plays { background: rgba(88,166,255,0.15); color: var(--accent); }
+    .channel-badge.community-leaks { background: rgba(139,148,158,0.15); color: var(--muted); }
+    .channel-badge.pod-thread { background: rgba(255,165,0,0.15); color: orange; }
+    /* Live/Alerts/Cappers */
+    .live-score { font-size: 1.4rem; font-weight: 700; color: var(--text); }
+    .live-teams { color: var(--muted); font-size: 0.85rem; margin-bottom: 6px; }
+    .status-live { color: var(--green); font-size: 0.75rem; font-weight: 600; }
+    .status-final { color: var(--muted); font-size: 0.75rem; }
+    .alert-type { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+    .alert-SWING    { background: #ff6b35; color: #000; }
+    .alert-LINE_MOVE { background: var(--yellow); color: #000; }
+    .alert-HOT_PICK  { background: var(--green); color: #000; }
+    .alert-DUE       { background: #a371f7; color: #000; }
+    .alert-GENERAL   { background: var(--border); color: var(--text); }
+    .alert-msg { margin-top: 6px; font-size: 0.9rem; white-space: pre-wrap; }
+    .alert-time { color: var(--muted); font-size: 0.75rem; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { text-align: left; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .rank { color: var(--muted); font-size: 0.8rem; }
+    .empty { text-align: center; color: var(--muted); padding: 40px; }
+    .refresh-note { color: var(--muted); font-size: 0.75rem; text-align: right; padding: 8px 24px; }
+    .scan-btn { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 7px 16px; font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: opacity 0.15s; white-space: nowrap; }
+    .scan-btn:hover:not(:disabled) { opacity: 0.85; }
+    .scan-btn:disabled { opacity: 0.5; cursor: default; }
+    .scan-btn.done { background: var(--green); }
+    .loading-msgs { color: var(--muted); font-size: 0.8rem; padding: 8px 0; }
+    .msg-body { display: none; font-size: 0.85rem; color: var(--text); white-space: pre-wrap; word-break: break-word; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+    .msg-body.open { display: block; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div style="flex:1">
+    <h1>🎯 CappperBoss</h1>
+    <div class="sub">Sports Betting Intelligence Dashboard</div>
+  </div>
+  <button class="scan-btn" id="scan-btn" onclick="triggerRefresh()">Refresh</button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('picks')">Today's Picks</div>
+  <div class="tab" onclick="switchTab('bot')">CappperBot</div>
+  <div class="tab" onclick="switchTab('jack')">My Picks</div>
+  <div class="tab" onclick="switchTab('review')">Review</div>
+</div>
+
+<!-- Picks -->
+<div id="tab-picks" class="panel active">
+  <div id="picks-list"><div class="empty">Loading picks...</div></div>
+</div>
+
+<!-- CappperBot -->
+<div id="tab-bot" class="panel">
+  <div id="bot-record" style="margin-bottom:16px"><div class="empty">Loading...</div></div>
+  <div id="bot-list"><div class="empty">Loading bot picks...</div></div>
+</div>
+
+<!-- My Picks -->
+<div id="tab-jack" class="panel">
+  <div id="jack-record" style="margin-bottom:16px"><div class="empty">Loading...</div></div>
+  <div id="jack-list"><div class="empty">No tracked picks yet.</div></div>
+</div>
+
+<!-- Review -->
+<div id="tab-review" class="panel">
+  <div id="review-list"><div class="empty">No picks pending review.</div></div>
+</div>
+
+<div class="refresh-note">Auto-refreshes every 30s</div>
+
+<script>
+  // ── Sport emoji map (case-insensitive) ──────────────────────────────────────
+  const SPORT_EMOJI = {
+    CBB: '🏀', NBA: '🏀', NCAAB: '🏀', 'COLLEGE BASKETBALL': '🏀',
+    WCBB: '🏀', WNCAA: '🏀',
+    NFL: '🏈', NCAAF: '🏈', CFB: '🏈',
+    NHL: '🏒',
+    MLB: '⚾',
+    TENNIS: '🎾',
+  };
+
+  function sportEmoji(sport) {
+    if (!sport) return '🎯';
+    return SPORT_EMOJI[sport.trim().toUpperCase()] || '🎯';
+  }
+
+  function wcbbLabel(sport) {
+    const s = (sport || '').trim().toUpperCase();
+    if (s === 'WCBB' || s === 'WNCAA') {
+      return `(W) `;
+    }
+    return '';
+  }
+
+  // ── Tab switching ────────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const names = ['picks','bot','jack','review'];
+      t.classList.toggle('active', names[i] === name);
+    });
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'review') loadReview();
+    if (name === 'bot')    loadBot();
+    if (name === 'jack')   loadJack();
+  }
+
+  function fmtSpread(s) {
+    if (s == null) return '';
+    return (s > 0 ? '+' : '') + s;
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return '—';
+    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function truncate(str, n) {
+    if (!str) return '';
+    return str.length > n ? str.slice(0, n) + '…' : str;
+  }
+
+  // ── Game status display ──────────────────────────────────────────────────────
+  function fmtStartTime(isoStr) {
+    if (!isoStr) return '?';
+    try {
+      return new Date(isoStr).toLocaleTimeString('en-US', {
+        hour: 'numeric', minute: '2-digit',
+        timeZone: 'America/New_York', timeZoneName: 'short',
+      });
+    } catch (_) { return isoStr.slice(11, 16); }
+  }
+
+  function abbrev(name) {
+    // "Nebraska Cornhuskers" → "NEB", "Miami Heat" → "MIA"
+    if (!name) return '?';
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) return name.slice(0, 3).toUpperCase();
+    // Use first 3 letters of the last word (usually the mascot/city abbreviation)
+    return words[words.length - 1].slice(0, 3).toUpperCase();
+  }
+
+  function gameStatusHtml(game, pick) {
+    if (!game) return `<span class="game-status game-none">⚠️ Game not verified</span>`;
+
+    if (game.status === 'pre') {
+      return `<span class="game-status game-pre">${fmtStartTime(game.start_time)}</span>`;
+    }
+
+    const abb  = abbrev(game.picked_team);
+    const oabb = abbrev(game.opp_team);
+
+    if (game.status === 'in') {
+      const period = game.period ? `Q${game.period}` : '';
+      const clock  = game.clock  ? ` ${game.clock}`  : '';
+      return `<span class="game-status game-in">
+        <span class="pulse-dot"></span>
+        ${abb} ${game.picked_score} – ${oabb} ${game.opp_score}${period || clock ? ` | ${period}${clock}` : ''}
+      </span>`;
+    }
+
+    if (game.status === 'post') {
+      const covered = game.covered;
+      const icon = covered ? '✅' : '❌';
+      const cls  = covered ? 'game-post-win' : 'game-post-loss';
+      return `<span class="game-status ${cls}">
+        ${icon} ${abb} ${game.picked_score} – ${oabb} ${game.opp_score}
+      </span>`;
+    }
+
+    return `<span class="game-status game-none">—</span>`;
+  }
+
+  // ── Mention breakdown — "Mentioned Nx  |  free-plays: Nx  |  community: Nx" ──
+  function mentionBreakdown(pick) {
+    const total = pick.mention_count || 1;
+    const fp = pick.free_plays_mentions || 0;
+    const cm = pick.community_mentions  || 0;
+    const pod = pick.pod_mentions       || 0;
+    const channels = [];
+    if (fp  > 0) channels.push(`free-plays: ${fp}x`);
+    if (pod > 0) channels.push(`pod: ${pod}x`);
+    if (cm  > 0) channels.push(`community: ${cm}x`);
+    if (!channels.length) channels.push(`${pick.channel || '?'}: 1x`);
+    return `<span class="mention-count">Mentioned ${total}x</span><span class="mention-channels">${channels.join('  |  ')}</span>`;
+  }
+
+  // ── Score breakdown display ──────────────────────────────────────────────────
+  function breakdownHtml(bd, pick) {
+    if (!bd) return '';
+    const sport = (pick.sport || '').toUpperCase();
+    return `
+      <div class="breakdown">
+        <div class="breakdown-item breakdown-total">
+          <div class="label">Total Score</div>
+          <div class="val">${bd.total}</div>
+        </div>
+        <div class="breakdown-item">
+          <div class="label">Base (${pick.channel || '?'})</div>
+          <div class="val">+${bd.base}</div>
+        </div>
+        ${bd.record_bonus > 0 ? `<div class="breakdown-item">
+          <div class="label">Record Bonus</div>
+          <div class="val">+${bd.record_bonus}</div>
+        </div>` : ''}
+        ${bd.mention_bonus > 0 ? `<div class="breakdown-item">
+          <div class="label">Mention Bonus</div>
+          <div class="val">+${bd.mention_bonus}</div>
+        </div>` : ''}
+        ${bd.both_channels_bonus > 0 ? `<div class="breakdown-item">
+          <div class="label">Both Channels</div>
+          <div class="val">+${bd.both_channels_bonus}</div>
+        </div>` : ''}
+        ${bd.sport_record ? `<div class="breakdown-item">
+          <div class="label">Record</div>
+          <div class="val" style="color:var(--green)">${bd.sport_record}</div>
+        </div>` : ''}
+        ${sport ? `<div class="breakdown-item">
+          <div class="label">Sport</div>
+          <div class="val" style="color:var(--text)">${sportEmoji(sport)} ${sport}</div>
+        </div>` : ''}
+      </div>
+    `;
+  }
+
+  // ── Load raw messages — each message individually collapsible ────────────────
+  async function loadPickMessages(pickId, container) {
+    if (container.dataset.loaded) return; // don't reload on every expand
+    container.innerHTML = '<div class="loading-msgs">Loading messages…</div>';
+    try {
+      const resp = await fetch(`/api/pick/${pickId}/messages`);
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.error(`[dashboard] messages fetch failed (${resp.status}):`, txt);
+        container.innerHTML = `<div class="loading-msgs" style="color:var(--red)">Error ${resp.status}: ${txt.slice(0,100)}</div>`;
+        return;
+      }
+      const msgs = await resp.json();
+      if (!msgs.length) {
+        container.innerHTML = '<div class="loading-msgs" style="color:var(--muted)">No raw messages saved yet.</div>';
+        container.dataset.loaded = '1';
+        return;
+      }
+      container.innerHTML = `<h4 style="font-size:0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Messages (${msgs.length} total)</h4>` +
+        msgs.map((m, i) => {
+          const chClass = (m.channel || '').replace(/[^a-z-]/g, '');
+          return `
+            <div class="raw-msg" onclick="event.stopPropagation(); this.querySelector('.msg-body').classList.toggle('open')" style="cursor:pointer">
+              <div class="msg-meta">
+                <span style="color:var(--muted);font-size:0.7rem">Message ${i+1}</span>
+                <span class="channel-badge ${chClass}">${m.channel}</span>
+                ${m.author ? `<span>@${m.author}</span>` : ''}
+                <span>${fmtTime(m.message_timestamp)}</span>
+                <span style="color:var(--accent);font-size:0.65rem">▶ click to expand</span>
+              </div>
+              <div class="msg-body">${escHtml(m.message_text || '')}</div>
+            </div>
+          `;
+        }).join('');
+      container.dataset.loaded = '1';
+    } catch(e) {
+      console.error('[dashboard] loadPickMessages error:', e);
+      container.innerHTML = `<div class="loading-msgs" style="color:var(--red)">Error: ${e.message}</div>`;
+    }
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Toggle pick row detail ────────────────────────────────────────────────────
+  function toggleDetail(pickId, bd, pick) {
+    const card = document.getElementById(`pick-card-${pickId}`);
+    const detail = document.getElementById(`pick-detail-${pickId}`);
+    const msgContainer = document.getElementById(`pick-msgs-${pickId}`);
+    const isOpen = detail.classList.contains('open');
+
+    if (isOpen) {
+      detail.classList.remove('open');
+      card.classList.remove('expanded');
+    } else {
+      detail.classList.add('open');
+      card.classList.add('expanded');
+      detail.querySelector('.breakdown-wrap').innerHTML = breakdownHtml(bd, pick);
+      loadPickMessages(pickId, msgContainer);
+    }
+  }
+
+  // ── Load picks ────────────────────────────────────────────────────────────────
+  async function loadPicks() {
+    try {
+      const data = await fetch('/api/picks').then(r => r.json());
+      const el = document.getElementById('picks-list');
+      if (!data.length) { el.innerHTML = '<div class="empty">No picks today yet.</div>'; return; }
+
+      el.innerHTML = data.slice(0, 20).map((p, i) => {
+        const sport = (p.sport || '').toUpperCase();
+        const spread = fmtSpread(p.spread);
+        const bd = typeof p.score_breakdown === 'string'
+          ? JSON.parse(p.score_breakdown)
+          : p.score_breakdown;
+        const isPre = !p.game || p.game.status === 'pre';
+
+        return `
+          <div class="card" id="pick-card-${p.id}" onclick="toggleDetail(${p.id}, ${JSON.stringify(bd).replace(/"/g, '&quot;')}, ${JSON.stringify({channel: p.channel, sport: p.sport}).replace(/"/g, '&quot;')})">
+            <div class="card-header">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+                  <div class="pick-name">${i+1}. ${sportEmoji(sport)} ${wcbbLabel(sport)}${p.team} ${p.pick_type || ''} ${spread}</div>
+                  ${gameStatusHtml(p.game, p)}
+                  ${isPre ? `<button id="track-btn-${p.id}" onclick="event.stopPropagation();trackPick(${p.id})" style="background:rgba(88,166,255,0.15);color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:2px 10px;font-size:0.75rem;cursor:pointer;white-space:nowrap">Track This</button>` : ''}
+                </div>
+                <div class="meta">
+                  ${mentionBreakdown(p)}
+                  ${sport ? `<span style="color:var(--muted)">${sport}</span>` : ''}
+                </div>
+              </div>
+              <span class="score-badge ${p.score > 70 ? 'hot' : ''}" style="margin-left:12px">${p.score}</span>
+            </div>
+            <div class="detail-panel" id="pick-detail-${p.id}">
+              <div class="breakdown-wrap"></div>
+              <div class="raw-messages" id="pick-msgs-${p.id}"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch(e) {
+      document.getElementById('picks-list').innerHTML = '<div class="empty">Error loading picks.</div>';
+    }
+  }
+
+  // ── Result badge ─────────────────────────────────────────────────────────────
+  function resultBadge(result) {
+    const map = {
+      win:     '✅ Win',
+      loss:    '❌ Loss',
+      push:    '🔄 Push',
+      pending: '⏳ Pending',
+    };
+    const colors = {
+      win: 'color:var(--green)',
+      loss: 'color:var(--red)',
+      push: 'color:var(--muted)',
+      pending: 'color:var(--muted)',
+    };
+    const r = (result || 'pending').toLowerCase();
+    return `<span style="font-size:0.8rem;font-weight:600;${colors[r] || ''}">${map[r] || r}</span>`;
+  }
+
+  // ── Record badge ──────────────────────────────────────────────────────────────
+  function recordBadge(prefix, rec) {
+    return `<div style="display:inline-block;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 18px;font-size:1rem;font-weight:700">
+      ${prefix} <span style="color:var(--green)">${rec.wins}W</span> – <span style="color:var(--red)">${rec.losses}L</span> – <span style="color:var(--muted)">${rec.pushes}P</span>
+    </div>`;
+  }
+
+  // ── Pick row for bot/jack tabs ─────────────────────────────────────────────
+  function pickRowHtml(p, opts = {}) {
+    const sport  = (p.sport || '').toUpperCase();
+    const spread = fmtSpread(p.spread);
+    const game   = p.game;
+    return `
+      <div class="card" style="cursor:default">
+        <div class="card-header">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+              <div class="pick-name">${sportEmoji(sport)} ${wcbbLabel(sport)}${p.team} ${p.pick_type || ''} ${spread}</div>
+              ${gameStatusHtml(game, p)}
+            </div>
+            <div class="meta" style="margin-top:6px">
+              ${sport ? `<span style="color:var(--muted)">${sport}</span>` : ''}
+              <span style="color:var(--muted)">${p.game_date || ''}</span>
+              ${resultBadge(p.result)}
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-left:12px;align-items:center">
+            ${opts.resultButtons && game?.status === 'post' && p.result === 'pending' ? `
+              <button onclick="markResult(${p.id},'win')"  style="background:rgba(63,185,80,0.15);color:var(--green);border:1px solid var(--green);border-radius:4px;padding:3px 10px;font-size:0.75rem;cursor:pointer;font-weight:700">W</button>
+              <button onclick="markResult(${p.id},'loss')" style="background:rgba(248,81,73,0.15);color:var(--red);border:1px solid var(--red);border-radius:4px;padding:3px 10px;font-size:0.75rem;cursor:pointer;font-weight:700">L</button>
+              <button onclick="markResult(${p.id},'push')" style="background:rgba(139,148,158,0.15);color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:0.75rem;cursor:pointer;font-weight:700">P</button>
+            ` : ''}
+            ${opts.deleteBot ? `<button onclick="deleteBotPick(${p.id})" style="background:none;color:var(--red);border:none;font-size:1rem;cursor:pointer;padding:2px 6px;line-height:1" title="Remove">✕</button>` : ''}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function deleteBotPick(id) {
+    if (!confirm('Remove this pick from CappperBot?')) return;
+    await fetch(`/api/bot/pick/${id}`, { method: 'DELETE' });
+    loadBot();
+  }
+
+  // ── CappperBot tab ────────────────────────────────────────────────────────────
+  async function loadBot() {
+    try {
+      const [picks, rec] = await Promise.all([
+        fetch('/api/bot/picks').then(r => r.json()),
+        fetch('/api/bot/record').then(r => r.json()),
+      ]);
+      document.getElementById('bot-record').innerHTML = recordBadge('🤖', rec);
+      const el = document.getElementById('bot-list');
+      if (!picks.length) { el.innerHTML = '<div class="empty">No qualifying picks yet today.</div>'; return; }
+      el.innerHTML = picks.map(p => pickRowHtml(p, { deleteBot: true })).join('');
+    } catch(e) {
+      document.getElementById('bot-list').innerHTML = '<div class="empty">Error loading bot picks.</div>';
+    }
+  }
+
+  // ── My Picks tab ──────────────────────────────────────────────────────────────
+  async function loadJack() {
+    try {
+      const [picks, rec] = await Promise.all([
+        fetch('/api/jack/picks').then(r => r.json()),
+        fetch('/api/jack/record').then(r => r.json()),
+      ]);
+      document.getElementById('jack-record').innerHTML = recordBadge('🎯', rec);
+      const el = document.getElementById('jack-list');
+      if (!picks.length) { el.innerHTML = '<div class="empty">No tracked picks yet. Click "Track This" on any pre-game pick.</div>'; return; }
+      el.innerHTML = picks.map(p => pickRowHtml(p, { resultButtons: true })).join('');
+    } catch(e) {
+      document.getElementById('jack-list').innerHTML = '<div class="empty">Error loading picks.</div>';
+    }
+  }
+
+  async function markResult(jackPickId, result) {
+    await fetch(`/api/jack/pick/${jackPickId}/result`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result }),
+    });
+    loadJack();
+  }
+
+  async function trackPick(pickId) {
+    const btn = document.getElementById(`track-btn-${pickId}`);
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+      await fetch(`/api/jack/pick/${pickId}`, { method: 'POST' });
+      if (btn) { btn.textContent = 'Tracked ✓'; btn.style.color = 'var(--green)'; btn.style.borderColor = 'var(--green)'; }
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Track This'; }
+    }
+  }
+
+  const REVIEW_SPORTS = ['CBB','NBA','NHL','MLB','WCBB','NFL'];
+
+  async function reviewAction(pickId, action, sport) {
+    const body = { action };
+    if (action === 'confirm') body.sport = sport;
+    await fetch(`/api/pick/${pickId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    loadReview();
+    loadPicks();
+  }
+
+  async function loadReview() {
+    const el = document.getElementById('review-list');
+    try {
+      const data = await fetch('/api/review').then(r => r.json());
+      if (!data.length) { el.innerHTML = '<div class="empty">No picks pending review.</div>'; return; }
+      el.innerHTML = data.map(p => {
+        const sportOpts = REVIEW_SPORTS.map(s =>
+          `<option value="${s}"${p.sport === s ? ' selected' : ''}>${s}</option>`
+        ).join('');
+        const msgText = (p.raw_msg_text || p.raw_message || '').replace(/</g, '&lt;');
+        return `
+          <div class="card" style="margin-bottom:12px">
+            <div style="font-size:0.8em;color:var(--muted);margin-bottom:6px">${p.channel} · ${p.parsed_at}</div>
+            <div style="font-family:monospace;font-size:0.85em;background:var(--bg);border-radius:4px;padding:8px;margin-bottom:10px;white-space:pre-wrap;word-break:break-word">${msgText}</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <b>${p.team}</b>
+              <select id="sport-sel-${p.id}" style="background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 6px">${sportOpts}</select>
+              <button onclick="reviewAction(${p.id},'confirm',document.getElementById('sport-sel-${p.id}').value)"
+                style="background:var(--accent);color:#fff;border:none;border-radius:4px;padding:4px 14px;cursor:pointer;font-weight:600">Confirm</button>
+              <button onclick="reviewAction(${p.id},'discard')"
+                style="background:rgba(248,81,73,0.15);color:#f85149;border:1px solid #f85149;border-radius:4px;padding:4px 14px;cursor:pointer;font-weight:600">Discard</button>
+            </div>
+          </div>`;
+      }).join('');
+    } catch(e) {
+      el.innerHTML = '<div class="empty">Error loading review queue.</div>';
+    }
+  }
+
+  function refreshAll() {
+    loadPicks();
+  }
+
+  // ── Manual refresh (picks only, no Discord scan) ──────────────────────────────
+  async function triggerRefresh() {
+    const btn = document.getElementById('scan-btn');
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      await loadPicks();
+    } finally {
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = 'Refresh';
+      }, 1000);
+    }
+  }
+
+  refreshAll();
+  setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>
