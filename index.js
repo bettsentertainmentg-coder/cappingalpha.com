@@ -442,24 +442,27 @@ app.listen(PORT, () => {
   }
 })();
 
-// ── Discord scanner ───────────────────────────────────────────────────────────
-scanner.init();
+// ── Discord scanner + cron jobs (disabled in UI-only mode) ───────────────────
+const UI_ONLY = !!process.env.UI_ONLY;
+if (UI_ONLY) {
+  console.log('[CappperBoss] UI_ONLY mode — scanner and paid API calls disabled');
+} else {
+  scanner.init();
+}
 
 // ── Cron jobs ─────────────────────────────────────────────────────────────────
 
 // 4:58am ET — final resolve pass, then daily wipe
 // Running resolveResults here catches late West Coast games that finish after the
 // 1am active-hours cutoff but before the wipe clears picks and today_games.
-cron.schedule('58 4 * * *', async () => {
+if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   console.log('[cron] 4:58am — pre-wipe final resolve');
   await resolveResults().catch(err => console.error('[cron] pre-wipe resolve error:', err.message));
   console.log('[cron] 4:58am — running daily wipe');
   await runDailyWipe().catch(err => console.error('[cron] wipe error:', err.message));
 }, { timezone: 'America/New_York' });
 
-// 5:00am ET — unified morning setup: ESPN + Odds API + seed slots, then first scan
-// This is the single entry point for all game/line data. Odds API budget: ~2 calls/day (5am + 4pm).
-cron.schedule('0 5 * * *', async () => {
+if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   console.log('[cron] 5:00am — morning setup: ESPN + Odds + seed slots');
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
@@ -468,31 +471,25 @@ cron.schedule('0 5 * * *', async () => {
   await runScan();
 }, { timezone: 'America/New_York' });
 
-// Every 15 minutes — scan Discord (active hours: 5am–1am ET)
-cron.schedule('*/15 * * * *', async () => {
+if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   if (!isActiveHours()) return;
   console.log('[cron] 15-min scan');
   await runScan();
 });
 
-// Odds API is called only at 5am (morning setup) and 4pm (refresh below). ~2 calls/day.
-
-// 4:00pm ET — refresh odds for all remaining pre-game sports
-cron.schedule('0 16 * * *', async () => {
+if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   console.log('[cron] 4pm odds refresh');
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
 }, { timezone: 'America/New_York' });
 
-// Every 5 minutes — resolve conflicting MVP picks near game time
 cron.schedule('*/5 * * * *', () => {
   const resolved = resolveConflictingMvpPicks();
   if (resolved > 0) console.log(`[cron] Resolved ${resolved} MVP pick conflicts`);
 });
 
-// Every 2 minutes — update live scores for top picks, resolve finished game results
-cron.schedule('*/5 * * * *', async () => {
+if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   if (!isActiveHours()) return;
   await updateLiveScores().catch(err => console.error('[cron] updateLiveScores error:', err.message));
   await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
