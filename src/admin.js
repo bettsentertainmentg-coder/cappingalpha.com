@@ -977,13 +977,11 @@ router.get('/check-db', (req, res) => {
   let count2 = 0, tables = [];
   try {
     const freshDb = new Database(dest, { readonly: true });
-    count2 = freshDb.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
-    tables = freshDb.prepare("SELECT name, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=t.name) as exists FROM (SELECT 'mvp_picks' as name UNION SELECT 'users' UNION SELECT 'picks') t").all();
-    // Get actual counts
-    tables = ['mvp_picks','users','picks'].map(t => {
-      try { return { table: t, count: freshDb.prepare(`SELECT COUNT(*) as n FROM ${t}`).get().n }; }
+    tables = ['mvp_picks','users','picks','today_games'].map(t => {
+      try { return { table: t, count: freshDb.prepare(`SELECT COUNT(*) as n FROM "${t}"`).get().n }; }
       catch(e) { return { table: t, error: e.message }; }
     });
+    count2 = tables.find(t => t.table === 'mvp_picks')?.count ?? 'n/a';
     freshDb.close();
   } catch(e) { count2 = 'err:' + e.message; }
   res.json({ path: dest, exists, size, header, mvp_via_module: count1.n, mvp_via_fresh: count2, tables });
