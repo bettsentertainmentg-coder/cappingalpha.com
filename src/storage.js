@@ -64,6 +64,20 @@ function getCanonicalTeam(game, team) {
     : game.away_team;
 }
 
+// ── Find slot using AI-provided picked_side (home/away) ──────────────────────
+function findSlotWithSide(pick, game, picked_side) {
+  const isTotal = pick.pick_type === 'over' || pick.pick_type === 'under';
+  if (isTotal) {
+    return db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND pick_type = ? LIMIT 1`)
+      .get(game.espn_game_id, pick.pick_type);
+  }
+  const canonicalTeam = picked_side === 'home' ? game.home_team
+                      : picked_side === 'away' ? game.away_team
+                      : getCanonicalTeam(game, pick.team);
+  return db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND LOWER(team) = LOWER(?) AND pick_type = ? LIMIT 1`)
+    .get(game.espn_game_id, canonicalTeam, pick.pick_type);
+}
+
 // ── Find the pre-seeded pick slot for an incoming pick ────────────────────────
 function findSlot(pick, game) {
   const isTotal = pick.pick_type === 'over' || pick.pick_type === 'under';
@@ -88,18 +102,23 @@ function findSlot(pick, game) {
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 function savePick(pick) {
-  const { team, channel, capper_name, sport_record, raw_message } = pick;
+  const { team, espn_game_id: aiGameId, picked_side } = pick;
 
-  // 1. Try to find the game and pre-seeded slot
-  const game = findTodayGame(team);
-  const slot = game ? findSlot(pick, game) : null;
-
-  if (slot) {
-    return updateSlot(slot, pick);
+  // 1. If Haiku identified the game directly, use it — no fuzzy matching needed
+  if (aiGameId) {
+    const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(aiGameId);
+    if (game) {
+      const slot = findSlotWithSide(pick, game, picked_side);
+      if (slot) return updateSlot(slot, pick);
+      return insertNewPick({ ...pick, espn_game_id: aiGameId });
+    }
   }
 
-  // 2. Fallback: no pre-seeded slot — but if we found the game, carry its ID forward
-  // so insertNewPick can still look up the locked ESPN line
+  // 2. Fallback: fuzzy match by team name
+  const game = findTodayGame(team);
+  const slot = game ? findSlot(pick, game) : null;
+  if (slot) return updateSlot(slot, pick);
+
   return insertNewPick({ ...pick, espn_game_id: game?.espn_game_id ?? pick.espn_game_id ?? null });
 }
 

@@ -39,6 +39,45 @@ function logUsage(usage) {
   }
 }
 
+// ── Today's games context — injected per call, not cached in system prompt ────
+let _gamesCache     = null;
+let _gamesCacheTime = 0;
+const GAMES_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function getTodaysGamesContext() {
+  const now = Date.now();
+  if (_gamesCache !== null && (now - _gamesCacheTime) < GAMES_CACHE_TTL) return _gamesCache;
+  try {
+    const games = db.prepare(`
+      SELECT espn_game_id, sport, home_short, away_short, home_abbr, away_abbr
+      FROM today_games WHERE status != 'post'
+      ORDER BY sport, start_time
+    `).all();
+
+    if (!games || games.length === 0) { _gamesCache = ''; _gamesCacheTime = now; return ''; }
+
+    const bySport = {};
+    for (const g of games) {
+      (bySport[g.sport] = bySport[g.sport] || []).push(g);
+    }
+
+    const lines = ["Today's games — match picks to these when confident. Return espn_game_id + picked_side (home/away)."];
+    for (const [sport, sg] of Object.entries(bySport)) {
+      lines.push(`${sport}: ` + sg.map(g =>
+        `${g.away_short}(${g.away_abbr}) @ ${g.home_short}(${g.home_abbr}) [id:${g.espn_game_id}]`
+      ).join(', '));
+    }
+
+    _gamesCache     = lines.join('\n');
+    _gamesCacheTime = now;
+    return _gamesCache;
+  } catch (err) {
+    console.warn('[reader] games context error:', err.message);
+    _gamesCache = ''; _gamesCacheTime = Date.now();
+    return '';
+  }
+}
+
 // ── Extraction rules — edit this block to tune pick parsing ──────────────────
 // Keep examples concrete. Claude follows instructions precisely — fewer
 // examples needed than Ollama, but specifics still help on edge cases.
@@ -133,6 +172,11 @@ PLAYER PROPS — skip entirely.
   "Rhett Lowder (Reds) u 15.5 outs" → skip. "Allen (CLE) O7.5 REB" → skip.
 
 IGNORE: emoji, reactions, "local book", context odds like "(+179)", parlay references, "NOT EXCLUSIVE".
+
+GAME MATCHING — When today's games are listed in the message, match each pick to a game.
+  Team name is the primary signal. Spread value is a secondary hint only — lines move, so close is fine.
+  Return espn_game_id and picked_side when confident. Omit both if the team isn't playing today or uncertain.
+  "Yanks ML" → matches Yankees game → espn_game_id + picked_side=away or home depending on matchup.
 `.trim();
 
 // ── Tool schema — Claude always returns this shape; no JSON parsing needed ────
@@ -155,6 +199,8 @@ const EXTRACT_TOOL = {
             sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA'] },
             capper_name:  { type: 'string',  description: "The capper's handle or name. Omit if not clear." },
             sport_record: { type: 'string',  description: 'Win-loss record string e.g. "27-21 CBB". Omit if not present.' },
+            espn_game_id: { type: 'string',  description: "The id from today's games list if you matched this pick to a game. Omit if uncertain." },
+            picked_side:  { type: 'string',  enum: ['home', 'away'], description: "Whether the picked team is home or away in the matched game. Include when espn_game_id is set." },
           },
           required: ['is_pick'],
         },
@@ -183,7 +229,8 @@ async function claudeExtract(channelInstruction, messageContent) {
       messages: [
         {
           role:    'user',
-          content: `${channelInstruction}\n\nMessage:\n${messageContent}`,
+          content: [getTodaysGamesContext(), channelInstruction, `Message:\n${messageContent}`]
+            .filter(Boolean).join('\n\n'),
         },
       ],
     });
@@ -261,6 +308,8 @@ async function readMessage(msg) {
       sport:        parsed.sport        || null,
       pick_type:    parsed.pick_type    || null,
       spread_value: parsed.spread_value ?? null,
+      espn_game_id: parsed.espn_game_id || null,
+      picked_side:  parsed.picked_side  || null,
       channel,
       capper_name:  parsed.capper_name  || null,
       is_pick:      true,
