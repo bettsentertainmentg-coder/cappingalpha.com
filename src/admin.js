@@ -944,6 +944,37 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
   res.redirect('/admin/dashboard?tab=users');
 });
 
+// ── POST /admin/upload-db — one-time DB upload ───────────────────────────────
+router.post('/upload-db', (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  const fs   = require('fs');
+  const path = require('path');
+  const dest = path.join(__dirname, '..', 'data', 'capper.db');
+  const chunks = [];
+  req.on('data', c => chunks.push(c));
+  req.on('end', () => {
+    try {
+      fs.writeFileSync(dest, Buffer.concat(chunks));
+      res.send(`DB uploaded to ${dest}. Size: ${Buffer.concat(chunks).length} bytes`);
+    } catch (e) {
+      res.status(500).send('Upload failed: ' + e.message);
+    }
+  });
+});
+
+router.get('/check-db', (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  const fs   = require('fs');
+  const path = require('path');
+  const dest = path.join(__dirname, '..', 'data', 'capper.db');
+  const exists = fs.existsSync(dest);
+  const size   = exists ? fs.statSync(dest).size : 0;
+  const count  = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get();
+  res.json({ path: dest, exists, size, mvp_count: count.n });
+});
+
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str)
