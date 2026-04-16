@@ -11,9 +11,9 @@ const { readMessage } = require('./reader');
 const { savePick }    = require('./storage');
 const { getCycleWindow, ET_OFFSET_MS } = require('./cycle');
 
-const FREE_PLAYS_CHANNEL_ID  = process.env.DISCORD_CHANNEL_mainplays;
-const COMMUNITY_CHANNEL_ID   = process.env.DISCORD_CHANNEL_communityplays;
-const POD_CHANNEL_ID         = process.env.DISCORD_CHANNEL_POD;
+const FREE_PLAYS_CHANNEL_ID  = process.env.DISCH1;
+const COMMUNITY_CHANNEL_ID   = process.env.DISCH2;
+const POD_CHANNEL_ID         = process.env.DISCH3;
 const USER_TOKEN              = process.env.DISCORD_USER_TOKEN;
 
 const CHANNELS = [
