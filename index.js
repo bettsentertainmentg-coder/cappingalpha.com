@@ -415,9 +415,10 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-app.listen(3001, () => {
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
   console.log('[CappperBoss] ─────────────────────────────────');
-  console.log('[CappperBoss] Server: http://localhost:3001');
+  console.log(`[CappperBoss] Server: http://localhost:${PORT}`);
   console.log('[CappperBoss] Active hours: 5:00AM–1:00AM ET');
   console.log(`[CappperBoss] Next wipe: 4:58AM ET`);
   console.log('[CappperBoss] ─────────────────────────────────');

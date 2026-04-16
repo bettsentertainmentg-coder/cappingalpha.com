@@ -183,7 +183,8 @@
     .empty-icon { font-size: 36px; margin-bottom: 12px; }
     .empty h3 { font-size: 17px; margin-bottom: 6px; color: var(--text); }
 
-    footer { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 48px; }
+    footer { display: flex; justify-content: space-between; align-items: center; padding: 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 48px; }
+    .footer-version { opacity: 0.45; font-size: 11px; }
 
     /* ── Inline paywall ── */
     .inline-paywall-wrap { position: relative; }
@@ -846,7 +847,8 @@
   </div>
 
   <footer>
-    Data resets daily at 6am ET. All picks sourced from a verified analyst network.
+    <span>Data resets daily at 6am ET. All picks sourced from a verified analyst network.</span>
+    <span class="footer-version">v1.0.0</span>
   </footer>
 
   <!-- Login modal -->
