@@ -83,6 +83,7 @@ setInterval(() => {
 
 // ── Express ───────────────────────────────────────────────────────────────────
 const app = express();
+app.set('trust proxy', 1); // Required for secure cookies behind Railway/Heroku proxies
 
 // Stripe webhook MUST be registered before express.json() — needs raw body for signature verification
 app.post('/auth/stripe-webhook', express.raw({ type: 'application/json' }), auth.stripeWebhook);
