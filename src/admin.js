@@ -395,6 +395,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <button class="btn btn-primary" onclick="scanNow()">Scan Now</button>
             <button class="btn" style="background:#7c3aed;color:#fff;" onclick="rescanFromStart()">Rescan From 6am</button>
             <button class="btn" style="background:#0f766e;color:#fff;" onclick="rescanSkippedMsgs()" id="btn-skipped">Rescan Skipped</button>
+            <button class="btn" style="background:#b45309;color:#fff;" onclick="refreshOddsNow()" id="btn-odds">Refresh Odds Now</button>
           </div>
         </div>
         <div id="scan-status" style="flex:1;background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;min-height:80px;display:flex;align-items:center;">
@@ -516,6 +517,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
         showStatus('scanning', 'Rescanning from 6am...');
         await fetch('/admin/rescan-from-start', { method: 'POST' });
         pollStatus();
+      }
+      async function refreshOddsNow() {
+        const btn = document.getElementById('btn-odds');
+        btn.disabled = true; btn.textContent = 'Refreshing...';
+        const res = await fetch('/admin/refresh-odds', { method: 'POST' });
+        const data = await res.json();
+        btn.disabled = false; btn.textContent = 'Refresh Odds Now';
+        alert(data.ok ? `Done — ${data.updated} games updated, slots reseeded.` : 'Error: ' + data.error);
       }
       async function rescanSkippedMsgs() {
         const btn = document.getElementById('btn-skipped');
@@ -800,6 +809,20 @@ router.post('/nuke', requireAuth, async (_req, res) => {
   await reseedFromExisting();
   scanner.resetState().catch(err => console.error('[admin] resetState error:', err.message));
   res.json({ success: true });
+});
+
+// ── POST /admin/refresh-odds — manual Odds API pull + reseed ─────────────────
+router.post('/refresh-odds', requireAuth, async (_req, res) => {
+  try {
+    const { refreshOdds }      = require('./odds_api');
+    const { seedPickSlots }    = require('./lines');
+    const updated = await refreshOdds();
+    await seedPickSlots();
+    res.json({ ok: true, updated });
+  } catch (err) {
+    console.error('[admin] refresh-odds error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // ── POST /admin/rescan-from-start ─────────────────────────────────────────────
