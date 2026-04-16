@@ -524,7 +524,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const res = await fetch('/admin/refresh-odds', { method: 'POST' });
         const data = await res.json();
         btn.disabled = false; btn.textContent = 'Refresh Odds Now';
-        alert(data.ok ? `Done — ${data.updated} games updated, slots reseeded.` : 'Error: ' + data.error);
+        alert(data.ok ? 'Done: ' + data.updated + ' games updated, slots reseeded.' : 'Error: ' + data.error);
       }
       async function rescanSkippedMsgs() {
         const btn = document.getElementById('btn-skipped');
