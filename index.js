@@ -2,6 +2,8 @@
 require('dotenv').config({
   path: require('path').join(process.env.HOME || '/Users/jack', 'Projects/AgentOSO/.env')
 });
+// Also load local .env if present (Railway uses env vars directly)
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), override: false });
 
 const express  = require('express');
 const session  = require('express-session');
