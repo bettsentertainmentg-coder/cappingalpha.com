@@ -945,6 +945,25 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
 });
 
 
+// ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
+router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  const picks = req.body;
+  if (!Array.isArray(picks)) return res.status(400).send('Expected JSON array');
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO mvp_picks
+      (id, team, sport, pick_type, spread, original_line, game_date, score, result, saved_at,
+       espn_game_id, home_score, away_score, ml_odds, annotation, ou_odds)
+    VALUES
+      (@id, @team, @sport, @pick_type, @spread, @original_line, @game_date, @score, @result, @saved_at,
+       @espn_game_id, @home_score, @away_score, @ml_odds, @annotation, @ou_odds)
+  `);
+  db.transaction(rows => rows.forEach(r => insert.run(r)))(picks);
+  const count = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
+  res.json({ imported: picks.length, total: count });
+});
+
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str)
