@@ -50,13 +50,14 @@ function alignLines(lines, oddsGame, espnHomeTeam) {
   const espnHomeNick = (espnHomeTeam || '').split(' ').pop().toLowerCase();
   if (oddsHomeNick === espnHomeNick) return lines;
 
-  // Swap home/away for ML and spread
+  // Swap home/away for ML and spread.
+  // Each team already has their own signed spread — straight swap, never negate.
   return {
     ...lines,
     ml_home:     lines.ml_away,
     ml_away:     lines.ml_home,
-    spread_home: lines.spread_away != null ? -lines.spread_away : null,
-    spread_away: lines.spread_home != null ? -lines.spread_home : null,
+    spread_home: lines.spread_away,
+    spread_away: lines.spread_home,
   };
 }
 

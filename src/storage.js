@@ -145,6 +145,14 @@ function updateSlot(slot, pick) {
     }
   }
 
+  // If slot has no spread value yet but reader extracted one, fill it in
+  if (slot.spread == null && pick.spread_value != null) {
+    const parsed = parseFloat(pick.spread_value);
+    if (!isNaN(parsed)) {
+      db.prepare(`UPDATE picks SET spread = ? WHERE id = ?`).run(parsed, slot.id);
+    }
+  }
+
   // Reconstruct all prior mentions from raw_messages + this new one
   const priorChannels = db.prepare(
     `SELECT channel FROM raw_messages WHERE pick_id = ?`

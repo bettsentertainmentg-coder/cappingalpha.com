@@ -124,11 +124,13 @@ function applyOddsToGame(game, lines, oddsGame) {
   const espnHomeNick = (game.home_team || '').split(' ').pop().toLowerCase();
   const oddsMatchesEspn = oddsHomeNick === espnHomeNick;
 
-  // If Odds API home ≠ ESPN home, swap ML and spread values
-  const ml_home     = oddsMatchesEspn ? lines.ml_home  : lines.ml_away;
-  const ml_away     = oddsMatchesEspn ? lines.ml_away  : lines.ml_home;
-  const spread_home = oddsMatchesEspn ? lines.spread_home : (lines.spread_away != null ? -lines.spread_away : null);
-  const spread_away = oddsMatchesEspn ? lines.spread_away : (lines.spread_home != null ? -lines.spread_home : null);
+  // If Odds API home ≠ ESPN home, swap ML and spread values.
+  // Odds API gives each team their own signed spread (home: -1.5, away: +1.5) —
+  // straight swap only, never negate (negating would corrupt both values).
+  const ml_home     = oddsMatchesEspn ? lines.ml_home     : lines.ml_away;
+  const ml_away     = oddsMatchesEspn ? lines.ml_away     : lines.ml_home;
+  const spread_home = oddsMatchesEspn ? lines.spread_home : lines.spread_away;
+  const spread_away = oddsMatchesEspn ? lines.spread_away : lines.spread_home;
 
   db.prepare(`
     UPDATE today_games
