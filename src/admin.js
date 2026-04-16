@@ -968,11 +968,20 @@ router.get('/check-db', (req, res) => {
   if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
   const fs   = require('fs');
   const path = require('path');
+  const Database = require('better-sqlite3');
   const dest = path.join(__dirname, '..', 'data', 'capper.db');
   const exists = fs.existsSync(dest);
   const size   = exists ? fs.statSync(dest).size : 0;
-  const count  = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get();
-  res.json({ path: dest, exists, size, mvp_count: count.n });
+  // Query via module connection
+  const count1 = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get();
+  // Query via fresh connection to verify file contents
+  let count2 = 0;
+  try {
+    const freshDb = new Database(dest, { readonly: true });
+    count2 = freshDb.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
+    freshDb.close();
+  } catch(e) { count2 = 'err:' + e.message; }
+  res.json({ path: dest, exists, size, mvp_via_module: count1.n, mvp_via_fresh: count2 });
 });
 
 // ── HTML escape helper ────────────────────────────────────────────────────────
