@@ -944,68 +944,6 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
   res.redirect('/admin/dashboard?tab=users');
 });
 
-// ── POST /admin/import-mvp — import MVP picks from JSON ──────────────────────
-router.post('/import-mvp', express.json({ limit: '2mb' }), (req, res) => {
-  const pw = req.headers['x-admin-password'];
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
-  const picks = req.body;
-  if (!Array.isArray(picks)) return res.status(400).send('Expected JSON array');
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO mvp_picks
-      (id, team, sport, pick_type, spread, original_line, game_date, score, result, saved_at,
-       espn_game_id, home_score, away_score, ml_odds, annotation, ou_odds)
-    VALUES
-      (@id, @team, @sport, @pick_type, @spread, @original_line, @game_date, @score, @result, @saved_at,
-       @espn_game_id, @home_score, @away_score, @ml_odds, @annotation, @ou_odds)
-  `);
-  const insertMany = db.transaction(rows => rows.forEach(r => insert.run(r)));
-  insertMany(picks);
-  const count = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
-  res.json({ imported: picks.length, total: count });
-});
-
-// ── POST /admin/upload-db — one-time DB upload ───────────────────────────────
-router.post('/upload-db', (req, res) => {
-  const pw = req.headers['x-admin-password'];
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
-  const fs   = require('fs');
-  const path = require('path');
-  const dest = path.join(__dirname, '..', 'data', 'capper.db');
-  const chunks = [];
-  req.on('data', c => chunks.push(c));
-  req.on('end', () => {
-    try {
-      fs.writeFileSync(dest, Buffer.concat(chunks));
-      res.send(`DB uploaded to ${dest}. Size: ${Buffer.concat(chunks).length} bytes`);
-    } catch (e) {
-      res.status(500).send('Upload failed: ' + e.message);
-    }
-  });
-});
-
-router.get('/check-db', (req, res) => {
-  const pw = req.headers['x-admin-password'];
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
-  const fs   = require('fs');
-  const path = require('path');
-  const Database = require('better-sqlite3');
-  const dest = path.join(__dirname, '..', 'data', 'capper.db');
-  const exists = fs.existsSync(dest);
-  const size   = exists ? fs.statSync(dest).size : 0;
-  const header = exists ? fs.readFileSync(dest).slice(0, 16).toString('utf8') : '';
-  const count1 = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get();
-  let count2 = 0, tables = [];
-  try {
-    const freshDb = new Database(dest, { readonly: true });
-    tables = ['mvp_picks','users','picks','today_games'].map(t => {
-      try { return { table: t, count: freshDb.prepare(`SELECT COUNT(*) as n FROM "${t}"`).get().n }; }
-      catch(e) { return { table: t, error: e.message }; }
-    });
-    count2 = tables.find(t => t.table === 'mvp_picks')?.count ?? 'n/a';
-    freshDb.close();
-  } catch(e) { count2 = 'err:' + e.message; }
-  res.json({ path: dest, exists, size, header, mvp_via_module: count1.n, mvp_via_fresh: count2, tables });
-});
 
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {
