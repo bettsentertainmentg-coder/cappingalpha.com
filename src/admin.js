@@ -944,6 +944,26 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
   res.redirect('/admin/dashboard?tab=users');
 });
 
+// ── POST /admin/import-mvp — import MVP picks from JSON ──────────────────────
+router.post('/import-mvp', express.json({ limit: '2mb' }), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  const picks = req.body;
+  if (!Array.isArray(picks)) return res.status(400).send('Expected JSON array');
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO mvp_picks
+      (id, team, sport, pick_type, spread, original_line, game_date, score, result, saved_at,
+       espn_game_id, home_score, away_score, ml_odds, annotation, ou_odds)
+    VALUES
+      (@id, @team, @sport, @pick_type, @spread, @original_line, @game_date, @score, @result, @saved_at,
+       @espn_game_id, @home_score, @away_score, @ml_odds, @annotation, @ou_odds)
+  `);
+  const insertMany = db.transaction(rows => rows.forEach(r => insert.run(r)));
+  insertMany(picks);
+  const count = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
+  res.json({ imported: picks.length, total: count });
+});
+
 // ── POST /admin/upload-db — one-time DB upload ───────────────────────────────
 router.post('/upload-db', (req, res) => {
   const pw = req.headers['x-admin-password'];
