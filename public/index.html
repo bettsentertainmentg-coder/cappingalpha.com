@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CappingAlpha — Top Rated Plays</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #171b24;
+      --surface2:  #1e2330;
+      --border:    #252c3b;
+      --text:      #e2e8f0;
+      --muted:     #8892a4;
+      --accent:    #3b82f6;
+      --gold:      #FFD700;
+      --green:     #22c55e;
+      --red:       #ef4444;
+    }
+
+    body {
+      font-family: 'Source Sans Pro', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+
+    /* ── Navbar ── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-left { display: flex; align-items: stretch; gap: 24px; }
+    .nav-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+    #nav-user-info { font-size: 13px; color: var(--muted); display: none; }
+
+    /* ── Logo-as-tab ── */
+    .logo {
+      font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+      cursor: pointer; user-select: none; display: flex; align-items: center;
+      border-bottom: 2px solid transparent; transition: border-color 0.15s;
+      padding: 0; white-space: nowrap;
+    }
+    .logo span { color: var(--accent); }
+    .logo.active { border-bottom-color: var(--accent); }
+    .logo:hover span { opacity: 0.85; }
+
+    /* ── Nav tabs ── */
+    .tab-btn {
+      background: none; border: none; color: var(--muted);
+      font-family: inherit; font-size: 14px; font-weight: 600;
+      padding: 0; cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap; display: flex; align-items: center;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Tab panels ── */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .btn {
+      padding: 7px 16px; border-radius: 6px; font-family: inherit;
+      font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-ghost  { background: transparent; color: var(--text); border: 1px solid var(--border); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-gold   { background: var(--gold); color: #111; }
+    .btn-danger { background: var(--red); color: #fff; font-size: 13px; padding: 5px 12px; }
+
+    /* ── Hero ── */
+    .hero { padding: 48px 24px 32px; max-width: 1100px; margin: 0 auto; }
+    .hero h1 { font-size: 32px; font-weight: 700; margin-bottom: 10px; }
+    .hero p { color: var(--muted); font-size: 16px; max-width: 540px; }
+
+    /* ── Main content ── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
+
+    /* ── Table card ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: relative; }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .card-title { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .refresh-label { font-size: 12px; color: var(--muted); }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead th { text-align: left; padding: 10px 16px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); background: var(--surface2); border-bottom: 1px solid var(--border); }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background 0.12s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:nth-child(even) { background: var(--surface2); }
+    tbody tr:hover { background: #252c3b; }
+    td { padding: 13px 16px; font-size: 14px; }
+
+    .rank { font-weight: 700; color: var(--muted); width: 48px; }
+    .rank-1 { color: var(--gold); font-size: 16px; }
+    .matchup-cell { font-weight: 600; }
+
+    .sport-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+    /* ── Sport gradient cards ── */
+    .sport-badge-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px 4px 6px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      color: rgba(255,255,255,0.92);
+      box-shadow: 0 1px 6px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.12);
+      text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+      white-space: nowrap;
+    }
+    .sport-badge-card--default {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      box-shadow: none;
+    }
+    .sport-badge-icon {
+      font-size: 15px;
+      line-height: 1;
+      opacity: 0.95;
+    }
+    .sport-badge-label { line-height: 1; }
+
+    /* ── Blur locked rows ── */
+    .blurred { filter: blur(5px); user-select: none; pointer-events: none; }
+    .locked .pick-cell { filter: blur(5px); user-select: none; pointer-events: none; }
+    .lock-icon { color: var(--muted); font-size: 13px; }
+
+    /* ── Rating / MVP ── */
+    .badge-mvp { display: inline-block; padding: 2px 8px; border-radius: 4px; background: rgba(255,215,0,0.12); color: var(--gold); font-size: 12px; font-weight: 700; border: 1px solid rgba(255,215,0,0.3); }
+    .score-num { color: var(--muted); font-weight: 600; }
+
+    tr.mvp-row { border-left: 3px solid var(--gold); background: rgba(255,215,0,0.04) !important; }
+    tr.mvp-row:hover { background: rgba(255,215,0,0.08) !important; }
+
+    tr.live-row { background: rgba(56,189,248,0.07) !important; }
+    tr.live-row:hover { background: rgba(56,189,248,0.12) !important; }
+
+    /* ── Record bar ── */
+    .section-gap { margin-top: 32px; }
+    .record-bar { display: flex; gap: 24px; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .record-item { text-align: center; }
+    .record-val { font-size: 22px; font-weight: 700; }
+    .record-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .record-val.green { color: var(--green); }
+    .record-val.red   { color: var(--red); }
+    .record-val.gold  { color: var(--gold); }
+
+    .result-win    { color: var(--green); font-weight: 700; }
+    .result-loss   { color: var(--red);   font-weight: 700; }
+    .result-push, .result-pending { color: var(--muted); }
+
+    /* ── Loading spinner ── */
+    .spinner-wrap { display: flex; justify-content: center; padding: 48px; }
+    .spinner { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+
+    .empty { text-align: center; padding: 56px 24px; color: var(--muted); }
+    .empty-icon { font-size: 36px; margin-bottom: 12px; }
+    .empty h3 { font-size: 17px; margin-bottom: 6px; color: var(--text); }
+
+    footer { text-align: center; padding: 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 48px; }
+
+    /* ── Inline paywall ── */
+    .inline-paywall-wrap { position: relative; }
+    .inline-paywall-fade { position: absolute; top: -80px; left: 0; right: 0; height: 80px; background: linear-gradient(to bottom, transparent, var(--surface)); pointer-events: none; }
+    .inline-paywall-card { background: var(--surface); border-top: 1px solid var(--border); padding: 36px 24px 40px; text-align: center; position: relative; }
+    .inline-paywall-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+    .inline-paywall-card p  { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+    /* Pricing cards row inside paywall */
+    .paywall-pricing-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
+    .paywall-price-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; cursor: pointer; transition: border-color .15s, background .15s; min-width: 72px; }
+    .paywall-price-card:hover { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+    .paywall-price-card.paywall-price-featured { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+    .paywall-price { font-size: 22px; font-weight: 700; color: var(--gold); }
+    .paywall-price-label { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .05em; }
+    .inline-paywall-login { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .inline-paywall-login a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+    .paywall-code-link { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .paywall-code-link a { color: var(--muted); cursor: pointer; text-decoration: underline; }
+    .paywall-code-link a:hover { color: var(--text); }
+    .code-entry-row { display: flex; gap: 10px; justify-content: center; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .code-entry-row input { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 9px 14px; border-radius: 7px; font-size: 15px; font-family: inherit; width: 220px; }
+    .code-entry-row input:focus { outline: none; border-color: var(--accent); }
+
+    /* ── MVP tab ── */
+    .mvp-panel-paywall { text-align: center; padding: 80px 24px; color: var(--muted); }
+    .mvp-panel-paywall h3 { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+    .mvp-panel-paywall p  { margin-bottom: 24px; }
+    .mvp-panel-paywall .btn { margin: 0 6px; }
+
+    .graph-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px 16px; margin-bottom: 24px; }
+    .graph-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
+    .graph-title { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .unit-input-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .unit-input-row input {
+      width: 80px; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); padding: 5px 10px; border-radius: 6px; font-size: 14px;
+      font-family: inherit; text-align: right;
+    }
+    .unit-input-row input:focus { outline: none; border-color: var(--accent); }
+    .graph-canvas-wrap { position: relative; height: 240px; }
+    .graph-pl-label { font-size: 18px; font-weight: 700; }
+    .graph-pl-label.pos { color: var(--green); }
+    .graph-pl-label.neg { color: var(--red); }
+
+    .mvp-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 28px 0 12px; }
+
+    .mvp-history-wrap { max-height: 520px; overflow-y: auto; border-radius: 10px; border: 1px solid var(--border); }
+    .mvp-history-wrap::-webkit-scrollbar { width: 6px; }
+    .mvp-history-wrap::-webkit-scrollbar-track { background: var(--surface2); }
+    .mvp-history-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Sports tab ── */
+    .sports-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+    @media (max-width: 768px) { .sports-layout { grid-template-columns: 1fr; } }
+
+    .sport-filter-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+    .sport-tab-btn {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 13px; font-weight: 700; padding: 6px 16px;
+      border-radius: 20px; cursor: pointer; transition: all 0.15s;
+    }
+    .sport-tab-btn:hover { color: var(--text); border-color: var(--accent); }
+    .sport-tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .game-search-wrap { position: relative; margin-left: auto; }
+    .game-search-inner { position: relative; display: flex; align-items: center; }
+    .game-search-icon { position: absolute; left: 11px; color: var(--muted); pointer-events: none; line-height: 0; }
+    .game-search-input {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      font-family: inherit; font-size: 13px; padding: 6px 14px 6px 32px;
+      border-radius: 20px; width: 230px; outline: none; transition: border-color 0.15s;
+    }
+    .game-search-input::placeholder { color: var(--muted); }
+    .game-search-input:focus { border-color: var(--accent); }
+    .game-search-dropdown {
+      display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35); z-index: 200; max-height: 340px; overflow-y: auto;
+      min-width: 320px;
+    }
+    .game-search-dropdown.open { display: block; }
+    .game-search-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; cursor: pointer; border-bottom: 1px solid var(--border);
+      font-size: 13px; gap: 12px;
+    }
+    .game-search-item:last-child { border-bottom: none; }
+    .game-search-item:hover, .game-search-item.focused { background: var(--surface2); }
+    .game-search-matchup { font-weight: 600; flex: 1; }
+    .game-search-meta { color: var(--muted); font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+    @media (max-width: 600px) { .game-search-input { width: 160px; } .game-search-dropdown { min-width: 260px; right: 0; left: auto; } }
+
+    .schedule-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .schedule-list { padding: 8px 0; }
+    .schedule-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; border-bottom: 1px solid var(--border); font-size: 14px; gap: 12px; }
+    .schedule-row:last-child { border-bottom: none; }
+    .schedule-matchup { font-weight: 600; flex: 1; }
+    .schedule-time { color: var(--muted); font-size: 13px; white-space: nowrap; }
+    .schedule-live { color: #38bdf8; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+
+    /* ── Auth modals ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 300; padding: 24px;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 36px 32px; max-width: 380px; width: 100%; position: relative;
+    }
+    .modal-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 24px; }
+    .modal-close { position: absolute; top: 14px; right: 16px; background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; }
+    .modal-close:hover { color: var(--text); }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .form-group input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); padding: 10px 14px; border-radius: 7px; font-size: 15px; font-family: inherit;
+    }
+    .form-group input:focus { outline: none; border-color: var(--accent); }
+    .form-error { color: var(--red); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+    .form-footer { margin-top: 16px; font-size: 13px; color: var(--muted); text-align: center; }
+    .form-footer a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+    .btn-block { width: 100%; padding: 11px; font-size: 15px; }
+
+    /* ── Game detail modal ── */
+    .game-modal-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      max-width: 860px; width: 100%; max-height: 90vh; overflow-y: auto;
+      position: relative;
+    }
+    .game-modal-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .game-modal-title { font-size: 18px; font-weight: 700; }
+    .game-modal-meta { display: flex; align-items: center; gap: 10px; }
+    .game-modal-meta .sport-badge {
+      font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+      background: var(--surface2); color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+    }
+    .game-modal-meta .game-time { font-size: 13px; color: var(--muted); }
+    .game-modal-meta .game-score-live { font-size: 14px; font-weight: 700; color: #38bdf8; }
+
+    /* Ticker */
+    .game-ticker {
+      display: flex; overflow-x: auto; gap: 8px; padding: 10px 20px;
+      border-bottom: 1px solid var(--border); scrollbar-width: none;
+    }
+    .game-ticker::-webkit-scrollbar { display: none; }
+    .ticker-chip {
+      flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+      padding: 5px 11px; border-radius: 20px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface2);
+      font-size: 13px; font-weight: 600; white-space: nowrap; transition: border-color .15s;
+      user-select: none;
+    }
+    .ticker-chip.active { border-color: var(--accent); background: rgba(59,130,246,.12); }
+    .ticker-chip.zero { opacity: 0.45; }
+    .ticker-chip .chip-label { color: var(--muted); font-weight: 400; }
+    .ticker-chip .chip-score { font-weight: 700; }
+
+    /* Body */
+    .game-modal-body { display: grid; grid-template-columns: 1.5fr 1fr; gap: 0; }
+    .game-modal-left { padding: 18px 20px; border-right: 1px solid var(--border); }
+    .game-modal-right { padding: 18px 20px; }
+    .game-data-full { padding: 0; border-top: 1px solid var(--border); }
+    .game-data-full-header { padding: 10px 20px 8px; border-bottom: 1px solid var(--border); }
+    .game-data-full-title { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+    .game-data-full-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; }
+    .game-data-full-grid > div { padding: 14px 18px; border-right: 1px solid var(--border); }
+    .game-data-full-grid > div:last-child { border-right: none; }
+    .gd-score-line { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; }
+    .gd-team-score { font-size: 13px; font-weight: 600; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .gd-team-score span { font-size: 20px; font-weight: 800; line-height: 1; }
+    .gd-sep { font-size: 18px; color: var(--muted); font-weight: 300; }
+    .gd-final .gd-team-score { color: var(--muted); }
+    .gd-live .gd-team-score { color: #38bdf8; }
+    .gd-badge { display: inline-block; font-size: 11px; font-weight: 700; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--muted); }
+    .gd-badge-live { background: rgba(56,189,248,.15); border-color: #38bdf8; color: #38bdf8; }
+
+    /* Pick score box */
+    .pick-score-box { display: inline-flex; align-items: center; gap: 10px; border: 2px solid var(--border); border-radius: 8px; padding: 7px 14px; margin-bottom: 10px; background: var(--surface2); }
+    .pick-score-box.mvp { border-color: var(--gold); background: var(--gold); box-shadow: 0 0 14px rgba(234,179,8,0.3); }
+    .pick-score-box.locked-score { opacity: 0.8; border-style: dashed; }
+    .score-locked-msg { font-size: 13px; color: var(--muted); }
+    .pick-score-brand { font-size: 11px; font-weight: 700; color: var(--muted); white-space: nowrap; letter-spacing: .02em; }
+    .pick-score-brand span { color: var(--accent); }
+    .pick-score-box.mvp .pick-score-brand { color: rgba(0,0,0,0.6); }
+    .pick-score-box.mvp .pick-score-brand span { color: #000; }
+    .graph-disclaimer { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+    .model-note { font-size: 11px; color: var(--muted); margin-top: 10px; font-style: italic; padding: 0 4px; }
+
+    /* Pick info panel */
+    .pick-info-score { font-size: 26px; font-weight: 800; line-height: 1; }
+    .pick-info-mvp { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em;
+      background: var(--gold); color: #000; padding: 2px 7px; border-radius: 4px; margin-left: 8px; vertical-align: middle; }
+    .pick-info-label { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+    .pick-info-lines { font-size: 13px; line-height: 1.8; }
+    .pick-info-lines .line-row { display: flex; gap: 8px; align-items: baseline; }
+    .pick-info-lines .line-book { color: var(--muted); min-width: 28px; font-size: 12px; }
+    .pick-info-lines .line-val { font-weight: 600; }
+    .pick-section-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+    .game-data-heading { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 8px; }
+    .game-data-row { font-size: 13px; line-height: 1.7; color: var(--text); }
+    .game-data-row span { color: var(--muted); }
+    /* Pitcher matchup card */
+    .pitcher-matchup { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: start; margin: 8px 0 0; }
+    .pitcher-card { }
+    .pitcher-card.away { text-align: right; }
+    .pitcher-name { font-size: 13px; font-weight: 700; }
+    .pitcher-stats { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pitcher-team { font-size: 11px; color: var(--muted); margin-top: 1px; opacity: 0.7; }
+    .pitcher-vs { font-size: 12px; font-weight: 700; color: var(--muted); padding-top: 2px; }
+
+    /* Sentiment panel */
+    .sentiment-heading { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; }
+    /* Sentiment gauge meter */
+    .sentiment-gauge-wrap { margin-bottom: 12px; }
+    .sentiment-gauge-teams { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+    .sentiment-gauge { display: flex; height: 18px; border-radius: 9px; overflow: hidden; }
+    .sentiment-gauge-a { height: 100%; transition: width .4s ease; }
+    .sentiment-gauge-b { height: 100%; }
+    .sentiment-gauge-pcts { display: flex; justify-content: space-between; font-size: 12px; margin-top: 5px; }
+    .sentiment-gauge-pcts span:nth-child(2) { color: var(--muted); font-size: 11px; }
+    /* LEGACY — kept for safety */
+    .sentiment-heading-x { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 12px; }
+    .sentiment-pair { margin-bottom: 14px; }
+    .sentiment-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 13px; }
+    .sentiment-name { flex: 0 0 90px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sentiment-bar-wrap { flex: 1; background: var(--surface2); border-radius: 8px; height: 10px; overflow: hidden; }
+    .sentiment-bar { height: 100%; border-radius: 8px; transition: width .3s; }
+    .sentiment-pct { flex: 0 0 36px; text-align: right; font-size: 12px; color: var(--muted); }
+    .sentiment-total { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .vote-btn {
+      margin-top: 10px; padding: 7px 16px; font-size: 13px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600;
+      transition: background .15s, color .15s;
+    }
+    .vote-btn:hover { background: var(--accent); color: #fff; }
+    .vote-btn.voted { border-color: var(--green); color: var(--green); }
+    .vote-btn.voted:hover { background: var(--green); color: #fff; }
+    .vote-closed { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 8px; }
+    .paywall-blur { filter: blur(4px); pointer-events: none; user-select: none; }
+    .paywall-overlay {
+      text-align: center; padding: 20px 10px;
+      font-size: 13px; color: var(--muted);
+    }
+    .paywall-overlay a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+    /* No-pick placeholder */
+    .no-pick-placeholder { color: var(--muted); font-size: 13px; font-style: italic; }
+
+    @media (max-width: 768px) {
+      .game-modal-body { grid-template-columns: 1fr; }
+      .game-modal-left { border-right: none; border-bottom: 1px solid var(--border); }
+      .game-modal-card { max-height: 95vh; }
+    }
+
+    /* ── Graph range buttons ── */
+    .graph-range-row { display: flex; gap: 6px; }
+    .graph-range-btn {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 12px; font-weight: 700; padding: 4px 10px;
+      border-radius: 4px; cursor: pointer; transition: all 0.12s; letter-spacing: 0.3px;
+    }
+    .graph-range-btn:hover { color: var(--text); border-color: var(--accent); }
+    .graph-range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── About tab ── */
+    .about-hero {
+      background: linear-gradient(135deg, #0f1117 0%, #171b24 60%, #1a2035 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 56px 24px 48px;
+      text-align: center;
+    }
+    .about-hero-slogan {
+      font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 16px;
+    }
+    .about-hero h1 { font-size: 38px; font-weight: 700; margin-bottom: 16px; max-width: 680px; margin-left: auto; margin-right: auto; line-height: 1.2; }
+    .about-hero p { color: var(--muted); font-size: 17px; max-width: 560px; margin: 0 auto; line-height: 1.7; }
+
+    .about-section { max-width: 860px; margin: 0 auto; padding: 0 24px 80px; }
+    .about-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; margin: 40px 0; }
+    .about-signal-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 22px 20px;
+    }
+    .about-signal-icon { font-size: 22px; margin-bottom: 10px; }
+    .about-signal-title { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    .about-signal-desc { font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .about-h2 { font-size: 22px; font-weight: 700; margin-top: 48px; margin-bottom: 8px; }
+    .about-p { color: var(--muted); font-size: 15px; line-height: 1.75; margin-bottom: 16px; }
+    .about-divider { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+    .about-pricing-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 20px; }
+    .about-pricing-card {
+      flex: 1; min-width: 180px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 22px 20px;
+    }
+    .about-pricing-card.featured { border-color: var(--accent); background: rgba(59,130,246,0.06); }
+    .about-pricing-card .price { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+    .about-pricing-card .price-label { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    .about-pricing-card .price-feature { font-size: 13px; color: var(--muted); line-height: 1.7; }
+
+    /* ── Esports tab ── */
+    #panel-esports { position: relative; }
+    .esports-construction-overlay {
+      position: absolute; inset: 0; z-index: 20;
+      background: rgba(10, 12, 20, 0.82);
+      backdrop-filter: blur(4px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; text-align: center;
+      pointer-events: none;
+    }
+    .esports-construction-icon { font-size: 40px; opacity: 0.6; }
+    .esports-construction-title {
+      font-size: 22px; font-weight: 700; color: #e2e8f0;
+    }
+    .esports-construction-sub {
+      font-size: 14px; color: var(--muted); max-width: 340px; line-height: 1.6;
+    }
+    .esports-construction-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 20px; padding: 5px 14px;
+      font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.5px;
+    }
+    #panel-esports .hero,
+    #panel-esports .container { filter: grayscale(1) opacity(0.35); pointer-events: none; }
+    .esports-hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg,#6d28d9,#7c3aed,#4f46e5);
+      border-radius: 8px; padding: 4px 12px;
+      font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #fff;
+      text-transform: uppercase; margin-bottom: 12px;
+    }
+    .esports-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 8px;
+    }
+    .esports-card {
+      border-radius: 12px; padding: 20px 18px;
+      position: relative; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+      cursor: default; transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .esports-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .esports-card-rank { font-size: 11px; font-weight: 700; opacity: 0.55; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px; }
+    .esports-card-name { font-size: 16px; font-weight: 700; color: #fff; line-height: 1.2; margin-bottom: 4px; }
+    .esports-card-sub  { font-size: 12px; color: rgba(255,255,255,0.55); margin-bottom: 14px; }
+    .esports-card-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 3px 8px; border-radius: 20px;
+      background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.8);
+      letter-spacing: 0.5px;
+    }
+    .esports-card-badge.live { background: rgba(74,222,128,0.2); color: #4ade80; }
+    .esports-section-label {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--muted); margin: 28px 0 12px;
+    }
+
+    /* ── My Account tab ── */
+    .account-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
+    @media (max-width: 860px) { .account-layout { grid-template-columns: 1fr; } }
+
+    .account-section-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted); margin-bottom: 12px;
+    }
+    .account-info-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px;
+    }
+    .account-info-row:last-child { border-bottom: none; }
+    .account-info-label { color: var(--muted); }
+    .account-info-val   { font-weight: 600; }
+
+    .tier-badge {
+      display: inline-block; padding: 2px 9px; border-radius: 20px;
+      font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+    }
+    .tier-free   { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+    .tier-paid   { background: rgba(255,215,0,0.12);  color: var(--gold); border: 1px solid rgba(255,215,0,0.3); }
+
+    .sport-pill-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+    .sport-pill {
+      padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface2);
+      color: var(--muted); transition: all .15s; user-select: none;
+    }
+    .sport-pill:hover  { border-color: var(--accent); color: var(--text); }
+    .sport-pill.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .sport-pill-save {
+      font-size: 13px; padding: 7px 20px; border-radius: 6px;
+      background: var(--accent); color: #fff; border: none; cursor: pointer;
+      font-family: inherit; font-weight: 600; transition: opacity .15s;
+    }
+    .sport-pill-save:hover { opacity: .85; }
+    .sport-pill-saved { font-size: 12px; color: var(--green); margin-left: 10px; }
+
+    .voted-pick-row { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .voted-pick-row:last-child { border-bottom: none; }
+    .voted-pick-matchup { flex: 1; font-weight: 600; min-width: 0; }
+    .voted-pick-sub     { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .voted-pick-slot    { flex: 0 0 110px; font-size: 13px; color: var(--muted); }
+    .voted-pick-score   { flex: 0 0 56px; text-align: right; font-weight: 700; }
+    .voted-pick-result  { flex: 0 0 56px; text-align: right; font-size: 13px; font-weight: 700; }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 24px; }
+      td, th { padding: 10px 10px; font-size: 13px; }
+      .record-bar { gap: 14px; }
+      .hide-mobile { display: none; }
+      .nav-tabs .tab-btn { font-size: 12px; padding: 6px 10px; }
+      .esports-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav>
+    <div class="nav-left">
+      <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
+      <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')">MVP Picks</button>
+      <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
+      <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
+      <button class="tab-btn" data-tab="about"   onclick="switchTab('about')">About</button>
+    </div>
+    <div class="nav-actions">
+      <span id="nav-user-info" style="display:none;"></span>
+      <button class="btn btn-ghost" id="btn-login" onclick="openLogin()">Login</button>
+      <button class="btn btn-primary" id="btn-signup" onclick="openSignup()">Get Access</button>
+      <button class="tab-btn" data-tab="account" onclick="switchTab('account')" id="tab-account" style="display:none;border-bottom:none;padding:0 4px;">My Account</button>
+      <button class="btn btn-danger" id="btn-logout" style="display:none" onclick="doLogout()">Logout</button>
+    </div>
+  </nav>
+
+  <!-- ── Tab 1: Home ── -->
+  <div id="panel-home" class="tab-panel active">
+    <div class="hero">
+      <h1>Today's Top Calculated Plays</h1>
+      <p>Picks scored daily across verified analyst signals, AI sentiment, line movement, and public betting data. Ranked by a proprietary model to identify the highest-edge plays against the books.</p>
+    </div>
+    <div class="container">
+      <div class="card" id="picks-card">
+        <div class="card-header">
+          <span class="card-title">Today's Ranked Picks</span>
+          <span class="refresh-label" id="last-refresh">Loading...</span>
+        </div>
+        <div id="picks-body">
+          <div class="spinner-wrap"><div class="spinner"></div></div>
+        </div>
+        <p class="model-note">* CappingAlpha scores are generated by an AI model trained on public capper algorithms and data. Past performance is not indicative of future results.</p>
+      </div>
+
+      <div id="home-mvp-section" style="display:none;margin-top:32px;">
+        <div class="card" style="margin-bottom:16px;">
+          <div class="card-header">
+            <span class="card-title">MVP Pick Record</span>
+          </div>
+          <div class="record-bar" id="home-mvp-record"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">MVP Pick History</span>
+          </div>
+          <div id="home-mvp-body"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab 2: MVP Pick History ── -->
+  <div id="panel-mvp" class="tab-panel">
+    <div class="container" style="padding-top:32px;">
+      <div id="mvp-tab-content">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab 3: Sports ── -->
+  <div id="panel-sports" class="tab-panel">
+    <div class="hero" style="padding-bottom:16px;">
+      <h1>Sports</h1>
+      <p>Today's top picks and game schedule by sport.</p>
+    </div>
+    <div class="container">
+      <div class="sport-filter-row">
+        <button class="sport-tab-btn active" data-sport="MLB" onclick="setSport('MLB')">MLB</button>
+        <button class="sport-tab-btn" data-sport="NBA" onclick="setSport('NBA')">NBA</button>
+        <button class="sport-tab-btn" data-sport="NHL" onclick="setSport('NHL')">NHL</button>
+        <button class="sport-tab-btn" data-sport="Tennis" onclick="setSport('Tennis')">Tennis</button>
+        <div class="game-search-wrap">
+          <div class="game-search-inner">
+            <span class="game-search-icon">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>
+            </span>
+            <input id="game-search-input" class="game-search-input" type="text" placeholder="Search your game..." autocomplete="off" />
+          </div>
+          <div id="game-search-dropdown" class="game-search-dropdown"></div>
+        </div>
+      </div>
+      <div class="sports-layout">
+        <div>
+          <div class="card" id="sport-picks-card">
+            <div class="card-header">
+              <span class="card-title" id="sport-picks-title">MLB Picks</span>
+            </div>
+            <div id="sport-picks-body">
+              <div class="spinner-wrap"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="schedule-card" id="sport-schedule-card">
+            <div class="card-header">
+              <span class="card-title" id="sport-schedule-title">MLB Schedule</span>
+            </div>
+            <div id="sport-schedule-body">
+              <div class="spinner-wrap"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab 5: About ── -->
+  <div id="panel-about" class="tab-panel">
+    <div class="about-hero">
+      <div class="about-hero-slogan">Before you Place A Bet, Spend $1 and Bet Informed.</div>
+      <h1>Bet with the best</h1>
+      <p>CappingAlpha processes high-end capper signals against live book lines Institutional-grade research. One dollar to access it.</p>
+      <p style="font-size:13px;color:var(--muted);margin-top:12px;max-width:480px;margin-left:auto;margin-right:auto;"> The worlds #1 data aggregation and research tool.</p>
+    </div>
+    <div class="about-section">
+
+      <h2 class="about-h2">What is CappingAlpha?</h2>
+      <p class="about-p">Sports betting is an information problem. The books have it. Most bettors do not. CappingAlpha closes that gap by deploying a network of specialized AI agents trained on years of player data, historical outcomes, and public market behavior. The result is a single ranked list of the day's highest-conviction plays, scored against the morning opening line before a game kicks off.</p>
+      <p class="about-p">We are not a pick service. We do not tell you what to bet. We process publicly available information, normalize it through a proprietary scoring engine, and present it in a structured format so you can see exactly where public conviction is concentrated and how it stacks up against the market. You make the call. We just make sure you're informed when you do.</p>
+      <p class="about-p">CappingAlpha never wagers on any game. All performance data shown is hypothetical and for informational purposes only. Past results are not indicative of future outcomes.</p>
+
+      <h2 class="about-h2">How the Scoring Model Works</h2>
+      <p class="about-p">Each morning at 5am ET, book lines (moneylines, spreads, over/unders) are locked from The Odds API as the reference baseline for the day. From there, AI agents monitor public data streams in real time, cross-referencing signals against live game data from ESPN, weather from OpenWeatherMap, public sentiment from X, community intelligence sources, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
+      <p class="about-p">Picks are ranked by score. A higher score means more independent sources aligned on the same side at the same time. The model is calibrated to detect that pressure early, before it moves a line. No single source can spike a score on its own.</p>
+
+      <div class="about-grid">
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#a78bfa;">⬡</div>
+          <div class="about-signal-title">Trained AI Agents</div>
+          <div class="about-signal-desc">Specialized AI agents trained on data from top-tier paid cappers monitor public information streams in real time. Each agent is tuned to a specific signal type and source class.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#38bdf8;">◈</div>
+          <div class="about-signal-title">Sharp Money Signals</div>
+          <div class="about-signal-desc">Professional-grade conviction builds in public data before it ever moves a line. Our agents are calibrated to detect that pressure early, across multiple independent channels.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#4ade80;">⊕</div>
+          <div class="about-signal-title">Proprietary Scoring Formula</div>
+          <div class="about-signal-desc">The exact scoring formula is proprietary. Signals are weighted by source quality, sport, context, and convergence across independent channels. No single source can spike a score.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#f5a623;">◎</div>
+          <div class="about-signal-title">Book Line Reference</div>
+          <div class="about-signal-desc">Lines are locked each morning from The Odds API. Every pick is matched against the opening line for that game so you always see what the market said at the start of day.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#f87171;">⬡</div>
+          <div class="about-signal-title">Live Game Context</div>
+          <div class="about-signal-desc">Real-time game schedules and live scores from ESPN. Weather data from OpenWeatherMap for outdoor games. All context is factored in automatically.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#FFD700;">★</div>
+          <div class="about-signal-title">MVP Tracking</div>
+          <div class="about-signal-desc">Picks reaching 50+ points earn MVP status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
+        </div>
+      </div>
+
+      <hr class="about-divider" />
+
+      <h2 class="about-h2">Transparency and Disclaimers</h2>
+      <p class="about-p">Every MVP pick is logged with the final game score and result. The hypothetical P/L shown in the MVP tab assumes a flat $20 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
+      <p class="about-p">Scores generated by CappingAlpha are produced by an AI model trained on public capper data. A high score means more community agreement on a given side. It does not mean that side is likely to cover or win. Past hypothetical performance is not indicative of future results.</p>
+      <p class="about-p">CappingAlpha is a research and data tool. Nothing on this site constitutes financial advice, sports betting advice, or a recommendation to wager. Use this data at your own discretion.</p>
+
+      <hr class="about-divider" />
+
+      <h2 class="about-h2">Pricing</h2>
+      <p class="about-p">Free accounts see the #1 ranked play every day. One dollar unlocks the full board for 24 hours. If you're in it for the season, the weekly or annual subscription pays for itself in a single informed bet.</p>
+      <div class="about-pricing-row">
+        <div class="about-pricing-card">
+          <div class="price">Free</div>
+          <div class="price-label">Always free</div>
+          <div class="price-feature">#1 ranked play every day. No credit card required.</div>
+        </div>
+        <div class="about-pricing-card">
+          <div class="price" style="color:var(--gold);">$1</div>
+          <div class="price-label">24-hour access</div>
+          <div class="price-feature">Full ranked board, live scores, all picks and lines for the day.</div>
+        </div>
+        <div class="about-pricing-card featured">
+          <div class="price" style="color:var(--accent);">$4<span style="font-size:14px;font-weight:400;color:var(--muted);">/week</span></div>
+          <div class="price-label">Weekly subscription</div>
+          <div class="price-feature">Full access, renewed weekly. Best for following a full slate of games.</div>
+        </div>
+        <div class="about-pricing-card">
+          <div class="price" style="color:var(--accent);">$75<span style="font-size:14px;font-weight:400;color:var(--muted);">/year</span></div>
+          <div class="price-label">Annual subscription</div>
+          <div class="price-feature">Full season access plus MVP history, P/L graph, and all future features.</div>
+        </div>
+      </div>
+
+      <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $20 unit against the morning opening line. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
+
+    </div>
+  </div>
+
+  <!-- ── Tab 4: Esports ── -->
+  <div id="panel-esports" class="tab-panel">
+    <div class="esports-construction-overlay">
+      <div class="esports-construction-icon"><i class="fa-solid fa-helmet-safety"></i></div>
+      <div class="esports-construction-title">Coming Soon</div>
+      <div class="esports-construction-sub">Esports data integration is under construction. Pick tracking and live match signals launching soon.</div>
+      <div class="esports-construction-badge"><i class="fa-solid fa-clock"></i> In Development</div>
+    </div>
+    <div class="hero" style="padding-bottom:16px;">
+      <div class="esports-hero-badge"><i class="fa-solid fa-gamepad"></i> Beta</div>
+      <h1>Esports</h1>
+      <p>Top esports titles tracked for picks, match results, and community signals. Data integration coming soon.</p>
+    </div>
+    <div class="container">
+      <div class="esports-section-label">Featured Games</div>
+      <div class="esports-grid" id="esports-grid"></div>
+    </div>
+  </div>
+
+  <!-- ── Tab 6: My Account ── -->
+  <div id="panel-account" class="tab-panel">
+    <div class="hero" style="padding-bottom:16px;">
+      <h1>My Account</h1>
+      <p>Your profile, preferences, and betting vote history.</p>
+    </div>
+    <div class="container">
+      <div id="account-content">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Data resets daily at 6am ET. All picks sourced from a verified analyst network.
+  </footer>
+
+  <!-- Login modal -->
+  <div id="login-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeLogin()">&#x2715;</button>
+      <h2>Log In</h2>
+      <div class="form-error" id="login-error"></div>
+      <div class="form-group"><label>Email</label><input type="email" id="login-email" autocomplete="email" /></div>
+      <div class="form-group"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" /></div>
+      <button class="btn btn-primary btn-block" onclick="doLogin()">Log In</button>
+      <div class="form-footer">Don't have an account? <a onclick="closeLogin(); openSignup();">Sign up</a></div>
+    </div>
+  </div>
+
+  <!-- Signup modal -->
+  <div id="signup-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeSignup()">&#x2715;</button>
+      <h2>Create Account</h2>
+      <div class="form-error" id="signup-error"></div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="signup-username" autocomplete="username" maxlength="20" placeholder="e.g. sharpbettor99" />
+        <small style="color:var(--muted);font-size:12px;">3–20 chars, letters/numbers/underscores only</small>
+      </div>
+      <div class="form-group"><label>Email</label><input type="email" id="signup-email" autocomplete="email" /></div>
+      <div class="form-group"><label>Password</label><input type="password" id="signup-password" autocomplete="new-password" /></div>
+      <div class="form-group"><label>Confirm Password</label><input type="password" id="signup-confirm" autocomplete="new-password" /></div>
+      <button class="btn btn-primary btn-block" onclick="doSignup()">Create Account</button>
+      <div class="form-footer">Already have an account? <a onclick="closeSignup(); openLogin();">Log in</a></div>
+    </div>
+  </div>
+
+  <!-- Game detail modal -->
+  <div id="game-modal" class="modal-overlay hidden" onclick="closeGameModal(event)">
+    <div class="game-modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeGameModal()" style="position:absolute;top:12px;right:14px;z-index:1;">&#x2715;</button>
+      <div id="game-modal-content">
+        <div style="padding:40px;text-align:center;color:var(--muted);">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

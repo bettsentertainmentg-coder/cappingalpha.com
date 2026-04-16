@@ -3,6 +3,7 @@
 
 const axios = require('axios');
 const db = require('./db');
+const { getCycleDate } = require('./cycle');
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -92,8 +93,7 @@ function upsertTodayGame(ev, sportLabel) {
   const comp = ev.competitions?.[0] || {};
   const home = comp.competitors?.find(c => c.homeAway === 'home') || {};
   const away = comp.competitors?.find(c => c.homeAway === 'away') || {};
-  const state      = ev.status?.type?.state || 'pre';
-  const statusName = ev.status?.type?.name  || state; // e.g. 'Final', 'In Progress', 'Scheduled'
+  const state = ev.status?.type?.state || 'pre'; // 'pre', 'in', or 'post'
 
   db.prepare(`
     INSERT INTO today_games (
@@ -109,9 +109,17 @@ function upsertTodayGame(ev, sportLabel) {
       clock      = excluded.clock,
       home_score = excluded.home_score,
       away_score = excluded.away_score,
-      fetched_at = excluded.fetched_at
+      fetched_at = excluded.fetched_at,
+      -- Snapshot total runs when inning 2 begins (period=2, first_inning_runs not yet set)
+      first_inning_runs = CASE
+        WHEN excluded.sport = 'MLB'
+          AND excluded.period >= 2
+          AND first_inning_runs IS NULL
+        THEN excluded.home_score + excluded.away_score
+        ELSE first_inning_runs
+      END
   `).run(
-    ev.id, sportLabel, statusName,
+    ev.id, sportLabel, state,
     ev.status?.period || null,
     ev.status?.displayClock || null,
     ev.date || null,
@@ -131,7 +139,7 @@ function upsertTodayGame(ev, sportLabel) {
 // ── Fetch today's games for all sports, upsert to today_games ─────────────────
 // Stores every game ESPN returns for today's date — no time filtering.
 async function fetchTodaysGames() {
-  const todayStr = toEspnDate(new Date());
+  const todayStr = getCycleDate().replace(/-/g, ''); // YYYYMMDD for ESPN param
 
   let total = 0;
   await Promise.all(TODAY_SPORTS.map(async ({ path, label }) => {
@@ -169,8 +177,19 @@ function pickBySportPriority(rows) {
 // When multiple rows match across sports, highest-priority sport wins.
 // Optional messageDate (YYYY-MM-DD) restricts results to games on that date,
 // preventing a stale CBB pick from matching today's MLB game of the same city.
+// Shorthand nicknames → expanded term used in DB queries
+const NICKNAME_MAP = {
+  yanks:   'yankees',
+  phils:   'phillies',
+  rox:     'rockies',
+  clips:   'clippers',
+  celts:   'celtics',
+  // 'sox' intentionally omitted — fuzzy LIKE '%sox%' already matches both Red Sox and White Sox
+};
+
 function lookupTodayGame(teamName, messageDate) {
-  const s = (teamName || '').toLowerCase().trim();
+  const raw = (teamName || '').toLowerCase().trim();
+  const s   = NICKNAME_MAP[raw] ?? raw;
   if (s.length < 2) return null;
 
   function queryExact(dateClause) {
@@ -408,8 +427,52 @@ function getMonitoredGames() {
   ).all(...ids);
 }
 
+// ── Clear all in-memory state (polls, score history, cache) ──────────────────
+function clearAllState() {
+  // Stop all active game polls
+  for (const [gameId, interval] of pollIntervals) {
+    clearInterval(interval);
+  }
+  pollIntervals.clear();
+  scoreHistory.clear();
+  scoreboardCache.clear();
+  console.log('[ESPN] Cleared all in-memory state (polls, score history, cache)');
+}
+
+// ── Update scores for all picks with active games ────────────────────────────
+async function updateLiveScores() {
+  // Get ALL game IDs with picks today — no limit, ESPN calls are free
+  const topGames = db.prepare(`
+    SELECT DISTINCT espn_game_id
+    FROM picks
+    WHERE game_date = (SELECT MAX(game_date) FROM picks)
+      AND espn_game_id IS NOT NULL
+      AND mention_count > 0
+  `).all().map(r => r.espn_game_id);
+
+  if (!topGames.length) return;
+
+  // Fetch updated game data from ESPN for each unique sport in those games
+  const games = db.prepare(
+    `SELECT DISTINCT espn_game_id, sport FROM today_games WHERE espn_game_id IN (${topGames.map(() => '?').join(',')})`
+  ).all(...topGames);
+
+  const sportPaths = [...new Set(games.map(g => normalizeSport(g.sport)).filter(Boolean))];
+
+  for (const path of sportPaths) {
+    try {
+      const events = await fetchScoreboard(path);
+      for (const ev of events) {
+        if (topGames.includes(ev.id)) upsertTodayGame(ev, games.find(g => g.espn_game_id === ev.id)?.sport || '');
+      }
+    } catch (err) {
+      console.warn(`[ESPN] updateLiveScores(${path}):`, err.message);
+    }
+  }
+}
+
 module.exports = {
   fetchLiveGames, pollGame, stopPoll, detectSwing, detectDue, getMonitoredGames,
   fetchScoreboard, fetchScoreboardForDate, toEspnDate, normalizeSport,
-  fetchTodaysGames, lookupTodayGame, SPORTS,
+  fetchTodaysGames, lookupTodayGame, clearAllState, SPORTS, updateLiveScores,
 };

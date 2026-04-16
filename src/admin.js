@@ -1,0 +1,956 @@
+// src/admin.js — Password-protected admin panel
+const express = require('express');
+const db      = require('./db');
+const scanner = require('./discord_scanner');
+const { getCycleDate } = require('./cycle');
+const { MVP_THRESHOLD } = require('./scoring');
+const { reseedFromExisting } = require('./lines');
+const { rescanSkipped }      = require('./discord_scanner');
+const crypto  = require('crypto');
+
+const router = express.Router();
+
+const NUKE_TABLES = [
+  'score_breakdown',
+  'raw_messages',
+  'picks',
+  'scanner_state',
+  'skipped_messages',
+];
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  if (req.session?.admin) return next();
+  res.redirect('/admin/login');
+}
+
+// ── Shared HTML shell ─────────────────────────────────────────────────────────
+function page(title, body) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} — CapperBoss Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; padding: 24px; }
+    h1 { font-size: 22px; margin-bottom: 20px; }
+    h2 { font-size: 16px; color: #8892a4; margin: 28px 0 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    a { color: #3b82f6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    table { width: 100%; border-collapse: collapse; background: #171b24; border: 1px solid #252c3b; border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+    th { text-align: left; padding: 9px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #8892a4; background: #1e2330; border-bottom: 1px solid #252c3b; }
+    td { padding: 10px 12px; border-bottom: 1px solid #252c3b; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #1a1f2e; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+    .mvp  { background: rgba(255,215,0,0.15); color: #FFD700; border: 1px solid rgba(255,215,0,0.3); }
+    .raw-row td { background: #171b24 !important; font-size: 12px; color: #64748b; font-style: italic; word-break: break-word; }
+    .btn { padding: 8px 18px; border-radius: 6px; border: none; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-nuke { background: #ef4444; color: #fff; font-size: 16px; padding: 12px 32px; }
+    .btn-nuke:hover { background: #dc2626; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .nuke-box { background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 10px; padding: 24px; margin-top: 32px; }
+    .nuke-box p { margin-bottom: 16px; color: #fca5a5; }
+    input[type=password], input[type=text], input[type=number], input[type=date], select { background: #1e2330; border: 1px solid #252c3b; color: #e2e8f0; padding: 10px 14px; border-radius: 6px; font-size: 14px; font-family: inherit; }
+    .login-box { max-width: 360px; margin: 80px auto; background: #171b24; border: 1px solid #252c3b; border-radius: 10px; padding: 32px; }
+    .login-box h1 { margin-bottom: 24px; }
+    .form-row { margin-bottom: 16px; }
+    label { display: block; margin-bottom: 6px; color: #8892a4; font-size: 13px; }
+    .error { color: #ef4444; margin-bottom: 14px; font-size: 13px; }
+    .empty { color: #8892a4; padding: 24px; text-align: center; }
+    /* ── Tab bar ── */
+    .atabs { display:flex; gap:2px; margin-bottom:28px; background:#171b24; border:1px solid #252c3b; border-radius:10px; padding:4px; flex-wrap:wrap; align-items:center; }
+    .atab { background:none; border:none; color:#8892a4; font-family:inherit; font-size:13px; font-weight:600; padding:9px 20px; border-radius:8px; cursor:pointer; transition:background .12s,color .12s; white-space:nowrap; }
+    .atab:hover { background:#252c3b; color:#e2e8f0; }
+    .atab.active { background:#252c3b; color:#e2e8f0; }
+    .atab.gold { color:#a08020; }
+    .atab.gold.active { background:rgba(255,215,0,0.12); color:#FFD700; }
+    .atab-logout { margin-left:auto; color:#64748b; font-size:12px; text-decoration:none; padding:8px 12px; border-radius:6px; }
+    .atab-logout:hover { color:#e2e8f0; background:#1e2330; text-decoration:none; }
+    .apanel { display:none; }
+    .apanel.active { display:block; }
+    /* ── Users ── */
+    .users-search-bar { display:flex; gap:10px; margin-bottom:20px; }
+    .users-search-bar input { flex:1; max-width:380px; }
+    .users-results-note { color:#8892a4; font-size:13px; margin-bottom:12px; }
+    .btn-sm { padding:4px 10px; font-size:12px; border-radius:5px; border:none; font-family:inherit; font-weight:600; cursor:pointer; }
+    .btn-grant { background:#1d4ed8; color:#fff; }
+    .btn-revoke { background:#7f1d1d; color:#fca5a5; }
+    /* ── Code gen ── */
+    .code-gen-card { background:#171b24; border:1px solid #252c3b; border-radius:10px; padding:22px; max-width:480px; margin-bottom:28px; }
+    .code-gen-card h3 { font-size:15px; font-weight:700; margin-bottom:16px; color:#e2e8f0; }
+  </style>
+</head>
+<body>${body}</body>
+</html>`;
+}
+
+// ── GET /admin/login ──────────────────────────────────────────────────────────
+router.get('/login', (req, res) => {
+  res.send(page('Login', `
+    <div class="login-box">
+      <h1>Admin Login</h1>
+      ${req.query.error ? '<p class="error">Incorrect password.</p>' : ''}
+      <form method="POST" action="/admin/login">
+        <div class="form-row">
+          <label>Password</label>
+          <input type="password" name="password" autofocus />
+        </div>
+        <button class="btn btn-primary" type="submit">Log in</button>
+      </form>
+    </div>`));
+});
+
+// ── POST /admin/login ─────────────────────────────────────────────────────────
+router.post('/login', express.urlencoded({ extended: false }), (req, res) => {
+  const correct = process.env.ADMIN_PASSWORD;
+  if (!correct) return res.status(500).send('ADMIN_PASSWORD not set in env.');
+  if (req.body.password === correct) {
+    req.session.admin = true;
+    return res.redirect('/admin');
+  }
+  res.redirect('/admin/login?error=1');
+});
+
+// ── GET /admin/logout ─────────────────────────────────────────────────────────
+router.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/admin/login'));
+});
+
+// ── GET /admin → dashboard ────────────────────────────────────────────────────
+router.get('/', requireAuth, (_req, res) => res.redirect('/admin/dashboard'));
+
+// ── GET /admin/dashboard — unified 4-tab dashboard ───────────────────────────
+router.get('/dashboard', requireAuth, (req, res) => {
+  const activeTab = req.query.tab || 'picks';
+  const today = getCycleDate();
+
+  // ── Picks panel ─────────────────────────────────────────────────────────────
+  const picks = db.prepare(`
+    SELECT p.*,
+           sb.channel_points, sb.sport_bonus, sb.home_bonus, sb.total AS sb_total,
+           sb.breakdown_json,
+           COALESCE(tg1.home_team, tg2.home_team) AS home_team,
+           COALESCE(tg1.away_team, tg2.away_team) AS away_team,
+           COALESCE(tg1.start_time, tg2.start_time) AS start_time
+    FROM picks p
+    LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+    LEFT JOIN today_games tg1 ON tg1.espn_game_id = p.espn_game_id
+    LEFT JOIN today_games tg2 ON (LOWER(tg2.home_team) = LOWER(p.team) OR LOWER(tg2.away_team) = LOWER(p.team))
+    WHERE p.game_date = ? AND p.mention_count > 0 AND p.score > 0
+    GROUP BY p.id
+    ORDER BY p.score DESC
+  `).all(today);
+
+  const rawMessages = db.prepare(`SELECT * FROM raw_messages ORDER BY pick_id, saved_at`).all();
+  const rawByPick = {};
+  for (const rm of rawMessages) {
+    if (!rawByPick[rm.pick_id]) rawByPick[rm.pick_id] = [];
+    rawByPick[rm.pick_id].push(rm);
+  }
+
+  const pickRowsHtml = picks.map(p => {
+    const isMvp = (p.score || 0) >= MVP_THRESHOLD;
+    const raws  = rawByPick[p.id] || [];
+    const rawRowsHtml = raws.length
+      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="8" style="padding:0;">
+          <table style="margin:0;border:none;border-radius:0;"><tbody>
+            ${raws.map(rm => `<tr class="raw-row"><td colspan="8">
+              <strong>${escHtml(rm.channel)}</strong>
+              ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
+              ${rm.message_timestamp ? `· ${rm.message_timestamp.slice(0, 16)}` : ''}
+              <br>${escHtml(rm.message_text || '')}
+            </td></tr>`).join('')}
+          </tbody></table></td></tr>`
+      : '';
+    const msgBtn = raws.length
+      ? `<button onclick="toggleMsgs(${p.id},this)" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;">${raws.length} msg${raws.length > 1 ? 's' : ''} ▾</button>`
+      : '<span style="color:#3b4560;font-size:11px;">—</span>';
+    const breakdown = p.channel_points != null
+      ? `ch:${p.channel_points} sport:${p.sport_bonus} home:${p.home_bonus} = ${p.sb_total}` : '—';
+    const matchup = (p.away_team && p.home_team)
+      ? `${escHtml(p.away_team)} @ ${escHtml(p.home_team)}` : `<em>${escHtml(p.team)}</em>`;
+    const timeStr = p.start_time
+      ? new Date(p.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+    const pickType = (p.pick_type || '').toLowerCase();
+    const spreadDisplay = (pickType === 'over' || pickType === 'under')
+      ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '')
+      : (p.spread != null ? p.spread : '');
+    return `<tr>
+      <td>${p.id}</td>
+      <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
+      <td>${escHtml(p.sport || '—')}</td>
+      <td>${escHtml(p.pick_type || '—')} ${spreadDisplay}</td>
+      <td>${p.mention_count}</td>
+      <td>${p.score ?? '—'} ${isMvp ? '<span class="badge mvp">MVP</span>' : ''}</td>
+      <td><small>${breakdown}</small></td>
+      <td>${msgBtn}</td>
+    </tr>${rawRowsHtml}`;
+  }).join('');
+
+  const picksTableHtml = picks.length
+    ? `<table><thead><tr><th>ID</th><th>Team</th><th>Sport</th><th>Pick</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
+    : '<div class="empty">No picks today.</div>';
+
+  // ── Codes panel ──────────────────────────────────────────────────────────────
+  const codes = db.prepare(`
+    SELECT ac.*, u.email AS activated_email, u.username AS activated_username
+    FROM access_codes ac
+    LEFT JOIN users u ON u.id = ac.activated_by
+    ORDER BY ac.created_at DESC
+  `).all();
+
+  const nowMs = Date.now();
+  const codeRows = codes.map(c => {
+    let status = 'Unused', statusColor = '#8892a4';
+    if (c.activated_by != null) {
+      const expired = c.expires_at && new Date(c.expires_at).getTime() < nowMs;
+      if (c.type === 'perma')   { status = 'Perma (active)'; statusColor = '#16a34a'; }
+      else if (expired)         { status = 'Expired';        statusColor = '#ef4444'; }
+      else                      { status = 'Active';         statusColor = '#16a34a'; }
+    }
+    const activatedBy = c.activated_username || c.activated_email || '—';
+    const expiresAt   = c.expires_at ? c.expires_at.slice(0, 16).replace('T', ' ') : (c.type === 'perma' ? 'Never' : '—');
+    return `<tr>
+      <td style="font-family:monospace;letter-spacing:1px;">${escHtml(c.code)}</td>
+      <td>${escHtml(c.type)}</td>
+      <td style="color:#64748b;">${escHtml(c.notes || '—')}</td>
+      <td><span style="color:${statusColor};font-weight:600;">${status}</span></td>
+      <td style="color:#8892a4;font-size:12px;">${escHtml(activatedBy)}</td>
+      <td style="color:#8892a4;font-size:12px;">${escHtml(c.activated_at ? c.activated_at.slice(0, 16).replace('T', ' ') : '—')}</td>
+      <td style="color:#8892a4;font-size:12px;">${escHtml(expiresAt)}</td>
+    </tr>`;
+  }).join('');
+
+  const codesTableHtml = codes.length
+    ? `<table><thead><tr><th>Code</th><th>Type</th><th>Notes</th><th>Status</th><th>Activated By</th><th>Activated At</th><th>Expires</th></tr></thead><tbody>${codeRows}</tbody></table>`
+    : '<div class="empty">No codes generated yet.</div>';
+
+  // ── MVP panel ─────────────────────────────────────────────────────────────────
+  const mvps = db.prepare(`
+    SELECT m.*,
+           COALESCE(tg1.home_team, tg2.home_team) AS home_team,
+           COALESCE(tg1.away_team, tg2.away_team) AS away_team
+    FROM mvp_picks m
+    LEFT JOIN today_games tg1 ON tg1.espn_game_id = m.espn_game_id
+    LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
+                              AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
+    ORDER BY m.saved_at DESC LIMIT 200
+  `).all();
+
+  const resultBadge = r => {
+    const map = { win: '#16a34a', loss: '#ef4444', push: '#8892a4', pending: '#f59e0b' };
+    const color = map[(r || 'pending').toLowerCase()] || '#8892a4';
+    return `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}44;">${(r || 'pending').toUpperCase()}</span>`;
+  };
+
+  const sports    = [...new Set(mvps.map(m => m.sport).filter(Boolean))].sort();
+  const pickTypes = [...new Set(mvps.map(m => (m.pick_type || '').toLowerCase()).filter(Boolean))].sort();
+
+  const mvpRowsHtml = mvps.map(m => {
+    const matchup = (m.away_team && m.home_team)
+      ? `${escHtml(m.away_team)} @ ${escHtml(m.home_team)}` : escHtml(m.team || '—');
+    const pt = (m.pick_type || '').toLowerCase();
+    const sp = (pt === 'over' || pt === 'under')
+      ? (m.spread != null ? Math.abs(parseFloat(m.spread)) : '')
+      : (m.spread != null ? m.spread : '');
+    const scoreStr  = m.home_score != null ? `${m.away_score}–${m.home_score}` : '—';
+    const savedDate = m.saved_at ? m.saved_at.slice(0, 10) : m.game_date || '—';
+    return `<tr class="mvp-row" style="cursor:pointer;" onclick="openMvp(${m.id})"
+      data-date="${savedDate}" data-sport="${escHtml((m.sport||'').toLowerCase())}"
+      data-pick-type="${escHtml(pt)}" data-result="${escHtml((m.result||'pending').toLowerCase())}"
+      data-score="${m.score ?? 0}">
+      <td>${m.id}</td><td>${matchup}</td>
+      <td>${escHtml(m.sport || '—')}</td>
+      <td>${escHtml(m.pick_type || '—')} <span style="color:#8892a4;">${sp}</span></td>
+      <td>${m.score ?? '—'} <span class="badge mvp">MVP</span></td>
+      <td>${scoreStr}</td>
+      <td>${resultBadge(m.result)}</td>
+      <td style="color:#8892a4;font-size:12px;">${savedDate}</td>
+    </tr>`;
+  }).join('');
+
+  const sportOpts  = sports.map(s => `<option value="${escHtml(s.toLowerCase())}">${escHtml(s)}</option>`).join('');
+  const ptOpts     = pickTypes.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+
+  const mvpTableHtml = mvps.length
+    ? `<table id="mvp-table">
+        <thead><tr><th>ID</th><th>Matchup</th><th style="cursor:pointer;" data-col="sport">Sport &#x21D5;</th><th style="cursor:pointer;" data-col="pick-type">Pick &#x21D5;</th><th style="cursor:pointer;" data-col="score">Score &#x21D5;</th><th>Final</th><th style="cursor:pointer;" data-col="result">Result &#x21D5;</th><th style="cursor:pointer;" data-col="date">Date &#x21D5;</th></tr></thead>
+        <tbody id="mvp-tbody">${mvpRowsHtml}</tbody>
+      </table>
+      <div id="mvp-empty" style="display:none;" class="empty">No picks match filters.</div>
+      <div id="mvp-count" style="color:#8892a4;font-size:12px;margin-top:6px;"></div>`
+    : '<div class="empty">No MVP picks on record.</div>';
+
+  // ── AI Usage panel ───────────────────────────────────────────────────────────
+  const todayStr  = new Date().toISOString().slice(0, 10);
+  const monthStr  = new Date().toISOString().slice(0, 7);
+  const usageToday = db.prepare(`
+    SELECT COUNT(*) AS calls,
+           SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+           SUM(cache_creation_tokens) AS cwrite, SUM(cache_read_tokens) AS cread,
+           SUM(estimated_cost_usd) AS cost
+    FROM api_usage WHERE DATE(created_at) = ?
+  `).get(todayStr) || {};
+  const usageMonth = db.prepare(`
+    SELECT COUNT(*) AS calls,
+           SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+           SUM(cache_creation_tokens) AS cwrite, SUM(cache_read_tokens) AS cread,
+           SUM(estimated_cost_usd) AS cost
+    FROM api_usage WHERE strftime('%Y-%m', created_at) = ?
+  `).get(monthStr) || {};
+  const usageLifetime = db.prepare(`
+    SELECT COUNT(*) AS calls, SUM(estimated_cost_usd) AS cost FROM api_usage
+  `).get() || {};
+  const usageDays = db.prepare(`
+    SELECT DATE(created_at) AS day, COUNT(*) AS calls,
+           SUM(input_tokens) AS input, SUM(output_tokens) AS output,
+           SUM(cache_creation_tokens) AS cwrite, SUM(cache_read_tokens) AS cread,
+           SUM(estimated_cost_usd) AS cost
+    FROM api_usage
+    GROUP BY day ORDER BY day DESC LIMIT 14
+  `).all();
+
+  const fmtCost  = v => v != null ? '$' + (v).toFixed(5) : '$0.00000';
+  const fmtTok   = v => v != null ? Number(v).toLocaleString() : '0';
+  const statCard = (label, val) =>
+    `<div style="background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:16px 20px;min-width:140px;">
+       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8892a4;margin-bottom:6px;">${label}</div>
+       <div style="font-size:20px;font-weight:700;">${val}</div>
+     </div>`;
+
+  const usageDayRows = usageDays.map(d =>
+    `<tr>
+       <td>${d.day}</td>
+       <td>${d.calls}</td>
+       <td>${fmtTok(d.input)}</td>
+       <td>${fmtTok(d.output)}</td>
+       <td>${fmtTok(d.cwrite)}</td>
+       <td>${fmtTok(d.cread)}</td>
+       <td>${fmtCost(d.cost)}</td>
+     </tr>`
+  ).join('') || `<tr><td colspan="7" class="empty">No data yet — usage is logged after the first Claude API call.</td></tr>`;
+
+  const usagePanelHtml = `
+    <h1>AI Usage <small style="font-size:13px;color:#8892a4;font-weight:400;">Claude Haiku — reader.js</small></h1>
+    <h2 style="margin-top:0;">Today</h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px;">
+      ${statCard('API Calls', usageToday.calls || 0)}
+      ${statCard('Input Tokens', fmtTok(usageToday.input))}
+      ${statCard('Output Tokens', fmtTok(usageToday.output))}
+      ${statCard('Cache Writes', fmtTok(usageToday.cwrite))}
+      ${statCard('Cache Reads', fmtTok(usageToday.cread))}
+      ${statCard('Est. Cost', fmtCost(usageToday.cost))}
+    </div>
+    <h2>This Month</h2>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px;">
+      ${statCard('API Calls', usageMonth.calls || 0)}
+      ${statCard('Input Tokens', fmtTok(usageMonth.input))}
+      ${statCard('Output Tokens', fmtTok(usageMonth.output))}
+      ${statCard('Cache Writes', fmtTok(usageMonth.cwrite))}
+      ${statCard('Cache Reads', fmtTok(usageMonth.cread))}
+      ${statCard('Est. Cost', fmtCost(usageMonth.cost))}
+    </div>
+    <h2>Last 14 Days</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th><th>Cache Writes</th><th>Cache Reads</th><th>Est. Cost</th></tr></thead>
+      <tbody>${usageDayRows}</tbody>
+    </table>
+    <p style="color:#8892a4;font-size:12px;margin-top:12px;">
+      Pricing: input $0.80/M · output $4.00/M · cache write $1.00/M · cache read $0.08/M (Haiku 4.5).
+      Verify against <a href="https://console.anthropic.com" target="_blank" style="color:#3b82f6;">console.anthropic.com</a>.
+    </p>
+    <p style="color:#8892a4;font-size:12px;margin-top:4px;">Lifetime: ${usageLifetime.calls || 0} calls · ${fmtCost(usageLifetime.cost)} total</p>
+  `;
+
+  // ── Active tab helper ─────────────────────────────────────────────────────────
+  const ta = n => activeTab === n ? ' active' : '';
+
+  res.send(page('Dashboard', `
+    <div style="display:flex;align-items:center;margin-bottom:20px;">
+      <span class="logo">CappingAlpha Admin</span>
+    </div>
+
+    <div class="atabs">
+      <button class="atab${ta('picks')}" data-tab="picks" onclick="adminTab('picks')">Today's Picks</button>
+      <button class="atab${ta('codes')}" data-tab="codes" onclick="adminTab('codes')">Access Codes</button>
+      <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
+      <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
+      <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
+      <a href="/admin/logout" class="atab-logout">Log out</a>
+    </div>
+
+    <!-- PICKS PANEL -->
+    <div class="apanel${ta('picks')}" id="panel-picks">
+      <h1>Today's Picks <small style="font-size:14px;color:#8892a4;font-weight:400;">${today}</small></h1>
+      ${picksTableHtml}
+      <div class="nuke-box" style="display:flex;gap:24px;align-items:flex-start;">
+        <div>
+          <h2 style="margin-top:0;color:#ef4444;">NUKE</h2>
+          <p>Deletes all picks, raw messages, and score breakdowns. Preserves today_games, lines, MVP history, and users. Triggers a fresh scan from 6am.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-nuke" onclick="nuke()">NUKE &amp; RESCAN</button>
+            <button class="btn btn-primary" onclick="scanNow()">Scan Now</button>
+            <button class="btn" style="background:#7c3aed;color:#fff;" onclick="rescanFromStart()">Rescan From 6am</button>
+            <button class="btn" style="background:#0f766e;color:#fff;" onclick="rescanSkippedMsgs()" id="btn-skipped">Rescan Skipped</button>
+          </div>
+        </div>
+        <div id="scan-status" style="flex:1;background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;min-height:80px;display:flex;align-items:center;">
+          <span style="color:#8892a4;font-size:13px;">Loading scan status...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CODES PANEL -->
+    <div class="apanel${ta('codes')}" id="panel-codes">
+      <h1>Access Codes</h1>
+      <p style="color:#8892a4;font-size:13px;margin:-8px 0 20px;">$1/day &nbsp;·&nbsp; $4/week (subscription) &nbsp;·&nbsp; $75/year (subscription). Hand out codes to give direct access — great for promos, partners, and testing.</p>
+      <div class="code-gen-card">
+        <h3>Generate New Code</h3>
+        <form method="POST" action="/admin/generate-code" style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label>Type</label>
+            <select name="type" style="width:100%;">
+              <option value="day">Day (24h)</option>
+              <option value="week">Week (7d)</option>
+              <option value="annual">Annual (365d)</option>
+              <option value="perma">Perma (no expiry, reusable)</option>
+            </select>
+          </div>
+          <div>
+            <label>Code (leave blank to auto-generate)</label>
+            <input type="text" name="code" placeholder="e.g. SPORTS2025" style="width:100%;" />
+          </div>
+          <div>
+            <label>Notes (optional)</label>
+            <input type="text" name="notes" placeholder="e.g. For John" style="width:100%;" />
+          </div>
+          <button class="btn btn-primary" type="submit" style="align-self:flex-start;">Generate Code</button>
+        </form>
+      </div>
+      <h2>All Codes (${codes.length})</h2>
+      ${codesTableHtml}
+    </div>
+
+    <!-- USERS PANEL -->
+    <div class="apanel${ta('users')}" id="panel-users">
+      <h1>Users</h1>
+      <div class="users-search-bar">
+        <input type="text" id="user-q" placeholder="Search username or email..." />
+        <button class="btn btn-primary" onclick="searchUsers()">Search</button>
+      </div>
+      <div id="user-results"><p style="color:#8892a4;">Enter a username or email to search.</p></div>
+    </div>
+
+    <!-- MVP PANEL -->
+    <div class="apanel${ta('mvp')}" id="panel-mvp">
+      <h1>MVP History <small style="font-size:14px;color:#8892a4;font-weight:400;">All-time (score &ge; 50)</small></h1>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:14px 16px;">
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Date</label>
+          <input type="date" id="f-date" oninput="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;width:150px;" /></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Sport</label>
+          <select id="f-sport" onchange="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;"><option value="">All</option>${sportOpts}</select></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Pick Type</label>
+          <select id="f-type" onchange="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;"><option value="">All</option>${ptOpts}</select></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Result</label>
+          <select id="f-result" onchange="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;">
+            <option value="">All</option><option value="win">Win</option><option value="loss">Loss</option><option value="push">Push</option><option value="pending">Pending</option>
+          </select></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Min Score</label>
+          <input type="number" id="f-minscore" oninput="applyFilters()" placeholder="50" min="0" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;width:90px;" /></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Max Score</label>
+          <input type="number" id="f-maxscore" oninput="applyFilters()" placeholder="any" min="0" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;width:90px;" /></div>
+        <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Sort By</label>
+          <select id="f-sort" onchange="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;">
+            <option value="date-desc">Date (newest)</option><option value="date-asc">Date (oldest)</option>
+            <option value="score-desc">Score (high)</option><option value="score-asc">Score (low)</option>
+            <option value="result-asc">Result A-Z</option>
+          </select></div>
+        <button onclick="clearFilters()" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;align-self:flex-end;">Clear</button>
+      </div>
+      ${mvpTableHtml}
+      <div id="mvp-modal" onclick="closeModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:100;overflow-y:auto;">
+        <div id="mvp-panel" onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:700px;margin:40px auto;padding:32px;position:relative;">
+          <button onclick="closePanel()" style="position:absolute;top:16px;right:16px;background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;">&#x2715;</button>
+          <div id="mvp-content">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI USAGE PANEL -->
+    <div class="apanel${ta('usage')}" id="panel-usage">
+      ${usagePanelHtml}
+    </div>
+
+    <script>
+      // ── Tab switching ──────────────────────────────────────────────────────────
+      function adminTab(name) {
+        document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+        document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+        history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── Picks panel ────────────────────────────────────────────────────────────
+      function toggleMsgs(id, btn) {
+        const row = document.getElementById('msgs-' + id);
+        const open = row.style.display !== 'none';
+        row.style.display = open ? 'none' : '';
+        btn.textContent = btn.textContent.replace(open ? '▴' : '▾', open ? '▾' : '▴');
+      }
+
+      async function nuke() {
+        if (!confirm('Delete all picks and rescan? This cannot be undone.')) return;
+        const btn = document.querySelector('.btn-nuke');
+        btn.disabled = true; btn.textContent = 'Nuking...';
+        await fetch('/admin/nuke', { method: 'POST' });
+        btn.disabled = false; btn.textContent = 'NUKE & RESCAN';
+        pollStatus();
+      }
+      async function scanNow() {
+        await fetch('/admin/scan-now', { method: 'POST' });
+        pollStatus();
+      }
+      async function rescanFromStart() {
+        showStatus('scanning', 'Rescanning from 6am...');
+        await fetch('/admin/rescan-from-start', { method: 'POST' });
+        pollStatus();
+      }
+      async function rescanSkippedMsgs() {
+        const btn = document.getElementById('btn-skipped');
+        btn.disabled = true; btn.textContent = 'Rescanning...';
+        const res = await fetch('/admin/rescan-skipped', { method: 'POST' });
+        const data = await res.json();
+        btn.disabled = false; btn.textContent = 'Rescan Skipped';
+        if (data.queued === 0) { alert('No skipped messages on record.'); }
+        else { showStatus('scanning', \`Processing \${data.queued} skipped messages...\`); pollStatus(); }
+      }
+
+      function showStatus(type, msg) {
+        const el = document.getElementById('scan-status');
+        if (type === 'scanning') {
+          el.innerHTML = \`<div style="display:flex;align-items:center;gap:10px;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;animation:pulse 1s infinite;"></span>
+            <strong style="color:#e2e8f0;">\${msg}</strong></div>\`;
+        }
+      }
+      function renderStatus(s) {
+        const el = document.getElementById('scan-status');
+        if (!el) return;
+        if (s.scanning) {
+          el.innerHTML = \`<div><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3b82f6;animation:pulse 1s infinite;"></span>
+            <strong style="color:#e2e8f0;">Scanning Discord...</strong></div>
+            <div style="font-size:12px;color:#8892a4;">Reading channels and extracting picks</div></div>\`;
+        } else if (s.error) {
+          el.innerHTML = \`<div style="color:#ef4444;font-size:13px;">Error: \${s.error}</div>\`;
+        } else if (s.lastScanAt) {
+          const t = new Date(s.lastScanAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+          el.innerHTML = \`<div><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#4ade80;"></span>
+            <strong style="color:#e2e8f0;">All caught up</strong></div>
+            <div style="font-size:12px;color:#8892a4;">Last scan: \${t} &nbsp;·&nbsp; \${s.lastSaved ?? 0} new pick\${s.lastSaved !== 1 ? 's' : ''} saved</div></div>\`;
+        } else {
+          el.innerHTML = '<span style="color:#8892a4;font-size:13px;">No scan has run yet today.</span>';
+        }
+      }
+      let pollTimer = null;
+      async function pollStatus() {
+        clearTimeout(pollTimer);
+        try {
+          const res = await fetch('/admin/scan-status');
+          const s   = await res.json();
+          renderStatus(s);
+          if (s.scanning) pollTimer = setTimeout(pollStatus, 1500);
+        } catch (_) {}
+      }
+      pollStatus();
+      setInterval(pollStatus, 10000);
+
+      // ── Users panel ────────────────────────────────────────────────────────────
+      document.getElementById('user-q').addEventListener('keydown', e => { if (e.key === 'Enter') searchUsers(); });
+
+      async function searchUsers() {
+        const q = document.getElementById('user-q').value.trim();
+        if (!q) { document.getElementById('user-results').innerHTML = '<p style="color:#8892a4;">Enter a username or email to search.</p>'; return; }
+        document.getElementById('user-results').innerHTML = '<p style="color:#8892a4;">Searching...</p>';
+        try {
+          const res  = await fetch('/admin/api/users?q=' + encodeURIComponent(q));
+          const data = await res.json();
+          renderUserResults(data.users, data.q);
+        } catch (_) {
+          document.getElementById('user-results').innerHTML = '<p style="color:#ef4444;">Search failed.</p>';
+        }
+      }
+
+      function renderUserResults(users, q) {
+        const el = document.getElementById('user-results');
+        if (!users.length) { el.innerHTML = \`<p style="color:#8892a4;">No results for "\${q}".</p>\`; return; }
+        el.innerHTML = \`<p class="users-results-note">\${users.length} result\${users.length !== 1 ? 's' : ''} for "\${q}"</p>
+          <table><thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Tier</th><th>Expires</th><th>Actions</th></tr></thead>
+          <tbody>\${users.map(userRowHtml).join('')}</tbody></table>\`;
+      }
+
+      function userRowHtml(u) {
+        const now = Date.now();
+        const expired = u.subscription_expires && new Date(u.subscription_expires).getTime() < now;
+        const tierColor = u.subscription_tier === 'free' ? '#8892a4' : (expired ? '#ef4444' : '#16a34a');
+        const tierLabel = u.subscription_tier === 'free' ? 'Free' : (expired ? u.subscription_tier + ' (expired)' : u.subscription_tier);
+        const expiresStr = u.subscription_expires ? u.subscription_expires.slice(0, 16).replace('T', ' ') : '—';
+        return \`<tr>
+          <td style="color:#8892a4;font-size:12px;">\${u.id}</td>
+          <td>\${u.username || '—'}</td>
+          <td style="color:#8892a4;">\${u.email}</td>
+          <td><span style="color:\${tierColor};font-weight:600;">\${tierLabel}</span></td>
+          <td style="color:#8892a4;font-size:12px;">\${expiresStr}</td>
+          <td style="white-space:nowrap;">
+            <select id="tier-\${u.id}" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:4px 8px;border-radius:4px;font-size:12px;">
+              <option value="day">Day (24h)</option><option value="week">Week (7d)</option>
+              <option value="annual">Annual (365d)</option><option value="lifetime">Lifetime</option>
+            </select>
+            <button class="btn-sm btn-grant" style="margin-left:4px;" onclick="grantAccess(\${u.id})">Grant</button>
+            <button class="btn-sm btn-revoke" style="margin-left:4px;" onclick="revokeAccess(\${u.id})">Revoke</button>
+          </td>
+        </tr>\`;
+      }
+
+      async function grantAccess(userId) {
+        const tier = document.getElementById('tier-' + userId).value;
+        await fetch('/admin/api/grant', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ user_id: userId, tier }) });
+        searchUsers();
+      }
+      async function revokeAccess(userId) {
+        if (!confirm('Revoke access for this user?')) return;
+        await fetch('/admin/api/revoke', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ user_id: userId }) });
+        searchUsers();
+      }
+
+      // ── MVP panel ──────────────────────────────────────────────────────────────
+      function openMvp(id) {
+        document.getElementById('mvp-modal').style.display = 'block';
+        document.getElementById('mvp-content').innerHTML = '<div style="color:#8892a4;text-align:center;padding:32px;">Loading...</div>';
+        fetch('/admin/mvp-detail/' + id).then(r => r.json()).then(renderMvpDetail)
+          .catch(() => { document.getElementById('mvp-content').innerHTML = '<div style="color:#ef4444;">Error loading details.</div>'; });
+      }
+      function closePanel() { document.getElementById('mvp-modal').style.display = 'none'; }
+      function closeModal(e) { if (e.target === document.getElementById('mvp-modal')) closePanel(); }
+
+      function renderMvpDetail(d) {
+        const m = d.mvp, pick = d.pick, messages = d.messages || [], breakdown = d.breakdown;
+        const rc = { win:'#16a34a', loss:'#ef4444', push:'#8892a4', pending:'#f59e0b' }[(m.result||'pending').toLowerCase()] || '#8892a4';
+        const matchup = (m.away_team && m.home_team) ? \`\${m.away_team} @ \${m.home_team}\` : m.team;
+        const pt = (m.pick_type || '').toLowerCase();
+        const sp = (pt === 'over' || pt === 'under') ? (m.spread != null ? Math.abs(parseFloat(m.spread)) : '') : (m.spread != null ? m.spread : '');
+        const finalScore = m.home_score != null ? \`\${m.away_score}–\${m.home_score}\` : 'Pending';
+
+        let breakdownHtml = '';
+        if (breakdown) {
+          const bj = breakdown.breakdown_json ? JSON.parse(breakdown.breakdown_json) : null;
+          breakdownHtml = \`<div style="margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Score Calculation</div>
+            <div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;">
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Channel points</span><span>+\${breakdown.channel_points}</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Sport bonus</span><span>+\${breakdown.sport_bonus}</span></div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Home team bonus</span><span>+\${breakdown.home_bonus}</span></div>
+              <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;"><span style="color:#FFD700;">Total score</span><span style="color:#FFD700;">\${breakdown.total} pts</span></div>
+              \${bj ? \`<div style="margin-top:10px;padding-top:10px;border-top:1px solid #1e2330;color:#64748b;font-size:11px;">\${JSON.stringify(bj)}</div>\` : ''}
+            </div></div>\`;
+        }
+
+        function calcPayout(odds, stake) {
+          if (odds == null) return null;
+          const o = parseFloat(odds); if (isNaN(o)) return null;
+          const profit = o > 0 ? stake * (o / 100) : stake * (100 / Math.abs(o));
+          return { profit: profit.toFixed(2), payout: (stake + profit).toFixed(2) };
+        }
+        const STAKE = 20;
+        let betOdds = null, oddsLabel = '';
+        if (pt === 'ml') { betOdds = m.ml_odds ?? (pick ? pick.original_ml : null); oddsLabel = 'Moneyline'; }
+        else if (pt === 'over' || pt === 'under') { betOdds = m.ou_odds ?? -115; oddsLabel = pt.charAt(0).toUpperCase() + pt.slice(1) + (sp ? ' ' + sp : ''); }
+        else if (pt === 'spread') { betOdds = -115; oddsLabel = 'Spread ' + (sp || ''); }
+        const calc = calcPayout(betOdds, STAKE);
+        const oddsStr = betOdds != null ? (betOdds > 0 ? '+' + betOdds : betOdds) : '—';
+        const rl = (m.result || 'pending').toLowerCase();
+        let pc = '#e2e8f0', pl = calc ? '+$' + calc.profit : '—', payout = calc ? '$' + calc.payout : '—';
+        if (rl === 'win') pc = '#16a34a';
+        else if (rl === 'loss') { pc = '#ef4444'; pl = '-$' + STAKE.toFixed(2); payout = '$0.00'; }
+        else if (rl === 'push') { pc = '#8892a4'; pl = '$0.00'; payout = '$' + STAKE.toFixed(2); }
+
+        const betHtml = \`<div style="margin-bottom:20px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">$20 Unit Bet</div>
+          <div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;">
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Pick</span><span>\${oddsLabel || m.pick_type || '—'}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Odds</span><span>\${oddsStr}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Stake</span><span>$\${STAKE.toFixed(2)}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1e2330;"><span style="color:#8892a4;">Profit</span><span style="color:\${pc};font-weight:700;">\${pl}</span></div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-weight:700;"><span style="color:#8892a4;">Total payout</span><span style="color:\${pc};">\${payout}</span></div>
+            \${rl === 'pending' ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e2330;color:#64748b;font-size:11px;">Projected — result still pending</div>' : ''}
+          </div></div>\`;
+
+        const chColor = { 'free-plays': '#3b82f6', 'pod-thread': '#8b5cf6', 'community-leaks': '#f59e0b' };
+        const msgHtml = messages.length
+          ? messages.map(msg => {
+              const cc = chColor[msg.channel || ''] || '#8892a4';
+              const ts = msg.message_timestamp ? new Date(msg.message_timestamp).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+              return \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:14px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                  <span style="background:\${cc}22;color:\${cc};border:1px solid \${cc}44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">#\${msg.channel}</span>
+                  \${msg.author ? \`<span style="color:#e2e8f0;font-weight:600;font-size:13px;">\${msg.author}</span>\` : ''}
+                  \${ts ? \`<span style="color:#64748b;font-size:12px;margin-left:auto;">\${ts} ET</span>\` : ''}
+                </div>
+                <div style="color:#cbd5e1;font-size:13px;line-height:1.5;white-space:pre-wrap;">\${msg.message_text || ''}</div>
+              </div>\`;
+            }).join('')
+          : '<div style="color:#8892a4;padding:12px 0;">No raw messages on record.</div>';
+
+        const firstSeen = messages.length && messages[0].message_timestamp
+          ? new Date(messages[0].message_timestamp).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+          : (m.saved_at ? new Date(m.saved_at).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—');
+
+        document.getElementById('mvp-content').innerHTML = \`
+          <div style="margin-bottom:20px;">
+            <div style="font-size:20px;font-weight:700;margin-bottom:4px;">\${matchup}</div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+              <span style="color:#8892a4;">\${m.sport || ''}</span>
+              <span>\${m.pick_type || ''} \${sp}</span>
+              \${m.ml_odds ? \`<span style="color:#8892a4;font-size:12px;">ML \${m.ml_odds > 0 ? '+' : ''}\${m.ml_odds}</span>\` : ''}
+              <span style="background:\${rc}22;color:\${rc};border:1px solid \${rc}44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">\${(m.result||'pending').toUpperCase()}</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px;">
+            <div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:12px;text-align:center;">
+              <div style="color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Score</div>
+              <div style="font-size:22px;font-weight:700;color:#FFD700;">\${m.score}</div>
+            </div>
+            <div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:12px;text-align:center;">
+              <div style="color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Final Score</div>
+              <div style="font-size:22px;font-weight:700;">\${finalScore}</div>
+            </div>
+            <div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:12px;text-align:center;">
+              <div style="color:#8892a4;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Bet Placed</div>
+              <div style="font-size:12px;line-height:1.4;">\${firstSeen}</div>
+            </div>
+          </div>
+          \${breakdownHtml}\${betHtml}
+          <div>
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Cappers & Messages (\${messages.length})</div>
+            \${msgHtml}
+          </div>\`;
+      }
+
+      let sortCol = 'date', sortDir = 'desc';
+      function applyFilters() {
+        const fDate = document.getElementById('f-date').value;
+        const fSport = document.getElementById('f-sport').value;
+        const fType = document.getElementById('f-type').value;
+        const fResult = document.getElementById('f-result').value;
+        const fMin = parseFloat(document.getElementById('f-minscore').value) || 0;
+        const fMaxRaw = document.getElementById('f-maxscore').value;
+        const fMax = fMaxRaw !== '' ? parseFloat(fMaxRaw) : Infinity;
+        const [sc, sd] = document.getElementById('f-sort').value.split('-');
+        sortCol = sc; sortDir = sd;
+        const tbody = document.getElementById('mvp-tbody');
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr.mvp-row'));
+        rows.forEach(row => {
+          const show =
+            (!fDate   || row.dataset.date  === fDate) &&
+            (!fSport  || row.dataset.sport === fSport) &&
+            (!fType   || (row.dataset.pickType || row.getAttribute('data-pick-type')) === fType) &&
+            (!fResult || row.dataset.result === fResult) &&
+            (parseFloat(row.dataset.score) || 0) >= fMin &&
+            (parseFloat(row.dataset.score) || 0) <= fMax;
+          row.style.display = show ? '' : 'none';
+        });
+        const visible = rows.filter(r => r.style.display !== 'none');
+        visible.sort((a, b) => {
+          if (sortCol === 'score') {
+            const av = parseFloat(a.dataset.score), bv = parseFloat(b.dataset.score);
+            return sortDir === 'asc' ? av - bv : bv - av;
+          }
+          const av = sortCol === 'date' ? a.dataset.date : sortCol === 'result' ? a.dataset.result : sortCol === 'sport' ? a.dataset.sport : a.getAttribute('data-pick-type');
+          const bv = sortCol === 'date' ? b.dataset.date : sortCol === 'result' ? b.dataset.result : sortCol === 'sport' ? b.dataset.sport : b.getAttribute('data-pick-type');
+          return sortDir === 'asc' ? (av||'').localeCompare(bv||'') : (bv||'').localeCompare(av||'');
+        });
+        visible.forEach(r => tbody.appendChild(r));
+        const countEl = document.getElementById('mvp-count');
+        const emptyEl = document.getElementById('mvp-empty');
+        if (countEl) countEl.textContent = visible.length + ' of ' + rows.length + ' picks';
+        if (emptyEl) emptyEl.style.display = visible.length === 0 ? '' : 'none';
+      }
+      function clearFilters() {
+        ['f-date','f-sport','f-type','f-result','f-minscore','f-maxscore'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        document.getElementById('f-sort').value = 'date-desc';
+        applyFilters();
+      }
+      applyFilters();
+    </script>
+    <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
+  `));
+});
+
+// ── POST /admin/nuke ──────────────────────────────────────────────────────────
+router.post('/nuke', requireAuth, async (_req, res) => {
+  for (const table of NUKE_TABLES) {
+    db.prepare(`DELETE FROM ${table}`).run();
+    db.prepare(`DELETE FROM sqlite_sequence WHERE name = ?`).run(table);
+  }
+  console.log('[admin] Nuke complete — reseeding slots from existing odds data');
+  await reseedFromExisting();
+  scanner.resetState().catch(err => console.error('[admin] resetState error:', err.message));
+  res.json({ success: true });
+});
+
+// ── POST /admin/rescan-from-start ─────────────────────────────────────────────
+router.post('/rescan-from-start', requireAuth, (_req, res) => {
+  db.prepare(`DELETE FROM scanner_state`).run();
+  scanner.scanAll().catch(err => console.error('[admin] rescan error:', err.message));
+  res.json({ ok: true });
+});
+
+// ── POST /admin/rescan-skipped ────────────────────────────────────────────────
+router.post('/rescan-skipped', requireAuth, (_req, res) => {
+  const count = db.prepare(`SELECT COUNT(*) AS c FROM skipped_messages`).get().c;
+  rescanSkipped().catch(err => console.error('[admin] rescanSkipped error:', err.message));
+  res.json({ ok: true, queued: count });
+});
+
+// ── GET /admin/mvp → redirect ─────────────────────────────────────────────────
+router.get('/mvp', requireAuth, (_req, res) => res.redirect('/admin/dashboard?tab=mvp'));
+
+// ── GET /admin/mvp-detail/:id — JSON for modal ────────────────────────────────
+router.get('/mvp-detail/:id', requireAuth, (req, res) => {
+  const mvp = db.prepare(`
+    SELECT m.*,
+           COALESCE(tg1.home_team, tg2.home_team) AS home_team,
+           COALESCE(tg1.away_team, tg2.away_team) AS away_team
+    FROM mvp_picks m
+    LEFT JOIN today_games tg1 ON tg1.espn_game_id = m.espn_game_id
+    LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
+                              AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
+    WHERE m.id = ?
+  `).get(req.params.id);
+  if (!mvp) return res.status(404).json({ error: 'Not found' });
+
+  let pick = null;
+  if (mvp.espn_game_id) {
+    pick = db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND LOWER(team) = LOWER(?) AND LOWER(pick_type) = LOWER(?) LIMIT 1`)
+      .get(mvp.espn_game_id, mvp.team, mvp.pick_type || '');
+  }
+  if (!pick) {
+    pick = db.prepare(`SELECT * FROM picks WHERE LOWER(team) = LOWER(?) AND LOWER(pick_type) = LOWER(?) AND game_date = ? LIMIT 1`)
+      .get(mvp.team, mvp.pick_type || '', mvp.game_date || '');
+  }
+  const messages  = pick ? db.prepare(`SELECT * FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, saved_at ASC`).all(pick.id) : [];
+  const breakdown = pick ? db.prepare(`SELECT * FROM score_breakdown WHERE pick_id = ? LIMIT 1`).get(pick.id) : null;
+  res.json({ mvp, pick, messages, breakdown });
+});
+
+// ── GET /admin/game-detail/:espn_game_id — full debug payload ─────────────────
+router.get('/game-detail/:espn_game_id', requireAuth, (req, res) => {
+  const { espn_game_id } = req.params;
+  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+  if (!game) return res.status(404).json({ error: 'Game not found' });
+
+  const picks   = db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC`).all(espn_game_id);
+  const pickIds = picks.map(p => p.id);
+
+  const rawMessages = {}, scoreBreakdowns = {}, cappers = {};
+  if (pickIds.length) {
+    const ph = pickIds.map(() => '?').join(',');
+    db.prepare(`SELECT * FROM raw_messages WHERE pick_id IN (${ph}) ORDER BY saved_at ASC`).all(...pickIds)
+      .forEach(m => { if (!rawMessages[m.pick_id]) rawMessages[m.pick_id] = []; rawMessages[m.pick_id].push(m); });
+    db.prepare(`SELECT * FROM score_breakdown WHERE pick_id IN (${ph})`).all(...pickIds)
+      .forEach(bd => { scoreBreakdowns[bd.pick_id] = bd; });
+    db.prepare(`SELECT pick_id, author, channel, COUNT(*) AS count FROM raw_messages WHERE pick_id IN (${ph}) AND author IS NOT NULL GROUP BY pick_id, author, channel`).all(...pickIds)
+      .forEach(r => { if (!cappers[r.pick_id]) cappers[r.pick_id] = []; cappers[r.pick_id].push({ author: r.author, channel: r.channel, count: r.count }); });
+  }
+  res.json({ game, picks, rawMessages, scoreBreakdowns, cappers });
+});
+
+// ── GET /admin/codes → redirect ───────────────────────────────────────────────
+router.get('/codes', requireAuth, (_req, res) => res.redirect('/admin/dashboard?tab=codes'));
+
+// ── POST /admin/generate-code ─────────────────────────────────────────────────
+router.post('/generate-code', requireAuth, express.urlencoded({ extended: false }), (req, res) => {
+  const { type, notes } = req.body;
+  const validTypes = ['day', 'week', 'annual', 'perma'];
+  if (!validTypes.includes(type)) return res.status(400).send('Invalid code type.');
+  const code = (req.body.code || '').trim().toUpperCase() || crypto.randomBytes(5).toString('hex').toUpperCase();
+  try {
+    db.prepare(`INSERT INTO access_codes (code, type, notes) VALUES (?, ?, ?)`).run(code, type, notes || null);
+  } catch (_) {
+    return res.status(409).send('Code already exists: ' + code);
+  }
+  res.redirect('/admin/dashboard?tab=codes');
+});
+
+// ── GET /admin/api/users — JSON for AJAX search ───────────────────────────────
+router.get('/api/users', requireAuth, (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ users: [], q });
+  const users = db.prepare(`
+    SELECT id, email, username, subscription_tier, subscription_expires, created_at
+    FROM users
+    WHERE LOWER(username) LIKE LOWER(?) OR LOWER(email) LIKE LOWER(?)
+    ORDER BY created_at DESC LIMIT 50
+  `).all(`%${q}%`, `%${q}%`);
+  res.json({ users, q });
+});
+
+// ── POST /admin/api/grant — JSON endpoint ────────────────────────────────────
+router.post('/api/grant', requireAuth, express.json(), (req, res) => {
+  const { user_id, tier } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+  let expires = null;
+  if (tier === 'day')    expires = new Date(Date.now() + 1   * 24 * 60 * 60 * 1000).toISOString();
+  if (tier === 'week')   expires = new Date(Date.now() + 7   * 24 * 60 * 60 * 1000).toISOString();
+  if (tier === 'annual') expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  const tierName = tier === 'lifetime' ? 'lifetime' : tier;
+  db.prepare(`UPDATE users SET subscription_tier = ?, subscription_expires = ? WHERE id = ?`).run(tierName, expires, user_id);
+  res.json({ success: true });
+});
+
+// ── POST /admin/api/revoke — JSON endpoint ───────────────────────────────────
+router.post('/api/revoke', requireAuth, express.json(), (req, res) => {
+  const { user_id } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: 'Missing user_id' });
+  db.prepare(`UPDATE users SET subscription_tier = 'free', subscription_expires = NULL WHERE id = ?`).run(user_id);
+  res.json({ success: true });
+});
+
+// ── GET /admin/users → redirect ───────────────────────────────────────────────
+router.get('/users', requireAuth, (_req, res) => res.redirect('/admin/dashboard?tab=users'));
+
+// ── POST /admin/grant-access — form fallback ─────────────────────────────────
+router.post('/grant-access', requireAuth, express.urlencoded({ extended: false }), (req, res) => {
+  const { user_id, tier } = req.body;
+  if (!user_id) return res.status(400).send('Missing user_id');
+  let expires = null;
+  if (tier === 'day')    expires = new Date(Date.now() + 1   * 24 * 60 * 60 * 1000).toISOString();
+  if (tier === 'week')   expires = new Date(Date.now() + 7   * 24 * 60 * 60 * 1000).toISOString();
+  if (tier === 'annual') expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(`UPDATE users SET subscription_tier = ?, subscription_expires = ? WHERE id = ?`)
+    .run(tier === 'lifetime' ? 'lifetime' : tier, expires, user_id);
+  res.redirect('/admin/dashboard?tab=users');
+});
+
+// ── POST /admin/revoke-access — form fallback ────────────────────────────────
+router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false }), (req, res) => {
+  const { user_id } = req.body;
+  if (!user_id) return res.status(400).send('Missing user_id');
+  db.prepare(`UPDATE users SET subscription_tier = 'free', subscription_expires = NULL WHERE id = ?`).run(user_id);
+  res.redirect('/admin/dashboard?tab=users');
+});
+
+// ── HTML escape helper ────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+module.exports = router;

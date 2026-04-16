@@ -2,4 +2,11 @@ node_modules/
 .env
 logs/
 *.log
-data/*.db
+data/
+
+# Dev/AI tooling — never commit these
+CLAUDE.md
+.claude/
+.mcp.json
+.swarm/
+.claude-flow/

@@ -140,17 +140,217 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN pod_mentions        INTEGER DEFAULT 
 try { db.exec(`DROP TABLE IF EXISTS cappers`); }                                       catch (_) {}
 try { db.exec(`DROP INDEX IF EXISTS idx_picks_capper`); }                 catch (_) {}
 try { db.exec(`ALTER TABLE raw_messages ADD COLUMN message_id TEXT`); }   catch (_) {}
-try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_msg_message_id ON raw_messages (message_id) WHERE message_id IS NOT NULL`); } catch (_) {}
+try { db.exec(`DROP INDEX IF EXISTS idx_raw_msg_message_id`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_msg_pick_message ON raw_messages (pick_id, message_id) WHERE message_id IS NOT NULL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN game_verified INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN espn_game_id TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN pending_review INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 try { db.exec(`ALTER TABLE bot_picks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
-// Clean duplicate raw_messages — keep earliest row per Discord message snowflake
+// Clean duplicate raw_messages — keep earliest row per (pick_id, message_id) pair
 try {
   db.exec(`
     DELETE FROM raw_messages
     WHERE message_id IS NOT NULL
-      AND id NOT IN (SELECT MIN(id) FROM raw_messages WHERE message_id IS NOT NULL GROUP BY message_id)
+      AND id NOT IN (SELECT MIN(id) FROM raw_messages WHERE message_id IS NOT NULL GROUP BY pick_id, message_id)
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mvp_picks (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      team          TEXT    NOT NULL,
+      sport         TEXT,
+      pick_type     TEXT,
+      spread        REAL,
+      original_line TEXT,
+      game_date     TEXT,
+      score         REAL,
+      result        TEXT    NOT NULL DEFAULT 'pending',
+      saved_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS line_snapshots (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id         TEXT    NOT NULL,
+      team            TEXT    NOT NULL,
+      original_ml     REAL,
+      original_spread REAL,
+      original_ou     REAL,
+      locked_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(game_id, team)
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS live_lines (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id        TEXT    NOT NULL,
+      current_ml     REAL,
+      current_spread REAL,
+      current_ou     REAL,
+      fetched_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(game_id)
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      email                TEXT    NOT NULL UNIQUE,
+      password_hash        TEXT    NOT NULL,
+      subscription_tier    TEXT    NOT NULL DEFAULT 'free',
+      subscription_expires TEXT,
+      created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS score_breakdown (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      pick_id         INTEGER NOT NULL,
+      channel_points  INTEGER NOT NULL DEFAULT 0,
+      sport_bonus     INTEGER NOT NULL DEFAULT 0,
+      home_bonus      INTEGER NOT NULL DEFAULT 0,
+      total           INTEGER NOT NULL DEFAULT 0,
+      breakdown_json  TEXT,
+      created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (pick_id) REFERENCES picks(id)
+    )
+  `);
+} catch (_) {}
+
+try { db.exec(`ALTER TABLE today_games ADD COLUMN first_inning_runs INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ml_home        REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ml_away        REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_home    REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_away    REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN over_under     REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN odds_updated_at TEXT`); } catch (_) {}
+
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN espn_game_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_score INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN away_score INTEGER`); } catch (_) {}
+// Backfill scores for any existing resolved mvp_picks from today_games
+try {
+  db.exec(`
+    UPDATE mvp_picks SET
+      home_score = (SELECT tg.home_score FROM today_games tg WHERE tg.espn_game_id = mvp_picks.espn_game_id),
+      away_score = (SELECT tg.away_score FROM today_games tg WHERE tg.espn_game_id = mvp_picks.espn_game_id)
+    WHERE result != 'pending' AND espn_game_id IS NOT NULL AND home_score IS NULL
+  `);
+} catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN result TEXT NOT NULL DEFAULT 'pending'`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN ml_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN annotation TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN ou_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_over_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN original_ml REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN original_ou REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN is_home_team INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_picks_slot ON picks (espn_game_id, team, pick_type) WHERE espn_game_id IS NOT NULL`); } catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skipped_messages (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id TEXT    NOT NULL UNIQUE,
+      channel    TEXT    NOT NULL,
+      author     TEXT,
+      content    TEXT    NOT NULL,
+      reason     TEXT,
+      skipped_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id         INTEGER NOT NULL PRIMARY KEY,
+      favorite_sports TEXT    NOT NULL DEFAULT '[]',
+      updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_lines (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id    TEXT    NOT NULL,
+      book            TEXT    NOT NULL,
+      ml_home         REAL,
+      ml_away         REAL,
+      spread_home     REAL,
+      spread_away     REAL,
+      over_under      REAL,
+      ou_over_odds    REAL,
+      ou_under_odds   REAL,
+      updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(espn_game_id, book)
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_votes (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      espn_game_id TEXT    NOT NULL,
+      pick_slot    TEXT    NOT NULL,
+      voted_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, espn_game_id, pick_slot),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+} catch (_) {}
+
+try { db.exec(`ALTER TABLE users ADD COLUMN username TEXT`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username) WHERE username IS NOT NULL`); } catch (_) {}
+try { db.exec(`ALTER TABLE users ADD COLUMN stripe_customer_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT`); } catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS access_codes (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      code         TEXT    NOT NULL UNIQUE,
+      type         TEXT    NOT NULL,
+      notes        TEXT,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      activated_by INTEGER,
+      activated_at TEXT,
+      expires_at   TEXT
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS api_usage (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      model                 TEXT    NOT NULL,
+      input_tokens          INTEGER NOT NULL DEFAULT 0,
+      output_tokens         INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+      estimated_cost_usd    REAL    NOT NULL DEFAULT 0,
+      created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
   `);
 } catch (_) {}
 
