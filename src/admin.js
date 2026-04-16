@@ -945,7 +945,9 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
 });
 
 // ── POST /admin/upload-db — one-time DB upload ───────────────────────────────
-router.post('/upload-db', requireAuth, (req, res) => {
+router.post('/upload-db', (req, res) => {
+  const pw = req.headers['x-admin-password'] || req.query.pw;
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
   const fs   = require('fs');
   const path = require('path');
   const dest = path.join(__dirname, '..', 'data', 'capper.db');
@@ -954,7 +956,7 @@ router.post('/upload-db', requireAuth, (req, res) => {
   req.on('end', () => {
     try {
       fs.writeFileSync(dest, Buffer.concat(chunks));
-      res.send('DB uploaded. Restart the service now.');
+      res.send('DB uploaded successfully. Restart the service now.');
     } catch (e) {
       res.status(500).send('Upload failed: ' + e.message);
     }
