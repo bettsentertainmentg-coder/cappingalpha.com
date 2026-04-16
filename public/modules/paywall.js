@@ -46,12 +46,9 @@ export async function resumePendingCheckout() {
 
 export function inlinePaywallHtml() {
   const loggedIn = !isViewer();
-  const loginRow = loggedIn
+  const accountRow = loggedIn
     ? ''
-    : `<div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a></div>`;
-  const freeNote = isViewer()
-    ? `<div class="paywall-code-link" style="margin-top:6px;"><a onclick="openSignup()">Sign up free</a> to vote on games and track your picks.</div>`
-    : '';
+    : `<div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a> &nbsp;&middot;&nbsp; <a onclick="openSignup()">Sign up free</a></div>`;
   return `
     <div class="inline-paywall-wrap" id="paywall-wrap">
       <div class="inline-paywall-fade"></div>
@@ -71,9 +68,8 @@ export function inlinePaywallHtml() {
             <div class="paywall-price-label">/year</div>
           </div>
         </div>
-        ${loginRow}
+        ${accountRow}
         <div class="paywall-code-link"><a onclick="openCodeEntry()">I have an access code</a></div>
-        ${freeNote}
       </div>
     </div>`;
 }
@@ -115,11 +111,11 @@ export function renderPaywallDefault() {
     <h3>Unlock All Ranked Plays</h3>
     <p>$1/day &middot; $4/week &middot; $75/year</p>
     <div class="inline-paywall-btns">
-      <button class="btn btn-gold" onclick="openSignup()">Day $1</button>
-      <button class="btn btn-primary" onclick="openSignup()">Week $4</button>
-      <button class="btn btn-primary" onclick="openSignup()">Annual $75</button>
+      <button class="btn btn-gold" onclick="startCheckout('day')">Day $1</button>
+      <button class="btn btn-primary" onclick="startCheckout('week')">Week $4</button>
+      <button class="btn btn-primary" onclick="startCheckout('year')">Annual $75</button>
     </div>
-    <div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a></div>
+    <div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a> &nbsp;·&nbsp; <a onclick="openSignup()">Sign up free</a></div>
     <div class="paywall-code-link"><a onclick="openCodeEntry()">I have an access code</a></div>`;
 }
 

@@ -54,24 +54,24 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     </div>`;
 
   const upgradePrompt = limited ? `
-    <div class="inline-paywall-card" style="margin-bottom:28px;max-width:420px;margin-left:auto;margin-right:auto;">
+    <div class="inline-paywall-card" style="margin-bottom:28px;">
       <h3>Follow Today's MVP Picks Live</h3>
-      <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">Today's games, live action, and P/L tracking are available to subscribers. If you're placing a bet, take a dollar to look it up first.</p>
+      <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">Today's games, live action, and full P/L tracking are available to subscribers.</p>
       <div class="paywall-pricing-row">
-        <div class="paywall-price-card" onclick="openSignup()">
+        <div class="paywall-price-card" onclick="startCheckout('day')">
           <div class="paywall-price">$1</div>
           <div class="paywall-price-label">Day</div>
         </div>
-        <div class="paywall-price-card paywall-price-featured" onclick="openSignup()">
+        <div class="paywall-price-card paywall-price-featured" onclick="startCheckout('week')">
           <div class="paywall-price">$4</div>
           <div class="paywall-price-label">/week</div>
         </div>
-        <div class="paywall-price-card" onclick="openSignup()">
+        <div class="paywall-price-card" onclick="startCheckout('year')">
           <div class="paywall-price">$75</div>
           <div class="paywall-price-label">/year</div>
         </div>
       </div>
-      <div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a></div>
+      <div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a> &nbsp;&middot;&nbsp; <a onclick="openSignup()">Sign up free</a></div>
     </div>` : '';
 
   container.innerHTML = `

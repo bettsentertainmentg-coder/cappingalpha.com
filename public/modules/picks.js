@@ -27,12 +27,13 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const el = document.getElementById(targetId);
 
   if (!picks || picks.length === 0) {
-    el.innerHTML = `
+    const emptyHtml = `
       <div class="empty">
         <div class="empty-icon">🕐</div>
         <h3>No picks yet today.</h3>
         <p>Check back after 6am ET once the scanner runs.</p>
       </div>`;
+    el.innerHTML = isPaying() ? emptyHtml : emptyHtml + inlinePaywallHtml();
     return;
   }
 
@@ -119,7 +120,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
           <div class="empty-icon">🕐</div>
           <h3>No picks yet today.</h3>
           <p>Check back after 6am ET once the scanner runs.</p>
-        </div>`;
+        </div>` + inlinePaywallHtml();
       return;
     }
 
