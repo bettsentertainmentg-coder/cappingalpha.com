@@ -944,25 +944,6 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
   res.redirect('/admin/dashboard?tab=users');
 });
 
-// ── POST /admin/upload-db — one-time DB upload ───────────────────────────────
-router.post('/upload-db', (req, res) => {
-  const pw = req.headers['x-admin-password'] || req.query.pw;
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
-  const fs   = require('fs');
-  const path = require('path');
-  const dest = path.join(__dirname, '..', 'data', 'capper.db');
-  const chunks = [];
-  req.on('data', c => chunks.push(c));
-  req.on('end', () => {
-    try {
-      fs.writeFileSync(dest, Buffer.concat(chunks));
-      res.send('DB uploaded successfully. Restart the service now.');
-    } catch (e) {
-      res.status(500).send('Upload failed: ' + e.message);
-    }
-  });
-});
-
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str)
