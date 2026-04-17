@@ -485,13 +485,17 @@ app.listen(PORT, () => {
 
 // ── Startup: restore today's games if empty (handles restarts mid-day) ────────
 // Does NOT call Odds API on restart — that runs on the 5am cron only.
+// Golf + tennis always refreshed on startup regardless of today_games state.
 (async () => {
+  // Always refresh golf tournaments and tennis matches on startup — these are
+  // cheap ESPN calls and must be current after any mid-day deploy/restart.
+  await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
+  await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
+
   const gameCount = db.prepare('SELECT COUNT(*) AS c FROM today_games').get().c;
   if (gameCount === 0) {
     console.log('[startup] today_games empty — fetching ESPN games and seeding slots...');
     await fetchTodaysGames().catch(err => console.error('[startup] fetchTodaysGames error:', err.message));
-    await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
-    await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
     const { seedPickSlots } = require('./src/lines');
     await seedPickSlots().catch(err => console.error('[startup] seedPickSlots error:', err.message));
   } else {
