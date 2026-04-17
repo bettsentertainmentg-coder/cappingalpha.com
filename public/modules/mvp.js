@@ -152,7 +152,7 @@ export function renderMvpRow(p, i, opts = {}) {
   const resultDisplay = opts.useLiveScore ? scoreDisplay(p) : mvpResultDisplay(p);
   const rankContent = opts.showStar ? (rank === 1 ? '★ ' : rank + ' ') : '';
   const isPush = p.result === 'push';
-  const isVoid = p.result === 'void';
+  const isVoid = p.result === 'void' || !!(p.annotation && p.annotation.includes('not counted'));
   const dimRow = isPush || isVoid;
 
   let pickCol;
@@ -230,7 +230,9 @@ export function drawPlGraph(picks) {
   const unit = parseFloat(document.getElementById('unit-size')?.value) || 20;
 
   const resolved = (picks || [])
-    .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push') && (p.score || 0) >= (state.CONFIG.mvp_threshold || 50))
+    .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
+      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 50)
+      && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 
   const plLabel = document.getElementById('pl-total');

@@ -24,6 +24,7 @@ function getAllTimeRecord() {
   const rows = db.prepare(`
     SELECT result, COUNT(*) as count FROM mvp_picks
     WHERE score >= 50 AND (result IS NULL OR result != 'void')
+      AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
     GROUP BY result
   `).all();
 
