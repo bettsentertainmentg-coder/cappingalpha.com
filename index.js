@@ -108,6 +108,15 @@ app.use('/admin', admin);
 app.use('/auth', auth);
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Sitemap — submitted to Google Search Console
+app.get('/sitemap.xml', (req, res) => {
+  res.type('application/xml');
+  res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://cappingalpha.com/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+</urlset>`);
+});
+
 // GET /api/config — scoring constants for the frontend
 // NOTE: channel_points intentionally excluded — exposes Discord channel names + weights
 app.get('/api/config', (req, res) => {
