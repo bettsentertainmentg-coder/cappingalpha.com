@@ -35,9 +35,9 @@ function playerAbbr(displayName) {
 }
 
 // ── Upsert a single tennis match into today_games ────────────────────────────
+// Accepts a competition object from ev.groupings[n].competitions[m].
 // Uses athlete.displayName instead of team.displayName (tennis has no teams).
-function upsertTennisMatch(ev, sportLabel) {
-  const comp = ev.competitions?.[0] || {};
+function upsertTennisMatch(comp, sportLabel) {
   const homeComp = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0] || {};
   const awayComp = comp.competitors?.find(c => c.homeAway === 'away') || comp.competitors?.[1] || {};
 
@@ -49,11 +49,17 @@ function upsertTennisMatch(ev, sportLabel) {
   const awayDisplay = awayAth.displayName || awayAth.fullName || awayComp.team?.displayName || null;
 
   if (!homeDisplay || !awayDisplay) {
-    console.warn(`[tennis_espn] Skipping match ${ev.id} — missing player names`);
+    console.warn(`[tennis_espn] Skipping match ${comp.id} — missing player names`);
     return;
   }
 
-  const state = ev.status?.type?.state || 'pre';
+  const state = comp.status?.type?.state || 'pre';
+  const scores = comp.competitors?.map(c => {
+    const sets = (c.linescores || []).reduce((sum, s) => sum + (Number(s.value) || 0), 0);
+    return { homeAway: c.homeAway, sets };
+  }) || [];
+  const homeScore = scores.find(s => s.homeAway === 'home')?.sets ?? 0;
+  const awayScore = scores.find(s => s.homeAway === 'away')?.sets ?? 0;
 
   db.prepare(`
     INSERT INTO today_games (
@@ -71,14 +77,14 @@ function upsertTennisMatch(ev, sportLabel) {
       away_score = excluded.away_score,
       fetched_at = excluded.fetched_at
   `).run(
-    ev.id,
+    comp.id,
     sportLabel,
     state,
-    ev.status?.period     || null,
-    ev.status?.displayClock || null,
-    ev.date               || null,
-    parseInt(homeComp.score || 0, 10),
-    parseInt(awayComp.score || 0, 10),
+    comp.status?.period                                   || null,
+    comp.status?.type?.shortDetail || comp.status?.displayClock || null,
+    comp.date || comp.startDate                           || null,
+    homeScore,
+    awayScore,
     homeDisplay,
     playerShortName(homeDisplay),
     playerShortName(homeDisplay),
@@ -90,6 +96,21 @@ function upsertTennisMatch(ev, sportLabel) {
   );
 }
 
+// ── Extract individual match competitions from a tournament event ─────────────
+// ATP/WTA scoreboard returns tournaments with matches nested in groupings.
+// Only singles groupings are returned (skip doubles).
+function extractMatches(tournamentEvent) {
+  const matches = [];
+  for (const g of (tournamentEvent.groupings || [])) {
+    const slug = (g.grouping?.slug || '').toLowerCase();
+    if (slug.includes('double')) continue; // skip doubles
+    for (const comp of (g.competitions || [])) {
+      matches.push(comp);
+    }
+  }
+  return matches;
+}
+
 // ── Fetch today's ATP + WTA matches, upsert into today_games ─────────────────
 async function fetchTodaysTennisMatches() {
   const dateStr = getCycleDate().replace(/-/g, ''); // YYYYMMDD
@@ -99,9 +120,11 @@ async function fetchTodaysTennisMatches() {
     try {
       const events = await fetchScoreboardForDate(path, dateStr);
       let count = 0;
-      for (const ev of events) {
-        upsertTennisMatch(ev, label);
-        count++;
+      for (const tournament of events) {
+        for (const comp of extractMatches(tournament)) {
+          upsertTennisMatch(comp, label);
+          count++;
+        }
       }
       if (count > 0) {
         console.log(`[tennis_espn] today_games: ${count} ${label} matches upserted`);
@@ -137,9 +160,11 @@ async function updateTennisLiveScores() {
   for (const { path, label } of TENNIS_SPORTS) {
     try {
       const events = await fetchScoreboardForDate(path, dateStr);
-      for (const ev of events) {
-        if (!topGames.includes(ev.id)) continue;
-        upsertTennisMatch(ev, label);
+      for (const tournament of events) {
+        for (const comp of extractMatches(tournament)) {
+          if (!topGames.includes(comp.id)) continue;
+          upsertTennisMatch(comp, label);
+        }
       }
     } catch (err) {
       console.warn(`[tennis_espn] updateTennisLiveScores(${label}) error:`, err.message);
