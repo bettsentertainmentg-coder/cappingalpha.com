@@ -40,6 +40,13 @@ export function updateNavAuth() {
     userInfo.style.display  = '';
     userInfo.textContent    = state.currentUser.email;
     if (tabAccount) tabAccount.style.display = '';
+    // Identify user in PostHog so sessions are linked to accounts
+    if (window.posthog) {
+      posthog.identify(String(state.currentUser.id), {
+        email: state.currentUser.email,
+        tier:  state.currentUser.tier,
+      });
+    }
   } else {
     btnLogin.style.display  = '';
     btnSignup.style.display = '';
