@@ -58,7 +58,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const rankInner = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
     const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
       ${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}
-      <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '' : scoreContent}</span>
+      <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '—' : scoreContent}</span>
     </td>`;
 
     return `

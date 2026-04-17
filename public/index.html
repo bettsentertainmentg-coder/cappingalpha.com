@@ -53,7 +53,7 @@
 
     /* ── Logo-as-tab ── */
     .logo {
-      font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+      font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
       cursor: pointer; user-select: none; display: flex; align-items: center;
       border-bottom: 2px solid transparent; transition: border-color 0.15s;
       padding: 0; white-space: nowrap;
@@ -246,15 +246,17 @@
     @media (max-width: 768px) { .sports-layout { grid-template-columns: 1fr; } }
 
     .sport-filter-row { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; }
+    .sport-filter-scroll { display: flex; gap: 8px; flex: 1; overflow-x: auto; scrollbar-width: none; align-items: center; }
+    .sport-filter-scroll::-webkit-scrollbar { display: none; }
     .sport-tab-btn {
       background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
       font-family: inherit; font-size: 13px; font-weight: 700; padding: 6px 16px;
-      border-radius: 20px; cursor: pointer; transition: all 0.15s;
+      border-radius: 20px; cursor: pointer; transition: all 0.15s; white-space: nowrap; flex-shrink: 0;
     }
     .sport-tab-btn:hover { color: var(--text); border-color: var(--accent); }
     .sport-tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-    .game-search-wrap { position: relative; margin-left: auto; }
+    .game-search-wrap { position: relative; flex-shrink: 0; }
     .game-search-inner { position: relative; display: flex; align-items: center; }
     .game-search-icon { position: absolute; left: 11px; color: var(--muted); pointer-events: none; line-height: 0; }
     .game-search-input {
@@ -280,7 +282,7 @@
     .game-search-item:hover, .game-search-item.focused { background: var(--surface2); }
     .game-search-matchup { font-weight: 600; flex: 1; }
     .game-search-meta { color: var(--muted); font-size: 12px; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
-    @media (max-width: 600px) { .game-search-input { width: 160px; } .game-search-dropdown { min-width: 260px; right: 0; left: auto; } }
+    @media (max-width: 640px) { .game-search-input { width: 130px; } .game-search-dropdown { min-width: 260px; left: 0; right: auto; } }
 
     .schedule-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
     .schedule-list { padding: 8px 0; }
@@ -607,6 +609,38 @@
     .voted-pick-score   { flex: 0 0 56px; text-align: right; font-weight: 700; }
     .voted-pick-result  { flex: 0 0 56px; text-align: right; font-size: 13px; font-weight: 700; }
 
+    /* ── MVP tab hero heading ── */
+    .mvp-tab-hero { padding: 0 0 28px; }
+    .mvp-tab-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--gold);
+      background: rgba(255,215,0,0.08); border: 1px solid rgba(255,215,0,0.2);
+      border-radius: 20px; padding: 3px 12px; margin-bottom: 10px;
+    }
+    .mvp-tab-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .mvp-tab-desc { color: var(--muted); font-size: 14px; max-width: 540px; line-height: 1.65; }
+
+    /* ── Access status card ── */
+    .access-status-card {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 16px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--surface2);
+    }
+    .access-status-paid { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
+    .access-status-code { border-color: rgba(255,215,0,0.35); background: rgba(255,215,0,0.06); }
+    .access-status-code.urgent { border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.06); }
+    .access-status-icon {
+      width: 40px; height: 40px; border-radius: 50%; background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 700; flex-shrink: 0;
+    }
+    .access-status-paid .access-status-icon { color: var(--green); }
+    .access-status-code .access-status-icon { color: var(--gold); font-size: 22px; }
+    .access-status-code.urgent .access-status-icon { color: var(--red); }
+    .access-status-label { font-size: 13px; font-weight: 700; }
+    .access-status-val { font-size: 13px; color: var(--muted); margin-top: 2px; font-weight: 600; }
+    .access-status-expires { font-size: 11px; color: var(--muted); margin-top: 2px; opacity: 0.7; }
+
     @media (max-width: 640px) {
       .hero h1 { font-size: 24px; }
       td, th { padding: 10px 10px; font-size: 13px; }
@@ -622,24 +656,47 @@
         min-width: 0;
         overflow-x: auto;
         scrollbar-width: none;
-        gap: 16px;
+        gap: 0;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 0 10px;
       }
       .nav-tabs::-webkit-scrollbar { display: none; }
-      .nav-tabs .tab-btn { font-size: 13px; padding: 0; }
+      .nav-tabs .tab-btn {
+        font-size: 12px;
+        padding: 0 10px;
+        height: 100%;
+        border-bottom: none;
+        border-right: 1px solid var(--border);
+      }
+      .nav-tabs .tab-btn:last-child { border-right: none; }
+      .nav-tabs .tab-btn.active { color: var(--accent); border-bottom: none; }
       .nav-actions { gap: 6px; flex-shrink: 0; }
       .nav-actions .btn { padding: 5px 10px; font-size: 12px; }
 
-      /* ── Mobile picks table: merge rank + score ── */
+      /* ── Mobile picks table: merged rank + score circle ── */
       .score-col { display: none; }
       .rank-score-mobile {
-        display: block;
-        font-size: 10px;
-        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        font-size: 9px;
+        font-weight: 700;
         color: var(--muted);
+        margin-top: 4px;
         line-height: 1;
-        margin-top: 3px;
       }
-      .rank-1 .rank-score-mobile { color: var(--gold); }
+      .rank-1 .rank-score-mobile {
+        color: var(--gold);
+        border-color: rgba(255,215,0,0.3);
+        background: rgba(255,215,0,0.08);
+      }
     }
   </style>
 </head>
@@ -717,18 +774,22 @@
     </div>
     <div class="container">
       <div class="sport-filter-row">
-        <button class="sport-tab-btn active" data-sport="MLB" onclick="setSport('MLB')">MLB</button>
-        <button class="sport-tab-btn" data-sport="NBA" onclick="setSport('NBA')">NBA</button>
-        <button class="sport-tab-btn" data-sport="NHL" onclick="setSport('NHL')">NHL</button>
-        <button class="sport-tab-btn" data-sport="Tennis" onclick="setSport('Tennis')">Tennis</button>
+        <!-- Search: fixed left anchor, like the nav logo -->
         <div class="game-search-wrap">
           <div class="game-search-inner">
             <span class="game-search-icon">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>
             </span>
-            <input id="game-search-input" class="game-search-input" type="text" placeholder="Search your game..." autocomplete="off" />
+            <input id="game-search-input" class="game-search-input" type="text" placeholder="Search game..." autocomplete="off" />
           </div>
           <div id="game-search-dropdown" class="game-search-dropdown"></div>
+        </div>
+        <!-- Sport buttons: scrollable -->
+        <div class="sport-filter-scroll">
+          <button class="sport-tab-btn active" data-sport="MLB" onclick="setSport('MLB')">MLB</button>
+          <button class="sport-tab-btn" data-sport="NBA" onclick="setSport('NBA')">NBA</button>
+          <button class="sport-tab-btn" data-sport="NHL" onclick="setSport('NHL')">NHL</button>
+          <button class="sport-tab-btn" data-sport="Tennis" onclick="setSport('Tennis')">Tennis</button>
         </div>
       </div>
       <div class="sports-layout">

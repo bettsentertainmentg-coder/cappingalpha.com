@@ -165,6 +165,72 @@ export async function saveFavSports() {
   } catch (_) {}
 }
 
+// ── Access status card — shown instead of code entry if already has access ──
+function accessStatusWidget(user) {
+  const tier = user.subscription_tier;
+
+  if (tier === 'paid') {
+    const exp = user.subscription_expires ? new Date(user.subscription_expires) : null;
+    const expStr = exp
+      ? exp.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : 'Active';
+    return `
+      <div class="access-status-card access-status-paid">
+        <div class="access-status-icon">✓</div>
+        <div>
+          <div class="access-status-label">Active Subscription</div>
+          <div class="access-status-val">Renews ${expStr}</div>
+        </div>
+      </div>`;
+  }
+
+  if (tier === 'code') {
+    const expires = user.subscription_expires;
+    if (!expires) {
+      return `
+        <div class="access-status-card access-status-code">
+          <div class="access-status-icon">∞</div>
+          <div>
+            <div class="access-status-label">Lifetime Access</div>
+            <div class="access-status-val" style="color:var(--gold);">∞ Never expires</div>
+          </div>
+        </div>`;
+    }
+    const expDate = new Date(expires);
+    const msLeft  = expDate - Date.now();
+    const hrs     = Math.max(0, Math.floor(msLeft / 3_600_000));
+    const mins    = Math.max(0, Math.floor((msLeft % 3_600_000) / 60_000));
+    const days    = Math.floor(hrs / 24);
+    const isExpired = msLeft <= 0;
+    const isUrgent  = !isExpired && hrs < 24;
+    const timeStr   = isExpired ? 'Expired'
+      : isUrgent ? `${hrs}h ${mins}m remaining`
+      : `${days} day${days !== 1 ? 's' : ''} remaining`;
+    const cls = isExpired || isUrgent ? ' urgent' : '';
+    const expFmt = expDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `
+      <div class="access-status-card access-status-code${cls}">
+        <div class="access-status-icon">⏱</div>
+        <div>
+          <div class="access-status-label">Access Code Active</div>
+          <div class="access-status-val">${timeStr}</div>
+          <div class="access-status-expires">Expires ${expFmt}</div>
+        </div>
+      </div>`;
+  }
+
+  // Free user — show code entry form
+  return `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Have a promo code? Enter it below to unlock access.</div>
+    <div style="display:flex;gap:8px;">
+      <input type="text" id="account-code-input" placeholder="Enter code" autocomplete="off"
+             style="flex:1;font-size:13px;"
+             onkeydown="if(event.key==='Enter')doRedeemCode('account-code-input','account-code-error')" />
+      <button class="btn btn-gold" style="font-size:13px;padding:8px 14px;" onclick="doRedeemCode('account-code-input','account-code-error')">Redeem</button>
+    </div>
+    <div class="form-error" id="account-code-error" style="margin-top:8px;font-size:12px;"></div>`;
+}
+
 function renderAccount(data) {
   const el = document.getElementById('account-content');
   const { user, favoriteSports, votes, allPicks } = data;
@@ -172,10 +238,6 @@ function renderAccount(data) {
   const tierLabel = user.subscription_tier === 'free'
     ? `<span class="tier-badge tier-free">Free</span>`
     : `<span class="tier-badge tier-paid">${user.subscription_tier}</span>`;
-
-  const expiresRow = user.subscription_expires
-    ? `<div class="account-info-row"><span class="account-info-label">Access expires</span><span class="account-info-val">${new Date(user.subscription_expires).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span></div>`
-    : '';
 
   const memberSince = user.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -284,7 +346,6 @@ function renderAccount(data) {
               <span class="account-info-label">Plan</span>
               <span class="account-info-val">${tierLabel}</span>
             </div>
-            ${expiresRow}
             <div class="account-info-row">
               <span class="account-info-label">Member since</span>
               <span class="account-info-val">${memberSince}</span>
@@ -293,16 +354,11 @@ function renderAccount(data) {
         </div>
 
         <div class="card" style="margin-bottom:20px;">
-          <div class="card-header"><span class="card-title">Access Code</span></div>
+          <div class="card-header">
+            <span class="card-title">${user.subscription_tier === 'free' ? 'Access Code' : 'Access Status'}</span>
+          </div>
           <div style="padding:14px 20px 18px;">
-            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Have a code? Enter it below to unlock access.</div>
-            <div style="display:flex;gap:8px;">
-              <input type="text" id="account-code-input" placeholder="Enter code" autocomplete="off"
-                     style="flex:1;font-size:13px;"
-                     onkeydown="if(event.key==='Enter')doRedeemCode('account-code-input','account-code-error')" />
-              <button class="btn btn-gold" style="font-size:13px;padding:8px 14px;" onclick="doRedeemCode('account-code-input','account-code-error')">Redeem</button>
-            </div>
-            <div class="form-error" id="account-code-error" style="margin-top:8px;font-size:12px;"></div>
+            ${accessStatusWidget(user)}
           </div>
         </div>
 
