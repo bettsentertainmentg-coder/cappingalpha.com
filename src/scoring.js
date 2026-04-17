@@ -19,10 +19,10 @@ const CHANNEL_POINTS = {
   'community-leaks':  10,
 };
 
-const SPORT_BONUS_SPORTS = new Set(['NBA', 'CBB', 'MLB', 'NFL', 'NCAAF', 'NHL', 'ATP', 'WTA']);
+const SPORT_BONUS_SPORTS = new Set(['NBA', 'CBB', 'MLB', 'NFL', 'NCAAF', 'NHL', 'ATP', 'WTA', 'Golf']);
 
-// Tennis has no home-court advantage in betting — suppress home bonus for these sports
-const NO_HOME_BONUS_SPORTS = new Set(['ATP', 'WTA']);
+// Tennis + golf have no home-court/course advantage in betting — suppress home bonus
+const NO_HOME_BONUS_SPORTS = new Set(['ATP', 'WTA', 'Golf']);
 
 function scorePick(pick) {
   const mentions = pick.mentions ?? [pick];

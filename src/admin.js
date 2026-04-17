@@ -365,6 +365,126 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <p style="color:#8892a4;font-size:12px;margin-top:4px;">Lifetime: ${usageLifetime.calls || 0} calls · ${fmtCost(usageLifetime.cost)} total</p>
   `;
 
+  // ── Cappers panel data ────────────────────────────────────────────────────────
+  const allCapperPicks = db.prepare(`
+    SELECT capper_name, sport, result
+    FROM picks
+    WHERE capper_name IS NOT NULL AND capper_name != '' AND result IS NOT NULL
+  `).all();
+
+  // Also include golf picks
+  let golfCapperPicks = [];
+  try {
+    golfCapperPicks = db.prepare(`
+      SELECT capper_name, 'Golf' as sport, result
+      FROM golf_picks
+      WHERE capper_name IS NOT NULL AND capper_name != '' AND result IS NOT NULL
+    `).all();
+  } catch (_) {}
+
+  const allAliases = (() => {
+    try { return db.prepare(`SELECT * FROM capper_aliases ORDER BY canonical_name`).all(); }
+    catch (_) { return []; }
+  })();
+
+  // Build alias lookup: normalized alias → canonical name
+  const aliasMap = new Map();
+  for (const a of allAliases) {
+    aliasMap.set((a.alias || '').toLowerCase().replace(/[^a-z0-9]/g, ''), a.canonical_name);
+  }
+  function resolveCapperDisplay(name) {
+    if (!name) return name;
+    const norm = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return aliasMap.get(norm) || name;
+  }
+
+  // Aggregate per capper
+  const capperMap = new Map();
+  for (const row of [...allCapperPicks, ...golfCapperPicks]) {
+    if (!row.capper_name) continue;
+    const display = resolveCapperDisplay(row.capper_name);
+    if (!capperMap.has(display)) capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, sports: {} });
+    const c = capperMap.get(display);
+    const r = (row.result || '').toLowerCase();
+    if (r === 'win')    c.wins++;
+    else if (r === 'loss')  c.losses++;
+    else if (r === 'push')  c.pushes++;
+    else                    c.pending++;
+    const s = row.sport || 'Unknown';
+    c.sports[s] = (c.sports[s] || 0) + 1;
+  }
+
+  // Sort: most total resolved picks first, then by win%
+  const sortedCappers = [...capperMap.entries()]
+    .map(([name, c]) => {
+      const total = c.wins + c.losses + c.pushes;
+      const winPct = total > 0 ? Math.round((c.wins / total) * 100) : null;
+      // Sort sports by volume
+      const sortedSports = Object.entries(c.sports).sort((a, b) => b[1] - a[1]);
+      return { name, ...c, total, winPct, sortedSports };
+    })
+    .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
+
+  const capperLeaderboardHtml = sortedCappers.length ? `
+    <table>
+      <thead><tr><th>#</th><th>Capper</th><th>W</th><th>L</th><th>Push</th><th>Win%</th><th>Pending</th><th>Top Sports</th></tr></thead>
+      <tbody>${sortedCappers.map((c, i) => {
+        const wpColor = c.winPct === null ? '#8892a4' : c.winPct >= 55 ? '#16a34a' : c.winPct >= 50 ? '#f59e0b' : '#ef4444';
+        const sportTags = c.sortedSports.slice(0, 3).map(([s, n]) =>
+          `<span class="badge" style="background:rgba(59,130,246,0.12);color:#3b82f6;border:1px solid rgba(59,130,246,0.2);margin-right:3px;">${s} <span style="opacity:.7;">${n}</span></span>`
+        ).join('');
+        return `<tr>
+          <td style="color:#8892a4;font-size:12px;">${i + 1}</td>
+          <td style="font-weight:600;">${c.name}</td>
+          <td style="color:#16a34a;font-weight:700;">${c.wins}</td>
+          <td style="color:#ef4444;font-weight:700;">${c.losses}</td>
+          <td style="color:#8892a4;">${c.pushes}</td>
+          <td style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
+          <td style="color:#8892a4;font-size:12px;">${c.pending || 0}</td>
+          <td>${sportTags}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : `<p class="empty">No capper picks with resolved results yet.</p>`;
+
+  // Duplicate alerts: today's picks where 2+ distinct cappers called same slot
+  const dupAlerts = (() => {
+    try {
+      return db.prepare(`
+        SELECT espn_game_id, team, pick_type, sport,
+               GROUP_CONCAT(DISTINCT capper_name) as cappers,
+               COUNT(DISTINCT capper_name) as capper_count
+        FROM picks
+        WHERE capper_name IS NOT NULL AND date(parsed_at) = date('now') AND espn_game_id IS NOT NULL
+        GROUP BY espn_game_id, team, pick_type
+        HAVING capper_count >= 2
+        ORDER BY capper_count DESC
+      `).all();
+    } catch (_) { return []; }
+  })();
+
+  const dupAlertsHtml = dupAlerts.length ? `
+    <table>
+      <thead><tr><th>Team</th><th>Type</th><th>Sport</th><th>Cappers</th><th>Count</th></tr></thead>
+      <tbody>${dupAlerts.map(d => `<tr>
+        <td style="font-weight:600;">${d.team}</td>
+        <td>${d.pick_type || '—'}</td>
+        <td>${d.sport || '—'}</td>
+        <td style="font-size:12px;color:#8892a4;">${d.cappers}</td>
+        <td style="font-weight:700;color:#f59e0b;">${d.capper_count}</td>
+      </tr>`).join('')}</tbody>
+    </table>` : `<p class="empty">No duplicate capper picks today.</p>`;
+
+  const aliasTableHtml = allAliases.length ? `
+    <table>
+      <thead><tr><th>Canonical Name</th><th>Alias</th><th>Created</th><th></th></tr></thead>
+      <tbody>${allAliases.map(a => `<tr>
+        <td style="font-weight:600;">${a.canonical_name}</td>
+        <td style="color:#8892a4;">${a.alias}</td>
+        <td style="color:#8892a4;font-size:12px;">${(a.created_at || '').slice(0, 10)}</td>
+        <td><button class="btn-sm btn-revoke" onclick="deleteAlias(${a.id})">Delete</button></td>
+      </tr>`).join('')}</tbody>
+    </table>` : `<p class="empty" style="font-size:13px;">No aliases defined yet.</p>`;
+
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
 
@@ -379,6 +499,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
       <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
+      <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
 
@@ -483,6 +604,34 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <!-- AI USAGE PANEL -->
     <div class="apanel${ta('usage')}" id="panel-usage">
       ${usagePanelHtml}
+    </div>
+
+    <!-- CAPPERS PANEL -->
+    <div class="apanel${ta('cappers')}" id="panel-cappers">
+      <h1>Capper Leaderboard</h1>
+
+      <h2>All-Time Record (resolved picks only)</h2>
+      ${capperLeaderboardHtml}
+
+      <h2 style="margin-top:28px;">Today's Duplicate Picks</h2>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Picks where 2+ different cappers called the exact same slot today.</p>
+      ${dupAlertsHtml}
+
+      <h2 style="margin-top:28px;">Alias Manager</h2>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Link variant capper handles to a canonical name for unified tracking.</p>
+      ${aliasTableHtml}
+      <div style="margin-top:16px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Canonical Name</label>
+          <input type="text" id="alias-canonical" placeholder="e.g. PorterPicks" style="width:200px;" />
+        </div>
+        <div>
+          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Alias (variant spelling)</label>
+          <input type="text" id="alias-alias" placeholder="e.g. Porter Picks" style="width:200px;" />
+        </div>
+        <button class="btn btn-primary" onclick="addAlias()">Add Alias</button>
+      </div>
+      <p id="alias-msg" style="font-size:13px;color:#8892a4;margin-top:8px;"></p>
     </div>
 
     <script>
@@ -794,12 +943,59 @@ router.get('/dashboard', requireAuth, (req, res) => {
         applyFilters();
       }
       applyFilters();
+
+      // ── Cappers panel ──────────────────────────────────────────────────────────
+      async function addAlias() {
+        const canonical = document.getElementById('alias-canonical').value.trim();
+        const alias     = document.getElementById('alias-alias').value.trim();
+        const msg       = document.getElementById('alias-msg');
+        if (!canonical || !alias) { msg.textContent = 'Both fields are required.'; msg.style.color = '#ef4444'; return; }
+        const res  = await fetch('/admin/capper-alias', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical, alias }) });
+        const data = await res.json();
+        if (data.ok) {
+          msg.textContent = 'Alias added. Reload the page to see updated leaderboard.';
+          msg.style.color = '#16a34a';
+          document.getElementById('alias-canonical').value = '';
+          document.getElementById('alias-alias').value = '';
+        } else {
+          msg.textContent = 'Error: ' + (data.error || 'Unknown error');
+          msg.style.color = '#ef4444';
+        }
+      }
+      async function deleteAlias(id) {
+        if (!confirm('Delete this alias?')) return;
+        await fetch('/admin/capper-alias/' + id, { method: 'DELETE' });
+        location.reload();
+      }
     </script>
     <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
   `));
 });
 
 // ── POST /admin/nuke ──────────────────────────────────────────────────────────
+// ── POST /admin/capper-alias ──────────────────────────────────────────────────
+router.post('/capper-alias', requireAuth, express.json(), (req, res) => {
+  const { canonical, alias } = req.body || {};
+  if (!canonical || !alias) return res.json({ ok: false, error: 'Both canonical and alias are required' });
+  try {
+    db.prepare(`INSERT OR REPLACE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`)
+      .run(canonical.trim(), alias.trim());
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// ── DELETE /admin/capper-alias/:id ───────────────────────────────────────────
+router.delete('/capper-alias/:id', requireAuth, (req, res) => {
+  try {
+    db.prepare(`DELETE FROM capper_aliases WHERE id = ?`).run(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/nuke', requireAuth, async (_req, res) => {
   for (const table of NUKE_TABLES) {
     db.prepare(`DELETE FROM ${table}`).run();

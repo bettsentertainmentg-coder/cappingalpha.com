@@ -354,4 +354,79 @@ try {
   `);
 } catch (_) {}
 
+// ── Golf tables (never wiped — tournaments last multiple days) ────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS golf_tournaments (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_tournament_id   TEXT NOT NULL UNIQUE,
+      name                 TEXT NOT NULL,
+      course               TEXT,
+      city                 TEXT,
+      state                TEXT,
+      start_date           TEXT,
+      end_date             TEXT,
+      status               TEXT NOT NULL DEFAULT 'pre',
+      current_round        INTEGER DEFAULT 1,
+      leaderboard_json     TEXT,
+      updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS golf_picks (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_tournament_id   TEXT NOT NULL,
+      capper_name          TEXT,
+      player_name          TEXT NOT NULL,
+      vs_player            TEXT,
+      pick_type            TEXT NOT NULL,
+      spread_value         REAL,
+      sport_record         TEXT,
+      channel              TEXT,
+      score                REAL NOT NULL DEFAULT 0,
+      mention_count        INTEGER NOT NULL DEFAULT 1,
+      score_breakdown      TEXT,
+      result               TEXT NOT NULL DEFAULT 'pending',
+      game_date            TEXT,
+      parsed_at            TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS raw_messages_golf (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      golf_pick_id      INTEGER NOT NULL,
+      channel           TEXT,
+      message_text      TEXT,
+      author            TEXT,
+      message_timestamp TEXT,
+      message_id        TEXT,
+      saved_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (golf_pick_id) REFERENCES golf_picks(id)
+    )
+  `);
+} catch (_) {}
+
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_golf_pick_msg ON raw_messages_golf (golf_pick_id, message_id) WHERE message_id IS NOT NULL`); } catch (_) {}
+
+// ── Capper aliases (fuzzy name normalization) ─────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_aliases (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name TEXT NOT NULL,
+      alias          TEXT NOT NULL UNIQUE,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_capper     ON picks      (capper_name)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_golf_picks_capper ON golf_picks (capper_name)`); } catch (_) {}
+
 module.exports = db;

@@ -31,13 +31,50 @@ export function setSport(sport) {
   loadSchedule(sport);
 }
 
-// Tennis combines ATP + WTA picks; all other sports filter by label directly.
+// Tennis combines ATP + WTA picks; Golf uses separate golf_picks table; others filter directly.
 // globalRankMap ensures free users only see the true #1 overall pick, not the #1 per sport.
 export function renderSportPicks(sport) {
+  if (sport === 'Golf') {
+    renderGolfPicks();
+    return;
+  }
   const labels = sport === 'Tennis' ? ['ATP', 'WTA'] : [sport.toUpperCase()];
   const filtered = state.allPicks.filter(p => labels.includes((p.sport || '').toUpperCase()));
   const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, i + 1]));
   renderPicks(filtered, 'sport-picks-body', globalRankMap);
+}
+
+// ── Golf picks section ────────────────────────────────────────────────────────
+async function renderGolfPicks() {
+  const el = document.getElementById('sport-picks-body');
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+  try {
+    const picks = await fetch('/api/golf/picks/all').then(r => r.json()).catch(() => []);
+    if (!picks || picks.length === 0) {
+      el.innerHTML = `<div class="empty"><div class="empty-icon">🕐</div><h3>No golf picks yet.</h3><p>Picks appear when a major tournament is active.</p></div>`;
+      return;
+    }
+    const pickTypeLabel = t => {
+      if (t === 'h2h')   return 'H2H';
+      if (t === 'top5')  return 'Top 5';
+      if (t === 'top10') return 'Top 10';
+      return t ? t.toUpperCase() : '—';
+    };
+    const rows = picks.map((p, i) => `
+      <tr style="cursor:pointer;" onclick="openGolfModal('${p.espn_tournament_id}')">
+        <td class="rank">${i + 1}</td>
+        <td class="matchup-cell">
+          <span style="font-weight:600;">${p.player_name}</span>${p.vs_player ? ` <span style="color:var(--muted);font-size:12px;">vs ${p.vs_player}</span>` : ''}
+          <br><span style="font-size:11px;color:var(--muted);">${p.tournament_name || 'Tournament'}</span>
+        </td>
+        <td><span class="sport-badge">Golf</span></td>
+        <td class="pick-cell" style="${p.result === 'win' ? 'color:#4ade80' : p.result === 'loss' ? 'color:#f87171' : ''}">${pickTypeLabel(p.pick_type)}</td>
+        <td class="score-col">${p.score ?? '—'}</td>
+      </tr>`).join('');
+    el.innerHTML = `<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Player</th><th>Sport</th><th>Pick</th><th class="score-col">Score</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  } catch (err) {
+    el.innerHTML = `<div class="empty"><p>Failed to load golf picks.</p></div>`;
+  }
 }
 
 // ── Build a schedule row HTML string ─────────────────────────────────────────
@@ -84,10 +121,49 @@ async function loadTennisSchedule() {
   el.innerHTML = renderSection('ATP', atpRows) + renderSection('WTA', wtaRows);
 }
 
+// ── Golf schedule: active major tournaments ───────────────────────────────────
+async function loadGolfSchedule() {
+  const el = document.getElementById('sport-schedule-body');
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+  try {
+    const tournaments = await fetch('/api/golf/tournaments').then(r => r.json()).catch(() => []);
+    if (!tournaments || tournaments.length === 0) {
+      el.innerHTML = `<div class="empty" style="padding:32px;"><p>No major tournaments active this week.</p></div>`;
+      return;
+    }
+    el.innerHTML = `<div class="schedule-list">${tournaments.map(golfTournamentRowHtml).join('')}</div>`;
+  } catch (_) {
+    el.innerHTML = `<div class="empty" style="padding:32px;"><p>Failed to load golf schedule.</p></div>`;
+  }
+}
+
+function golfTournamentRowHtml(t) {
+  let rightCol;
+  if (t.status === 'post') {
+    rightCol = `<span style="font-size:13px;color:var(--muted);">Final</span>`;
+  } else if (t.status === 'in') {
+    rightCol = `<span class="schedule-live"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 1s infinite;margin-right:5px;"></span>Round ${t.current_round || '?'} Live</span>`;
+  } else {
+    const dateStr = t.start_date ? new Date(t.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Upcoming';
+    rightCol = `<span class="schedule-time">${dateStr}</span>`;
+  }
+  const subtitle = [t.course, t.city].filter(Boolean).join(' · ');
+  return `<div class="schedule-row" style="cursor:pointer;" onclick="openGolfModal('${t.espn_tournament_id}')">
+    <span class="schedule-matchup">
+      <span style="font-weight:600;">${t.name}</span>
+      ${subtitle ? `<br><span style="font-size:11px;color:var(--muted);">${subtitle}</span>` : ''}
+    </span>
+    ${rightCol}
+  </div>`;
+}
+
 // ── Standard single-sport schedule ───────────────────────────────────────────
 export async function loadSchedule(sport) {
   if (sport === 'Tennis') {
     return loadTennisSchedule();
+  }
+  if (sport === 'Golf') {
+    return loadGolfSchedule();
   }
 
   const el = document.getElementById('sport-schedule-body');

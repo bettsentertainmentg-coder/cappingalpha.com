@@ -22,6 +22,7 @@ const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
 const { updateLiveScores, fetchTodaysGames } = require('./src/espn_live');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
+const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults }   = require('./src/results');
 const { getCycleDate }                                = require('./src/cycle');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
@@ -221,6 +222,61 @@ app.get('/api/games', (req, res) => {
   res.json(rows);
 });
 
+// ── Golf API routes ───────────────────────────────────────────────────────────
+// GET /api/golf/tournaments — list active (non-post) major tournaments
+app.get('/api/golf/tournaments', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT espn_tournament_id, name, course, city, state, start_date, end_date,
+             status, current_round, updated_at
+      FROM golf_tournaments
+      WHERE status != 'post'
+      ORDER BY start_date ASC
+    `).all();
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/golf/:tournamentId — full tournament detail: leaderboard + golf picks
+app.get('/api/golf/:tournamentId', (req, res) => {
+  try {
+    const tournament = db.prepare(`
+      SELECT * FROM golf_tournaments WHERE espn_tournament_id = ?
+    `).get(req.params.tournamentId);
+    if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
+
+    const picks = db.prepare(`
+      SELECT id, capper_name, player_name, vs_player, pick_type, spread_value,
+             channel, score, mention_count, result, game_date, parsed_at
+      FROM golf_picks
+      WHERE espn_tournament_id = ?
+      ORDER BY score DESC
+    `).all(req.params.tournamentId);
+
+    res.json({ tournament, picks });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/golf/picks/all — all golf picks across active tournaments (for sport tab)
+app.get('/api/golf/picks/all', (req, res) => {
+  try {
+    const picks = db.prepare(`
+      SELECT gp.*, gt.name as tournament_name, gt.course
+      FROM golf_picks gp
+      LEFT JOIN golf_tournaments gt ON gt.espn_tournament_id = gp.espn_tournament_id
+      WHERE gt.status != 'post' OR gt.status IS NULL
+      ORDER BY gp.score DESC
+    `).all();
+    res.json(picks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/account — current user's profile + preferences + today's voted picks
 app.get('/api/account', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
@@ -284,7 +340,7 @@ app.put('/api/account/preferences', (req, res) => {
   const userId = req.session.user.id;
   const { favorite_sports } = req.body || {};
 
-  const valid = ['MLB', 'NBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA'];
+  const valid = ['MLB', 'NBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
   const sports = Array.isArray(favorite_sports)
     ? favorite_sports.filter(s => valid.includes(s))
     : [];
@@ -435,6 +491,7 @@ app.listen(PORT, () => {
     console.log('[startup] today_games empty — fetching ESPN games and seeding slots...');
     await fetchTodaysGames().catch(err => console.error('[startup] fetchTodaysGames error:', err.message));
     await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
+    await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
     const { seedPickSlots } = require('./src/lines');
     await seedPickSlots().catch(err => console.error('[startup] seedPickSlots error:', err.message));
   } else {
@@ -466,6 +523,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   console.log('[cron] 5:00am — morning setup: ESPN + Odds + seed slots');
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
+  await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
@@ -493,5 +551,6 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   if (!isActiveHours()) return;
   await updateLiveScores().catch(err => console.error('[cron] updateLiveScores error:', err.message));
   await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
+  await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
 });

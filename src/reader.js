@@ -141,7 +141,7 @@ TEAM — return exactly as the capper wrote it. The system resolves it.
   If a city prefix precedes a full nickname ("CIN Reds" → "Reds"), drop the prefix.
   Do not change pluralization: "Thunders" → "Thunder". "Sox" stays "Sox".
 
-SPORT — one of: NBA, CBB, WCBB, NFL, NHL, MLB, NCAAF, ATP, WTA.
+SPORT — one of: NBA, CBB, WCBB, NFL, NHL, MLB, NCAAF, ATP, WTA, Golf.
   Determine from team names and context.
   WCBB only if message explicitly says "women" or "WNCAA".
   ATP = men's professional tennis. WTA = women's professional tennis.
@@ -173,10 +173,43 @@ PLAYER PROPS — skip entirely.
 
 IGNORE: emoji, reactions, "local book", context odds like "(+179)", parlay references, "NOT EXCLUSIVE".
 
+MONEYLINE ABBREVIATION "MI":
+  "MI" means moneyline. Treat identically to "ML".
+  "Suns MI" → Suns ML. "Lakers MI" → Lakers ML. "Thunder MI 2u" → Thunder ML.
+
+MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple cappers.
+  A capper header looks like: emoji + name + optional label.
+  "🔮PorterPicks Full Card Thursday" → capper_name=PorterPicks for all picks that follow, until the next capper header.
+  "🔮P4D_Picks4Dayzzz" alone on a line → capper_name=P4D_Picks4Dayzzz.
+  Emoji prefixes (🔮 ⚾ 🏀 🏒 🎾 💎 🔥 etc.) before a name are capper markers — strip the emoji, the text before any space or bracket is the capper handle.
+  "Full Card [Day]", "Today's Card", "Card for [Day]", "Full Card" after the name are section labels — ignore, not picks.
+  When a new emoji-prefixed capper line appears, switch capper_name for all picks that follow.
+  Extract ALL picks from the message, each labeled with their correct capper_name.
+
+EMBEDDED CARDS / TREND CARDS (TrendsCenter and similar bots):
+  These bots post embed cards with image attachments and a card title.
+  Ignore image attachments entirely. Ignore card titles like "Trends Center", "TrendsCenter Alert".
+  Extract the pick ONLY from the plain text description: e.g. "Trends heavily favor the [Team] to cover tonight" → team=[Team], pick type from context.
+  "Public money and sharp action on [Team] ML" → team=[Team], pick_type=ML.
+  If no clear pick can be identified from plain text alone, return is_pick=false — do not guess.
+
+GOLF (PGA Tour) — sport=Golf. "team" is the player's last name or full name as written.
+  Outright tournament winner: "DeChambeau ML" → team=DeChambeau, pick_type=ML, sport=Golf.
+  Head-to-head matchup: "Rory -115 over Scheffler" → team=McIlroy, pick_type=h2h, vs_player=Scheffler, sport=Golf.
+  "Rory over Scheffler" (no number) → team=McIlroy, pick_type=h2h, vs_player=Scheffler, sport=Golf.
+  Top N finish: "Scheffler top 5" → team=Scheffler, pick_type=top5, sport=Golf.
+               "Rory top 10" → team=McIlroy, pick_type=top10, sport=Golf.
+  Round score prop: "Rory under 67.5" → team=McIlroy, pick_type=under, spread_value=67.5, sport=Golf.
+  CRITICAL: "over" in a golf head-to-head ("Rory over Scheffler") means Rory wins the matchup — pick_type=h2h, NOT pick_type=over.
+  Only use pick_type=over/under for golf when a numeric score line is present (e.g. "under 67.5 strokes").
+  Golf player names are NOT capper names. Use pick context (odds, "over [opponent name]", "top N") to distinguish.
+  Do not infer sport=Golf from player names alone — there must be explicit golf context (tournament name, "Masters", "PGA", "top 5 finish", etc.).
+
 GAME MATCHING — When today's games are listed in the message, match each pick to a game.
   Team name is the primary signal. Spread value is a secondary hint only — lines move, so close is fine.
   Return espn_game_id and picked_side when confident. Omit both if the team isn't playing today or uncertain.
   "Yanks ML" → matches Yankees game → espn_game_id + picked_side=away or home depending on matchup.
+  Golf picks: do not attempt to match golf picks to today_games — omit espn_game_id for all Golf picks.
 `.trim();
 
 // ── Tool schema — Claude always returns this shape; no JSON parsing needed ────
@@ -194,10 +227,11 @@ const EXTRACT_TOOL = {
           properties: {
             is_pick:      { type: 'boolean', description: 'true if this is a valid pick' },
             team:         { type: 'string',  description: 'Team name or player name exactly as capper wrote it' },
-            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI'] },
+            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10'] },
             spread_value: { type: 'number',  description: 'The spread or total number (e.g. -1.5, 8.5). Omit for ML.' },
-            sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA'] },
+            sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
             capper_name:  { type: 'string',  description: "The capper's handle or name. Omit if not clear." },
+            vs_player:    { type: 'string',  description: 'Opponent player name for golf head-to-head (h2h) picks. Omit for non-golf or non-h2h picks.' },
             sport_record: { type: 'string',  description: 'Win-loss record string e.g. "27-21 CBB". Omit if not present.' },
             espn_game_id: { type: 'string',  description: "The id from today's games list if you matched this pick to a game. Omit if uncertain." },
             picked_side:  { type: 'string',  enum: ['home', 'away'], description: "Whether the picked team is home or away in the matched game. Include when espn_game_id is set." },
@@ -310,6 +344,7 @@ async function readMessage(msg) {
       spread_value: parsed.spread_value ?? null,
       espn_game_id: parsed.espn_game_id || null,
       picked_side:  parsed.picked_side  || null,
+      vs_player:    parsed.vs_player    || null,
       channel,
       capper_name:  parsed.capper_name  || null,
       is_pick:      true,

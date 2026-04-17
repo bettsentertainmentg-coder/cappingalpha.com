@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR } from './utils.js';
 import { doRedeemCode } from './paywall.js';
 
-const ALL_SPORTS = ['MLB', 'NBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA'];
+const ALL_SPORTS = ['MLB', 'NBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
 export async function loadAccount() {
   const el = document.getElementById('account-content');

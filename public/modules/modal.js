@@ -558,4 +558,83 @@ export async function voteOnSlot(espn_game_id, slot) {
   }
 }
 
-Object.assign(window, { openGameModal, closeGameModal, selectTickerSlot, voteOnSlot });
+// ── Golf tournament modal ─────────────────────────────────────────────────────
+async function openGolfModal(tournamentId) {
+  const modal   = document.getElementById('game-modal');
+  const content = document.getElementById('game-modal-content');
+  modal.classList.remove('hidden');
+  content.innerHTML = `<div style="padding:48px;text-align:center;color:var(--muted);">Loading tournament...</div>`;
+
+  try {
+    const data = await fetch(`/api/golf/${tournamentId}`).then(r => r.json());
+    const { tournament, picks } = data;
+    const lb = (() => { try { return JSON.parse(tournament.leaderboard_json || '[]'); } catch (_) { return []; } })();
+
+    const statusBadge = tournament.status === 'in'
+      ? `<span style="color:#4ade80;font-size:12px;font-weight:700;">● Round ${tournament.current_round} Live</span>`
+      : tournament.status === 'post'
+        ? `<span style="color:var(--muted);font-size:12px;">Final</span>`
+        : `<span style="color:var(--muted);font-size:12px;">Upcoming</span>`;
+
+    const leaderboardHtml = lb.length ? `
+      <div class="table-scroll" style="margin-bottom:16px;">
+        <table>
+          <thead><tr><th>#</th><th>Player</th><th>Score</th><th>Thru</th></tr></thead>
+          <tbody>
+            ${lb.slice(0, 50).map(p => `
+              <tr>
+                <td style="font-weight:700;color:var(--muted);font-size:12px;">${p.position}</td>
+                <td>${p.player?.fullName || '—'}</td>
+                <td style="font-weight:700;color:${String(p.score).startsWith('-') ? '#4ade80' : '#f87171'};">${p.score}</td>
+                <td style="color:var(--muted);font-size:12px;">${p.thru || '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : `<p style="color:var(--muted);padding:16px 0;">Leaderboard updates when tournament is live.</p>`;
+
+    const pickTypeLabel = t => {
+      if (t === 'h2h')   return 'H2H';
+      if (t === 'top5')  return 'Top 5';
+      if (t === 'top10') return 'Top 10';
+      return t ? t.toUpperCase() : '—';
+    };
+
+    const picksHtml = picks.length ? `
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 8px;">Capper Picks</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Rank</th><th>Player</th><th>Pick</th><th>Capper</th><th class="score-col">Score</th></tr></thead>
+          <tbody>
+            ${picks.map((p, i) => `
+              <tr>
+                <td class="rank">${i + 1}</td>
+                <td><strong>${p.player_name}</strong>${p.vs_player ? `<br><span style="font-size:11px;color:var(--muted);">vs ${p.vs_player}</span>` : ''}</td>
+                <td class="pick-cell" style="${p.result === 'win' ? 'color:#4ade80' : p.result === 'loss' ? 'color:#f87171' : ''}">${pickTypeLabel(p.pick_type)}</td>
+                <td style="color:var(--muted);font-size:12px;">${p.capper_name || '—'}</td>
+                <td class="score-col">${p.score ?? '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '';
+
+    const venue = [tournament.course, tournament.city, tournament.state].filter(Boolean).join(' · ');
+
+    content.innerHTML = `
+      <div class="modal-header" style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;">
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:700;">${tournament.name}</div>
+          ${venue ? `<div style="font-size:13px;color:var(--muted);margin-top:2px;">${venue}</div>` : ''}
+          <div style="margin-top:6px;">${statusBadge}</div>
+        </div>
+        <span class="sport-badge">Golf</span>
+      </div>
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;">Leaderboard</h3>
+      ${leaderboardHtml}
+      ${picksHtml}
+    `;
+  } catch (err) {
+    content.innerHTML = `<div style="padding:32px;color:var(--muted);text-align:center;">Failed to load tournament data.</div>`;
+  }
+}
+
+Object.assign(window, { openGameModal, openGolfModal, closeGameModal, selectTickerSlot, voteOnSlot });

@@ -6,6 +6,139 @@
 const db            = require('./db');
 const { scorePick } = require('./scoring');
 
+// ── Capper name normalization + alias resolution ──────────────────────────────
+function normalizeCapper(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveCapperName(raw) {
+  if (!raw) return raw;
+  const norm = normalizeCapper(raw);
+  try {
+    const alias = db.prepare(
+      `SELECT canonical_name FROM capper_aliases WHERE LOWER(REPLACE(REPLACE(REPLACE(alias,' ',''),'_',''),'-','')) = ? LIMIT 1`
+    ).get(norm);
+    return alias ? alias.canonical_name : raw;
+  } catch (_) {
+    return raw;
+  }
+}
+
+// ── Golf pick handler ─────────────────────────────────────────────────────────
+function saveGolfPick(pick) {
+  const { team, pick_type, vs_player, spread_value, channel, capper_name, sport_record, raw_message } = pick;
+  const resolvedCapper = resolveCapperName(capper_name);
+  const playerName = team; // team field holds player name for Golf
+
+  // Find which active tournament this player is in
+  let espnTournamentId = null;
+  try {
+    const tournaments = db.prepare(`SELECT * FROM golf_tournaments WHERE status != 'post'`).all();
+    for (const t of tournaments) {
+      const lb = JSON.parse(t.leaderboard_json || '[]');
+      const normPlayer = normalizeCapper(playerName);
+      const found = lb.some(entry => {
+        const fn = normalizeCapper(entry.player?.fullName || '');
+        const ln = normalizeCapper(entry.player?.lastName || '');
+        const sn = normalizeCapper(entry.player?.shortName || '');
+        return fn === normPlayer || ln === normPlayer || sn === normPlayer ||
+               fn.includes(normPlayer) || normPlayer.includes(ln);
+      });
+      if (found) { espnTournamentId = t.espn_tournament_id; break; }
+    }
+  } catch (err) {
+    console.warn('[storage] golf tournament lookup error:', err.message);
+  }
+
+  if (!espnTournamentId) {
+    console.log(`[storage] Golf pick for "${playerName}" — no active major found, storing without tournament`);
+    espnTournamentId = 'unknown';
+  }
+
+  // Dedup: same pick_type + player + tournament (same pick from different posters = update, not insert)
+  const existing = db.prepare(`
+    SELECT * FROM golf_picks
+    WHERE espn_tournament_id = ? AND LOWER(player_name) = LOWER(?) AND pick_type = ?
+    LIMIT 1
+  `).get(espnTournamentId, playerName, pick_type);
+
+  if (existing) {
+    // Check author+channel dedup for the raw message
+    if (raw_message?.author && channel) {
+      const authorSeen = db.prepare(
+        `SELECT id FROM raw_messages_golf WHERE golf_pick_id = ? AND channel = ? AND author = ?`
+      ).get(existing.id, channel, raw_message.author);
+      if (authorSeen) {
+        console.log(`[storage] Skipped golf re-post: ${raw_message.author} already counted`);
+        return existing.id;
+      }
+    }
+
+    // Score: reconstruct all prior mentions
+    const priorChannels = db.prepare(`SELECT channel FROM raw_messages_golf WHERE golf_pick_id = ?`).all(existing.id);
+    const mentions = [
+      ...priorChannels.map(m => ({ channel: m.channel, is_home_team: false, sport: 'Golf' })),
+      { channel, is_home_team: false, sport: 'Golf' },
+    ];
+    const scored = scorePick({ mentions });
+
+    db.prepare(`
+      UPDATE golf_picks SET
+        score         = ?,
+        mention_count = mention_count + 1,
+        score_breakdown = ?,
+        capper_name   = COALESCE(capper_name, ?)
+      WHERE id = ?
+    `).run(scored.total, JSON.stringify(scored.breakdown), resolvedCapper ?? null, existing.id);
+
+    saveRawMessageGolf(existing.id, pick);
+    return existing.id;
+  }
+
+  // New golf pick
+  const { scorePick } = require('./scoring');
+  const scored = scorePick({ mentions: [{ channel, is_home_team: false, sport: 'Golf' }] });
+
+  const result = db.prepare(`
+    INSERT INTO golf_picks
+      (espn_tournament_id, capper_name, player_name, vs_player, pick_type, spread_value,
+       sport_record, channel, score, score_breakdown, game_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, date('now'))
+  `).run(
+    espnTournamentId,
+    resolvedCapper   ?? null,
+    playerName,
+    vs_player        ?? null,
+    pick_type        ?? null,
+    spread_value     ?? null,
+    sport_record     ?? null,
+    channel          ?? null,
+    scored.total,
+    JSON.stringify(scored.breakdown),
+  );
+
+  saveRawMessageGolf(result.lastInsertRowid, pick);
+  console.log(`[storage] New golf pick: ${playerName} ${pick_type} (tournament=${espnTournamentId}, score=${scored.total})`);
+  return result.lastInsertRowid;
+}
+
+function saveRawMessageGolf(golf_pick_id, pick) {
+  const { channel, raw_message } = pick;
+  if (!raw_message) return;
+  db.prepare(`
+    INSERT OR IGNORE INTO raw_messages_golf
+      (golf_pick_id, channel, message_text, author, message_timestamp, message_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    golf_pick_id,
+    channel                 ?? null,
+    raw_message.content     ?? null,
+    raw_message.author      ?? null,
+    raw_message.createdAt ? new Date(raw_message.createdAt).toISOString() : null,
+    raw_message.id          ?? null,
+  );
+}
+
 // ── Normalize common input quirks before matching ────────────────────────────
 function normalizeTeam(raw) {
   return (raw || '')
@@ -102,6 +235,11 @@ function findSlot(pick, game) {
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 function savePick(pick) {
+  // Golf picks go to a separate table — never wiped, tournament-scoped
+  if ((pick.sport || '').toLowerCase() === 'golf') {
+    return saveGolfPick(pick);
+  }
+
   const { team, espn_game_id: aiGameId, picked_side } = pick;
 
   // 1. If Haiku identified the game directly, use it — no fuzzy matching needed
@@ -124,7 +262,8 @@ function savePick(pick) {
 
 // ── Update a pre-seeded slot with a new mention ───────────────────────────────
 function updateSlot(slot, pick) {
-  const { channel, capper_name, sport_record, raw_message } = pick;
+  const { channel, sport_record, raw_message } = pick;
+  const capper_name = resolveCapperName(pick.capper_name);
 
   // Skip if this exact Discord message was already counted for this slot
   if (raw_message?.id) {
@@ -210,9 +349,10 @@ function updateSlot(slot, pick) {
 function insertNewPick(pick) {
   const {
     team, sport, pick_type, spread_value, channel,
-    is_home_team, game_date, capper_name, sport_record,
+    is_home_team, game_date, sport_record,
     raw_message, espn_game_id = null,
   } = pick;
+  const capper_name = resolveCapperName(pick.capper_name);
 
   // Display line always comes from ESPN locked snapshot — never from Ollama
   const snapshot = espn_game_id ? db.prepare(`
