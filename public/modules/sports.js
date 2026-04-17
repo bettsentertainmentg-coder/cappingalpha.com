@@ -130,14 +130,137 @@ function emptyTennisCol(msg) {
   return `<div style="padding:10px 14px;color:var(--muted);font-size:12px;text-align:center;">${msg}</div>`;
 }
 
-// ── Tennis full-width layout (Mockup C) ───────────────────────────────────────
-async function loadTennisSchedule() {
-  // Switch to full-width mode — hide picks card, schedule card spans both columns
-  const layout = document.querySelector('.sports-layout');
-  if (layout) layout.classList.add('tennis-mode');
-  const picksCard = document.getElementById('sport-picks-card');
-  if (picksCard) picksCard.style.display = 'none';
+// ── Tennis schedule state ─────────────────────────────────────────────────────
+let _tennisFilter = 'all';
+let _tennisData   = { atpAll: [], wtaAll: [] };
 
+// ── Re-renders schedule body + picks column based on current filter ───────────
+function renderTennisView(filter) {
+  _tennisFilter = filter;
+  const { atpAll, wtaAll } = _tennisData;
+
+  const sortAsc  = arr => [...arr].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+  const sortDesc = arr => [...arr].sort((a, b) => (b.start_time || '').localeCompare(a.start_time || ''));
+
+  const atpLive = atpAll.filter(g => g.status === 'in');
+  const wtaLive = wtaAll.filter(g => g.status === 'in');
+  const atpPre  = sortAsc(atpAll.filter(g => g.status === 'pre'));
+  const wtaPre  = sortAsc(wtaAll.filter(g => g.status === 'pre'));
+  const atpPost = sortDesc(atpAll.filter(g => g.status === 'post'));
+  const wtaPost = sortDesc(wtaAll.filter(g => g.status === 'post'));
+  const liveCount = atpLive.length + wtaLive.length;
+
+  // ── Update picks column ───────────────────────────────────────────────────
+  const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, i + 1]));
+  if (filter === 'live') {
+    const liveIds = new Set([...atpLive, ...wtaLive].map(g => g.espn_game_id).filter(Boolean));
+    renderPicks(state.allPicks.filter(p => liveIds.has(p.espn_game_id)), 'sport-picks-body', globalRankMap);
+  } else {
+    const labels = filter === 'atp' ? ['ATP'] : filter === 'wta' ? ['WTA'] : ['ATP', 'WTA'];
+    renderPicks(state.allPicks.filter(p => labels.includes((p.sport || '').toUpperCase())), 'sport-picks-body', globalRankMap);
+  }
+
+  // ── Widgets ───────────────────────────────────────────────────────────────
+  const act = f => filter === f ? ' tennis-widget-active' : '';
+  const widgets = `<div class="tennis-widgets">
+    ${liveCount ? `<span class="tennis-widget tennis-widget-live${act('live')}" onclick="setTennisFilter('live')"><span class="tennis-live-dot"></span>${liveCount} Live</span>` : ''}
+    <span class="tennis-widget${act('atp')}" onclick="setTennisFilter('atp')">ATP ${atpLive.length + atpPre.length}</span>
+    <span class="tennis-widget${act('wta')}" onclick="setTennisFilter('wta')">WTA ${wtaLive.length + wtaPre.length}</span>
+    ${(atpPost.length + wtaPost.length) ? `<span class="tennis-widget" style="color:var(--muted);">${atpPost.length + wtaPost.length} Completed</span>` : ''}
+    ${filter !== 'all' ? `<span class="tennis-widget tennis-widget-clear" onclick="setTennisFilter('all')">× All</span>` : ''}
+  </div>`;
+
+  // ── Picks strip (top picks as chips) ────────────────────────────────────
+  const stripLabels = filter === 'atp' ? ['ATP'] : filter === 'wta' ? ['WTA'] : ['ATP', 'WTA'];
+  const liveIds2 = new Set([...atpLive, ...wtaLive].map(g => g.espn_game_id).filter(Boolean));
+  const topPicks = (filter === 'live'
+    ? state.allPicks.filter(p => liveIds2.has(p.espn_game_id))
+    : state.allPicks.filter(p => stripLabels.includes((p.sport || '').toUpperCase()))
+  ).slice(0, 4);
+
+  const picksStrip = topPicks.length ? `
+    <div class="tennis-picks-strip">
+      <span class="tennis-picks-label">Top Picks</span>
+      ${topPicks.map(p => {
+        const oc = p.espn_game_id ? `onclick="openGameModal('${p.espn_game_id}')"` : '';
+        return `<span class="tennis-pick-chip" ${oc}>${pickLabel(p)} · ${p.score}pts</span>`;
+      }).join('')}
+    </div>` : '';
+
+  // ── Schedule content ──────────────────────────────────────────────────────
+  const isSingle = filter === 'atp' || filter === 'wta';
+  let content = '';
+
+  // Live section
+  if (filter === 'live' || filter === 'all') {
+    if (liveCount) {
+      content += `<div class="tennis-live-head"><span class="tennis-live-dot"></span>Live Now</div>
+        <div class="tennis-two-col">
+          <div class="tennis-col"><div class="tennis-col-head">ATP</div>${atpLive.length ? atpLive.map(g => tennisMatchRow(g, 'live')).join('') : emptyTennisCol('—')}</div>
+          <div class="tennis-col"><div class="tennis-col-head">WTA</div>${wtaLive.length ? wtaLive.map(g => tennisMatchRow(g, 'live')).join('') : emptyTennisCol('—')}</div>
+        </div>`;
+    } else if (filter === 'live') {
+      content += `<div style="padding:24px 16px;color:var(--muted);font-size:13px;text-align:center;">No live matches right now.</div>`;
+    }
+  } else if (isSingle) {
+    const liveSingle = filter === 'atp' ? atpLive : wtaLive;
+    if (liveSingle.length) {
+      content += `<div class="tennis-live-head"><span class="tennis-live-dot"></span>Live Now</div>${liveSingle.map(g => tennisMatchRow(g, 'live')).join('')}`;
+    }
+  }
+
+  // Upcoming day sections (skip for 'live' filter)
+  if (filter !== 'live') {
+    const atpPreF = filter === 'wta' ? [] : atpPre;
+    const wtaPreF = filter === 'atp' ? [] : wtaPre;
+    const todayUTC    = new Date().toISOString().slice(0, 10);
+    const tomorrowUTC = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+    const dayLabel = d => {
+      if (d === todayUTC)    return 'Today';
+      if (d === tomorrowUTC) return 'Tomorrow';
+      return new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+    };
+    const upcomingDates = [...new Set([
+      ...atpPreF.map(g => (g.start_time || '').slice(0, 10)),
+      ...wtaPreF.map(g => (g.start_time || '').slice(0, 10)),
+    ])].filter(Boolean).sort().slice(0, 4);
+
+    upcomingDates.forEach((d, i) => {
+      const atpDay = atpPreF.filter(g => (g.start_time || '').slice(0, 10) === d);
+      const wtaDay = wtaPreF.filter(g => (g.start_time || '').slice(0, 10) === d);
+      const firstBand = i === 0 && !liveCount ? ' first-band' : '';
+      content += `<div class="tennis-day-band${firstBand}">${dayLabel(d)}</div>`;
+      if (isSingle) {
+        const matches = filter === 'atp' ? atpDay : wtaDay;
+        content += matches.length ? matches.map(g => tennisMatchRow(g, 'pre')).join('') : emptyTennisCol('No matches');
+      } else {
+        content += `<div class="tennis-two-col">
+          <div class="tennis-col"><div class="tennis-col-head">ATP</div>${atpDay.length ? atpDay.map(g => tennisMatchRow(g, 'pre')).join('') : emptyTennisCol('No matches')}</div>
+          <div class="tennis-col"><div class="tennis-col-head">WTA</div>${wtaDay.length ? wtaDay.map(g => tennisMatchRow(g, 'pre')).join('') : emptyTennisCol('No matches')}</div>
+        </div>`;
+      }
+    });
+
+    // Completed
+    const completedAll = [
+      ...(filter === 'wta' ? [] : atpPost.map(g => ({ ...g, _sport: 'ATP' }))),
+      ...(filter === 'atp' ? [] : wtaPost.map(g => ({ ...g, _sport: 'WTA' }))),
+    ].sort((a, b) => (b.start_time || '').localeCompare(a.start_time || '')).slice(0, 25);
+
+    if (completedAll.length) {
+      content += `<div class="tennis-completed-head">Completed</div>${completedAll.map(g => tennisMatchRow(g, 'post')).join('')}`;
+    }
+  }
+
+  document.getElementById('sport-schedule-body').innerHTML = widgets + picksStrip + content;
+}
+
+// Exposed to window for onclick handlers
+window.setTennisFilter = filter => renderTennisView(filter);
+
+// ── Fetch ATP + WTA data then render ─────────────────────────────────────────
+async function loadTennisSchedule() {
+  _tennisFilter = 'all';
   const el = document.getElementById('sport-schedule-body');
   el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
 
@@ -145,91 +268,8 @@ async function loadTennisSchedule() {
     fetch('/api/games?sport=ATP').then(r => r.json()).catch(() => []),
     fetch('/api/games?sport=WTA').then(r => r.json()).catch(() => []),
   ]);
-
-  // ── Classify by status ─────────────────────────────────────────────────────
-  const atpLive = atpAll.filter(g => g.status === 'in');
-  const wtaLive = wtaAll.filter(g => g.status === 'in');
-  const atpPre  = atpAll.filter(g => g.status === 'pre').sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
-  const wtaPre  = wtaAll.filter(g => g.status === 'pre').sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
-  const atpPost = atpAll.filter(g => g.status === 'post').sort((a, b) => (b.start_time || '').localeCompare(a.start_time || ''));
-  const wtaPost = wtaAll.filter(g => g.status === 'post').sort((a, b) => (b.start_time || '').localeCompare(a.start_time || ''));
-
-  // ── Widgets ────────────────────────────────────────────────────────────────
-  const liveCount = atpLive.length + wtaLive.length;
-  const tennisPicks = state.allPicks.filter(p => ['ATP', 'WTA'].includes((p.sport || '').toUpperCase()));
-
-  const picksStrip = tennisPicks.length ? `
-    <div class="tennis-picks-strip">
-      <span class="tennis-picks-label">Picks</span>
-      ${tennisPicks.slice(0, 4).map(p => {
-        const onclick = p.espn_game_id ? `onclick="openGameModal('${p.espn_game_id}')"` : '';
-        return `<span class="tennis-pick-chip" ${onclick}>${pickLabel(p)} · ${p.score}pts</span>`;
-      }).join('')}
-    </div>` : '';
-
-  const widgets = `<div class="tennis-widgets">
-    ${liveCount ? `<span class="tennis-widget tennis-widget-live"><span class="tennis-live-dot"></span>${liveCount} Live</span>` : ''}
-    <span class="tennis-widget">ATP ${atpLive.length + atpPre.length}</span>
-    <span class="tennis-widget">WTA ${wtaLive.length + wtaPre.length}</span>
-    ${atpPost.length + wtaPost.length ? `<span class="tennis-widget" style="color:var(--muted);">${atpPost.length + wtaPost.length} Completed</span>` : ''}
-  </div>`;
-
-  // ── Live section (shared, full-width) ──────────────────────────────────────
-  const liveSection = liveCount ? `
-    <div class="tennis-live-head"><span class="tennis-live-dot"></span>Live Now</div>
-    <div class="tennis-two-col">
-      <div class="tennis-col">
-        <div class="tennis-col-head">ATP</div>
-        ${atpLive.length ? atpLive.map(g => tennisMatchRow(g, 'live')).join('') : emptyTennisCol('—')}
-      </div>
-      <div class="tennis-col">
-        <div class="tennis-col-head">WTA</div>
-        ${wtaLive.length ? wtaLive.map(g => tennisMatchRow(g, 'live')).join('') : emptyTennisCol('—')}
-      </div>
-    </div>` : '';
-
-  // ── Upcoming: group by date, up to 4 days ──────────────────────────────────
-  const todayUTC    = new Date().toISOString().slice(0, 10);
-  const tomorrowUTC = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
-  const dayLabel = d => {
-    if (d === todayUTC)    return 'Today';
-    if (d === tomorrowUTC) return 'Tomorrow';
-    return new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
-  };
-
-  const upcomingDates = [...new Set([
-    ...atpPre.map(g => (g.start_time || '').slice(0, 10)),
-    ...wtaPre.map(g => (g.start_time || '').slice(0, 10)),
-  ])].filter(Boolean).sort().slice(0, 4);
-
-  const daySections = upcomingDates.map((d, i) => {
-    const atpDay = atpPre.filter(g => (g.start_time || '').slice(0, 10) === d);
-    const wtaDay = wtaPre.filter(g => (g.start_time || '').slice(0, 10) === d);
-    return `
-      <div class="tennis-day-band${i === 0 && !liveCount ? ' first-band' : ''}">${dayLabel(d)}</div>
-      <div class="tennis-two-col">
-        <div class="tennis-col">
-          <div class="tennis-col-head">ATP</div>
-          ${atpDay.length ? atpDay.map(g => tennisMatchRow(g, 'pre')).join('') : emptyTennisCol('No matches')}
-        </div>
-        <div class="tennis-col">
-          <div class="tennis-col-head">WTA</div>
-          ${wtaDay.length ? wtaDay.map(g => tennisMatchRow(g, 'pre')).join('') : emptyTennisCol('No matches')}
-        </div>
-      </div>`;
-  }).join('');
-
-  // ── Completed (ATP + WTA combined, most recent 25) ─────────────────────────
-  const completedAll = [
-    ...atpPost.map(g => ({ ...g, _sport: 'ATP' })),
-    ...wtaPost.map(g => ({ ...g, _sport: 'WTA' })),
-  ].sort((a, b) => (b.start_time || '').localeCompare(a.start_time || '')).slice(0, 25);
-
-  const completedSection = completedAll.length ? `
-    <div class="tennis-completed-head">Completed</div>
-    ${completedAll.map(g => tennisMatchRow(g, 'post')).join('')}` : '';
-
-  el.innerHTML = picksStrip + widgets + liveSection + daySections + completedSection;
+  _tennisData = { atpAll, wtaAll };
+  renderTennisView('all');
 }
 
 // ── Golf schedule: active major tournaments ───────────────────────────────────
@@ -270,13 +310,6 @@ function golfTournamentRowHtml(t) {
 
 // ── Standard single-sport schedule ───────────────────────────────────────────
 export async function loadSchedule(sport) {
-  // Reset tennis full-width layout when switching to any other sport
-  if (sport !== 'Tennis') {
-    document.querySelector('.sports-layout')?.classList.remove('tennis-mode');
-    const pc = document.getElementById('sport-picks-card');
-    if (pc) pc.style.display = '';
-  }
-
   if (sport === 'Tennis') {
     return loadTennisSchedule();
   }
