@@ -63,6 +63,7 @@
     .logo:hover span { opacity: 0.85; }
 
     /* ── Nav tabs ── */
+    .nav-tabs { display: flex; align-items: stretch; gap: 24px; }
     .tab-btn {
       background: none; border: none; color: var(--muted);
       font-family: inherit; font-size: 14px; font-weight: 600;
@@ -113,6 +114,10 @@
     .rank { font-weight: 700; color: var(--muted); width: 48px; }
     .rank-1 { color: var(--gold); font-size: 16px; }
     .matchup-cell { font-weight: 600; }
+    /* Mobile merged rank+score — hidden on desktop */
+    .rank-score-mobile { display: none; }
+    /* Table horizontal scroll wrapper */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
     .sport-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
 
@@ -607,8 +612,34 @@
       td, th { padding: 10px 10px; font-size: 13px; }
       .record-bar { gap: 14px; }
       .hide-mobile { display: none; }
-      .nav-tabs .tab-btn { font-size: 12px; padding: 6px 10px; }
       .esports-grid { grid-template-columns: repeat(2, 1fr); }
+
+      /* ── Mobile nav: logo fixed, tabs scroll ── */
+      nav { padding: 0 10px; gap: 0; }
+      .nav-left { flex: 1; min-width: 0; overflow: hidden; gap: 8px; }
+      .nav-tabs {
+        flex: 1;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        gap: 16px;
+      }
+      .nav-tabs::-webkit-scrollbar { display: none; }
+      .nav-tabs .tab-btn { font-size: 13px; padding: 0; }
+      .nav-actions { gap: 6px; flex-shrink: 0; }
+      .nav-actions .btn { padding: 5px 10px; font-size: 12px; }
+
+      /* ── Mobile picks table: merge rank + score ── */
+      .score-col { display: none; }
+      .rank-score-mobile {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--muted);
+        line-height: 1;
+        margin-top: 3px;
+      }
+      .rank-1 .rank-score-mobile { color: var(--gold); }
     }
   </style>
 </head>
@@ -618,10 +649,12 @@
   <nav>
     <div class="nav-left">
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
-      <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')">MVP Picks</button>
-      <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
-      <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
-      <button class="tab-btn" data-tab="about"   onclick="switchTab('about')">About</button>
+      <div class="nav-tabs">
+        <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')">MVP Picks</button>
+        <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
+        <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
+        <button class="tab-btn" data-tab="about"   onclick="switchTab('about')">About</button>
+      </div>
     </div>
     <div class="nav-actions">
       <span id="nav-user-info" style="display:none;"></span>

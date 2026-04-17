@@ -51,12 +51,15 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
       : '';
     const cursorStyle = clickable ? ' cursor:pointer;' : '';
 
-    const mvpBadge  = isMvp ? ' <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span>' : '';
-    const rankInner = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
-    const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}</td>`;
-
     const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
     const scoreContent = scoreHidden ? LOCK_SVG : (p.score ?? '—');
+
+    const mvpBadge  = isMvp ? ' <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span>' : '';
+    const rankInner = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
+    const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
+      ${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}
+      <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '' : scoreContent}</span>
+    </td>`;
 
     return `
       <tr class="${locked ? 'locked' : ''} ${isMvp ? 'mvp-row' : ''} ${isLive ? 'live-row' : ''}"${clickAttr} style="${cursorStyle}">
@@ -64,7 +67,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
         <td class="matchup-cell${locked ? ' blurred' : ''}">${matchupLabel(p)}${scoreDisplay(p)}</td>
         <td class="${locked ? 'blurred' : ''}">${sportBadge(p.sport)}</td>
         <td class="pick-cell${locked ? ' blurred' : ''}" style="${!locked && p.result === 'win' ? 'color:#4ade80' : !locked && p.result === 'loss' ? 'color:#f87171' : ''}">${pick}</td>
-        <td class="${locked ? 'blurred' : ''}">${scoreContent}</td>
+        <td class="score-col ${locked ? 'blurred' : ''}">${scoreContent}</td>
       </tr>`;
   };
 
@@ -75,24 +78,27 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
       : '';
     return `
       <tr style="opacity:0.45;${clickable ? 'cursor:pointer;' : ''}"${clickAttr}>
-        <td class="rank" style="color:var(--muted);">—</td>
+        <td class="rank" style="color:var(--muted);">—<span class="rank-score-mobile">${p.score ?? '—'}</span></td>
         <td class="matchup-cell">${matchupLabel(p)}${scoreDisplay(p)}</td>
         <td>${sportBadge(p.sport)}</td>
         <td class="pick-cell" style="color:var(--muted);">${pickLabel(p)} <span style="font-size:11px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;margin-left:4px;">Push</span></td>
-        <td style="color:var(--muted);">${p.score ?? '—'}</td>
+        <td class="score-col" style="color:var(--muted);">${p.score ?? '—'}</td>
       </tr>`;
   };
 
-  const thead = `<table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th>Score</th></tr></thead><tbody>`;
+  const thead = `<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th class="score-col">Score</th></tr></thead><tbody>`;
 
   if (isPaying()) {
     const rows = activePicks.map((p, i) => {
       const rank = globalRanks ? (globalRanks.get(p.id) ?? i + 1) : i + 1;
       return makeRow(p, rank, false);
     });
-    el.innerHTML = thead + [...rows, ...pushPicks.map(p => makePushRow(p))].join('') + `</tbody></table>`;
+    el.innerHTML = thead + [...rows, ...pushPicks.map(p => makePushRow(p))].join('') + `</tbody></table></div>`;
     return;
   }
+
+  const pubTableOpen = `<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th class="score-col">Score</th></tr></thead><tbody>`;
+  const pubTableClose = `</tbody></table></div>`;
 
   // Free user — sports tab passes globalRanks so only the true #1 overall pick is unlocked
   if (globalRanks) {
@@ -108,10 +114,10 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     ].join('');
 
     const publicSection = (publicPicks.length || pushPicks.length)
-      ? `<table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th>Score</th></tr></thead><tbody>`
+      ? pubTableOpen
         + publicPicks.map(p => makeRow(p, gr(p), false)).join('')
         + pushPicks.map(p => makePushRow(p)).join('')
-        + `</tbody></table>`
+        + pubTableClose
       : '';
 
     if (!topRows && !publicSection) {
@@ -125,7 +131,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     }
 
     el.innerHTML =
-      (topRows ? thead + topRows + `</tbody></table>` : '') +
+      (topRows ? thead + topRows + `</tbody></table></div>` : '') +
       ((topRows || hasLocked) ? inlinePaywallHtml() : '') +
       publicSection;
     return;
@@ -138,13 +144,13 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const publicPicks   = activePicks.slice(30);
   const publicRows    = publicPicks.map((p, i) => makeRow(p, 31 + i, false));
   const publicSection = (publicRows.length || pushPicks.length)
-    ? `<table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th>Score</th></tr></thead><tbody>`
+    ? pubTableOpen
       + publicRows.join('') + pushPicks.map(p => makePushRow(p)).join('')
-      + `</tbody></table>`
+      + pubTableClose
     : '';
 
   el.innerHTML =
-    thead + row1 + row2 + `</tbody></table>` +
+    thead + row1 + row2 + `</tbody></table></div>` +
     inlinePaywallHtml() +
     publicSection;
 }
