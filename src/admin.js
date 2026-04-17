@@ -182,7 +182,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td><strong>${i + 1}</strong> <span style="font-size:10px;color:#3b4560;">#${p.id}</span></td>
       <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
       <td>${escHtml(p.sport || '—')}</td>
-      <td>${escHtml(p.pick_type || '—')} ${spreadDisplay}</td>
+      <td>${escHtml(p.team || '—')} ${escHtml(p.pick_type || '')} ${spreadDisplay}</td>
       <td>${p.mention_count}</td>
       <td>${p.score ?? '—'} ${isMvp ? '<span class="badge mvp">MVP</span>' : ''}</td>
       <td><small>${breakdown}</small></td>
