@@ -19,26 +19,6 @@ const TENNIS_SPORTS = [
   { path: 'tennis/wta', label: 'WTA' },
 ];
 
-// ── Top-tier tournament filter ────────────────────────────────────────────────
-// Keywords that appear in Grand Slams, Masters 1000, WTA 1000, 500s, Finals.
-// Excludes Challenger, ITF, and low-tier events.
-const TIER_KEYWORDS = ['open', 'wimbledon', 'masters', '1000', '500', 'finals', 'championships', 'classic', 'cup'];
-
-function getTournamentName(ev) {
-  return (
-    ev.competitions?.[0]?.tournament?.displayName ||
-    ev.season?.type?.name ||
-    ev.name ||
-    ''
-  ).toLowerCase();
-}
-
-function isTierMatch(ev) {
-  const name = getTournamentName(ev);
-  // If we can't determine the tournament, include it (ESPN main-tour path is safe)
-  if (!name) return true;
-  return TIER_KEYWORDS.some(kw => name.includes(kw));
-}
 
 // ── Build short name + abbreviation from full player name ─────────────────────
 // "Novak Djokovic" → short="Djokovic", abbr="DJO"
@@ -120,7 +100,6 @@ async function fetchTodaysTennisMatches() {
       const events = await fetchScoreboardForDate(path, dateStr);
       let count = 0;
       for (const ev of events) {
-        if (!isTierMatch(ev)) continue;
         upsertTennisMatch(ev, label);
         count++;
       }

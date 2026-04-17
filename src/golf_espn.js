@@ -8,17 +8,6 @@ const db = require('./db');
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga';
 
-// ── Tier filter — majors + premier events only ────────────────────────────────
-const GOLF_TIER_KEYWORDS = [
-  'masters', 'u.s. open', 'us open', 'the open', 'pga championship',
-  'players championship', 'tour championship', 'fedex', 'bmw',
-  'genesis invitational', 'arnold palmer', 'wells fargo', 'rbc canadian',
-];
-
-function isMajor(eventName) {
-  const lower = (eventName || '').toLowerCase();
-  return GOLF_TIER_KEYWORDS.some(k => lower.includes(k));
-}
 
 // ── ESPN fetch helper ─────────────────────────────────────────────────────────
 async function espnFetch(url) {
@@ -105,7 +94,6 @@ async function fetchGolfTournaments() {
   let count = 0;
   for (const event of data.events) {
     const name = event.name || event.shortName || '';
-    if (!isMajor(name)) continue;
 
     const comp   = event.competitions?.[0] || {};
     const venue  = comp.venue || {};
@@ -139,7 +127,7 @@ async function fetchGolfTournaments() {
     console.log(`[golf_espn] Upserted tournament: ${name} (status=${espnStatus}, players=${leaderboard.length})`);
   }
 
-  console.log(`[golf_espn] Done — ${count} major tournament(s) processed`);
+  console.log(`[golf_espn] Done — ${count} tournament(s) processed`);
 }
 
 // ── Update leaderboards for active tournaments (5-min cron) ──────────────────
