@@ -151,7 +151,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     rawByPick[rm.pick_id].push(rm);
   }
 
-  const pickRowsHtml = picks.map(p => {
+  const pickRowsHtml = picks.map((p, i) => {
     const isMvp = (p.score || 0) >= MVP_THRESHOLD;
     const raws  = rawByPick[p.id] || [];
     const rawRowsHtml = raws.length
@@ -179,7 +179,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '')
       : (p.spread != null ? p.spread : '');
     return `<tr>
-      <td>${p.id}</td>
+      <td><strong>${i + 1}</strong> <span style="font-size:10px;color:#3b4560;">#${p.id}</span></td>
       <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
       <td>${escHtml(p.sport || '—')}</td>
       <td>${escHtml(p.pick_type || '—')} ${spreadDisplay}</td>
@@ -191,7 +191,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }).join('');
 
   const picksTableHtml = picks.length
-    ? `<table><thead><tr><th>ID</th><th>Team</th><th>Sport</th><th>Pick</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
+    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
     : '<div class="empty">No picks today.</div>';
 
   // ── Codes panel ──────────────────────────────────────────────────────────────
