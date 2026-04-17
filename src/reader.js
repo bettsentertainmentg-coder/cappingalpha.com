@@ -92,6 +92,8 @@ ML — team wins outright.
   "Stars reg" → ML ("reg" = regulation win = ML)
   "1U Marlins ML" → ML
   "Hurricanes 3way in regulation" → ML ("3way"/"3-way" = win/loss/tie market = ML; "reg"/"regulation" = ML)
+  "Guardians Moneyline -130" → Guardians ML (-130 is juice). "Moneyline" spelled out = ML.
+  "Athletics Moneyline -140 and Over 9 Runs" → TWO picks: Athletics ML + Athletics over 9.
   A team name alone on its own line with NO spread number and NO over/under indicator → ML.
 
 spread — team name followed by a +/- number under 100.
@@ -99,6 +101,7 @@ spread — team name followed by a +/- number under 100.
   "Orioles -1.5 5u" → spread -1.5 (5u = unit size, ignore)
   "Blue Jays F5 +.5 3u" → spread +0.5 (F5 = first 5 innings, still spread)
   "Suns -10" → spread -10
+  "Run Line" in MLB = spread. "Yankees Run Line -1.5 +125" → Yankees spread -1.5 (+125 is juice, ignore).
 
 over — word "over" OR standalone letter "o" BEFORE a number.
   "over 228.5" → over, spread_value=228.5
@@ -114,11 +117,12 @@ NRFI — No Run First Inning. MLB only. Valid pick type.
   "Diamondbacks NRFI" → team=Diamondbacks, pick_type=NRFI, sport=MLB.
   "Mets NRFI -130" → team=Mets, pick_type=NRFI, sport=MLB. (-130 is juice, ignore)
 
-UNIT SIZE / BET SIZING — ignore completely, extract the pick normally.
-  Unit sizes: "5u", "3u", "2u", "0.75u", "1U". Bet percentages: "4%", "10%".
+UNIT SIZE / BET SIZING / STAR RATINGS — ignore completely, extract the pick normally.
+  Unit sizes: "5u", "3u", "2u", "0.75u", "1U". Bet percentages: "4%", "10%". Star ratings: "1*", "2*", "3*", "5*".
   "Royals ML 2u" → Royals ML. "Orioles -1.5 5u" → Orioles spread -1.5.
   "4% NHL / Hurricanes 3way" → ignore "4% NHL", extract Hurricanes ML.
-  A line containing ONLY a unit size or percentage is NOT a pick.
+  "1* Pirates -139" → Pirates ML (-139 is juice). "3* MLB TOTAL OF WEEK" → section label, not a pick.
+  A line containing ONLY a unit size, star rating, or percentage is NOT a pick.
 
 RECORDS — not picks, skip entirely.
   "(16-4)", "MLB 2026: -35.3units", "61-34 NHL", "Overall Record 2-5", "Contest Record 2-5"
@@ -130,10 +134,14 @@ CAPPER NAME — appears alone on a line before picks, or as the first line of a 
   "NewYorkSharps 10% Exclusive: ..." → capper_name=NewYorkSharps
   "BataBingBets: (87-39 MLB)..." → capper_name=BataBingBets
 
-MATCHUP FORMAT "Team A / Team B line" or "Team A & Team B line" — first team is the pick.
+MATCHUP FORMAT "Team A / Team B line", "Team A & Team B line", or "Team A vs. Team B line" — first team is the pick.
   "Marlins / Reds under 7.5 3u" → team=Marlins, under, 7.5
   "oilers&sharks o6" → team=Oilers, over, 6
   "Lakers / Warriors +4" → team=Lakers, spread, +4
+  "Giants vs. Nationals Over 8 Runs" → team=Giants, over, 8 ("Runs" is a unit word, ignore).
+  "Rays vs. Pirates Under 8.5 Runs" → team=Rays, under, 8.5.
+  "Kansas City Royals at New York Yankees: F5 Total Under 4.5" → team=Royals, under, 4.5.
+  "Team A at Team B" format — first team is AWAY (the pick is still the first team).
 
 TEAM — return exactly as the capper wrote it. The system resolves it.
   3-4 letter abbreviations are valid: "VGK ML" → team=VGK. "TOR +1.5" → team=TOR.
@@ -172,6 +180,11 @@ PLAYER PROPS — skip entirely.
   "Rhett Lowder (Reds) u 15.5 outs" → skip. "Allen (CLE) O7.5 REB" → skip.
 
 IGNORE: emoji, reactions, "local book", context odds like "(+179)", parlay references, "NOT EXCLUSIVE".
+  Also ignore: "Best Bet:" prefix (extract the pick that follows normally).
+  Also ignore: pitcher names in parentheses like "(Chandler)" or "(Cease)" in MLB picks.
+  Also ignore: game times like "6:45 pm", "8:00 pm" appended to a pick line.
+  Also ignore: section headers like "MLB Selections", "UFL Football Selections", "NBA", "MLB" alone on a line — these are sport/section labels, not picks.
+  Also ignore: "Action" at the end of a pick line — it is a sportsbook qualifier, not part of the pick.
 
 MONEYLINE ABBREVIATION "MI":
   "MI" means moneyline. Treat identically to "ML".
@@ -181,7 +194,7 @@ MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple
   A capper header looks like: emoji + name + optional label.
   "🔮PorterPicks Full Card Thursday" → capper_name=PorterPicks for all picks that follow, until the next capper header.
   "🔮P4D_Picks4Dayzzz" alone on a line → capper_name=P4D_Picks4Dayzzz.
-  Emoji prefixes (🔮 ⚾ 🏀 🏒 🎾 💎 🔥 etc.) before a name are capper markers — strip the emoji, the text before any space or bracket is the capper handle.
+  Emoji prefixes (✅ 🔮 ⚾ 🏀 🏒 🎾 💎 🔥 ✔️ 🟢 etc.) before a name are capper markers — strip the emoji, the text before any space or bracket is the capper handle.
   "Full Card [Day]", "Today's Card", "Card for [Day]", "Full Card" after the name are section labels — ignore, not picks.
   When a new emoji-prefixed capper line appears, switch capper_name for all picks that follow.
   Extract ALL picks from the message, each labeled with their correct capper_name.
