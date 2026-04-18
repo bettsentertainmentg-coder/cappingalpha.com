@@ -78,7 +78,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     <div class="mvp-tab-hero">
       <div class="mvp-tab-badge">MVP Picks</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
-      <p class="mvp-tab-desc">Picks that scored 50+ points across our verified analyst network. Every result is tracked — wins, losses, pushes — for full transparency. No cherry-picking.</p>
+      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points across our verified analyst network. Every result is tracked — wins, losses, pushes — for full transparency. No cherry-picking.</p>
     </div>`;
 
   container.innerHTML = mvpHero + `

@@ -46,7 +46,12 @@ window.switchTab = switchTab;
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
-  if (cfg) state.CONFIG = cfg;
+  if (cfg) {
+    state.CONFIG = cfg;
+    const t = cfg.mvp_display_threshold || cfg.mvp_threshold || 50;
+    const el = document.getElementById('about-mvp-pts');
+    if (el) el.textContent = t;
+  }
   await checkAuth();
 
   // Handle Stripe redirect back to site

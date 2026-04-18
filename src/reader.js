@@ -39,6 +39,41 @@ function logUsage(usage) {
   }
 }
 
+// ── Learned corrections — injected as second system block (not cached) ────────
+let _correctionsCache    = null;
+let _correctionsCacheTime = 0;
+const CORRECTIONS_TTL = 5 * 60 * 1000;
+
+function getCorrectionsBlock() {
+  const now = Date.now();
+  if (_correctionsCache !== null && (now - _correctionsCacheTime) < CORRECTIONS_TTL) return _correctionsCache;
+  try {
+    const rows = db.prepare(`
+      SELECT message_text, correct_picks, is_no_pick, notes
+      FROM reader_corrections ORDER BY created_at DESC LIMIT 25
+    `).all();
+    if (!rows.length) { _correctionsCache = ''; _correctionsCacheTime = now; return ''; }
+    const examples = rows.map(r => {
+      const preview = r.message_text.replace(/\n/g, ' ').slice(0, 140);
+      if (r.is_no_pick) {
+        return `  Msg: "${preview}" → is_pick=false${r.notes ? ' [' + r.notes + ']' : ''}`;
+      }
+      const picks = JSON.parse(r.correct_picks || '[]');
+      const pStr = picks.map(p => {
+        let s = `team=${p.team}, pick_type=${p.pick_type}`;
+        if (p.sport)         s += `, sport=${p.sport}`;
+        if (p.spread != null && p.spread !== '') s += `, spread=${p.spread}`;
+        if (p.capper_name)   s += `, capper=${p.capper_name}`;
+        return s;
+      }).join(' | ');
+      return `  Msg: "${preview}" → ${pStr || 'is_pick=false'}${r.notes ? ' [' + r.notes + ']' : ''}`;
+    }).join('\n');
+    _correctionsCache = `LEARNED CORRECTIONS — override all rules above:\n${examples}`;
+    _correctionsCacheTime = now;
+    return _correctionsCache;
+  } catch (_) { _correctionsCache = ''; _correctionsCacheTime = Date.now(); return ''; }
+}
+
 // ── Today's games context — injected per call, not cached in system prompt ────
 let _gamesCache     = null;
 let _gamesCacheTime = 0;
@@ -264,13 +299,12 @@ async function claudeExtract(channelInstruction, messageContent) {
     const response = await client.messages.create({
       model:      MODEL,
       max_tokens: 1024,
-      system: [
-        {
-          type: 'text',
-          text: RULES,
-          cache_control: { type: 'ephemeral' },  // prompt caching — ~10% cost on cache hits
-        },
-      ],
+      system: (() => {
+        const blocks = [{ type: 'text', text: RULES, cache_control: { type: 'ephemeral' } }];
+        const corrections = getCorrectionsBlock();
+        if (corrections) blocks.push({ type: 'text', text: corrections });
+        return blocks;
+      })(),
       tools:       [EXTRACT_TOOL],
       tool_choice: { type: 'tool', name: 'extract_picks' },  // always use the tool
       messages: [

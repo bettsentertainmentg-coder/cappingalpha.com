@@ -429,6 +429,23 @@ try {
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_capper     ON picks      (capper_name)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_golf_picks_capper ON golf_picks (capper_name)`); } catch (_) {}
 
+// ── Reader corrections — manual annotations that inject into Haiku prompt ─────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reader_corrections (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_text  TEXT NOT NULL,
+      channel       TEXT,
+      author        TEXT,
+      source        TEXT NOT NULL DEFAULT 'skipped',
+      correct_picks TEXT NOT NULL DEFAULT '[]',
+      is_no_pick    INTEGER NOT NULL DEFAULT 0,
+      notes         TEXT,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 // ── Settings (key-value store for admin-configurable values) ──────────────────
 try {
   db.exec(`

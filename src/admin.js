@@ -486,6 +486,28 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </tr>`).join('')}</tbody>
     </table>` : `<p class="empty" style="font-size:13px;">No aliases defined yet.</p>`;
 
+  // ── Messages panel data ───────────────────────────────────────────────────────
+  const recentRaw = db.prepare(`
+    SELECT rm.id, rm.pick_id, rm.channel, rm.author,
+           SUBSTR(rm.message_text, 1, 400) AS message_text,
+           rm.saved_at,
+           p.team, p.pick_type, p.sport, p.spread, p.score, p.capper_name, p.result
+    FROM raw_messages rm
+    LEFT JOIN picks p ON p.id = rm.pick_id
+    ORDER BY rm.saved_at DESC LIMIT 300
+  `).all();
+
+  const recentSkipped = db.prepare(`
+    SELECT id, message_id, channel, author,
+           SUBSTR(content, 1, 400) AS content, reason, skipped_at
+    FROM skipped_messages ORDER BY skipped_at DESC LIMIT 300
+  `).all();
+
+  const savedCorrections = (() => {
+    try { return db.prepare(`SELECT * FROM reader_corrections ORDER BY created_at DESC LIMIT 100`).all(); }
+    catch (_) { return []; }
+  })();
+
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
 
@@ -501,6 +523,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
+      <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
 
@@ -644,6 +667,132 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <button class="btn btn-primary" onclick="addAlias()">Add Alias</button>
       </div>
       <p id="alias-msg" style="font-size:13px;color:#8892a4;margin-top:8px;"></p>
+    </div>
+
+    <!-- MESSAGES PANEL -->
+    <div class="apanel${ta('messages')}" id="panel-messages">
+      <h1>Messages</h1>
+      <div style="display:flex;gap:4px;margin-bottom:20px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:4px;width:fit-content;">
+        <button class="atab active" id="msec-btn-recorded" onclick="showMsgSection('recorded')">Recorded <span style="background:#252c3b;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px;">${recentRaw.length}</span></button>
+        <button class="atab" id="msec-btn-skipped" onclick="showMsgSection('skipped')">Skipped <span style="background:#252c3b;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px;">${recentSkipped.length}</span></button>
+        <button class="atab" id="msec-btn-corrections" onclick="showMsgSection('corrections')">Corrections <span style="background:#252c3b;border-radius:4px;padding:1px 6px;font-size:11px;margin-left:4px;">${savedCorrections.length}</span></button>
+      </div>
+
+      <!-- search bar shared -->
+      <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;">
+        <input type="text" id="msg-search" placeholder="Filter by author, channel, or text..." oninput="filterMsgTable()" style="max-width:380px;flex:1;" />
+        <select id="msg-ch-filter" onchange="filterMsgTable()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="">All channels</option>
+          <option value="free-plays">free-plays</option>
+          <option value="community-leaks">community-leaks</option>
+          <option value="pod-thread">pod-thread</option>
+        </select>
+      </div>
+
+      <!-- RECORDED -->
+      <div id="msec-recorded">
+        ${recentRaw.length ? `
+        <table id="raw-table">
+          <thead><tr><th>Time</th><th>Channel</th><th>Author</th><th>Message</th><th>Pick Extracted</th><th></th></tr></thead>
+          <tbody>
+            ${recentRaw.map(r => {
+              const ts   = (r.saved_at || '').slice(0, 16).replace('T', ' ');
+              const prev = escHtml((r.message_text || '').replace(/\n/g, ' ').slice(0, 60));
+              const pickInfo = r.team
+                ? `${escHtml(r.team)} ${escHtml(r.pick_type || '')}${r.spread != null ? ' ' + r.spread : ''} · ${escHtml(r.sport || '')} · ${r.score ?? '—'}pts`
+                : '<span style="color:#3b4560;">no pick linked</span>';
+              const msgEsc = escHtml(r.message_text || '').replace(/'/g, '&#39;');
+              const pickEsc = JSON.stringify({ team: r.team, pick_type: r.pick_type, sport: r.sport, spread: r.spread, capper_name: r.capper_name }).replace(/'/g, '&#39;');
+              return `<tr class="msg-row" data-ch="${escHtml(r.channel || '')}" data-author="${escHtml(r.author || '')}" data-text="${prev.toLowerCase()}">
+                <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
+                <td><span style="font-size:11px;color:#8892a4;">${escHtml(r.channel || '—')}</span></td>
+                <td style="font-size:12px;">${escHtml(r.author || '—')}</td>
+                <td style="font-size:12px;max-width:280px;word-break:break-word;">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
+                <td style="font-size:12px;">${pickInfo}</td>
+                <td><button class="btn-sm btn-primary" onclick="openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` : '<div class="empty">No recorded messages yet.</div>'}
+      </div>
+
+      <!-- SKIPPED -->
+      <div id="msec-skipped" style="display:none;">
+        ${recentSkipped.length ? `
+        <table id="skip-table">
+          <thead><tr><th>Time</th><th>Channel</th><th>Author</th><th>Message</th><th>Reason</th><th></th></tr></thead>
+          <tbody>
+            ${recentSkipped.map(s => {
+              const ts   = (s.skipped_at || '').slice(0, 16).replace('T', ' ');
+              const prev = escHtml((s.content || '').replace(/\n/g, ' ').slice(0, 60));
+              const msgEsc = escHtml(s.content || '').replace(/'/g, '&#39;');
+              return `<tr class="msg-row" data-ch="${escHtml(s.channel || '')}" data-author="${escHtml(s.author || '')}" data-text="${prev.toLowerCase()}">
+                <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
+                <td><span style="font-size:11px;color:#8892a4;">${escHtml(s.channel || '—')}</span></td>
+                <td style="font-size:12px;">${escHtml(s.author || '—')}</td>
+                <td style="font-size:12px;max-width:280px;word-break:break-word;">${prev}${(s.content || '').length > 60 ? '…' : ''}</td>
+                <td><span style="font-size:11px;color:#f59e0b;">${escHtml(s.reason || '—')}</span></td>
+                <td><button class="btn-sm btn-primary" onclick="openCorrModal('${msgEsc}','${escHtml(s.channel || '')}','${escHtml(s.author || '')}','skipped',null)">Correct</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` : '<div class="empty">No skipped messages yet.</div>'}
+      </div>
+
+      <!-- CORRECTIONS -->
+      <div id="msec-corrections" style="display:none;">
+        <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Top 25 by most recent are injected into every Haiku call automatically. No redeploy needed.</p>
+        ${savedCorrections.length ? `
+        <table>
+          <thead><tr><th>Date</th><th>Source</th><th>Message</th><th>Correct Extraction</th><th>Notes</th><th></th></tr></thead>
+          <tbody>
+            ${savedCorrections.map(c => {
+              const picks = JSON.parse(c.correct_picks || '[]');
+              const pStr = c.is_no_pick ? '<em style="color:#8892a4;">not a pick</em>'
+                : picks.map(p => `${escHtml(p.team || '')} ${escHtml(p.pick_type || '')}${p.sport ? ' · ' + escHtml(p.sport) : ''}`).join('<br>');
+              const prev = escHtml((c.message_text || '').replace(/\n/g, ' ').slice(0, 70));
+              return `<tr>
+                <td style="font-size:11px;color:#8892a4;">${(c.created_at || '').slice(0, 10)}</td>
+                <td><span style="font-size:11px;color:#8892a4;">${escHtml(c.source || '—')}</span></td>
+                <td style="font-size:12px;max-width:220px;word-break:break-word;">${prev}…</td>
+                <td style="font-size:12px;">${pStr}</td>
+                <td style="font-size:11px;color:#8892a4;max-width:160px;">${escHtml(c.notes || '—')}</td>
+                <td><button class="btn-sm btn-revoke" onclick="deleteCorrection(${c.id})">Delete</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>` : '<div class="empty">No corrections saved yet.</div>'}
+      </div>
+    </div>
+
+    <!-- CORRECTION MODAL -->
+    <div id="corr-modal" onclick="closeCorrModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;overflow-y:auto;">
+      <div onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:640px;margin:40px auto;padding:28px;position:relative;">
+        <button onclick="closeCorrModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;">&#x2715;</button>
+        <h2 style="font-size:15px;margin-bottom:12px;">Add Correction</h2>
+        <div style="background:#0f1117;border:1px solid #252c3b;border-radius:6px;padding:12px;margin-bottom:16px;font-size:12px;color:#8892a4;max-height:120px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;" id="corr-msg-preview"></div>
+        <input type="hidden" id="corr-msg-full" /><input type="hidden" id="corr-channel" /><input type="hidden" id="corr-author" /><input type="hidden" id="corr-source" />
+        <div style="display:flex;gap:16px;margin-bottom:14px;align-items:center;">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="corr-type" value="pick" checked onchange="toggleCorrType('pick')" /> Has picks
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="corr-type" value="nopick" onchange="toggleCorrType('nopick')" /> Not a pick (should be skipped)
+          </label>
+        </div>
+        <div id="corr-picks-section">
+          <div id="corr-pick-rows"></div>
+          <button onclick="addCorrPickRow()" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;margin-bottom:14px;">+ Add another pick</button>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Notes (what was wrong / what pattern to learn)</label>
+          <textarea id="corr-notes" rows="2" placeholder="e.g. ✅ before name = capper header, not a pick" style="width:100%;background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit;resize:vertical;"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button onclick="submitCorrection()" class="btn btn-primary">Save Correction</button>
+          <span id="corr-status" style="font-size:13px;color:#8892a4;"></span>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -1005,6 +1154,118 @@ router.get('/dashboard', requireAuth, (req, res) => {
         await fetch('/admin/capper-alias/' + id, { method: 'DELETE' });
         location.reload();
       }
+
+      // ── Messages tab ───────────────────────────────────────────────────────────
+      function showMsgSection(name) {
+        ['recorded','skipped','corrections'].forEach(s => {
+          document.getElementById('msec-' + s).style.display = s === name ? '' : 'none';
+          const btn = document.getElementById('msec-btn-' + s);
+          if (btn) btn.classList.toggle('active', s === name);
+        });
+      }
+
+      function filterMsgTable() {
+        const q   = (document.getElementById('msg-search').value || '').toLowerCase();
+        const ch  = document.getElementById('msg-ch-filter').value;
+        document.querySelectorAll('.msg-row').forEach(row => {
+          const matchQ  = !q  || row.dataset.text?.includes(q) || row.dataset.author?.toLowerCase().includes(q);
+          const matchCh = !ch || row.dataset.ch === ch;
+          row.style.display = matchQ && matchCh ? '' : 'none';
+        });
+      }
+
+      function openCorrModal(msgText, channel, author, source, existingPickJson) {
+        document.getElementById('corr-msg-preview').textContent = msgText;
+        document.getElementById('corr-msg-full').value  = msgText;
+        document.getElementById('corr-channel').value   = channel;
+        document.getElementById('corr-author').value    = author;
+        document.getElementById('corr-source').value    = source;
+        document.getElementById('corr-notes').value     = '';
+        document.getElementById('corr-status').textContent = '';
+        document.querySelectorAll('input[name=corr-type]')[0].checked = true;
+        toggleCorrType('pick');
+        document.getElementById('corr-pick-rows').innerHTML = '';
+        // Pre-fill from existing pick if available
+        let pre = null;
+        try { pre = existingPickJson ? JSON.parse(existingPickJson) : null; } catch(_){}
+        addCorrPickRow(pre);
+        document.getElementById('corr-modal').style.display = '';
+      }
+      function closeCorrModal(e) {
+        if (!e || e.target === document.getElementById('corr-modal')) {
+          document.getElementById('corr-modal').style.display = 'none';
+        }
+      }
+      function toggleCorrType(t) {
+        document.getElementById('corr-picks-section').style.display = t === 'pick' ? '' : 'none';
+      }
+      function addCorrPickRow(pre) {
+        const container = document.getElementById('corr-pick-rows');
+        const idx = container.children.length;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;padding:10px;background:#0f1117;border:1px solid #252c3b;border-radius:6px;';
+        row.innerHTML = \`
+          <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">TEAM / PLAYER</label>
+            <input type="text" class="corr-team" placeholder="e.g. Hornets" value="\${pre?.team||''}" style="width:130px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
+          <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">PICK TYPE</label>
+            <select class="corr-type-sel" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;">
+              \${['ML','spread','over','under','NRFI','h2h','top5','top10'].map(t=>\`<option value="\${t}" \${pre?.pick_type===t?'selected':''}>\${t}</option>\`).join('')}
+            </select></div>
+          <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">SPORT</label>
+            <select class="corr-sport" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;">
+              \${['','NBA','MLB','NHL','NFL','CBB','NCAAF','ATP','WTA','Golf'].map(s=>\`<option value="\${s}" \${pre?.sport===s?'selected':''}>\${s||'—'}</option>\`).join('')}
+            </select></div>
+          <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">SPREAD</label>
+            <input type="number" class="corr-spread" placeholder="e.g. -1.5" value="\${pre?.spread??''}" step="0.5" style="width:80px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
+          <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">CAPPER</label>
+            <input type="text" class="corr-capper" placeholder="optional" value="\${pre?.capper_name||''}" style="width:110px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
+          \${idx > 0 ? '<button onclick="this.closest(\'div[style]\').remove()" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:5px;padding:6px 10px;font-size:11px;cursor:pointer;align-self:flex-end;">Remove</button>' : ''}
+        \`;
+        container.appendChild(row);
+      }
+
+      async function submitCorrection() {
+        const isNoPick = document.querySelector('input[name=corr-type]:checked').value === 'nopick';
+        const picks = [];
+        if (!isNoPick) {
+          document.querySelectorAll('#corr-pick-rows > div').forEach(row => {
+            const team = row.querySelector('.corr-team').value.trim();
+            if (!team) return;
+            picks.push({
+              team,
+              pick_type: row.querySelector('.corr-type-sel').value,
+              sport:     row.querySelector('.corr-sport').value || null,
+              spread:    row.querySelector('.corr-spread').value !== '' ? parseFloat(row.querySelector('.corr-spread').value) : null,
+              capper_name: row.querySelector('.corr-capper').value.trim() || null,
+            });
+          });
+          if (!picks.length) { document.getElementById('corr-status').textContent = 'Add at least one pick or select "Not a pick".'; return; }
+        }
+        const status = document.getElementById('corr-status');
+        status.textContent = 'Saving...'; status.style.color = '#8892a4';
+        const r = await fetch('/admin/correction', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message_text:  document.getElementById('corr-msg-full').value,
+            channel:       document.getElementById('corr-channel').value,
+            author:        document.getElementById('corr-author').value,
+            source:        document.getElementById('corr-source').value,
+            is_no_pick:    isNoPick ? 1 : 0,
+            correct_picks: picks,
+            notes:         document.getElementById('corr-notes').value.trim(),
+          }),
+        });
+        const d = await r.json();
+        if (d.ok) { status.textContent = 'Saved! Active on next reader call.'; status.style.color = '#16a34a'; setTimeout(() => location.reload(), 1200); }
+        else { status.textContent = 'Error: ' + (d.error || 'unknown'); status.style.color = '#ef4444'; }
+      }
+
+      async function deleteCorrection(id) {
+        if (!confirm('Delete this correction?')) return;
+        await fetch('/admin/correction/' + id, { method: 'DELETE' });
+        location.reload();
+      }
     </script>
     <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
   `));
@@ -1012,6 +1273,37 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
 // ── POST /admin/nuke ──────────────────────────────────────────────────────────
 // ── POST /admin/capper-alias ──────────────────────────────────────────────────
+router.post('/correction', requireAuth, express.json(), (req, res) => {
+  const { message_text, channel, author, source, is_no_pick, correct_picks, notes } = req.body || {};
+  if (!message_text) return res.json({ ok: false, error: 'message_text required' });
+  try {
+    db.prepare(`
+      INSERT INTO reader_corrections (message_text, channel, author, source, is_no_pick, correct_picks, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      message_text.trim(),
+      channel || null,
+      author  || null,
+      source  || 'recorded',
+      is_no_pick ? 1 : 0,
+      JSON.stringify(correct_picks || []),
+      notes || null,
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+router.delete('/correction/:id', requireAuth, (req, res) => {
+  try {
+    db.prepare(`DELETE FROM reader_corrections WHERE id = ?`).run(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 router.post('/mvp-threshold', requireAuth, express.json(), (req, res) => {
   const val = parseInt(req.body?.threshold, 10);
   if (isNaN(val) || val < 0 || val > 200) return res.json({ ok: false, error: 'Must be 0–200' });
