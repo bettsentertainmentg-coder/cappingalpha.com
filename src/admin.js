@@ -126,6 +126,7 @@ router.get('/', requireAuth, (_req, res) => res.redirect('/admin/dashboard'));
 router.get('/dashboard', requireAuth, (req, res) => {
   const activeTab = req.query.tab || 'picks';
   const today = getCycleDate();
+  const mvpDisplayThreshold = parseInt(db.getSetting('mvp_display_threshold', 50), 10);
 
   // ── Picks panel ─────────────────────────────────────────────────────────────
   const picks = db.prepare(`
@@ -568,7 +569,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
     <!-- MVP PANEL -->
     <div class="apanel${ta('mvp')}" id="panel-mvp">
-      <h1>MVP History <small style="font-size:14px;color:#8892a4;font-weight:400;">All-time (score &ge; 50)</small></h1>
+      <h1>MVP History <small style="font-size:14px;color:#8892a4;font-weight:400;">All-time (score &ge; ${mvpDisplayThreshold})</small></h1>
+      <div style="background:#1a1f2e;border:1px solid #2a3a5c;border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;">Display Threshold</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="number" id="threshold-input" value="${mvpDisplayThreshold}" min="0" max="200" step="5"
+            style="width:80px;background:#0f1117;border:1px solid #3b4560;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:14px;font-weight:700;text-align:center;" />
+          <span style="color:#8892a4;font-size:13px;">pts minimum</span>
+        </div>
+        <button onclick="saveThreshold()" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;">Save &amp; Apply</button>
+        <span id="threshold-status" style="font-size:12px;color:#8892a4;"></span>
+        <span style="margin-left:auto;font-size:11px;color:#3b4560;">Changes what shows on the public MVP page and chart. Save threshold = ${MVP_THRESHOLD} pts (unchanged).</span>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:14px 16px;">
         <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Date</label>
           <input type="date" id="f-date" oninput="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;width:150px;" /></div>
@@ -640,6 +652,32 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── MVP threshold ──────────────────────────────────────────────────────────
+      async function saveThreshold() {
+        const val = parseInt(document.getElementById('threshold-input').value, 10);
+        const status = document.getElementById('threshold-status');
+        if (isNaN(val) || val < 0 || val > 200) {
+          status.textContent = 'Invalid value (0–200).';
+          status.style.color = '#ef4444';
+          return;
+        }
+        status.textContent = 'Saving...';
+        status.style.color = '#8892a4';
+        const r = await fetch('/admin/mvp-threshold', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ threshold: val }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          status.textContent = 'Saved. Reload to see updated table.';
+          status.style.color = '#16a34a';
+        } else {
+          status.textContent = 'Error: ' + (d.error || 'unknown');
+          status.style.color = '#ef4444';
+        }
       }
 
       // ── Picks panel ────────────────────────────────────────────────────────────
@@ -974,6 +1012,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
 // ── POST /admin/nuke ──────────────────────────────────────────────────────────
 // ── POST /admin/capper-alias ──────────────────────────────────────────────────
+router.post('/mvp-threshold', requireAuth, express.json(), (req, res) => {
+  const val = parseInt(req.body?.threshold, 10);
+  if (isNaN(val) || val < 0 || val > 200) return res.json({ ok: false, error: 'Must be 0–200' });
+  db.setSetting('mvp_display_threshold', val);
+  res.json({ ok: true, threshold: val });
+});
+
 router.post('/capper-alias', requireAuth, express.json(), (req, res) => {
   const { canonical, alias } = req.body || {};
   if (!canonical || !alias) return res.json({ ok: false, error: 'Both canonical and alias are required' });

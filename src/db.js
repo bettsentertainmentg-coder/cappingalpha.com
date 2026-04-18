@@ -429,4 +429,29 @@ try {
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_capper     ON picks      (capper_name)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_golf_picks_capper ON golf_picks (capper_name)`); } catch (_) {}
 
+// ── Settings (key-value store for admin-configurable values) ──────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT NOT NULL PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+} catch (_) {}
+
+function getSetting(key, defaultVal) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : defaultVal;
+  } catch (_) { return defaultVal; }
+}
+
+function setSetting(key, value) {
+  try {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+  } catch (_) {}
+}
+
 module.exports = db;
+module.exports.getSetting = getSetting;
+module.exports.setSetting = setSetting;

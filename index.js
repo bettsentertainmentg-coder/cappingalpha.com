@@ -20,6 +20,7 @@ const { runDailyWipe }                    = require('./src/wipe');
 const { lockMorningLines, getLines } = require('./src/lines');
 const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
+const { getSetting } = require('./src/db');
 const { updateLiveScores, fetchTodaysGames } = require('./src/espn_live');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
@@ -120,7 +121,8 @@ app.get('/sitemap.xml', (req, res) => {
 // GET /api/config — scoring constants for the frontend
 // NOTE: channel_points intentionally excluded — exposes Discord channel names + weights
 app.get('/api/config', (req, res) => {
-  res.json({ mvp_threshold: MVP_THRESHOLD });
+  const displayThreshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  res.json({ mvp_threshold: MVP_THRESHOLD, mvp_display_threshold: displayThreshold });
 });
 
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
@@ -189,14 +191,16 @@ app.get('/api/picks/top', (req, res) => {
 
 // GET /api/mvp — recent MVP picks + all-time record (paid users)
 app.get('/api/mvp', (req, res) => {
+  const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   res.json({
-    picks:  getRecentMvpPicks(),
-    record: getAllTimeRecord(),
+    picks:  getRecentMvpPicks(threshold),
+    record: getAllTimeRecord(threshold),
   });
 });
 
 // GET /api/mvp/public — resolved MVP picks + record for all users (home page)
 app.get('/api/mvp/public', (req, res) => {
+  const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   const picks = db.prepare(`
     SELECT m.*,
            COALESCE(tg1.home_team, tg2.home_team) AS home_team,
@@ -205,15 +209,15 @@ app.get('/api/mvp/public', (req, res) => {
     LEFT JOIN today_games tg1 ON tg1.espn_game_id = m.espn_game_id
     LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
                               AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
-    WHERE m.result IN ('win', 'loss', 'push') AND m.score >= 50
+    WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
     ORDER BY m.saved_at DESC LIMIT 50
-  `).all();
+  `).all(threshold);
 
   const rows = db.prepare(`
     SELECT result, COUNT(*) as count FROM mvp_picks
-    WHERE result IN ('win', 'loss', 'push') AND score >= 50
+    WHERE result IN ('win', 'loss', 'push') AND score >= ?
     GROUP BY result
-  `).all();
+  `).all(threshold);
   const counts = { win: 0, loss: 0, push: 0 };
   for (const r of rows) counts[r.result] = r.count;
   const decided  = counts.win + counts.loss;

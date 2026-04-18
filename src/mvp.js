@@ -5,7 +5,7 @@ const db = require('./db');
 
 // Get last 50 MVP picks ordered by saved_at desc, enriched with matchup.
 // Includes voided picks so annotations are visible in history.
-function getRecentMvpPicks() {
+function getRecentMvpPicks(threshold = 50) {
   return db.prepare(`
     SELECT m.*,
            COALESCE(tg1.home_team, tg2.home_team) AS home_team,
@@ -14,19 +14,19 @@ function getRecentMvpPicks() {
     LEFT JOIN today_games tg1 ON tg1.espn_game_id = m.espn_game_id
     LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
                               AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
-    WHERE m.score >= 50
+    WHERE m.score >= ?
     ORDER BY m.saved_at DESC LIMIT 50
-  `).all();
+  `).all(threshold);
 }
 
-// Get all-time record across all MVP picks (score >= 50 only, void excluded from W/L)
-function getAllTimeRecord() {
+// Get all-time record across all MVP picks (void excluded from W/L)
+function getAllTimeRecord(threshold = 50) {
   const rows = db.prepare(`
     SELECT result, COUNT(*) as count FROM mvp_picks
-    WHERE score >= 50 AND (result IS NULL OR result != 'void')
+    WHERE score >= ? AND (result IS NULL OR result != 'void')
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
     GROUP BY result
-  `).all();
+  `).all(threshold);
 
   const counts = { win: 0, loss: 0, push: 0, pending: 0 };
   for (const row of rows) {
