@@ -109,6 +109,11 @@ app.use('/admin', admin);
 app.use('/auth', auth);
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Terms of Service page
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'terms.html'));
+});
+
 // Sitemap — submitted to Google Search Console
 app.get('/sitemap.xml', (req, res) => {
   res.type('application/xml');
@@ -295,7 +300,7 @@ app.get('/api/account', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
 
-  const user = db.prepare(`SELECT id, email, subscription_tier, subscription_expires, created_at FROM users WHERE id = ?`).get(userId);
+  const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const prefs = db.prepare(`SELECT favorite_sports FROM user_preferences WHERE user_id = ?`).get(userId);

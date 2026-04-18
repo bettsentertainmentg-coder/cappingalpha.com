@@ -429,6 +429,24 @@ try {
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_picks_capper     ON picks      (capper_name)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_golf_picks_capper ON golf_picks (capper_name)`); } catch (_) {}
 
+// ── User account migrations ───────────────────────────────────────────────────
+try { db.exec(`ALTER TABLE users ADD COLUMN username_changed_at TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE users ADD COLUMN tos_accepted_at TEXT`); } catch (_) {}
+
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      token      TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+} catch (_) {}
+
 // ── Reader corrections — manual annotations that inject into Haiku prompt ─────
 try {
   db.exec(`

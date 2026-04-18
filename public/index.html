@@ -992,10 +992,21 @@
       <button class="modal-close" onclick="closeLogin()">&#x2715;</button>
       <h2>Log In</h2>
       <div class="form-error" id="login-error"></div>
-      <div class="form-group"><label>Email</label><input type="email" id="login-email" autocomplete="email" /></div>
-      <div class="form-group"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" /></div>
-      <button class="btn btn-primary btn-block" onclick="doLogin()">Log In</button>
-      <div class="form-footer">Don't have an account? <a onclick="closeLogin(); openSignup();">Sign up</a></div>
+      <div id="login-form-inner">
+        <div class="form-group"><label>Email or Username</label><input type="text" id="login-email" autocomplete="username" /></div>
+        <div class="form-group"><label>Password</label><input type="password" id="login-password" autocomplete="current-password" /></div>
+        <button class="btn btn-primary btn-block" onclick="doLogin()">Log In</button>
+        <div class="form-footer" style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+          <span>Don't have an account? <a onclick="closeLogin(); openSignup();">Sign up</a></span>
+          <a onclick="showForgotPassword()" style="cursor:pointer;">Forgot password?</a>
+        </div>
+      </div>
+      <div id="login-forgot-inner" style="display:none;">
+        <div class="form-group"><label>Your account email</label><input type="email" id="forgot-email" autocomplete="email" /></div>
+        <div class="form-success" id="forgot-success" style="color:var(--green);font-size:13px;margin-bottom:10px;display:none;">Check your email for a reset link.</div>
+        <button class="btn btn-primary btn-block" onclick="doForgotPassword()">Send Reset Link</button>
+        <div class="form-footer"><a onclick="showLoginForm()" style="cursor:pointer;">Back to log in</a></div>
+      </div>
     </div>
   </div>
 
@@ -1013,6 +1024,12 @@
       <div class="form-group"><label>Email</label><input type="email" id="signup-email" autocomplete="email" /></div>
       <div class="form-group"><label>Password</label><input type="password" id="signup-password" autocomplete="new-password" /></div>
       <div class="form-group"><label>Confirm Password</label><input type="password" id="signup-confirm" autocomplete="new-password" /></div>
+      <div class="form-group" style="display:flex;align-items:flex-start;gap:10px;">
+        <input type="checkbox" id="signup-tos" style="margin-top:3px;flex-shrink:0;" />
+        <label for="signup-tos" style="font-size:13px;color:var(--muted);cursor:pointer;">
+          I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent);">Terms of Service</a>
+        </label>
+      </div>
       <button class="btn btn-primary btn-block" onclick="doSignup()">Create Account</button>
       <div class="form-footer">Already have an account? <a onclick="closeSignup(); openLogin();">Log in</a></div>
     </div>

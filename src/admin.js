@@ -10,6 +10,16 @@ const crypto  = require('crypto');
 
 const router = express.Router();
 
+// Generates a random 7-8 character alphanumeric code (uppercase, no ambiguous chars)
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion
+  const len   = Math.random() < 0.5 ? 7 : 8;
+  let code = '';
+  const bytes = crypto.randomBytes(len);
+  for (let i = 0; i < len; i++) code += chars[bytes[i] % chars.length];
+  return code;
+}
+
 const NUKE_TABLES = [
   'score_breakdown',
   'raw_messages',
@@ -208,25 +218,26 @@ router.get('/dashboard', requireAuth, (req, res) => {
     let status = 'Unused', statusColor = '#8892a4';
     if (c.activated_by != null) {
       const expired = c.expires_at && new Date(c.expires_at).getTime() < nowMs;
-      if (c.type === 'perma')   { status = 'Perma (active)'; statusColor = '#16a34a'; }
-      else if (expired)         { status = 'Expired';        statusColor = '#ef4444'; }
-      else                      { status = 'Active';         statusColor = '#16a34a'; }
+      if (c.type === 'lifetime') { status = 'Lifetime (used)'; statusColor = '#FFD700'; }
+      else if (expired)          { status = 'Expired';         statusColor = '#ef4444'; }
+      else                       { status = 'Active';          statusColor = '#16a34a'; }
     }
     const activatedBy = c.activated_username || c.activated_email || '—';
-    const expiresAt   = c.expires_at ? c.expires_at.slice(0, 16).replace('T', ' ') : (c.type === 'perma' ? 'Never' : '—');
+    const expiresAt   = c.expires_at ? c.expires_at.slice(0, 16).replace('T', ' ') : (c.type === 'lifetime' ? 'Never' : '—');
     return `<tr>
-      <td style="font-family:monospace;letter-spacing:1px;">${escHtml(c.code)}</td>
-      <td>${escHtml(c.type)}</td>
-      <td style="color:#64748b;">${escHtml(c.notes || '—')}</td>
-      <td><span style="color:${statusColor};font-weight:600;">${status}</span></td>
+      <td style="font-family:monospace;letter-spacing:1px;font-size:13px;">${escHtml(c.code)}</td>
+      <td style="font-size:12px;">${escHtml(c.type)}</td>
+      <td style="color:#64748b;font-size:12px;">${escHtml(c.notes || '—')}</td>
+      <td><span style="color:${statusColor};font-weight:600;font-size:12px;">${status}</span></td>
       <td style="color:#8892a4;font-size:12px;">${escHtml(activatedBy)}</td>
       <td style="color:#8892a4;font-size:12px;">${escHtml(c.activated_at ? c.activated_at.slice(0, 16).replace('T', ' ') : '—')}</td>
       <td style="color:#8892a4;font-size:12px;">${escHtml(expiresAt)}</td>
+      <td>${c.activated_by == null ? `<button class="btn-sm btn-revoke" onclick="deleteCode(${c.id})">Delete</button>` : ''}</td>
     </tr>`;
   }).join('');
 
   const codesTableHtml = codes.length
-    ? `<table><thead><tr><th>Code</th><th>Type</th><th>Notes</th><th>Status</th><th>Activated By</th><th>Activated At</th><th>Expires</th></tr></thead><tbody>${codeRows}</tbody></table>`
+    ? `<table><thead><tr><th>Code</th><th>Type</th><th>Notes</th><th>Status</th><th>Activated By</th><th>Activated At</th><th>Expires</th><th></th></tr></thead><tbody>${codeRows}</tbody></table>`
     : '<div class="empty">No codes generated yet.</div>';
 
   // ── MVP panel ─────────────────────────────────────────────────────────────────
@@ -533,14 +544,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${picksTableHtml}
       <div class="nuke-box" style="display:flex;gap:24px;align-items:flex-start;">
         <div>
-          <h2 style="margin-top:0;color:#ef4444;">NUKE</h2>
-          <p>Deletes all picks, raw messages, and score breakdowns. Preserves today_games, lines, MVP history, and users. Triggers a fresh scan from 6am.</p>
+          <h2 style="margin-top:0;color:#ef4444;">Actions</h2>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn btn-nuke" onclick="nuke()">NUKE &amp; RESCAN</button>
-            <button class="btn btn-primary" onclick="scanNow()">Scan Now</button>
-            <button class="btn" style="background:#7c3aed;color:#fff;" onclick="rescanFromStart()">Rescan From 6am</button>
-            <button class="btn" style="background:#0f766e;color:#fff;" onclick="rescanSkippedMsgs()" id="btn-skipped">Rescan Skipped</button>
-            <button class="btn" style="background:#b45309;color:#fff;" onclick="refreshOddsNow()" id="btn-odds">Refresh Odds Now</button>
+            <button class="btn btn-nuke" onclick="confirmAction('nuke')">NUKE &amp; RESCAN</button>
+            <button class="btn btn-primary" onclick="confirmAction('scan')">Scan Now</button>
+            <button class="btn" style="background:#7c3aed;color:#fff;" onclick="confirmAction('rescan')">Rescan From 6am</button>
+            <button class="btn" style="background:#0f766e;color:#fff;" onclick="confirmAction('skipped')" id="btn-skipped">Rescan Skipped</button>
+            <button class="btn" style="background:#b45309;color:#fff;" onclick="confirmAction('odds')" id="btn-odds">Refresh Odds Now</button>
           </div>
         </div>
         <div id="scan-status" style="flex:1;background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;min-height:80px;display:flex;align-items:center;">
@@ -551,31 +561,47 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
     <!-- CODES PANEL -->
     <div class="apanel${ta('codes')}" id="panel-codes">
-      <h1>Access Codes</h1>
-      <p style="color:#8892a4;font-size:13px;margin:-8px 0 20px;">$1/day &nbsp;·&nbsp; $4/week (subscription) &nbsp;·&nbsp; $75/year (subscription). Hand out codes to give direct access — great for promos, partners, and testing.</p>
-      <div class="code-gen-card">
-        <h3>Generate New Code</h3>
-        <form method="POST" action="/admin/generate-code" style="display:flex;flex-direction:column;gap:12px;">
-          <div>
-            <label>Type</label>
-            <select name="type" style="width:100%;">
-              <option value="day">Day (24h)</option>
-              <option value="week">Week (7d)</option>
-              <option value="annual">Annual (365d)</option>
-              <option value="perma">Perma (no expiry, reusable)</option>
-            </select>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:28px;">
+        <div>
+          <h1 style="margin-bottom:6px;">Access Codes</h1>
+          <p style="color:#8892a4;font-size:13px;margin:0;">All codes are single-use. Hand out to users for direct access.</p>
+        </div>
+        <!-- Quick batch generator -->
+        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 20px;min-width:320px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:12px;">Quick Generate</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+            <div>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">TYPE</label>
+              <select id="qgen-type" style="font-size:13px;padding:7px 10px;">
+                <option value="day">1 Day</option>
+                <option value="week" selected>7 Days</option>
+                <option value="annual">1 Year</option>
+                <option value="lifetime">Lifetime</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">COUNT</label>
+              <select id="qgen-count" style="font-size:13px;padding:7px 10px;">
+                <option value="1">1</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="8" selected>8</option>
+                <option value="10">10</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">NOTES</label>
+              <input type="text" id="qgen-notes" placeholder="optional label" style="font-size:13px;padding:7px 10px;width:130px;" />
+            </div>
+            <button class="btn btn-primary" style="font-size:13px;padding:8px 16px;" onclick="quickGenerate()">Generate</button>
           </div>
-          <div>
-            <label>Code (leave blank to auto-generate)</label>
-            <input type="text" name="code" placeholder="e.g. SPORTS2025" style="width:100%;" />
+          <div id="qgen-result" style="margin-top:12px;font-size:12px;color:#8892a4;display:none;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:6px;">Generated codes</div>
+            <div id="qgen-codes" style="font-family:monospace;line-height:2;letter-spacing:1px;"></div>
           </div>
-          <div>
-            <label>Notes (optional)</label>
-            <input type="text" name="notes" placeholder="e.g. For John" style="width:100%;" />
-          </div>
-          <button class="btn btn-primary" type="submit" style="align-self:flex-start;">Generate Code</button>
-        </form>
+        </div>
       </div>
+
       <h2>All Codes (${codes.length})</h2>
       ${codesTableHtml}
     </div>
@@ -765,6 +791,27 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>
     </div>
 
+    <!-- ACTION CONFIRM MODAL -->
+    <div id="action-modal" onclick="if(event.target===this)closeActionModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:300;align-items:center;justify-content:center;">
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:480px;width:90%;padding:28px;position:relative;">
+        <button onclick="closeActionModal()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;">&#x2715;</button>
+        <h2 id="action-modal-title" style="margin-bottom:14px;font-size:18px;">Confirm Action</h2>
+        <p id="action-modal-body" style="color:#c8d3e0;font-size:14px;margin-bottom:12px;line-height:1.6;"></p>
+        <div style="background:#0f1117;border:1px solid #b45309;border-radius:6px;padding:10px 14px;margin-bottom:18px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#f59e0b;margin-bottom:4px;">API Cost</div>
+          <p id="action-modal-cost" style="color:#fbbf24;font-size:13px;margin:0;line-height:1.5;"></p>
+        </div>
+        <div id="action-modal-typed-row" style="margin-bottom:16px;">
+          <label id="action-modal-confirm-label" style="display:block;font-size:12px;font-weight:700;color:#ef4444;margin-bottom:6px;letter-spacing:.05em;"></label>
+          <input type="text" id="action-modal-typed" placeholder="NUKE" style="width:100%;font-size:14px;border-color:#7f1d1d;color:#fca5a5;" />
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button onclick="closeActionModal()" style="padding:9px 20px;border-radius:6px;border:1px solid #252c3b;background:none;color:#8892a4;font-family:inherit;font-size:14px;cursor:pointer;">Cancel</button>
+          <button id="action-modal-btn" style="padding:9px 20px;border-radius:6px;border:none;color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">Confirm</button>
+        </div>
+      </div>
+    </div>
+
     <!-- CORRECTION MODAL -->
     <div id="corr-modal" onclick="closeCorrModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;overflow-y:auto;">
       <div onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:640px;margin:40px auto;padding:28px;position:relative;">
@@ -837,39 +884,141 @@ router.get('/dashboard', requireAuth, (req, res) => {
         btn.textContent = btn.textContent.replace(open ? '▴' : '▾', open ? '▾' : '▴');
       }
 
-      async function nuke() {
-        if (!confirm('Delete all picks and rescan? This cannot be undone.')) return;
-        const btn = document.querySelector('.btn-nuke');
-        btn.disabled = true; btn.textContent = 'Nuking...';
-        await fetch('/admin/nuke', { method: 'POST' });
-        btn.disabled = false; btn.textContent = 'NUKE & RESCAN';
-        pollStatus();
+      // ── Action confirm modal ───────────────────────────────────────────────────
+      const ACTION_INFO = {
+        nuke: {
+          title: 'NUKE & RESCAN',
+          color: '#ef4444',
+          body: 'Deletes all picks, raw messages, and score breakdowns for today. Preserves today_games, lines, MVP history, and users. Then immediately triggers a fresh scan back to 6am.',
+          cost: 'Uses Haiku API credits (~$0.01–0.05) to re-read all Discord messages since 6am.',
+          confirm: 'TYPE "NUKE" TO CONFIRM',
+          typed: true,
+        },
+        scan: {
+          title: 'Scan Now',
+          color: '#3b82f6',
+          body: 'Runs an incremental Discord scan — only fetches messages since the last scan.',
+          cost: 'Uses Haiku API credits for any new messages found (typically <$0.01).',
+          confirm: null,
+          typed: false,
+        },
+        rescan: {
+          title: 'Rescan From 6am',
+          color: '#7c3aed',
+          body: 'Clears scanner state and re-reads ALL Discord messages since 6am. Picks that already exist will be deduplicated — no double-counting.',
+          cost: 'Uses Haiku API credits for all messages since 6am (~$0.01–0.05 depending on volume).',
+          confirm: null,
+          typed: false,
+        },
+        skipped: {
+          title: 'Rescan Skipped',
+          color: '#0f766e',
+          body: 'Re-runs all previously skipped messages through the current reader rules. Useful after updating the RULES prompt or adding corrections.',
+          cost: 'Uses Haiku API credits — one call per skipped message (can be $0.01–0.10+ if many messages).',
+          confirm: null,
+          typed: false,
+        },
+        odds: {
+          title: 'Refresh Odds Now',
+          color: '#b45309',
+          body: "Fetches fresh ML/spread/O/U lines from The Odds API for all of today's games and reseeds pick slots.",
+          cost: 'Costs Odds API credits — each sport uses 1 credit (≈4–6 credits total). You have ~500/month free.',
+          confirm: null,
+          typed: false,
+        },
+      };
+
+      function confirmAction(key) {
+        const info = ACTION_INFO[key];
+        if (!info) return;
+        document.getElementById('action-modal-title').textContent = info.title;
+        document.getElementById('action-modal-title').style.color = info.color;
+        document.getElementById('action-modal-body').textContent  = info.body;
+        document.getElementById('action-modal-cost').textContent  = info.cost;
+        const typedRow = document.getElementById('action-modal-typed-row');
+        const typedInput = document.getElementById('action-modal-typed');
+        if (info.typed) {
+          typedRow.style.display = '';
+          typedInput.value = '';
+          document.getElementById('action-modal-confirm-label').textContent = info.confirm;
+        } else {
+          typedRow.style.display = 'none';
+        }
+        document.getElementById('action-modal-btn').textContent = info.title;
+        document.getElementById('action-modal-btn').style.background = info.color;
+        document.getElementById('action-modal-btn').onclick = () => executeAction(key, info);
+        document.getElementById('action-modal').style.display = 'flex';
       }
-      async function scanNow() {
-        await fetch('/admin/scan-now', { method: 'POST' });
-        pollStatus();
+      function closeActionModal() {
+        document.getElementById('action-modal').style.display = 'none';
       }
-      async function rescanFromStart() {
-        showStatus('scanning', 'Rescanning from 6am...');
-        await fetch('/admin/rescan-from-start', { method: 'POST' });
-        pollStatus();
+      async function executeAction(key, info) {
+        if (info.typed) {
+          const val = document.getElementById('action-modal-typed').value.trim().toUpperCase();
+          if (val !== 'NUKE') { alert('Type NUKE exactly to confirm.'); return; }
+        }
+        closeActionModal();
+        if (key === 'nuke') {
+          const btn = document.querySelector('.btn-nuke');
+          btn.disabled = true; btn.textContent = 'Nuking...';
+          await fetch('/admin/nuke', { method: 'POST' });
+          btn.disabled = false; btn.textContent = 'NUKE & RESCAN';
+          pollStatus();
+        } else if (key === 'scan') {
+          await fetch('/admin/scan-now', { method: 'POST' });
+          pollStatus();
+        } else if (key === 'rescan') {
+          showStatus('scanning', 'Rescanning from 6am...');
+          await fetch('/admin/rescan-from-start', { method: 'POST' });
+          pollStatus();
+        } else if (key === 'skipped') {
+          const btn = document.getElementById('btn-skipped');
+          btn.disabled = true; btn.textContent = 'Rescanning...';
+          const res = await fetch('/admin/rescan-skipped', { method: 'POST' });
+          const data = await res.json();
+          btn.disabled = false; btn.textContent = 'Rescan Skipped';
+          if (data.queued === 0) alert('No skipped messages on record.');
+          else { showStatus('scanning', \`Processing \${data.queued} skipped messages...\`); pollStatus(); }
+        } else if (key === 'odds') {
+          const btn = document.getElementById('btn-odds');
+          btn.disabled = true; btn.textContent = 'Refreshing...';
+          const res = await fetch('/admin/refresh-odds', { method: 'POST' });
+          const data = await res.json();
+          btn.disabled = false; btn.textContent = 'Refresh Odds Now';
+          alert(data.ok ? 'Done: ' + data.updated + ' games updated, slots reseeded.' : 'Error: ' + data.error);
+        }
       }
-      async function refreshOddsNow() {
-        const btn = document.getElementById('btn-odds');
-        btn.disabled = true; btn.textContent = 'Refreshing...';
-        const res = await fetch('/admin/refresh-odds', { method: 'POST' });
+
+      // ── Quick code generator ───────────────────────────────────────────────────
+      async function quickGenerate() {
+        const type  = document.getElementById('qgen-type').value;
+        const count = parseInt(document.getElementById('qgen-count').value, 10);
+        const notes = document.getElementById('qgen-notes').value.trim();
+        const res   = await fetch('/admin/generate-codes-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, count, notes }),
+        });
         const data = await res.json();
-        btn.disabled = false; btn.textContent = 'Refresh Odds Now';
-        alert(data.ok ? 'Done: ' + data.updated + ' games updated, slots reseeded.' : 'Error: ' + data.error);
+        if (!data.ok) { alert('Error: ' + (data.error || 'unknown')); return; }
+        const resultEl = document.getElementById('qgen-result');
+        const codesEl  = document.getElementById('qgen-codes');
+        codesEl.innerHTML = data.codes.map(c =>
+          \`<div style="display:flex;align-items:center;gap:12px;">
+            <span style="color:#e2e8f0;font-size:14px;">\${c}</span>
+            <button onclick="navigator.clipboard.writeText('\${c}').then(()=>this.textContent='Copied!').catch(()=>{})"
+              style="background:none;border:1px solid #252c3b;color:#8892a4;border-radius:4px;padding:1px 8px;font-size:11px;cursor:pointer;">Copy</button>
+          </div>\`
+        ).join('');
+        resultEl.style.display = '';
+        // reload after 3s so table updates
+        setTimeout(() => location.reload(), 3000);
       }
-      async function rescanSkippedMsgs() {
-        const btn = document.getElementById('btn-skipped');
-        btn.disabled = true; btn.textContent = 'Rescanning...';
-        const res = await fetch('/admin/rescan-skipped', { method: 'POST' });
-        const data = await res.json();
-        btn.disabled = false; btn.textContent = 'Rescan Skipped';
-        if (data.queued === 0) { alert('No skipped messages on record.'); }
-        else { showStatus('scanning', \`Processing \${data.queued} skipped messages...\`); pollStatus(); }
+
+      async function deleteCode(id) {
+        if (!confirm('Delete this unused code?')) return;
+        await fetch('/admin/delete-code/' + id, { method: 'DELETE' });
+        location.reload();
       }
 
       function showStatus(type, msg) {
@@ -1199,6 +1348,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       function toggleCorrType(t) {
         document.getElementById('corr-picks-section').style.display = t === 'pick' ? '' : 'none';
       }
+      function removePickRow(btn) { btn.closest('div[style]').remove(); }
       function addCorrPickRow(pre) {
         const container = document.getElementById('corr-pick-rows');
         const idx = container.children.length;
@@ -1219,7 +1369,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <input type="number" class="corr-spread" placeholder="e.g. -1.5" value="\${pre?.spread??''}" step="0.5" style="width:80px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
           <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">CAPPER</label>
             <input type="text" class="corr-capper" placeholder="optional" value="\${pre?.capper_name||''}" style="width:110px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
-          \${idx > 0 ? '<button onclick="this.closest(\'div[style]\').remove()" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:5px;padding:6px 10px;font-size:11px;cursor:pointer;align-self:flex-end;">Remove</button>' : ''}
+          \${idx > 0 ? '<button onclick="removePickRow(this)" style="background:#7f1d1d;color:#fca5a5;border:none;border-radius:5px;padding:6px 10px;font-size:11px;cursor:pointer;align-self:flex-end;">Remove</button>' : ''}
         \`;
         container.appendChild(row);
       }
@@ -1428,18 +1578,45 @@ router.get('/game-detail/:espn_game_id', requireAuth, (req, res) => {
 // ── GET /admin/codes → redirect ───────────────────────────────────────────────
 router.get('/codes', requireAuth, (_req, res) => res.redirect('/admin/dashboard?tab=codes'));
 
-// ── POST /admin/generate-code ─────────────────────────────────────────────────
+// ── POST /admin/generate-code (form POST, legacy) ─────────────────────────────
 router.post('/generate-code', requireAuth, express.urlencoded({ extended: false }), (req, res) => {
   const { type, notes } = req.body;
-  const validTypes = ['day', 'week', 'annual', 'perma'];
+  const validTypes = ['day', 'week', 'annual', 'lifetime'];
   if (!validTypes.includes(type)) return res.status(400).send('Invalid code type.');
-  const code = (req.body.code || '').trim().toUpperCase() || crypto.randomBytes(5).toString('hex').toUpperCase();
+  const code = (req.body.code || '').trim().toUpperCase() || generateCode();
   try {
     db.prepare(`INSERT INTO access_codes (code, type, notes) VALUES (?, ?, ?)`).run(code, type, notes || null);
   } catch (_) {
     return res.status(409).send('Code already exists: ' + code);
   }
   res.redirect('/admin/dashboard?tab=codes');
+});
+
+// ── POST /admin/generate-codes-batch — JSON batch generator ──────────────────
+router.post('/generate-codes-batch', requireAuth, express.json(), (req, res) => {
+  const { type, count = 1, notes } = req.body || {};
+  const validTypes = ['day', 'week', 'annual', 'lifetime'];
+  if (!validTypes.includes(type)) return res.status(400).json({ ok: false, error: 'Invalid code type.' });
+  const n = Math.min(Math.max(parseInt(count, 10) || 1, 1), 20);
+  const insert = db.prepare(`INSERT INTO access_codes (code, type, notes) VALUES (?, ?, ?)`);
+  const codes = [];
+  for (let i = 0; i < n; i++) {
+    let code, tries = 0;
+    do { code = generateCode(); tries++; } while (tries < 10 && db.prepare(`SELECT id FROM access_codes WHERE code = ?`).get(code));
+    insert.run(code, type, notes || null);
+    codes.push(code);
+  }
+  console.log(`[admin] Generated ${n} ${type} codes: ${codes.join(', ')}`);
+  res.json({ ok: true, codes });
+});
+
+// ── DELETE /admin/delete-code/:id ─────────────────────────────────────────────
+router.delete('/delete-code/:id', requireAuth, (req, res) => {
+  const row = db.prepare(`SELECT id, activated_by FROM access_codes WHERE id = ?`).get(req.params.id);
+  if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
+  if (row.activated_by != null) return res.status(409).json({ ok: false, error: 'Cannot delete a used code.' });
+  db.prepare(`DELETE FROM access_codes WHERE id = ?`).run(row.id);
+  res.json({ ok: true });
 });
 
 // ── GET /admin/api/users — JSON for AJAX search ───────────────────────────────

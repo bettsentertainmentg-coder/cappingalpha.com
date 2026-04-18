@@ -231,6 +231,28 @@ function accessStatusWidget(user) {
     <div class="form-error" id="account-code-error" style="margin-top:8px;font-size:12px;"></div>`;
 }
 
+async function changeUsername() {
+  const input  = document.getElementById('change-username-input');
+  const errEl  = document.getElementById('change-username-error');
+  const okEl   = document.getElementById('change-username-ok');
+  const newName = (input?.value || '').trim();
+  errEl.textContent = '';
+  okEl.style.display = 'none';
+  if (!newName) { errEl.textContent = 'Enter a username.'; return; }
+  try {
+    const res  = await fetch('/auth/username', {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username: newName }),
+    });
+    const data = await res.json();
+    if (!res.ok) { errEl.textContent = data.error || 'Failed to update.'; return; }
+    okEl.style.display = '';
+    okEl.textContent   = `Username updated to "${data.username}"`;
+    setTimeout(() => loadAccount(), 1500);
+  } catch (_) { errEl.textContent = 'Network error. Try again.'; }
+}
+
 function renderAccount(data) {
   const el = document.getElementById('account-content');
   const { user, favoriteSports, votes, allPicks } = data;
@@ -242,6 +264,24 @@ function renderAccount(data) {
   const memberSince = user.created_at
     ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : '—';
+
+  // Username change cooldown
+  let usernameChangeCooldown = '';
+  if (user.username_changed_at) {
+    const lastChange  = new Date(user.username_changed_at + 'Z');
+    const daysSince   = (Date.now() - lastChange.getTime()) / (1000 * 60 * 60 * 24);
+    const daysLeft    = Math.ceil(30 - daysSince);
+    if (daysLeft > 0) usernameChangeCooldown = `Can change again in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`;
+  }
+  const usernameChangeHtml = usernameChangeCooldown
+    ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">${usernameChangeCooldown}</div>`
+    : `<div style="display:flex;gap:8px;margin-top:8px;">
+        <input type="text" id="change-username-input" placeholder="${user.username || 'Choose a username'}"
+               maxlength="20" style="flex:1;font-size:13px;" />
+        <button class="btn btn-ghost" style="font-size:13px;padding:6px 12px;" onclick="changeUsername()">Save</button>
+       </div>
+       <div class="form-error" id="change-username-error" style="font-size:12px;margin-top:4px;"></div>
+       <div id="change-username-ok" style="font-size:12px;color:var(--green);margin-top:4px;display:none;"></div>`;
 
   const pillsHtml = ALL_SPORTS.map(s => `
     <div class="sport-pill${favoriteSports.includes(s) ? ' active' : ''}"
@@ -339,6 +379,10 @@ function renderAccount(data) {
           <div class="card-header"><span class="card-title">Account</span></div>
           <div style="padding:4px 20px 12px;">
             <div class="account-info-row">
+              <span class="account-info-label">Username</span>
+              <span class="account-info-val" style="font-size:13px;font-weight:600;">${user.username || '<span style="color:var(--muted);">Not set</span>'}</span>
+            </div>
+            <div class="account-info-row">
               <span class="account-info-label">Email</span>
               <span class="account-info-val" style="font-size:13px;">${user.email}</span>
             </div>
@@ -350,6 +394,11 @@ function renderAccount(data) {
               <span class="account-info-label">Member since</span>
               <span class="account-info-val">${memberSince}</span>
             </div>
+          </div>
+          <div style="padding:0 20px 16px;border-top:1px solid var(--border);margin-top:4px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-top:12px;margin-bottom:4px;">Change Username</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">Once per 30 days. Letters, numbers, and underscores only.</div>
+            ${usernameChangeHtml}
           </div>
         </div>
 
@@ -432,4 +481,4 @@ function renderAccount(data) {
   requestAnimationFrame(() => drawVotedPlGraph(votes, unit));
 }
 
-Object.assign(window, { deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph });
+Object.assign(window, { deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername });
