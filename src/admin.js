@@ -500,7 +500,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   // ── Messages panel data ───────────────────────────────────────────────────────
   const recentRaw = db.prepare(`
     SELECT rm.id, rm.pick_id, rm.channel, rm.author,
-           SUBSTR(rm.message_text, 1, 400) AS message_text,
+           rm.message_text,
            rm.saved_at,
            p.team, p.pick_type, p.sport, p.spread, p.score, p.capper_name, p.result
     FROM raw_messages rm
@@ -510,7 +510,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
   const recentSkipped = db.prepare(`
     SELECT id, message_id, channel, author,
-           SUBSTR(content, 1, 400) AS content, reason, skipped_at
+           content, reason, skipped_at
     FROM skipped_messages ORDER BY skipped_at DESC LIMIT 300
   `).all();
 
@@ -733,9 +733,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
                 <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
                 <td><span style="font-size:11px;color:#8892a4;">${escHtml(r.channel || '—')}</span></td>
                 <td style="font-size:12px;">${escHtml(r.author || '—')}</td>
-                <td style="font-size:12px;max-width:280px;word-break:break-word;">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
+                <td style="font-size:12px;max-width:280px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${r.id},'raw')" title="Click to view full message">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
                 <td style="font-size:12px;">${pickInfo}</td>
-                <td><button class="btn-sm btn-primary" onclick="openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
+                <td><button class="btn-sm btn-primary" onclick="event.stopPropagation();openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -756,7 +756,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
                 <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
                 <td><span style="font-size:11px;color:#8892a4;">${escHtml(s.channel || '—')}</span></td>
                 <td style="font-size:12px;">${escHtml(s.author || '—')}</td>
-                <td style="font-size:12px;max-width:280px;word-break:break-word;">${prev}${(s.content || '').length > 60 ? '…' : ''}</td>
+                <td style="font-size:12px;max-width:280px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${s.id},'skip')" title="Click to view full message">${prev}${(s.content || '').length > 60 ? '…' : ''}</td>
                 <td><span style="font-size:11px;color:#f59e0b;">${escHtml(s.reason || '—')}</span></td>
                 <td><button class="btn-sm btn-primary" onclick="openCorrModal('${msgEsc}','${escHtml(s.channel || '')}','${escHtml(s.author || '')}','skipped',null)">Correct</button></td>
               </tr>`;
@@ -842,7 +842,32 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>
     </div>
 
+    <!-- Message full-text viewer modal -->
+    <div id="msg-view-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;align-items:center;justify-content:center;" onclick="if(event.target===this)closeMsgView()">
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:12px;padding:24px;max-width:640px;width:92%;max-height:80vh;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div id="msg-view-meta" style="font-size:12px;color:#8892a4;"></div>
+          <button onclick="closeMsgView()" style="background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <pre id="msg-view-body" style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:14px;font-size:13px;line-height:1.6;color:#e2e8f0;white-space:pre-wrap;word-break:break-word;overflow-y:auto;max-height:55vh;margin:0;font-family:inherit;"></pre>
+      </div>
+    </div>
+
     <script>
+      // ── Message lookup maps (full text, safe JSON) ────────────────────────────
+      const SKIP_MSGS = ${JSON.stringify(Object.fromEntries(recentSkipped.map(s => [s.id, { text: s.content || '', author: s.author || '', channel: s.channel || '', reason: s.reason || '' }]))).replace(/<\/script>/gi, '<\\/script>')};
+      const RAW_MSGS  = ${JSON.stringify(Object.fromEntries(recentRaw.map(r => [r.id, { text: r.message_text || '', author: r.author || '', channel: r.channel || '' }]))).replace(/<\/script>/gi, '<\\/script>')};
+
+      function showMsg(id, table) {
+        const m = table === 'skip' ? SKIP_MSGS[id] : RAW_MSGS[id];
+        if (!m) return;
+        document.getElementById('msg-view-meta').textContent =
+          (m.author || '—') + ' · ' + (m.channel || '—') + (m.reason ? ' · reason: ' + m.reason : '');
+        document.getElementById('msg-view-body').textContent = m.text;
+        document.getElementById('msg-view-modal').style.display = 'flex';
+      }
+      function closeMsgView() { document.getElementById('msg-view-modal').style.display = 'none'; }
+
       // ── Tab switching ──────────────────────────────────────────────────────────
       function adminTab(name) {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
