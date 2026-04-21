@@ -521,6 +521,9 @@ app.listen(PORT, () => {
   } else {
     console.log(`[startup] today_games has ${gameCount} games — skipping seed`);
   }
+
+  // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
+  await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
 })();
 
 // ── Discord scanner + cron jobs (disabled in UI-only mode) ───────────────────
