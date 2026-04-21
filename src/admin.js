@@ -1152,6 +1152,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         fetch('/admin/mvp-detail/' + id).then(r => r.json()).then(renderMvpDetail)
           .catch(() => { document.getElementById('mvp-content').innerHTML = '<div style="color:#ef4444;">Error loading details.</div>'; });
       }
+      async function setMvpResult(id, result) {
+        const res = await fetch('/admin/mvp-result/' + id, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result }),
+        });
+        const data = await res.json();
+        if (data.ok) { openMvp(id); location.reload(); }
+        else alert('Error: ' + (data.error || 'Unknown'));
+      }
       function closePanel() { document.getElementById('mvp-modal').style.display = 'none'; }
       function closeModal(e) { if (e.target === document.getElementById('mvp-modal')) closePanel(); }
 
@@ -1252,6 +1262,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
             </div>
           </div>
           \${breakdownHtml}\${betHtml}
+          <div style="margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Override Result</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              \${['win','loss','push','pending'].map(r => {
+                const colors = { win:'#16a34a', loss:'#ef4444', push:'#8892a4', pending:'#f59e0b' };
+                const c = colors[r];
+                const active = (m.result || 'pending').toLowerCase() === r;
+                return \`<button onclick="setMvpResult(\${m.id}, '\${r}')" style="padding:6px 14px;border-radius:6px;border:1px solid \${c}44;background:\${active ? c + '33' : '#0f1117'};color:\${c};font-size:13px;cursor:pointer;font-weight:\${active ? '700' : '400'};">\${r.charAt(0).toUpperCase() + r.slice(1)}\${active ? ' ✓' : ''}</button>\`;
+              }).join('')}
+            </div>
+          </div>
           <div>
             <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Cappers & Messages (\${messages.length})</div>
             \${msgHtml}
@@ -1551,6 +1572,15 @@ router.post('/rescan-skipped', requireAuth, (_req, res) => {
 router.get('/mvp', requireAuth, (_req, res) => res.redirect('/admin/dashboard?tab=mvp'));
 
 // ── GET /admin/mvp-detail/:id — JSON for modal ────────────────────────────────
+router.post('/mvp-result/:id', requireAuth, express.json(), (req, res) => {
+  const { result } = req.body;
+  const valid = ['win', 'loss', 'push', 'pending', 'void'];
+  if (!valid.includes(result)) return res.json({ ok: false, error: 'Invalid result' });
+  db.prepare(`UPDATE mvp_picks SET result = ?, annotation = NULL WHERE id = ?`)
+    .run(result, req.params.id);
+  res.json({ ok: true });
+});
+
 router.get('/mvp-detail/:id', requireAuth, (req, res) => {
   const mvp = db.prepare(`
     SELECT m.*,

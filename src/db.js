@@ -478,12 +478,13 @@ try {
 // The old resolver grouped by (espn_game_id, pick_type) without team, so a Hornets
 // spread and Magic spread on the same game would conflict. The new resolver adds team
 // to the group. Reset the old mis-voids so results.js can re-evaluate them.
+// Uses LIKE to handle any annotation string variant (em-dash encoding differences, etc.)
 try {
   db.exec(`
     UPDATE mvp_picks
     SET result = 'pending', annotation = NULL
     WHERE result = 'void'
-      AND annotation = '*had less points — not counted'
+      AND annotation LIKE '%not counted%'
   `);
 } catch (_) {}
 
