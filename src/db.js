@@ -474,18 +474,21 @@ try {
   `);
 } catch (_) {}
 
-// ── Migration: restore picks voided by old same-game/opposing-team conflict resolver ──
-// The old resolver grouped by (espn_game_id, pick_type) without team, so a Hornets
-// spread and Magic spread on the same game would conflict. The new resolver adds team
-// to the group. Reset the old mis-voids so results.js can re-evaluate them.
-// Uses LIKE to handle any annotation string variant (em-dash encoding differences, etc.)
+// ── One-time migration: restore picks voided by old same-game/opposing-team conflict resolver ──
+// The old resolver grouped by (espn_game_id, pick_type) without team, so opposing-team
+// spread picks (e.g. Hornets spread vs Magic spread) incorrectly conflicted.
+// This runs ONCE (gated by settings flag) so future legitimate same-team voids are not reset.
 try {
-  db.exec(`
-    UPDATE mvp_picks
-    SET result = 'pending', annotation = NULL
-    WHERE result = 'void'
-      AND annotation LIKE '%not counted%'
-  `);
+  const already = db.prepare("SELECT value FROM settings WHERE key = 'migration_opposing_team_void_fix'").get();
+  if (!already) {
+    db.exec(`
+      UPDATE mvp_picks
+      SET result = 'pending', annotation = NULL
+      WHERE result = 'void'
+        AND annotation LIKE '%not counted%'
+    `);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('migration_opposing_team_void_fix', '1')").run();
+  }
 } catch (_) {}
 
 function getSetting(key, defaultVal) {
