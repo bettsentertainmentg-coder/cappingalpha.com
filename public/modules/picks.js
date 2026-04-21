@@ -56,16 +56,15 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
     const scoreContent = scoreHidden ? LOCK_SVG : (p.score ?? '—');
 
-    const badgeClass = isGoldMvp ? 'badge-mvp' : 'badge-mvp-silver';
-    const mvpBadge   = isMvp ? ` <span class="${badgeClass}" style="font-size:0.6em;vertical-align:middle;">MVP</span>` : '';
-    const rankInner  = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
+    const mvpBadge  = isMvp ? ' <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span>' : '';
+    const rankInner = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
     const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
       ${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}
       <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '—' : scoreContent}</span>
     </td>`;
 
     return `
-      <tr class="${locked ? 'locked' : ''} ${isMvp ? 'mvp-row' : ''} ${isLive ? 'live-row' : ''}"${clickAttr} style="${cursorStyle}">
+      <tr class="${locked ? 'locked' : ''} ${isMvp ? (isGoldMvp ? 'mvp-row' : 'mvp-row-silver') : ''} ${isLive ? 'live-row' : ''}"${clickAttr} style="${cursorStyle}">
         ${rankTd}
         <td class="matchup-cell${locked ? ' blurred' : ''}">${matchupLabel(p)}${scoreDisplay(p)}</td>
         <td class="${locked ? 'blurred' : ''}">${sportBadge(p.sport)}</td>

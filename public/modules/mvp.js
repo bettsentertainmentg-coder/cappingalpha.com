@@ -169,11 +169,11 @@ export function renderMvpRow(p, i, opts = {}) {
     : '';
 
   const displayThreshold = state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50;
-  const badgeClass = (p.score || 0) >= displayThreshold ? 'badge-mvp' : 'badge-mvp-silver';
+  const rowClass = (p.score || 0) >= displayThreshold ? 'mvp-row' : 'mvp-row-silver';
 
   return `
-    <tr class="mvp-row" style="${dimRow ? 'opacity:0.45;' : ''}">
-      <td class="rank">${rankContent}<span class="${badgeClass}" style="font-size:0.6em;vertical-align:middle;">MVP</span></td>
+    <tr class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}">
+      <td class="rank">${rankContent}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span></td>
       <td class="matchup-cell">${matchupLabel(p)}${resultDisplay}${annotationHtml}</td>
       <td>${sportBadge(p.sport)}</td>
       <td class="pick-cell">${pickCol}</td>
