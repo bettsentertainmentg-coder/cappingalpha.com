@@ -150,7 +150,6 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 export function renderMvpRow(p, i, opts = {}) {
   const rank        = i + 1;
   const resultDisplay = opts.useLiveScore ? scoreDisplay(p) : mvpResultDisplay(p);
-  const rankContent = opts.showStar ? (rank === 1 ? '★ ' : rank + ' ') : '';
   const isPush = p.result === 'push';
   const isVoid = p.result === 'void' || !!(p.annotation && p.annotation.includes('not counted'));
   const dimRow = isPush || isVoid;
@@ -169,11 +168,14 @@ export function renderMvpRow(p, i, opts = {}) {
     : '';
 
   const displayThreshold = state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50;
-  const rowClass = (p.score || 0) >= displayThreshold ? 'mvp-row' : 'mvp-row-silver';
+  const isGold   = (p.score || 0) >= displayThreshold;
+  const rowClass = isGold ? 'mvp-row' : 'mvp-row-silver';
+  const starColor = isGold ? 'var(--gold)' : '#a0aec0';
+  const starHtml  = opts.showStar && rank === 1 ? `<span style="color:${starColor};">★</span> ` : (opts.showStar ? rank + ' ' : '');
 
   return `
     <tr class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}">
-      <td class="rank">${rankContent}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span></td>
+      <td class="rank">${starHtml}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span></td>
       <td class="matchup-cell">${matchupLabel(p)}${resultDisplay}${annotationHtml}</td>
       <td>${sportBadge(p.sport)}</td>
       <td class="pick-cell">${pickCol}</td>
