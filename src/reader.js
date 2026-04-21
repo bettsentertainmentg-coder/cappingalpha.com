@@ -9,7 +9,10 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db        = require('./db');
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY_READER });
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY_READER,
+  defaultHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+});
 const MODEL  = 'claude-haiku-4-5-20251001';
 
 // Haiku 4.5 pricing (USD per token)
@@ -50,7 +53,7 @@ function getCorrectionsBlock() {
   try {
     const rows = db.prepare(`
       SELECT message_text, correct_picks, is_no_pick, notes
-      FROM reader_corrections ORDER BY created_at DESC LIMIT 25
+      FROM reader_corrections ORDER BY created_at DESC LIMIT 10
     `).all();
     if (!rows.length) { _correctionsCache = ''; _correctionsCacheTime = now; return ''; }
     const examples = rows.map(r => {
@@ -374,11 +377,19 @@ function correctPickType(parsed) {
 // ── Main entry point ──────────────────────────────────────────────────────────
 // Receives: { content, channel, author, id, createdAt }
 // Returns: array of valid pick objects (empty array if none found)
+// Discord pick messages are never legitimately longer than ~1500 chars.
+// Truncating before Haiku prevents runaway costs from bot reposts or dumps.
+const MAX_MSG_CHARS = 1500;
+
 async function readMessage(msg) {
   const { content, channel, author, id, createdAt } = msg;
   if (!content || content.trim().length < 4) return [];
 
-  const picks = await extractPicks(content, channel);
+  const truncated = content.length > MAX_MSG_CHARS
+    ? content.slice(0, MAX_MSG_CHARS) + '\n[truncated]'
+    : content;
+
+  const picks = await extractPicks(truncated, channel);
   const valid = [];
 
   for (let parsed of picks) {
