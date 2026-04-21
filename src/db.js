@@ -474,6 +474,19 @@ try {
   `);
 } catch (_) {}
 
+// ── Migration: restore picks voided by old same-game/opposing-team conflict resolver ──
+// The old resolver grouped by (espn_game_id, pick_type) without team, so a Hornets
+// spread and Magic spread on the same game would conflict. The new resolver adds team
+// to the group. Reset the old mis-voids so results.js can re-evaluate them.
+try {
+  db.exec(`
+    UPDATE mvp_picks
+    SET result = 'pending', annotation = NULL
+    WHERE result = 'void'
+      AND annotation = '*had less points — not counted'
+  `);
+} catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

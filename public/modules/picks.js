@@ -41,9 +41,11 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const pushPicks   = picks.filter(p => p.result === 'push');
 
   const makeRow = (p, rank, locked = false) => {
-    const isMvp  = (p.score || 0) >= state.CONFIG.mvp_threshold;
-    const isLive = p.game_status === 'in';
-    const pick   = locked ? `<span class="lock-icon">${LOCK_SVG}</span>` : pickLabel(p);
+    const score      = p.score || 0;
+    const isMvp      = score >= state.CONFIG.mvp_threshold;
+    const isGoldMvp  = score >= (state.CONFIG.mvp_display_threshold || state.CONFIG.mvp_threshold);
+    const isLive     = p.game_status === 'in';
+    const pick       = locked ? `<span class="lock-icon">${LOCK_SVG}</span>` : pickLabel(p);
 
     const clickable = !locked && p.espn_game_id;
     const clickAttr = clickable
@@ -54,8 +56,9 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
     const scoreContent = scoreHidden ? LOCK_SVG : (p.score ?? '—');
 
-    const mvpBadge  = isMvp ? ' <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span>' : '';
-    const rankInner = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
+    const badgeClass = isGoldMvp ? 'badge-mvp' : 'badge-mvp-silver';
+    const mvpBadge   = isMvp ? ` <span class="${badgeClass}" style="font-size:0.6em;vertical-align:middle;">MVP</span>` : '';
+    const rankInner  = rank === 1 ? `★${mvpBadge}` : `${rank}${mvpBadge}`;
     const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
       ${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}
       <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '—' : scoreContent}</span>

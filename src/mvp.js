@@ -60,18 +60,18 @@ function setMvpResult(id, result) {
 }
 
 // Resolve conflicting MVP picks for the same game right before game time.
+// Only picks for the SAME TEAM, SAME PICK TYPE, SAME GAME are true duplicates
+// (multiple cappers posting the same call). Opposing-team picks on the same game
+// (e.g. Hornets ML vs Magic ML) are independent bets and must never conflict.
 // Equal scores → both voided with "rare push" annotation.
 // Different scores → lower voided with "had less points" annotation; higher kept.
 // Safe to call on cron — no-ops when nothing to resolve.
 function resolveConflictingMvpPicks() {
-  // Group by espn_game_id AND pick_type — only picks of the same type on the same
-  // game are truly conflicting. A spread pick and an ML pick for the same game can
-  // both win independently, so they must never be voided against each other.
   const conflicts = db.prepare(`
-    SELECT espn_game_id, pick_type, COUNT(*) as cnt
+    SELECT espn_game_id, pick_type, LOWER(team) as team_key, COUNT(*) as cnt
     FROM mvp_picks
     WHERE espn_game_id IS NOT NULL AND result = 'pending'
-    GROUP BY espn_game_id, pick_type
+    GROUP BY espn_game_id, pick_type, LOWER(team)
     HAVING cnt > 1
   `).all();
 
@@ -79,7 +79,7 @@ function resolveConflictingMvpPicks() {
 
   let resolved = 0;
 
-  for (const { espn_game_id, pick_type } of conflicts) {
+  for (const { espn_game_id, pick_type, team_key } of conflicts) {
     const game = db.prepare(`
       SELECT start_time, status FROM today_games WHERE espn_game_id = ?
     `).get(espn_game_id);
@@ -92,9 +92,9 @@ function resolveConflictingMvpPicks() {
 
     const picks = db.prepare(`
       SELECT id, score, team, pick_type FROM mvp_picks
-      WHERE espn_game_id = ? AND pick_type = ? AND result = 'pending'
+      WHERE espn_game_id = ? AND pick_type = ? AND LOWER(team) = ? AND result = 'pending'
       ORDER BY score DESC
-    `).all(espn_game_id, pick_type);
+    `).all(espn_game_id, pick_type, team_key);
 
     if (picks.length < 2) continue;
 
@@ -107,14 +107,14 @@ function resolveConflictingMvpPicks() {
       for (const p of picks) {
         db.prepare(`UPDATE mvp_picks SET result = 'void', annotation = ? WHERE id = ?`).run(note, p.id);
       }
-      console.log(`[mvp] Tie conflict game ${espn_game_id} (${pick_type}): voided ${picks.length} picks (score=${topScore})`);
+      console.log(`[mvp] Tie conflict game ${espn_game_id} (${pick_type} / ${team_key}): voided ${picks.length} picks`);
     } else {
       // Keep highest; void the rest
       const note = '*had less points — not counted';
       for (const p of picks.slice(1)) {
         db.prepare(`UPDATE mvp_picks SET result = 'void', annotation = ? WHERE id = ?`).run(note, p.id);
       }
-      console.log(`[mvp] Conflict game ${espn_game_id} (${pick_type}): kept pick ${picks[0].id} (score=${topScore}), voided ${picks.length - 1}`);
+      console.log(`[mvp] Conflict game ${espn_game_id} (${pick_type} / ${team_key}): kept ${picks[0].id} (${topScore}pts), voided ${picks.length - 1}`);
     }
 
     resolved++;
