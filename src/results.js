@@ -173,8 +173,9 @@ async function resolveResults() {
     db.prepare(`UPDATE picks SET result = ? WHERE id = ?`).run(result, pick.id);
 
     // Match mvp_picks by team + game_date + pick_type to avoid cross-type clobber
+    // Never overwrite a voided pick — conflict resolver already settled it
     const mvp = db.prepare(
-      `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`
+      `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void'`
     ).get(pick.team, pick.game_date, pick.pick_type ?? null);
 
     if (mvp) {

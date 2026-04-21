@@ -215,12 +215,14 @@ app.get('/api/mvp/public', (req, res) => {
     LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
                               AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
     WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
+      AND (m.annotation IS NULL OR m.annotation NOT LIKE '%not counted%')
     ORDER BY m.saved_at DESC LIMIT 50
   `).all(threshold);
 
   const rows = db.prepare(`
     SELECT result, COUNT(*) as count FROM mvp_picks
     WHERE result IN ('win', 'loss', 'push') AND score >= ?
+      AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
     GROUP BY result
   `).all(threshold);
   const counts = { win: 0, loss: 0, push: 0 };
