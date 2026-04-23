@@ -175,7 +175,7 @@ export function renderMvpRow(p, i, opts = {}) {
 
   return `
     <tr class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}">
-      <td class="rank">${starHtml}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;">MVP</span></td>
+      <td class="rank">${starHtml}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;${isGold ? '' : 'background:rgba(160,174,192,0.15);color:#a0aec0;border-color:rgba(160,174,192,0.3);'}">MVP</span></td>
       <td class="matchup-cell">${matchupLabel(p)}${resultDisplay}${annotationHtml}</td>
       <td>${sportBadge(p.sport)}</td>
       <td class="pick-cell">${pickCol}</td>
