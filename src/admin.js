@@ -939,7 +939,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           title: 'NUKE & RESCAN',
           color: '#ef4444',
           body: 'Deletes all picks, raw messages, and score breakdowns for today. Preserves today_games, lines, MVP history, and users. Then immediately triggers a fresh scan back to 6am.',
-          cost: 'Uses Haiku API credits (~$0.01–0.05) to re-read all Discord messages since 6am.',
+          cost: 'Uses Haiku API credits (~$0.007/msg SDK, ~$0.018/msg billed) to re-read all Discord messages since 6am. 50 messages ≈ $0.90 billed.',
           confirm: 'TYPE "NUKE" TO CONFIRM',
           typed: true,
         },
@@ -955,7 +955,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           title: 'Rescan From 6am',
           color: '#7c3aed',
           body: 'Clears scanner state and re-reads ALL Discord messages since 6am. Picks that already exist will be deduplicated — no double-counting.',
-          cost: 'Uses Haiku API credits for all messages since 6am (~$0.01–0.05 depending on volume).',
+          cost: 'Uses Haiku API credits (~$0.018/msg billed) for all messages since 6am. 50 messages ≈ $0.90 billed.',
           confirm: null,
           typed: false,
         },
@@ -963,7 +963,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           title: 'Rescan Skipped',
           color: '#0f766e',
           body: 'Re-runs all previously skipped messages through the current reader rules. Useful after updating the RULES prompt or adding corrections.',
-          cost: 'Uses Haiku API credits — one call per skipped message (can be $0.01–0.10+ if many messages).',
+          cost: 'Uses Haiku API credits (~$0.018/msg billed). 15 skipped messages ≈ $0.27 billed.',
           confirm: null,
           typed: false,
         },
@@ -983,7 +983,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.getElementById('action-modal-title').textContent = info.title;
         document.getElementById('action-modal-title').style.color = info.color;
         document.getElementById('action-modal-body').textContent  = info.body;
-        document.getElementById('action-modal-cost').textContent  = info.cost;
+
+        // For Rescan Skipped, show live count and calculated cost
+        let costText = info.cost;
+        if (key === 'skipped') {
+          const badge = document.querySelector('#msec-btn-skipped span') || document.querySelector('[onclick*="skipped"] span');
+          const n = badge ? parseInt(badge.textContent, 10) : null;
+          if (n != null && !isNaN(n)) {
+            const billed = (n * 0.018).toFixed(2);
+            costText = 'Uses Haiku API credits \u2014 ' + n + ' skipped message' + (n !== 1 ? 's' : '') + ' \u00d7 ~$0.018/msg billed = ~$' + billed + '.';
+          }
+        }
+        document.getElementById('action-modal-cost').textContent = costText;
         const typedRow = document.getElementById('action-modal-typed-row');
         const typedInput = document.getElementById('action-modal-typed');
         if (info.typed) {
