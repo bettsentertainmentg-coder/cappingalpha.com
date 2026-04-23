@@ -11,7 +11,8 @@ const db        = require('./db');
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY_READER,
-  defaultHeaders: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+  // No beta header — prompt caching is GA for Haiku 4.5; the old
+  // prompt-caching-2024-07-31 beta header silently breaks caching on newer models.
 });
 const MODEL  = 'claude-haiku-4-5-20251001';
 
@@ -266,26 +267,27 @@ GAME MATCHING — When today's games are listed in the message, match each pick 
 // ── Tool schema — Claude always returns this shape; no JSON parsing needed ────
 const EXTRACT_TOOL = {
   name: 'extract_picks',
-  description: 'Extract all sports betting picks found in a Discord message',
+  description: 'Extract all sports betting picks from one or more numbered Discord messages',
   input_schema: {
     type: 'object',
     properties: {
       picks: {
         type: 'array',
-        description: 'All picks found. Use [{is_pick:false}] when none.',
+        description: 'All picks found across all messages. Use [] when none.',
         items: {
           type: 'object',
           properties: {
-            is_pick:      { type: 'boolean', description: 'true if this is a valid pick' },
-            team:         { type: 'string',  description: 'Team name or player name exactly as capper wrote it' },
+            message_index: { type: 'integer', description: 'Which message this pick is from (1-based). Use 1 for single messages.' },
+            is_pick:      { type: 'boolean' },
+            team:         { type: 'string',  description: 'Team or player name as written' },
             pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10'] },
-            spread_value: { type: 'number',  description: 'The spread or total number (e.g. -1.5, 8.5). Omit for ML.' },
+            spread_value: { type: 'number',  description: 'Spread or total line. Omit for ML.' },
             sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
-            capper_name:  { type: 'string',  description: "The capper's handle or name. Omit if not clear." },
-            vs_player:    { type: 'string',  description: 'Opponent player name for golf head-to-head (h2h) picks. Omit for non-golf or non-h2h picks.' },
-            sport_record: { type: 'string',  description: 'Win-loss record string e.g. "27-21 CBB". Omit if not present.' },
-            espn_game_id: { type: 'string',  description: "The id from today's games list if you matched this pick to a game. Omit if uncertain." },
-            picked_side:  { type: 'string',  enum: ['home', 'away'], description: "Whether the picked team is home or away in the matched game. Include when espn_game_id is set." },
+            capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
+            vs_player:    { type: 'string',  description: 'Golf h2h opponent only.' },
+            sport_record: { type: 'string',  description: 'Record string e.g. "27-21 CBB". Omit if absent.' },
+            espn_game_id: { type: 'string',  description: "Game id from today's list if matched. Omit if uncertain." },
+            picked_side:  { type: 'string',  enum: ['home', 'away'], description: 'Include with espn_game_id.' },
           },
           required: ['is_pick'],
         },
@@ -355,6 +357,98 @@ async function extractPicks(content, channelName) {
   return [];
 }
 
+// ── Batch instruction by channel ──────────────────────────────────────────────
+function getBatchInstruction(channelName) {
+  const base = 'Extract ALL picks from each numbered message below. Each pick MUST include message_index (1-based integer — which message the pick came from).';
+  if (channelName === 'free-plays') {
+    return `${base} Include capper_name if a handle is present, and sport_record if a win-loss record appears.`;
+  }
+  return [
+    base,
+    'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
+    "Extract ONLY the current pick (labeled \"Today's Play:\", \"POD:\", or a standalone team/line).",
+  ].join(' ');
+}
+
+// ── Batch Claude API call — processes up to BATCH_SIZE messages per call ──────
+async function claudeExtractBatch(channelInstruction, batchTexts) {
+  const batchBody = batchTexts.map((text, i) =>
+    `=== Message ${i + 1} ===\n${text}`
+  ).join('\n\n');
+  try {
+    const response = await client.messages.create({
+      model:      MODEL,
+      max_tokens: 2048,
+      system: (() => {
+        const blocks = [{ type: 'text', text: RULES, cache_control: { type: 'ephemeral' } }];
+        const corrections = getCorrectionsBlock();
+        if (corrections) blocks.push({ type: 'text', text: corrections });
+        return blocks;
+      })(),
+      tools:       [EXTRACT_TOOL],
+      tool_choice: { type: 'tool', name: 'extract_picks' },
+      messages: [{
+        role:    'user',
+        content: [getTodaysGamesContext(), channelInstruction, batchBody]
+          .filter(Boolean).join('\n\n'),
+      }],
+    });
+    if (response.usage) logUsage(response.usage);
+    const toolUse = response.content.find(b => b.type === 'tool_use');
+    return toolUse?.input ?? null;
+  } catch (err) {
+    console.warn('[reader:claude] batch error:', err.message);
+    return null;
+  }
+}
+
+const BATCH_SIZE = 5;
+
+// ── Batch entry point — call this from scanChannel instead of readMessage ──────
+// msgs: array of { content, channel, author, id, createdAt }
+// Returns: array of pick arrays, index-matched 1-to-1 with input msgs.
+async function readMessages(msgs) {
+  if (!msgs || msgs.length === 0) return [];
+  const results = msgs.map(() => []);
+  const channelName = msgs[0]?.channel || '';
+  const instruction = getBatchInstruction(channelName);
+
+  for (let start = 0; start < msgs.length; start += BATCH_SIZE) {
+    const batch = msgs.slice(start, start + BATCH_SIZE);
+    const batchTexts = batch.map(m =>
+      m.content.length > MAX_MSG_CHARS
+        ? m.content.slice(0, MAX_MSG_CHARS) + '\n[truncated]'
+        : m.content
+    );
+
+    const result = await claudeExtractBatch(instruction, batchTexts);
+    if (!result?.picks) continue;
+
+    for (const parsed of result.picks) {
+      if (!parsed?.is_pick || !parsed.team) continue;
+      const localIdx = (parsed.message_index ?? 1) - 1;
+      if (localIdx < 0 || localIdx >= batch.length) continue;
+      const globalIdx = start + localIdx;
+      const corrected = correctPickType(parsed);
+      const srcMsg = msgs[globalIdx];
+      results[globalIdx].push({
+        team:         corrected.team,
+        sport:        corrected.sport        || null,
+        pick_type:    corrected.pick_type    || null,
+        spread_value: corrected.spread_value ?? null,
+        espn_game_id: corrected.espn_game_id || null,
+        picked_side:  corrected.picked_side  || null,
+        vs_player:    corrected.vs_player    || null,
+        channel:      channelName,
+        capper_name:  corrected.capper_name  || null,
+        is_pick:      true,
+        raw_message:  { id: srcMsg.id, content: srcMsg.content, author: srcMsg.author, createdAt: srcMsg.createdAt },
+      });
+    }
+  }
+  return results;
+}
+
 // ── Sanity check: fix pick_type vs spread_value mismatches ───────────────────
 // Belt-and-suspenders in case the model returns conflicting type + value.
 function correctPickType(parsed) {
@@ -413,4 +507,4 @@ async function readMessage(msg) {
   return valid;
 }
 
-module.exports = { readMessage };
+module.exports = { readMessage, readMessages };

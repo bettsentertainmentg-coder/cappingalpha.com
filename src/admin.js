@@ -297,6 +297,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
     : '<div class="empty">No MVP picks on record.</div>';
 
   // ── AI Usage panel ───────────────────────────────────────────────────────────
+  // The SDK's usage.input_tokens does NOT include tool schema tokens that Anthropic
+  // charges for. Observed ratio: Anthropic bills ~2.5x the SDK-reported cost.
+  // OVERHEAD_MULTIPLIER corrects for this in the "Billed Est." display.
+  const OVERHEAD_MULTIPLIER = 2.5;
+
   const todayStr  = new Date().toISOString().slice(0, 10);
   const monthStr  = new Date().toISOString().slice(0, 7);
   const usageToday = db.prepare(`
@@ -325,12 +330,22 @@ router.get('/dashboard', requireAuth, (req, res) => {
     GROUP BY day ORDER BY day DESC LIMIT 14
   `).all();
 
-  const fmtCost  = v => v != null ? '$' + (v).toFixed(5) : '$0.00000';
+  // Monthly projection based on daily run rate
+  const nowDate       = new Date();
+  const daysElapsed   = nowDate.getDate();
+  const daysInMonth   = new Date(nowDate.getFullYear(), nowDate.getMonth() + 1, 0).getDate();
+  const monthCostSdk  = usageMonth.cost || 0;
+  const dailyRateSdk  = daysElapsed > 0 ? monthCostSdk / daysElapsed : 0;
+  const projectedSdk  = dailyRateSdk * daysInMonth;
+  const projectedBilled = projectedSdk * OVERHEAD_MULTIPLIER;
+
+  const fmtCost  = v => v != null ? '$' + Number(v).toFixed(4) : '$0.0000';
   const fmtTok   = v => v != null ? Number(v).toLocaleString() : '0';
-  const statCard = (label, val) =>
+  const statCard = (label, val, sub = '') =>
     `<div style="background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:16px 20px;min-width:140px;">
        <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8892a4;margin-bottom:6px;">${label}</div>
        <div style="font-size:20px;font-weight:700;">${val}</div>
+       ${sub ? `<div style="font-size:11px;color:#64748b;margin-top:4px;">${sub}</div>` : ''}
      </div>`;
 
   const usageDayRows = usageDays.map(d =>
@@ -341,12 +356,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
        <td>${fmtTok(d.output)}</td>
        <td>${fmtTok(d.cwrite)}</td>
        <td>${fmtTok(d.cread)}</td>
-       <td>${fmtCost(d.cost)}</td>
+       <td style="color:#8892a4;">${fmtCost(d.cost)}</td>
+       <td style="color:#fbbf24;font-weight:600;">${fmtCost((d.cost || 0) * OVERHEAD_MULTIPLIER)}</td>
      </tr>`
-  ).join('') || `<tr><td colspan="7" class="empty">No data yet — usage is logged after the first Claude API call.</td></tr>`;
+  ).join('') || `<tr><td colspan="8" class="empty">No data yet — usage is logged after the first Claude API call.</td></tr>`;
 
   const usagePanelHtml = `
     <h1>AI Usage <small style="font-size:13px;color:#8892a4;font-weight:400;">Claude Haiku — reader.js</small></h1>
+    <div style="background:#1a1200;border:1px solid #78350f;border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:#fbbf24;">
+      <strong>Billing note:</strong> The SDK only reports user/system message tokens — Anthropic also charges for tool schema tokens (~2.5x total).
+      "SDK Est." below is what the code tracks. "Billed Est." corrects for the overhead. Verify at
+      <a href="https://console.anthropic.com" target="_blank" style="color:#fbbf24;">console.anthropic.com</a>.
+    </div>
     <h2 style="margin-top:0;">Today</h2>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px;">
       ${statCard('API Calls', usageToday.calls || 0)}
@@ -354,7 +375,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${statCard('Output Tokens', fmtTok(usageToday.output))}
       ${statCard('Cache Writes', fmtTok(usageToday.cwrite))}
       ${statCard('Cache Reads', fmtTok(usageToday.cread))}
-      ${statCard('Est. Cost', fmtCost(usageToday.cost))}
+      ${statCard('SDK Est.', fmtCost(usageToday.cost), 'reported by SDK')}
+      ${statCard('Billed Est.', fmtCost((usageToday.cost || 0) * OVERHEAD_MULTIPLIER), 'approx. Anthropic charge')}
     </div>
     <h2>This Month</h2>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:28px;">
@@ -363,18 +385,20 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${statCard('Output Tokens', fmtTok(usageMonth.output))}
       ${statCard('Cache Writes', fmtTok(usageMonth.cwrite))}
       ${statCard('Cache Reads', fmtTok(usageMonth.cread))}
-      ${statCard('Est. Cost', fmtCost(usageMonth.cost))}
+      ${statCard('SDK Est.', fmtCost(monthCostSdk), 'reported by SDK')}
+      ${statCard('Billed Est.', fmtCost(monthCostSdk * OVERHEAD_MULTIPLIER), 'approx. Anthropic charge')}
+      ${statCard('Projected Month', fmtCost(projectedBilled), `day ${daysElapsed}/${daysInMonth} · ${fmtCost(dailyRateSdk * OVERHEAD_MULTIPLIER)}/day`)}
     </div>
     <h2>Last 14 Days</h2>
     <table>
-      <thead><tr><th>Date</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th><th>Cache Writes</th><th>Cache Reads</th><th>Est. Cost</th></tr></thead>
+      <thead><tr><th>Date</th><th>Calls</th><th>Input Tokens</th><th>Output Tokens</th><th>Cache Writes</th><th>Cache Reads</th><th>SDK Est.</th><th style="color:#fbbf24;">Billed Est.</th></tr></thead>
       <tbody>${usageDayRows}</tbody>
     </table>
     <p style="color:#8892a4;font-size:12px;margin-top:12px;">
       Pricing: input $0.80/M · output $4.00/M · cache write $1.00/M · cache read $0.08/M (Haiku 4.5).
-      Verify against <a href="https://console.anthropic.com" target="_blank" style="color:#3b82f6;">console.anthropic.com</a>.
+      Billed Est. applies ${OVERHEAD_MULTIPLIER}x multiplier for tool schema overhead.
     </p>
-    <p style="color:#8892a4;font-size:12px;margin-top:4px;">Lifetime: ${usageLifetime.calls || 0} calls · ${fmtCost(usageLifetime.cost)} total</p>
+    <p style="color:#8892a4;font-size:12px;margin-top:4px;">Lifetime: ${usageLifetime.calls || 0} calls · ${fmtCost(usageLifetime.cost)} SDK est. · ${fmtCost((usageLifetime.cost || 0) * OVERHEAD_MULTIPLIER)} billed est.</p>
   `;
 
   // ── Cappers panel data ────────────────────────────────────────────────────────

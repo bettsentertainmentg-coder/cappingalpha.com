@@ -7,7 +7,7 @@
 const { Client } = require('discord.js-selfbot-v13');
 const db = require('./db');
 const { lookupTodayGame } = require('./espn_live');
-const { readMessage } = require('./reader');
+const { readMessage, readMessages } = require('./reader');
 const { savePick }    = require('./storage');
 const { getCycleWindow, ET_OFFSET_MS } = require('./cycle');
 
@@ -119,6 +119,8 @@ async function scanChannel(channelConfig) {
     // Valid window: 6:00am ET on cycle-start day → 5:58am ET on cycle-end day
     const { windowStart, windowEnd } = getCycleWindow();
 
+    // ── Phase 1: collect all valid messages for batch processing ─────────────
+    const validMsgs = [];
     for (const [, msg] of messages) {
       const ts = msg.createdTimestamp;
       if (ts < windowStart || ts >= windowEnd) {
@@ -126,23 +128,28 @@ async function scanChannel(channelConfig) {
         console.log(`[Scanner] Skipped out-of-window message from ${msgDateET} ET`);
         continue;
       }
-      const msgDateET = new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 10);
       // Skip messages with no real text (pure image posts, reactions, etc.)
-      // Threshold is 4 to allow short picks like "VGK ML" (6 chars)
       if (!msg.content || msg.content.trim().length < 4) continue;
-
-      const isSweet16 = /sweet\s*1?6|sweet\s+sixteen/i.test(msg.content);
-
-      // reader.js handles extraction + Ollama validation
-      const picks = await readMessage({
-        content:   msg.content,
-        channel:   channelConfig.name,
-        author:    msg.author?.username || null,
-        id:        msg.id,
-        createdAt: msg.createdAt,
+      validMsgs.push({
+        content:    msg.content,
+        channel:    channelConfig.name,
+        author:     msg.author?.username || null,
+        id:         msg.id,
+        createdAt:  msg.createdAt,
+        _msgDateET: new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 10),
+        _isSweet16: /sweet\s*1?6|sweet\s+sixteen/i.test(msg.content),
       });
+    }
 
-      // Track whether this message produced any saved picks
+    // ── Phase 2: batch-process — all messages → one API call per 5 messages ──
+    const picksByMsg = validMsgs.length > 0
+      ? await readMessages(validMsgs)
+      : [];
+
+    // ── Phase 3: post-process picks (same logic as before, now index-matched) ─
+    for (let i = 0; i < validMsgs.length; i++) {
+      const { id, content, author, _msgDateET, _isSweet16 } = validMsgs[i];
+      const picks = picksByMsg[i] || [];
       let msgSaved = 0;
       let skipReason = picks.length === 0 ? 'no_pick' : null;
 
@@ -151,13 +158,13 @@ async function scanChannel(channelConfig) {
         if (pick.team) pick.team = titleCase(pick.team);
 
         // Sweet 16 messages are always CBB
-        if (isSweet16 && (pick.sport || '').toUpperCase() !== 'CBB') {
+        if (_isSweet16 && (pick.sport || '').toUpperCase() !== 'CBB') {
           console.log(`[Scanner] Sweet 16 override: ${pick.team} sport ${pick.sport} → CBB`);
           pick.sport = 'CBB';
         }
 
         // ESPN lookup — validates team has a game today
-        let todayGame = lookupTodayGame(pick.team, msgDateET);
+        let todayGame = lookupTodayGame(pick.team, _msgDateET);
 
         // Fallback: if the full string didn't match, try each word individually
         // Handles "CIN Reds" → try "CIN" then "Reds"; "Reds" finds Cincinnati Reds
@@ -165,7 +172,7 @@ async function scanChannel(channelConfig) {
           const words = pick.team.trim().split(/\s+/);
           for (const word of words) {
             if (word.length < 3) continue;
-            const g = lookupTodayGame(word, msgDateET);
+            const g = lookupTodayGame(word, _msgDateET);
             if (g) {
               console.log(`[Scanner] Word fallback: "${pick.team}" matched via "${word}" → ${g.home_team} vs ${g.away_team}`);
               todayGame = g;
@@ -198,7 +205,7 @@ async function scanChannel(channelConfig) {
 
         // Augment pick with fields storage.js needs
         pick.is_home_team  = homeMatch;
-        pick.game_date     = msgDateET;
+        pick.game_date     = _msgDateET;
         pick.espn_game_id  = todayGame.espn_game_id || null;
 
         console.log(`[Scanner] Saving: ${pick.team} (${pick.sport})`);
@@ -213,7 +220,7 @@ async function scanChannel(channelConfig) {
           db.prepare(`
             INSERT OR IGNORE INTO skipped_messages (message_id, channel, author, content, reason)
             VALUES (?, ?, ?, ?, ?)
-          `).run(msg.id, channelConfig.name, msg.author?.username || null, msg.content, skipReason);
+          `).run(id, channelConfig.name, author, content, skipReason);
         } catch (_) {}
       }
     }
