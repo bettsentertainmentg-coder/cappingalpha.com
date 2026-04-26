@@ -464,6 +464,30 @@ try {
   `);
 } catch (_) {}
 
+// ── Capper history (permanent — never wiped, cross-day capper tracking) ───────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      capper_name  TEXT NOT NULL,
+      sport        TEXT,
+      pick_type    TEXT,
+      team         TEXT,
+      spread       REAL,
+      espn_game_id TEXT,
+      game_date    TEXT,
+      channel      TEXT,
+      score        REAL,
+      result       TEXT NOT NULL,
+      pick_id      INTEGER,
+      saved_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_capper_history_dedup ON capper_history (pick_id, capper_name) WHERE pick_id IS NOT NULL`);
+} catch (_) {}
+
 // ── Settings (key-value store for admin-configurable values) ──────────────────
 try {
   db.exec(`

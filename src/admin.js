@@ -401,21 +401,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <p style="color:#8892a4;font-size:12px;margin-top:4px;">Lifetime: ${usageLifetime.calls || 0} calls · ${fmtCost(usageLifetime.cost)} SDK est. · ${fmtCost((usageLifetime.cost || 0) * OVERHEAD_MULTIPLIER)} billed est.</p>
   `;
 
-  // ── Cappers panel data ────────────────────────────────────────────────────────
-  const allCapperPicks = db.prepare(`
-    SELECT capper_name, sport, result
-    FROM picks
-    WHERE capper_name IS NOT NULL AND capper_name != '' AND result IS NOT NULL
-  `).all();
-
-  // Also include golf picks
-  let golfCapperPicks = [];
+  // ── Cappers panel data (from capper_history — permanent, cross-day tracking) ──
+  let allHistoryRows = [];
   try {
-    golfCapperPicks = db.prepare(`
-      SELECT capper_name, 'Golf' as sport, result
-      FROM golf_picks
-      WHERE capper_name IS NOT NULL AND capper_name != '' AND result IS NOT NULL
-    `).all();
+    allHistoryRows = db.prepare(`SELECT * FROM capper_history ORDER BY saved_at DESC`).all();
   } catch (_) {}
 
   const allAliases = (() => {
@@ -434,53 +423,87 @@ router.get('/dashboard', requireAuth, (req, res) => {
     return aliasMap.get(norm) || name;
   }
 
-  // Aggregate per capper
+  // Aggregate per capper from capper_history
   const capperMap = new Map();
-  for (const row of [...allCapperPicks, ...golfCapperPicks]) {
+  for (const row of allHistoryRows) {
     if (!row.capper_name) continue;
     const display = resolveCapperDisplay(row.capper_name);
-    if (!capperMap.has(display)) capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, sports: {} });
+    if (!capperMap.has(display)) {
+      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, sports: {} });
+    }
     const c = capperMap.get(display);
     const r = (row.result || '').toLowerCase();
-    if (r === 'win')    c.wins++;
-    else if (r === 'loss')  c.losses++;
-    else if (r === 'push')  c.pushes++;
-    else                    c.pending++;
+    if (r === 'win')       c.wins++;
+    else if (r === 'loss') c.losses++;
+    else if (r === 'push') c.pushes++;
+    else                   c.pending++;
     const s = row.sport || 'Unknown';
-    c.sports[s] = (c.sports[s] || 0) + 1;
+    if (!c.sports[s]) c.sports[s] = { wins: 0, losses: 0, pushes: 0 };
+    if (r === 'win')       c.sports[s].wins++;
+    else if (r === 'loss') c.sports[s].losses++;
+    else if (r === 'push') c.sports[s].pushes++;
   }
 
-  // Sort: most total resolved picks first, then by win%
+  // Find top sports by resolved pick volume (for column headers)
+  const sportTotals = {};
+  for (const [, c] of capperMap) {
+    for (const [s, rec] of Object.entries(c.sports)) {
+      if (s === 'Unknown') continue;
+      sportTotals[s] = (sportTotals[s] || 0) + rec.wins + rec.losses + rec.pushes;
+    }
+  }
+  const allSports = Object.entries(sportTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 7)
+    .map(([s]) => s);
+
+  // Sort: most resolved picks first, then win%
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
       const total = c.wins + c.losses + c.pushes;
       const winPct = total > 0 ? Math.round((c.wins / total) * 100) : null;
-      // Sort sports by volume
-      const sortedSports = Object.entries(c.sports).sort((a, b) => b[1] - a[1]);
-      return { name, ...c, total, winPct, sortedSports };
+      const units  = c.wins - c.losses;
+      return { name, ...c, total, winPct, units };
     })
+    .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
 
+  const sportHeaders = allSports.map(s => `<th style="white-space:nowrap;">${escHtml(s)}</th>`).join('');
+
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <table>
-      <thead><tr><th>#</th><th>Capper</th><th>W</th><th>L</th><th>Push</th><th>Win%</th><th>Pending</th><th>Top Sports</th></tr></thead>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click any row to see that capper's full pick history.</p>
+    <div style="overflow-x:auto;">
+    <table id="capper-leaderboard">
+      <thead><tr>
+        <th>#</th><th>Capper</th><th>Record</th><th>Win%</th><th>Units</th>
+        ${sportHeaders}
+        <th>Pending</th>
+      </tr></thead>
       <tbody>${sortedCappers.map((c, i) => {
-        const wpColor = c.winPct === null ? '#8892a4' : c.winPct >= 55 ? '#16a34a' : c.winPct >= 50 ? '#f59e0b' : '#ef4444';
-        const sportTags = c.sortedSports.slice(0, 3).map(([s, n]) =>
-          `<span class="badge" style="background:rgba(59,130,246,0.12);color:#3b82f6;border:1px solid rgba(59,130,246,0.2);margin-right:3px;">${s} <span style="opacity:.7;">${n}</span></span>`
-        ).join('');
-        return `<tr>
+        const wpColor    = c.winPct === null ? '#8892a4' : c.winPct >= 55 ? '#16a34a' : c.winPct >= 50 ? '#f59e0b' : '#ef4444';
+        const unitColor  = c.units > 0 ? '#16a34a' : c.units < 0 ? '#ef4444' : '#8892a4';
+        const unitStr    = (c.units > 0 ? '+' : '') + c.units;
+        const pushStr    = c.pushes > 0 ? `-<span style="color:#8892a4;">${c.pushes}</span>` : '';
+        const sportCols  = allSports.map(s => {
+          const sr = c.sports[s];
+          if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td style="color:#3b4560;">—</td>`;
+          const stotal = sr.wins + sr.losses + sr.pushes;
+          const swp    = stotal > 0 ? Math.round((sr.wins / stotal) * 100) : null;
+          const sc     = swp === null ? '#8892a4' : swp >= 55 ? '#16a34a' : swp >= 50 ? '#f59e0b' : '#ef4444';
+          return `<td style="font-size:12px;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span></td>`;
+        }).join('');
+        return `<tr class="capper-row" style="cursor:pointer;" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td style="color:#8892a4;font-size:12px;">${i + 1}</td>
-          <td style="font-weight:600;">${c.name}</td>
-          <td style="color:#16a34a;font-weight:700;">${c.wins}</td>
-          <td style="color:#ef4444;font-weight:700;">${c.losses}</td>
-          <td style="color:#8892a4;">${c.pushes}</td>
+          <td style="font-weight:600;">${escHtml(c.name)}</td>
+          <td><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
+          <td style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
+          ${sportCols}
           <td style="color:#8892a4;font-size:12px;">${c.pending || 0}</td>
-          <td>${sportTags}</td>
         </tr>`;
       }).join('')}</tbody>
-    </table>` : `<p class="empty">No capper picks with resolved results yet.</p>`;
+    </table>
+    </div>` : `<p class="empty">No capper history yet. Picks appear here after games resolve and results are written.</p>`;
 
   // Duplicate alerts: today's picks where 2+ distinct cappers called same slot
   const dupAlerts = (() => {
@@ -693,9 +716,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
     <!-- CAPPERS PANEL -->
     <div class="apanel${ta('cappers')}" id="panel-cappers">
-      <h1>Capper Leaderboard</h1>
-
-      <h2>All-Time Record (resolved picks only)</h2>
+      <h1>Capper Leaderboard <small style="font-size:13px;color:#8892a4;font-weight:400;">All-time &middot; stored permanently</small></h1>
       ${capperLeaderboardHtml}
 
       <h2 style="margin-top:28px;">Today's Duplicate Picks</h2>
@@ -863,6 +884,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <button onclick="submitCorrection()" class="btn btn-primary">Save Correction</button>
           <span id="corr-status" style="font-size:13px;color:#8892a4;"></span>
         </div>
+      </div>
+    </div>
+
+    <!-- CAPPER DETAIL MODAL -->
+    <div id="capper-modal" onclick="if(event.target===this)document.getElementById('capper-modal').style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:250;align-items:center;justify-content:center;">
+      <div onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:720px;width:92%;max-height:85vh;padding:28px;position:relative;display:flex;flex-direction:column;overflow:hidden;">
+        <button onclick="document.getElementById('capper-modal').style.display='none'" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;z-index:1;">&#x2715;</button>
+        <div id="capper-modal-content" style="overflow-y:auto;flex:1;">Loading...</div>
       </div>
     </div>
 
@@ -1385,6 +1414,66 @@ router.get('/dashboard', requireAuth, (req, res) => {
         location.reload();
       }
 
+      async function showCapperDetail(name) {
+        const modal   = document.getElementById('capper-modal');
+        const content = document.getElementById('capper-modal-content');
+        modal.style.display = 'flex';
+        content.innerHTML = '<div style="color:#8892a4;text-align:center;padding:40px;">Loading...</div>';
+        try {
+          const data  = await fetch('/admin/api/capper-detail/' + encodeURIComponent(name)).then(r => r.json());
+          const picks = data.picks || [];
+          const wins    = picks.filter(p => p.result === 'win').length;
+          const losses  = picks.filter(p => p.result === 'loss').length;
+          const pushes  = picks.filter(p => p.result === 'push').length;
+          const pending = picks.filter(p => p.result !== 'win' && p.result !== 'loss' && p.result !== 'push').length;
+          const total   = wins + losses + pushes;
+          const winPct  = total > 0 ? Math.round((wins / total) * 100) : null;
+          const units   = wins - losses;
+          const wpColor = winPct === null ? '#8892a4' : winPct >= 55 ? '#16a34a' : winPct >= 50 ? '#f59e0b' : '#ef4444';
+          const rColor  = { win: '#16a34a', loss: '#ef4444', push: '#8892a4', pending: '#f59e0b' };
+          let pickRows = '';
+          for (const p of picks) {
+            const c    = rColor[(p.result || 'pending').toLowerCase()] || '#8892a4';
+            const date = p.game_date || (p.saved_at || '').slice(0, 10);
+            const pt   = p.pick_type || '';
+            const sp   = (pt === 'over' || pt === 'under')
+              ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '')
+              : (p.spread != null ? p.spread : '');
+            const pickDesc = pt + (sp !== '' ? ' ' + sp : '');
+            pickRows +=
+              '<tr>'
+              + '<td style="font-size:11px;color:#8892a4;white-space:nowrap;">' + date + '</td>'
+              + '<td style="font-weight:600;">' + (p.team || '\u2014') + '</td>'
+              + '<td style="color:#8892a4;font-size:12px;">' + (p.sport || '\u2014') + '</td>'
+              + '<td style="font-size:12px;">' + (pickDesc || '\u2014') + '</td>'
+              + '<td style="font-size:11px;color:#8892a4;">' + (p.channel || '\u2014') + '</td>'
+              + '<td><span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">' + (p.result || 'pending').toUpperCase() + '</span></td>'
+              + '</tr>';
+          }
+          const unitStr    = (units >= 0 ? '+' : '') + units;
+          const pushStr    = pushes > 0 ? ' - ' + pushes + 'P' : '';
+          const wpStr      = winPct !== null ? '<span style="color:' + wpColor + ';font-size:16px;font-weight:700;">' + winPct + '%</span>' : '';
+          const pendingStr = pending > 0 ? '<span style="color:#f59e0b;font-size:13px;">' + pending + ' pending</span>' : '';
+          const tableHtml  = picks.length
+            ? '<div style="overflow-y:auto;max-height:420px;">'
+              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th>Channel</th><th>Result</th></tr></thead>'
+              + '<tbody>' + pickRows + '</tbody></table></div>'
+            : '<p style="color:#8892a4;padding:16px 0;">No pick history on record yet.</p>';
+          content.innerHTML =
+            '<div style="margin-bottom:20px;">'
+            + '<div style="font-size:20px;font-weight:700;margin-bottom:10px;">' + name + '</div>'
+            + '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">'
+            + '<span style="font-size:18px;"><span style="color:#16a34a;font-weight:700;">' + wins + 'W</span> - <span style="color:#ef4444;font-weight:700;">' + losses + 'L</span>' + pushStr + '</span>'
+            + wpStr
+            + '<span style="color:' + (units >= 0 ? '#16a34a' : '#ef4444') + ';font-weight:700;">' + unitStr + ' units</span>'
+            + pendingStr
+            + '</div></div>'
+            + tableHtml;
+        } catch (_) {
+          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
+        }
+      }
+
       // ── Messages tab ───────────────────────────────────────────────────────────
       function showMsgSection(name) {
         ['recorded','skipped','corrections'].forEach(s => {
@@ -1785,6 +1874,37 @@ router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
   db.transaction(rows => rows.forEach(r => insert.run(r)))(picks);
   const count = db.prepare('SELECT COUNT(*) as n FROM mvp_picks').get().n;
   res.json({ imported: picks.length, total: count });
+});
+
+// ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────
+router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+
+  // Resolve aliases: get all name variants for this canonical name
+  let allNames = [name];
+  try {
+    const aliases = db.prepare(`SELECT alias FROM capper_aliases WHERE canonical_name = ?`).all(name);
+    allNames = [name, ...aliases.map(a => a.alias)];
+  } catch (_) {}
+
+  // Also resolve the other direction: if `name` is itself an alias, find canonical + siblings
+  try {
+    const norm = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const canonical = db.prepare(
+      `SELECT canonical_name FROM capper_aliases WHERE LOWER(REPLACE(REPLACE(REPLACE(alias,' ',''),'_',''),'-','')) = ? LIMIT 1`
+    ).get(norm);
+    if (canonical) {
+      const siblings = db.prepare(`SELECT alias FROM capper_aliases WHERE canonical_name = ?`).all(canonical.canonical_name);
+      allNames = [canonical.canonical_name, ...siblings.map(a => a.alias)];
+    }
+  } catch (_) {}
+
+  const ph    = allNames.map(() => '?').join(',');
+  const picks = db.prepare(
+    `SELECT * FROM capper_history WHERE capper_name IN (${ph}) ORDER BY saved_at DESC LIMIT 300`
+  ).all(...allNames);
+
+  res.json({ name, picks });
 });
 
 // ── HTML escape helper ────────────────────────────────────────────────────────

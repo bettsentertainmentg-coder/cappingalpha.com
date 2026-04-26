@@ -172,6 +172,29 @@ async function resolveResults() {
 
     db.prepare(`UPDATE picks SET result = ? WHERE id = ?`).run(result, pick.id);
 
+    // ── Write to capper_history (permanent capper tracking, survives daily wipe) ─
+    if (pick.capper_name) {
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO capper_history
+            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          pick.capper_name,
+          pick.sport        ?? null,
+          pick.pick_type    ?? null,
+          pick.team         ?? null,
+          pick.spread       ?? null,
+          pick.espn_game_id ?? null,
+          pick.game_date    ?? null,
+          pick.channel      ?? null,
+          pick.score        ?? null,
+          result,
+          pick.id
+        );
+      } catch (_) {}
+    }
+
     // Match mvp_picks by team + game_date + pick_type to avoid cross-type clobber
     // Never overwrite a voided pick — conflict resolver already settled it
     const mvp = db.prepare(
