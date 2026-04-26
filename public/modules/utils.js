@@ -2,6 +2,19 @@
 
 export const LOCK_SVG = `<svg width="11" height="13" viewBox="0 0 11 13" fill="none" style="vertical-align:middle;display:inline-block;"><rect x="1" y="5.5" width="9" height="7" rx="1.5" fill="#64748b"/><path d="M2.5 5.5V3.5a3 3 0 0 1 6 0v2" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>`;
 
+// Tennis racket SVG — frame + string grid + throat + handle, all in currentColor
+const TENNIS_RACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="15" viewBox="0 0 11 15" fill="none" class="sport-badge-icon" style="vertical-align:middle;display:inline-block;flex-shrink:0;">
+  <ellipse cx="5.5" cy="5.2" rx="4.4" ry="4.4" stroke="currentColor" stroke-width="1.25" fill="none"/>
+  <line x1="1.6" y1="3.2" x2="9.4" y2="3.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="1.1" y1="5.2" x2="9.9" y2="5.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="1.6" y1="7.2" x2="9.4" y2="7.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="3.5" y1="1.1" x2="3.5" y2="9.3" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="5.5" y1="0.8" x2="5.5" y2="9.6" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="7.5" y1="1.1" x2="7.5" y2="9.3" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <path d="M4.1 9.6 L4.5 10.6 L5.5 11.1 L6.5 10.6 L6.9 9.6" stroke="currentColor" stroke-width="1.05" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="4.6" y="11.1" width="1.8" height="3.5" rx="0.5" fill="currentColor"/>
+</svg>`;
+
 export const SPORT_THEMES = {
   MLB:   { grad: 'linear-gradient(115deg,#15803d 0%,#16a34a 40%,#ea580c 60%,#92400e 100%)', fa: 'fa-solid fa-baseball' },
   NBA:   { grad: 'linear-gradient(160deg,#92622a 0%,#c8873a 45%,#92622a 100%)',             fa: 'fa-solid fa-basketball' },
@@ -10,14 +23,20 @@ export const SPORT_THEMES = {
   CBB:   { grad: 'linear-gradient(135deg,#4c1d95 0%,#6d28d9 50%,#a78bfa 100%)',             fa: 'fa-solid fa-basketball' },
   NCAAF: { grad: 'linear-gradient(135deg,#78350f 0%,#b45309 50%,#fb923c 100%)',             fa: 'fa-solid fa-football' },
   WCBB:  { grad: 'linear-gradient(135deg,#701a75 0%,#a21caf 50%,#e879f9 100%)',             fa: 'fa-solid fa-basketball' },
+  ATP:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
+  WTA:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
 };
 
 export function sportBadge(sport) {
   const theme = SPORT_THEMES[sport];
   if (!theme) return `<span class="sport-badge-card sport-badge-card--default">${sport || '—'}</span>`;
+  const label    = theme.label || sport;
+  const iconHtml = theme.svg
+    ? theme.svg
+    : `<i class="${theme.fa} sport-badge-icon"></i>`;
   return `<span class="sport-badge-card" style="background:${theme.grad}">
-    <i class="${theme.fa} sport-badge-icon"></i>
-    <span class="sport-badge-label">${sport}</span>
+    ${iconHtml}
+    <span class="sport-badge-label">${label}</span>
   </span>`;
 }
 
