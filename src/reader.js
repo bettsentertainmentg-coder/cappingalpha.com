@@ -187,6 +187,10 @@ TEAM — return exactly as the capper wrote it. The system resolves it.
   ALL CAPS is valid: "ROYALS ML" → team=Royals.
   If a city prefix precedes a full nickname ("CIN Reds" → "Reds"), drop the prefix.
   Do not change pluralization: "Thunders" → "Thunder". "Sox" stays "Sox".
+  NBA INFORMAL NICKNAMES — expand to the standard name ESPN uses (never return the slang shorthand):
+    "Cavs" → "Cavaliers". "Dubs" → "Warriors". "Raps" → "Raptors".
+    "Pels" → "Pelicans". "Wiz" → "Wizards". "Clips" → "Clippers".
+    "Nugs" → "Nuggets". "Bockers"/"Bockers" → "Knicks". "Grizz" → "Grizzlies".
 
 SPORT — one of: NBA, CBB, WCBB, NFL, NHL, MLB, NCAAF, ATP, WTA, Golf.
   Determine from team names and context.
