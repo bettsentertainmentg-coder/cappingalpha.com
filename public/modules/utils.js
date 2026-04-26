@@ -2,17 +2,18 @@
 
 export const LOCK_SVG = `<svg width="11" height="13" viewBox="0 0 11 13" fill="none" style="vertical-align:middle;display:inline-block;"><rect x="1" y="5.5" width="9" height="7" rx="1.5" fill="#64748b"/><path d="M2.5 5.5V3.5a3 3 0 0 1 6 0v2" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" fill="none"/></svg>`;
 
-// Tennis racket SVG — frame + string grid + throat + handle, all in currentColor
-const TENNIS_RACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="15" viewBox="0 0 11 15" fill="none" class="sport-badge-icon" style="vertical-align:middle;display:inline-block;flex-shrink:0;">
-  <ellipse cx="5.5" cy="5.2" rx="4.4" ry="4.4" stroke="currentColor" stroke-width="1.25" fill="none"/>
-  <line x1="1.6" y1="3.2" x2="9.4" y2="3.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <line x1="1.1" y1="5.2" x2="9.9" y2="5.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <line x1="1.6" y1="7.2" x2="9.4" y2="7.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <line x1="3.5" y1="1.1" x2="3.5" y2="9.3" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <line x1="5.5" y1="0.8" x2="5.5" y2="9.6" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <line x1="7.5" y1="1.1" x2="7.5" y2="9.3" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
-  <path d="M4.1 9.6 L4.5 10.6 L5.5 11.1 L6.5 10.6 L6.9 9.6" stroke="currentColor" stroke-width="1.05" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
-  <rect x="4.6" y="11.1" width="1.8" height="3.5" rx="0.5" fill="currentColor"/>
+// Tennis racket SVG — frame + string grid + throat + handle, all in currentColor.
+// 15x15 viewBox so it matches the visual footprint of Font Awesome sport icons (which render at font-size: 15px).
+const TENNIS_RACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 15 15" fill="none" class="sport-badge-icon" style="vertical-align:middle;display:inline-block;flex-shrink:0;">
+  <ellipse cx="7.5" cy="6.2" rx="5.8" ry="5.8" stroke="currentColor" stroke-width="1.3" fill="none"/>
+  <line x1="2.3" y1="3.7" x2="12.7" y2="3.7" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="1.8" y1="6.2" x2="13.2" y2="6.2" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="2.3" y1="8.7" x2="12.7" y2="8.7" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="4.7" y1="0.9" x2="4.7" y2="11.5" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="7.5" y1="0.5" x2="7.5" y2="11.9" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <line x1="10.3" y1="0.9" x2="10.3" y2="11.5" stroke="currentColor" stroke-width="0.55" stroke-linecap="round"/>
+  <path d="M5.8 11.7 L6.3 12.4 L7.5 12.7 L8.7 12.4 L9.2 11.7" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="6.6" y="12.7" width="1.8" height="2.1" rx="0.5" fill="currentColor"/>
 </svg>`;
 
 export const SPORT_THEMES = {
