@@ -21,7 +21,7 @@ const { lockMorningLines, getLines } = require('./src/lines');
 const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
 const { getSetting } = require('./src/db');
-const { updateLiveScores, fetchTodaysGames } = require('./src/espn_live');
+const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults }   = require('./src/results');
@@ -522,6 +522,10 @@ app.listen(PORT, () => {
     console.log(`[startup] today_games has ${gameCount} games — skipping seed`);
   }
 
+  // Populate ESPN odds (DraftKings) into today_games + book_lines.
+  // Fills any null odds from today's 5am run and seeds pick slots.
+  await refreshEspnOdds().catch(err => console.error('[startup] refreshEspnOdds error:', err.message));
+
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
 })();
@@ -551,6 +555,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
+  await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
@@ -567,6 +572,12 @@ if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// Every 3 hours — refresh DraftKings lines from ESPN (free, no API credits)
+if (!UI_ONLY) cron.schedule('0 */3 * * *', async () => {
+  console.log('[cron] 3hr ESPN DK odds refresh');
+  await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
 }, { timezone: 'America/New_York' });
 
 cron.schedule('*/5 * * * *', () => {

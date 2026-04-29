@@ -91,6 +91,32 @@ function storeBookLines(espn_game_id, oddsGame, espnHomeTeam) {
   }
 }
 
+// ── Store ESPN-sourced DraftKings lines with movement tracking ────────────────
+// Called from espn_live.js — no Odds API credits consumed.
+function storeEspnDkLines(espn_game_id, lines) {
+  const { ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds } = lines;
+  db.prepare(`
+    INSERT INTO book_lines
+      (espn_game_id, book, ml_home, ml_away, spread_home, spread_away,
+       over_under, ou_over_odds, ou_under_odds, updated_at)
+    VALUES (?, 'draftkings', ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(espn_game_id, book) DO UPDATE SET
+      prev_ml_home     = CASE WHEN excluded.ml_home     IS NOT NULL AND excluded.ml_home     != ml_home     THEN ml_home     ELSE prev_ml_home     END,
+      prev_ml_away     = CASE WHEN excluded.ml_away     IS NOT NULL AND excluded.ml_away     != ml_away     THEN ml_away     ELSE prev_ml_away     END,
+      prev_spread_home = CASE WHEN excluded.spread_home IS NOT NULL AND excluded.spread_home != spread_home THEN spread_home ELSE prev_spread_home END,
+      prev_spread_away = CASE WHEN excluded.spread_away IS NOT NULL AND excluded.spread_away != spread_away THEN spread_away ELSE prev_spread_away END,
+      prev_over_under  = CASE WHEN excluded.over_under  IS NOT NULL AND excluded.over_under  != over_under  THEN over_under  ELSE prev_over_under  END,
+      ml_home       = excluded.ml_home,
+      ml_away       = excluded.ml_away,
+      spread_home   = excluded.spread_home,
+      spread_away   = excluded.spread_away,
+      over_under    = excluded.over_under,
+      ou_over_odds  = excluded.ou_over_odds,
+      ou_under_odds = excluded.ou_under_odds,
+      updated_at    = datetime('now')
+  `).run(espn_game_id, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds);
+}
+
 // ── Read lines for the game detail popup ─────────────────────────────────────
 function getLinesForGame(espn_game_id) {
   const rows = db.prepare(
@@ -101,17 +127,22 @@ function getLinesForGame(espn_game_id) {
   for (const row of rows) {
     if (row.book === 'draftkings' || row.book === 'fanduel') {
       result[row.book] = {
-        ml_home:       row.ml_home,
-        ml_away:       row.ml_away,
-        spread_home:   row.spread_home,
-        spread_away:   row.spread_away,
-        over_under:    row.over_under,
-        ou_over_odds:  row.ou_over_odds,
-        ou_under_odds: row.ou_under_odds,
+        ml_home:          row.ml_home,
+        ml_away:          row.ml_away,
+        spread_home:      row.spread_home,
+        spread_away:      row.spread_away,
+        over_under:       row.over_under,
+        ou_over_odds:     row.ou_over_odds,
+        ou_under_odds:    row.ou_under_odds,
+        prev_ml_home:     row.prev_ml_home     ?? null,
+        prev_ml_away:     row.prev_ml_away     ?? null,
+        prev_spread_home: row.prev_spread_home ?? null,
+        prev_spread_away: row.prev_spread_away ?? null,
+        prev_over_under:  row.prev_over_under  ?? null,
       };
     }
   }
   return result;
 }
 
-module.exports = { storeBookLines, getLinesForGame };
+module.exports = { storeBookLines, storeEspnDkLines, getLinesForGame };

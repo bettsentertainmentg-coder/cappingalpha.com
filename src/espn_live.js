@@ -88,6 +88,20 @@ const TODAY_SPORTS = [
   { path: 'football/nfl',                         label: 'NFL'  },
 ];
 
+// ── Parse ESPN embedded odds (DraftKings data, free, no API key) ──────────────
+function parseEspnOdds(comp) {
+  const odds = comp.odds?.[0] || {};
+  return {
+    ml_home:       odds.moneyline?.home?.close?.odds != null ? parseInt(odds.moneyline.home.close.odds, 10) : null,
+    ml_away:       odds.moneyline?.away?.close?.odds != null ? parseInt(odds.moneyline.away.close.odds, 10) : null,
+    over_under:    odds.overUnder ?? null,
+    ou_over_odds:  odds.total?.over?.close?.odds  != null ? parseInt(odds.total.over.close.odds,  10) : null,
+    ou_under_odds: odds.total?.under?.close?.odds != null ? parseInt(odds.total.under.close.odds, 10) : null,
+    spread_home:   odds.pointSpread?.home?.close?.line != null ? parseFloat(odds.pointSpread.home.close.line) : null,
+    spread_away:   odds.pointSpread?.away?.close?.line != null ? parseFloat(odds.pointSpread.away.close.line) : null,
+  };
+}
+
 // ── Upsert a single ESPN event into today_games ───────────────────────────────
 function upsertTodayGame(ev, sportLabel) {
   const comp = ev.competitions?.[0] || {};
@@ -95,14 +109,21 @@ function upsertTodayGame(ev, sportLabel) {
   const away = comp.competitors?.find(c => c.homeAway === 'away') || {};
   const state = ev.status?.type?.state || 'pre'; // 'pre', 'in', or 'post'
 
+  const o = parseEspnOdds(comp);
+
   db.prepare(`
     INSERT INTO today_games (
       espn_game_id, sport, status, period, clock, start_time,
       home_score, away_score,
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
+      ml_home, ml_away, spread_home, spread_away,
+      over_under, ou_over_odds, ou_under_odds, odds_updated_at,
       fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?,
+              CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE NULL END,
+              datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
       status     = excluded.status,
       period     = excluded.period,
@@ -110,6 +131,15 @@ function upsertTodayGame(ev, sportLabel) {
       home_score = excluded.home_score,
       away_score = excluded.away_score,
       fetched_at = excluded.fetched_at,
+      -- Lock "Current" line at first write; COALESCE keeps existing if already set
+      ml_home       = COALESCE(ml_home,       excluded.ml_home),
+      ml_away       = COALESCE(ml_away,       excluded.ml_away),
+      spread_home   = COALESCE(spread_home,   excluded.spread_home),
+      spread_away   = COALESCE(spread_away,   excluded.spread_away),
+      over_under    = COALESCE(over_under,    excluded.over_under),
+      ou_over_odds  = COALESCE(ou_over_odds,  excluded.ou_over_odds),
+      ou_under_odds = COALESCE(ou_under_odds, excluded.ou_under_odds),
+      odds_updated_at = CASE WHEN odds_updated_at IS NULL AND excluded.ml_home IS NOT NULL THEN datetime('now') ELSE odds_updated_at END,
       -- Snapshot total runs when inning 2 begins (period=2, first_inning_runs not yet set)
       first_inning_runs = CASE
         WHEN excluded.sport = 'MLB'
@@ -132,8 +162,17 @@ function upsertTodayGame(ev, sportLabel) {
     away.team?.displayName || null,
     away.team?.shortDisplayName || null,
     away.team?.name || null,
-    away.team?.abbreviation || null
+    away.team?.abbreviation || null,
+    o.ml_home, o.ml_away, o.spread_home, o.spread_away,
+    o.over_under, o.ou_over_odds, o.ou_under_odds,
+    o.ml_home  // sentinel for odds_updated_at CASE
   );
+
+  // Also write DK book_lines entry (ESPN odds are DraftKings data)
+  if (o.ml_home !== null || o.over_under !== null) {
+    const { storeEspnDkLines } = require('./lines_scraper');
+    storeEspnDkLines(ev.id, o);
+  }
 }
 
 // ── Fetch today's games for all sports, upsert to today_games ─────────────────
@@ -471,8 +510,50 @@ async function updateLiveScores() {
   }
 }
 
+// ── Refresh ESPN odds every 3 hours — updates DK book_lines + fills any null ──
+// today_games odds (COALESCE: fill if null, keep if already locked at 5am).
+// Also re-seeds pick slots so new odds propagate to the picks table.
+async function refreshEspnOdds() {
+  const { storeEspnDkLines } = require('./lines_scraper');
+  const { seedPickSlots }    = require('./lines');
+  const todayStr = getCycleDate().replace(/-/g, '');
+  let updated = 0;
+
+  for (const { path, label } of TODAY_SPORTS) {
+    const events = await fetchScoreboardForDate(path, todayStr).catch(() => []);
+    for (const ev of events) {
+      const comp = ev.competitions?.[0] || {};
+      if (ev.status?.type?.state === 'post') continue;
+      const o = parseEspnOdds(comp);
+      if (o.ml_home === null && o.over_under === null) continue;
+
+      // Fill today_games odds if null; keep existing if already locked
+      db.prepare(`
+        UPDATE today_games SET
+          ml_home       = COALESCE(ml_home,       ?),
+          ml_away       = COALESCE(ml_away,       ?),
+          spread_home   = COALESCE(spread_home,   ?),
+          spread_away   = COALESCE(spread_away,   ?),
+          over_under    = COALESCE(over_under,    ?),
+          ou_over_odds  = COALESCE(ou_over_odds,  ?),
+          ou_under_odds = COALESCE(ou_under_odds, ?),
+          odds_updated_at = CASE WHEN odds_updated_at IS NULL THEN datetime('now') ELSE odds_updated_at END
+        WHERE espn_game_id = ?
+      `).run(o.ml_home, o.ml_away, o.spread_home, o.spread_away,
+             o.over_under, o.ou_over_odds, o.ou_under_odds, ev.id);
+
+      storeEspnDkLines(ev.id, o);
+      updated++;
+    }
+  }
+
+  await seedPickSlots();
+  console.log(`[espn_odds] refreshEspnOdds complete: ${updated} games updated`);
+}
+
 module.exports = {
   fetchLiveGames, pollGame, stopPoll, detectSwing, detectDue, getMonitoredGames,
   fetchScoreboard, fetchScoreboardForDate, toEspnDate, normalizeSport,
   fetchTodaysGames, lookupTodayGame, clearAllState, SPORTS, updateLiveScores,
+  refreshEspnOdds,
 };

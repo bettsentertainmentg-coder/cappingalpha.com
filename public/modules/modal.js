@@ -285,12 +285,17 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   const fd = lines?.fanduel;
   let dkLine = '—', fdLine = '—';
   if (dk) {
-    if (slotKey === 'home_ml')     dkLine = dk.ml_home     != null ? fmtOdds(dk.ml_home)       : '—';
-    if (slotKey === 'away_ml')     dkLine = dk.ml_away     != null ? fmtOdds(dk.ml_away)       : '—';
-    if (slotKey === 'home_spread') dkLine = dk.spread_home != null ? fmtSpread(dk.spread_home) : '—';
-    if (slotKey === 'away_spread') dkLine = dk.spread_away != null ? fmtSpread(dk.spread_away) : '—';
-    if (slotKey === 'over')        dkLine = dk.over_under  != null ? `o${dk.over_under} (${fmtOdds(dk.ou_over_odds  || -110)})` : '—';
-    if (slotKey === 'under')       dkLine = dk.over_under  != null ? `u${dk.over_under} (${fmtOdds(dk.ou_under_odds || -110)})` : '—';
+    const mvDelta = (cur, prev) => {
+      if (prev == null || cur == null || cur === prev) return '';
+      const d = cur - prev;
+      return ` <span style="color:#94a3b8;font-size:10px;font-weight:500;">${d > 0 ? '+' : ''}${d}</span>`;
+    };
+    if (slotKey === 'home_ml')     dkLine = dk.ml_home     != null ? fmtOdds(dk.ml_home)       + mvDelta(dk.ml_home,     dk.prev_ml_home)     : '—';
+    if (slotKey === 'away_ml')     dkLine = dk.ml_away     != null ? fmtOdds(dk.ml_away)       + mvDelta(dk.ml_away,     dk.prev_ml_away)     : '—';
+    if (slotKey === 'home_spread') dkLine = dk.spread_home != null ? fmtSpread(dk.spread_home) + mvDelta(dk.spread_home, dk.prev_spread_home) : '—';
+    if (slotKey === 'away_spread') dkLine = dk.spread_away != null ? fmtSpread(dk.spread_away) + mvDelta(dk.spread_away, dk.prev_spread_away) : '—';
+    if (slotKey === 'over')        dkLine = dk.over_under  != null ? `o${dk.over_under} (${fmtOdds(dk.ou_over_odds  || -110)})` + mvDelta(dk.over_under, dk.prev_over_under) : '—';
+    if (slotKey === 'under')       dkLine = dk.over_under  != null ? `u${dk.over_under} (${fmtOdds(dk.ou_under_odds || -110)})` + mvDelta(dk.over_under, dk.prev_over_under) : '—';
   }
   if (fd) {
     if (slotKey === 'home_ml')     fdLine = fd.ml_home     != null ? fmtOdds(fd.ml_home)       : '—';

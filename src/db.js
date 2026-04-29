@@ -305,6 +305,13 @@ try {
   `);
 } catch (_) {}
 
+// prev_ columns for book_lines line-movement tracking
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_home REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_away REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_spread_home REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_spread_away REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_over_under REAL`); } catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS game_votes (
