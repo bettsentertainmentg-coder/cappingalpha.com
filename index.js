@@ -108,9 +108,6 @@ app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 app.use('/admin', admin);
 app.use('/auth', auth);
-app.get('/data/team_colors.json', (req, res) =>
-  res.sendFile(path.join(__dirname, 'data/team_colors.json'))
-);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Terms of Service page

@@ -44,7 +44,7 @@ async function init() {
 
   // Load team colors
   try {
-    const r = await fetch('/data/team_colors.json');
+    const r = await fetch('/team_colors.json');
     _teamColors = await r.json();
   } catch (_) { _teamColors = {}; }
 
