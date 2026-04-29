@@ -23,9 +23,35 @@
     a:hover { text-decoration: underline; }
     .back { display: inline-block; margin-top: 40px; color: #3b82f6; font-size: 14px; }
     hr { border: none; border-top: 1px solid #252c3b; margin: 32px 0; }
+    .site-header {
+      border-bottom: 1px solid #1e2535;
+      padding: 14px 16px;
+      margin-bottom: 48px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .site-header-logo {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e2e8f0;
+      letter-spacing: 0.02em;
+    }
+    .site-header-logo span { color: #3b82f6; }
+    .site-header-back {
+      margin-left: auto;
+      font-size: 13px;
+      color: #8892a4;
+      text-decoration: none;
+    }
+    .site-header-back:hover { color: #3b82f6; text-decoration: none; }
   </style>
 </head>
 <body>
+  <div class="site-header">
+    <div class="site-header-logo">Capping<span>Alpha</span></div>
+    <a href="/" class="site-header-back">← Back to app</a>
+  </div>
   <div class="container">
     <h1>Terms of Service</h1>
     <p class="updated">Last updated: April 2026</p>
@@ -65,8 +91,6 @@
     <h2>10. Contact</h2>
     <p>Questions about these Terms? Email us at <a href="mailto:support@cappingalpha.com">support@cappingalpha.com</a>.</p>
 
-    <hr />
-    <a href="/" class="back">← Back to CappingAlpha</a>
   </div>
 </body>
 </html>
