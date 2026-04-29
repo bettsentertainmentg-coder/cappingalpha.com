@@ -172,6 +172,19 @@ async function resolveResults() {
 
     db.prepare(`UPDATE picks SET result = ? WHERE id = ?`).run(result, pick.id);
 
+    // ── Persist result into game_votes so voted P/L history survives daily wipe ─
+    const slot = pick.pick_type === 'ml'     && pick.is_home_team ? 'home_ml'
+               : pick.pick_type === 'ml'                          ? 'away_ml'
+               : pick.pick_type === 'spread' && pick.is_home_team ? 'home_spread'
+               : pick.pick_type === 'spread'                      ? 'away_spread'
+               : pick.pick_type === 'over'                        ? 'over'
+               : pick.pick_type === 'under'                       ? 'under'
+               : null;
+    if (slot) {
+      db.prepare(`UPDATE game_votes SET result = ?, score = ? WHERE espn_game_id = ? AND pick_slot = ?`)
+        .run(result, pick.score ?? null, pick.espn_game_id, slot);
+    }
+
     // ── Write to capper_history (permanent capper tracking, survives daily wipe) ─
     if (pick.capper_name) {
       try {

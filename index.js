@@ -308,13 +308,22 @@ app.get('/api/account', (req, res) => {
   const prefs = db.prepare(`SELECT favorite_sports FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
 
-  // Today's votes joined to today_games and picks (LEFT JOIN — picks may be wiped)
+  // Votes joined to today_games + picks. Snapshot columns (gv.*) take priority —
+  // they survive the daily wipe; today_games and picks are fallback for today's live data.
   const votes = db.prepare(`
     SELECT gv.espn_game_id, gv.pick_slot, gv.voted_at,
-           tg.home_team, tg.away_team, tg.sport, tg.status,
-           tg.home_score, tg.away_score, tg.start_time,
-           tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
-           p.score, p.mention_count, p.result, p.pick_type, p.team, p.spread
+           COALESCE(gv.home_team,    tg.home_team)    AS home_team,
+           COALESCE(gv.away_team,    tg.away_team)    AS away_team,
+           COALESCE(gv.sport,        tg.sport)        AS sport,
+           tg.status, tg.home_score, tg.away_score, tg.start_time,
+           COALESCE(gv.ml_home,      tg.ml_home)      AS ml_home,
+           COALESCE(gv.ml_away,      tg.ml_away)      AS ml_away,
+           COALESCE(gv.ou_over_odds, tg.ou_over_odds) AS ou_over_odds,
+           COALESCE(gv.ou_under_odds,tg.ou_under_odds)AS ou_under_odds,
+           p.score, p.mention_count,
+           COALESCE(p.result, gv.result) AS result,
+           p.pick_type, p.team,
+           COALESCE(gv.spread, p.spread) AS spread
     FROM game_votes gv
     LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
     LEFT JOIN picks p ON p.espn_game_id = gv.espn_game_id
@@ -436,7 +445,7 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   const validSlots = ['home_ml', 'away_ml', 'home_spread', 'away_spread', 'over', 'under'];
   if (!validSlots.includes(slot)) return res.status(400).json({ error: 'Invalid slot' });
 
-  const game = db.prepare(`SELECT status FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.status === 'in' || game.status === 'post') {
     return res.status(409).json({ error: 'Voting closed — game has started' });
@@ -449,8 +458,14 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   try {
     db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
       .run(userId, espn_game_id, paired);
-    db.prepare(`INSERT OR IGNORE INTO game_votes (user_id, espn_game_id, pick_slot) VALUES (?, ?, ?)`)
-      .run(userId, espn_game_id, slot);
+    // Snapshot game metadata at vote time so it persists past the daily wipe
+    db.prepare(`
+      INSERT OR IGNORE INTO game_votes
+        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(userId, espn_game_id, slot,
+           game.home_team, game.away_team, game.sport,
+           game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

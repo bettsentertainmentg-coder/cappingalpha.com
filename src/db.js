@@ -305,6 +305,18 @@ try {
   `);
 } catch (_) {}
 
+// Snapshot columns for game_votes — survive daily wipe
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN home_team TEXT`);      } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN away_team TEXT`);      } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN sport TEXT`);          } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN ml_home REAL`);        } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN ml_away REAL`);        } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN ou_over_odds REAL`);   } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN ou_under_odds REAL`);  } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN spread REAL`);         } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN result TEXT NOT NULL DEFAULT 'pending'`); } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN score REAL`);          } catch (_) {}
+
 // prev_ columns for book_lines line-movement tracking
 try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_home REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_away REAL`); } catch (_) {}
