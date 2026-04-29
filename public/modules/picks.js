@@ -40,6 +40,16 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const activePicks = picks.filter(p => p.result !== 'push');
   const pushPicks   = picks.filter(p => p.result === 'push');
 
+  const pickSlotKey = (p) => {
+    const pt = (p.pick_type || '').toLowerCase();
+    const isHome = p.is_home_team === 1 || p.is_home_team === true;
+    if (pt === 'over')   return 'over';
+    if (pt === 'under')  return 'under';
+    if (pt === 'ml')     return isHome ? 'home_ml'     : 'away_ml';
+    if (pt === 'spread') return isHome ? 'home_spread' : 'away_spread';
+    return '';
+  };
+
   const makeRow = (p, rank, locked = false) => {
     const score      = p.score || 0;
     const isMvp      = score >= state.CONFIG.mvp_threshold;
@@ -48,9 +58,11 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const pick       = locked ? `<span class="lock-icon">${LOCK_SVG}</span>` : pickLabel(p);
 
     const clickable = !locked && p.espn_game_id;
-    const clickAttr = clickable
-      ? ` onclick="openGameModal('${p.espn_game_id}','${p.pick_type}','${(p.team||'').replace(/'/g,"\\'")}')"`
+    const slotKey   = clickable ? pickSlotKey(p) : '';
+    const destUrl   = clickable
+      ? `/game/${p.espn_game_id}${slotKey ? '?slot=' + slotKey : ''}`
       : '';
+    const clickAttr = clickable ? ` onclick="window.location.href='${destUrl}'"` : '';
     const cursorStyle = clickable ? ' cursor:pointer;' : '';
 
     const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
@@ -77,9 +89,11 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
 
   const makePushRow = (p) => {
     const clickable = p.espn_game_id;
-    const clickAttr = clickable
-      ? ` onclick="openGameModal('${p.espn_game_id}','${p.pick_type}','${(p.team||'').replace(/'/g,"\\'")}')"`
+    const slotKey   = clickable ? pickSlotKey(p) : '';
+    const destUrl   = clickable
+      ? `/game/${p.espn_game_id}${slotKey ? '?slot=' + slotKey : ''}`
       : '';
+    const clickAttr = clickable ? ` onclick="window.location.href='${destUrl}'"` : '';
     return `
       <tr style="opacity:0.45;${clickable ? 'cursor:pointer;' : ''}"${clickAttr}>
         <td class="rank" style="color:var(--muted);">—<span class="rank-score-mobile">${p.score ?? '—'}</span></td>

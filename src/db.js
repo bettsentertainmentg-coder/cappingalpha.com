@@ -534,6 +534,28 @@ try {
   }
 } catch (_) {}
 
+// ── Public betting % (scraped from ActionNetwork) ─────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS public_betting (
+      espn_game_id          TEXT PRIMARY KEY,
+      away_ml_pct           INTEGER,
+      home_ml_pct           INTEGER,
+      away_ml_money_pct     INTEGER,
+      home_ml_money_pct     INTEGER,
+      away_spread_pct       INTEGER,
+      home_spread_pct       INTEGER,
+      away_spread_money_pct INTEGER,
+      home_spread_money_pct INTEGER,
+      over_pct              INTEGER,
+      under_pct             INTEGER,
+      over_money_pct        INTEGER,
+      under_money_pct       INTEGER,
+      fetched_at            DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+} catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

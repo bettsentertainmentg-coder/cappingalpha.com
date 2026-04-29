@@ -94,14 +94,14 @@ function scheduleRowHtml(g) {
   } else {
     rightCol = `<span class="schedule-time">${gameTime(g.start_time)}</span>`;
   }
-  return `<div class="schedule-row" style="cursor:pointer;" onclick="openGameModal('${g.espn_game_id}')"><span class="schedule-matchup">${matchup}</span>${rightCol}</div>`;
+  return `<div class="schedule-row" style="cursor:pointer;" onclick="window.location.href='/game/${g.espn_game_id}'"><span class="schedule-matchup">${matchup}</span>${rightCol}</div>`;
 }
 
 // ── Tennis match row helper ───────────────────────────────────────────────────
 function tennisMatchRow(g, mode) {
   const home = g.home_short || (g.home_team || '?').split(' ').pop();
   const away = g.away_short || (g.away_team || '?').split(' ').pop();
-  const onclick = g.espn_game_id ? `onclick="openGameModal('${g.espn_game_id}')"` : '';
+  const onclick = g.espn_game_id ? `onclick="window.location.href='/game/${g.espn_game_id}'"` : '';
 
   if (mode === 'post') {
     const badge = g._sport ? `<span style="font-size:10px;color:var(--muted);margin-right:6px;opacity:.7;">${g._sport}</span>` : '';
@@ -182,7 +182,13 @@ function renderTennisView(filter) {
     <div class="tennis-picks-strip">
       <span class="tennis-picks-label">Top Picks</span>
       ${topPicks.map(p => {
-        const oc = p.espn_game_id ? `onclick="openGameModal('${p.espn_game_id}')"` : '';
+        const pt = (p.pick_type || '').toLowerCase();
+        const isHome = p.is_home_team === 1 || p.is_home_team === true;
+        const slotKey = pt === 'over' ? 'over' : pt === 'under' ? 'under'
+          : pt === 'ml' ? (isHome ? 'home_ml' : 'away_ml')
+          : pt === 'spread' ? (isHome ? 'home_spread' : 'away_spread') : '';
+        const dest = p.espn_game_id ? `/game/${p.espn_game_id}${slotKey ? '?slot=' + slotKey : ''}` : '';
+        const oc = dest ? `onclick="window.location.href='${dest}'"` : '';
         return `<span class="tennis-pick-chip" ${oc}>${pickLabel(p)} · ${p.score}pts</span>`;
       }).join('')}
     </div>` : '';
@@ -403,11 +409,7 @@ function initGameSearch() {
 }
 
 window.selectSearchGame = function(espnGameId) {
-  const input    = document.getElementById('game-search-input');
-  const dropdown = document.getElementById('game-search-dropdown');
-  if (input)    { input.value = ''; }
-  if (dropdown) { dropdown.innerHTML = ''; dropdown.classList.remove('open'); }
-  window.openGameModal(espnGameId);
+  window.location.href = `/game/${espnGameId}`;
 };
 
 // Refresh sport picks when picks reload (avoids circular dep with picks.js)

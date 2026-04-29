@@ -136,7 +136,8 @@ async function getWeather(lat, lng) {
 // ── Fetch ESPN event summary ──────────────────────────────────────────────────
 async function getGameStats(espn_game_id, sport) {
   const leaguePath = LEAGUE_PATH[sport];
-  if (!leaguePath) return { pitchers: [], injuries: [], venue: null };
+  const EMPTY_INJURIES = { home: { abbr: null, shortName: null, players: [] }, away: { abbr: null, shortName: null, players: [] } };
+  if (!leaguePath) return { pitchers: [], injuries: EMPTY_INJURIES, venue: null };
 
   let summary;
   try {
@@ -147,10 +148,23 @@ async function getGameStats(espn_game_id, sport) {
     summary = res.data;
   } catch (err) {
     console.warn(`[game_stats] ESPN summary fetch error (${espn_game_id}):`, err.message);
-    return { pitchers: [], injuries: [], venue: null };
+    return { pitchers: [], injuries: EMPTY_INJURIES, venue: null };
   }
 
-  const result = { pitchers: [], injuries: [], venue: null };
+  const result = { pitchers: [], injuries: EMPTY_INJURIES, venue: null };
+
+  // Extract competitors once — used for pitchers, injuries, records, team IDs
+  const headerComp = summary?.header?.competitions?.[0];
+  const homeComp   = (headerComp?.competitors || []).find(c => c.homeAway === 'home');
+  const awayComp   = (headerComp?.competitors || []).find(c => c.homeAway === 'away');
+
+  // Team season records + ESPN team IDs (used by getFullGameContext for form fetch)
+  const findRecord = comp => (comp?.record || [])
+    .find(r => r.type === 'total' || r.name === 'overall')?.displayValue || null;
+  result.homeRecord = findRecord(homeComp);
+  result.awayRecord = findRecord(awayComp);
+  result.homeTeamId = homeComp?.team?.id || null;
+  result.awayTeamId = awayComp?.team?.id || null;
 
   // Venue
   const venue = summary?.gameInfo?.venue;
@@ -165,9 +179,8 @@ async function getGameStats(espn_game_id, sport) {
 
   // Tennis — extract tournament name and surface
   if (sport === 'ATP' || sport === 'WTA') {
-    const comp = summary?.header?.competitions?.[0];
     const tournamentName =
-      comp?.tournament?.displayName ||
+      headerComp?.tournament?.displayName ||
       summary?.gameInfo?.tournament?.displayName ||
       null;
     const surface =
@@ -178,10 +191,9 @@ async function getGameStats(espn_game_id, sport) {
     if (surface)        result.surface    = surface;
   }
 
-  // MLB starting pitchers — from header.competitions[0].competitors[i].probables
+  // MLB starting pitchers
   if (sport === 'MLB') {
-    const comp = summary?.header?.competitions?.[0];
-    for (const competitor of comp?.competitors || []) {
+    for (const competitor of [homeComp, awayComp].filter(Boolean)) {
       const probable = competitor.probables?.[0];
       if (!probable?.athlete) continue;
       const cats   = probable.statistics?.splits?.categories || [];
@@ -190,51 +202,116 @@ async function getGameStats(espn_game_id, sport) {
       const era    = cats.find(c => c.name === 'ERA')?.displayValue;
       const whip   = cats.find(c => c.name === 'WHIP')?.displayValue;
       result.pitchers.push({
-        team:    competitor.team?.displayName || null,
+        team:     competitor.team?.displayName || null,
         homeAway: competitor.homeAway || null,
-        name:    probable.athlete.displayName || probable.athlete.fullName || null,
-        record:  (wins != null && losses != null) ? `${wins}-${losses}` : null,
-        era:     era || null,
-        whip:    whip || null,
+        name:     probable.athlete.displayName || probable.athlete.fullName || null,
+        record:   (wins != null && losses != null) ? `${wins}-${losses}` : null,
+        era:      era || null,
+        whip:     whip || null,
       });
     }
   }
 
-  // Injuries (all sports)
-  const injuries = summary?.injuries || [];
-  for (const teamEntry of injuries) {
-    const teamName = teamEntry.team?.displayName || teamEntry.team?.shortDisplayName || null;
+  // Injuries (all sports) — map to {home, away} using competitor team IDs
+  // homeComp / awayComp already defined above
+
+  const makeMeta = comp => {
+    if (!comp) return { abbr: null, shortName: null, id: null };
+    const t = comp.team || {};
+    const abbr = t.abbreviation || t.shortDisplayName || null;
+    // shortDisplayName may be absent; fall back to last word of displayName ("Detroit Pistons" → "Pistons")
+    const shortName = t.shortDisplayName || t.nickname ||
+      (t.displayName ? t.displayName.trim().split(' ').pop() : null) || null;
+    return { abbr, shortName, id: t.id || null };
+  };
+
+  const homeMeta = makeMeta(homeComp);
+  const awayMeta = makeMeta(awayComp);
+
+  const homePlayers = [];
+  const awayPlayers = [];
+
+  for (const teamEntry of summary?.injuries || []) {
+    const tid = String(teamEntry.team?.id || '');
+    const isHome = tid && homeMeta.id && tid === String(homeMeta.id);
+    const isAway = tid && awayMeta.id && tid === String(awayMeta.id);
+    if (!isHome && !isAway) continue;
+    const bucket = isHome ? homePlayers : awayPlayers;
+
     for (const item of teamEntry.injuries || []) {
-      const player = item.athlete?.displayName || item.athlete?.fullName;
+      const athlete = item.athlete || {};
+      const fullName = athlete.displayName || athlete.fullName || '';
+      if (!fullName) continue;
+      // Build "F. Lastname" short form if ESPN doesn't provide it
+      let shortName = athlete.shortName || (() => {
+        const parts = fullName.trim().split(' ');
+        return parts.length < 2 ? fullName : parts[0][0] + '. ' + parts.slice(1).join(' ');
+      })();
       const status = item.status || item.type || null;
-      if (player) {
-        result.injuries.push({ team: teamName, player, status });
-      }
+      const detail = item.details?.displayName || item.shortComment || null;
+      bucket.push({ player: fullName, shortName, status, detail });
     }
   }
+
+  result.injuries = {
+    home: { abbr: homeMeta.abbr, shortName: homeMeta.shortName, players: homePlayers },
+    away: { abbr: awayMeta.abbr, shortName: awayMeta.shortName, players: awayPlayers },
+  };
 
   return result;
 }
 
-// ── Main export: stats + optional weather ─────────────────────────────────────
-async function getFullGameContext(espn_game_id, sport, homeTeamName) {
-  const [stats] = await Promise.all([getGameStats(espn_game_id, sport)]);
+// ── Fetch last-N game results for a team (W/L form) ──────────────────────────
+async function getTeamForm(teamId, leaguePath, n = 5) {
+  if (!teamId || !leaguePath) return null;
+  try {
+    const res = await axios.get(
+      `https://site.api.espn.com/apis/site/v2/sports/${leaguePath}/teams/${teamId}/schedule`,
+      { params: { limit: 20 }, timeout: 6000 }
+    );
+    const events = (res.data?.events || [])
+      .filter(e => e.competitions?.[0]?.status?.type?.completed);
+    // Take last n
+    const recent = events.slice(-n);
+    return recent.map(e => {
+      const comp = e.competitions[0];
+      const mine = (comp.competitors || []).find(c => String(c.team?.id) === String(teamId));
+      if (mine?.winner === true)  return 'W';
+      if (mine?.winner === false) return 'L';
+      return null;
+    }).filter(Boolean);
+  } catch (_) {
+    return null;
+  }
+}
 
-  let weather = null;
+// ── Main export: stats + optional weather + team form ─────────────────────────
+async function getFullGameContext(espn_game_id, sport, homeTeamName) {
+  const stats = await getGameStats(espn_game_id, sport);
+
+  const leaguePath = LEAGUE_PATH[sport];
+  const isTeamSport = leaguePath && sport !== 'ATP' && sport !== 'WTA';
+
+  // Build weather promise
+  let weatherP = Promise.resolve(null);
   if (OUTDOOR_SPORTS.has(sport)) {
-    // Use venue coords from ESPN if available, else fall back to static map
     let coords = null;
     if (stats.venue?.lat && stats.venue?.lng) {
       coords = { lat: stats.venue.lat, lng: stats.venue.lng };
     } else if (homeTeamName) {
       coords = STADIUM_COORDS[homeTeamName] || null;
     }
-    if (coords) {
-      weather = await getWeather(coords.lat, coords.lng);
-    }
+    if (coords) weatherP = getWeather(coords.lat, coords.lng);
   }
 
-  return { ...stats, weather };
+  // Fetch weather + team form in parallel
+  const [weather, homeForm, awayForm] = await Promise.all([
+    weatherP,
+    isTeamSport ? getTeamForm(stats.homeTeamId, leaguePath) : Promise.resolve(null),
+    isTeamSport ? getTeamForm(stats.awayTeamId, leaguePath) : Promise.resolve(null),
+  ]);
+
+  return { ...stats, weather, homeForm, awayForm };
 }
 
 module.exports = { getFullGameContext };
