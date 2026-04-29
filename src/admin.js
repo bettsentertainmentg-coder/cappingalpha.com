@@ -1876,6 +1876,29 @@ router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
   res.json({ imported: picks.length, total: count });
 });
 
+// ── PATCH /admin/patch-mvp — update specific fields on an MVP pick by id ─────
+router.post('/patch-mvp', express.json(), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  const { id, spread, result, home_score, away_score, ml_odds, ou_odds } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'id required' });
+  const VALID_RESULTS = ['win', 'loss', 'push', 'pending'];
+  if (result && !VALID_RESULTS.includes(result)) return res.status(400).json({ error: 'invalid result' });
+  const sets = [], vals = [];
+  if (spread      !== undefined) { sets.push('spread = ?');      vals.push(spread); }
+  if (result      !== undefined) { sets.push('result = ?');      vals.push(result); }
+  if (home_score  !== undefined) { sets.push('home_score = ?');  vals.push(home_score); }
+  if (away_score  !== undefined) { sets.push('away_score = ?');  vals.push(away_score); }
+  if (ml_odds     !== undefined) { sets.push('ml_odds = ?');     vals.push(ml_odds); }
+  if (ou_odds     !== undefined) { sets.push('ou_odds = ?');     vals.push(ou_odds); }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
+  vals.push(id);
+  const info = db.prepare(`UPDATE mvp_picks SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  if (info.changes === 0) return res.status(404).json({ error: `no pick with id ${id}` });
+  const row = db.prepare('SELECT * FROM mvp_picks WHERE id = ?').get(id);
+  res.json({ ok: true, pick: row });
+});
+
 // ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────
 router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
   const name = decodeURIComponent(req.params.name);
