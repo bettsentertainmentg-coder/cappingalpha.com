@@ -29,6 +29,7 @@ const { getCycleDate }                                = require('./src/cycle');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getLinesForGame }                             = require('./src/lines_scraper');
+const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_betting');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -107,6 +108,9 @@ app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 app.use('/admin', admin);
 app.use('/auth', auth);
+app.get('/data/team_colors.json', (req, res) =>
+  res.sendFile(path.join(__dirname, 'data/team_colors.json'))
+);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Terms of Service page
@@ -431,7 +435,8 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     stats = await getFullGameContext(espn_game_id, game.sport, game.home_team);
   } catch (_) {}
 
-  res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote });
+  const publicBetting = getPublicBettingForGame(espn_game_id);
+  res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting });
 });
 
 // POST /api/game/:espn_game_id/vote — cast a vote on a pick slot
@@ -509,6 +514,132 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
+// ── Game detail page — slug helpers ──────────────────────────────────────────
+function _teamSlug(name) {
+  return (name || '').split(' ').pop().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+function _sportSlug(sport) {
+  const map = { CBB:'ncaamb', NCAAF:'ncaaf', ATP:'tennis', WTA:'tennis', Golf:'golf' };
+  return (map[sport] || (sport || 'game')).toLowerCase();
+}
+function makeDetailUrl(game) {
+  const sp   = _sportSlug(game.sport);
+  const away = _teamSlug(game.away_team);
+  const home = _teamSlug(game.home_team);
+  const date = (game.start_time || '').slice(0, 10);
+  return `/${sp}/${away}-vs-${home}-${date}`;
+}
+
+// 301 redirect: /game/:espn_game_id → slug URL
+app.get('/game/:espn_game_id', (req, res) => {
+  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(req.params.espn_game_id);
+  if (!game) return res.status(404).send('Game not found');
+  return res.redirect(301, makeDetailUrl(game));
+});
+
+// Standalone detail page: /:sport/:slug
+const { buildDetailPageHtml } = require('./src/detail_page');
+
+app.get('/:sport/:slug', async (req, res) => {
+  const { sport, slug } = req.params;
+
+  // Valid sport slugs only — guard against catching arbitrary routes
+  const SPORT_SLUGS = new Set(['nba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb']);
+  if (!SPORT_SLUGS.has(sport.toLowerCase())) return res.status(404).send('Not found');
+
+  // Parse slug: "timberwolves-vs-nuggets-2026-04-28"
+  const dateMatch = slug.match(/-(\d{4}-\d{2}-\d{2})$/);
+  if (!dateMatch) return res.status(404).send('Not found');
+  const date     = dateMatch[1];
+  const teamPart = slug.slice(0, slug.length - date.length - 1);
+  const vsSplit  = teamPart.split('-vs-');
+  if (vsSplit.length < 2) return res.status(404).send('Not found');
+  const [awaySlug, homeSlug] = vsSplit;
+
+  // Sport → DB sport label
+  const SPORT_MAP = {
+    ncaamb:'CBB', ncaaf:'NCAAF', tennis:'ATP', nba:'NBA',
+    mlb:'MLB', nhl:'NHL', nfl:'NFL', golf:'Golf', cbb:'CBB',
+  };
+  const sportFilter = SPORT_MAP[sport.toLowerCase()] || sport.toUpperCase();
+
+  // Fuzzy match on team slug vs stored team names
+  const game = db.prepare(`
+    SELECT * FROM today_games
+    WHERE (LOWER(sport) = LOWER(?) OR (? IN ('ATP','WTA') AND sport IN ('ATP','WTA')))
+      AND LOWER(REPLACE(REPLACE(home_team,' ',''),'.','' )) LIKE ?
+      AND LOWER(REPLACE(REPLACE(away_team,' ',''),'.','' )) LIKE ?
+      AND DATE(start_time) = ?
+    LIMIT 1
+  `).get(sportFilter, sportFilter, `%${homeSlug}%`, `%${awaySlug}%`, date)
+  // If strict fails, try tennis cross-match (ATP vs WTA same slug)
+  || (sportFilter === 'ATP' && db.prepare(`
+    SELECT * FROM today_games
+    WHERE sport IN ('ATP','WTA')
+      AND LOWER(REPLACE(REPLACE(home_team,' ',''),'.','' )) LIKE ?
+      AND LOWER(REPLACE(REPLACE(away_team,' ',''),'.','' )) LIKE ?
+      AND DATE(start_time) = ?
+    LIMIT 1
+  `).get(`%${homeSlug}%`, `%${awaySlug}%`, date));
+
+  if (!game) return res.status(404).send('Game not found');
+
+  try {
+    const picks = db.prepare(`
+      SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0
+      ORDER BY score DESC
+    `).all(game.espn_game_id);
+
+    // Pick ranks — same logic as /api/game/:id
+    const allRanked = db.prepare(`
+      SELECT id FROM picks WHERE game_date = ? AND mention_count > 0 ORDER BY score DESC
+    `).all(getCycleDate());
+    const pickRanks = {};
+    allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
+
+    // Votes
+    const voteRows = db.prepare(`
+      SELECT pick_slot, COUNT(*) AS total FROM game_votes WHERE espn_game_id = ? GROUP BY pick_slot
+    `).all(game.espn_game_id);
+    const votes = { home_ml:0, away_ml:0, home_spread:0, away_spread:0, over:0, under:0 };
+    for (const v of voteRows) if (v.pick_slot in votes) votes[v.pick_slot] = v.total;
+
+    // User vote
+    const userId = req.session?.user?.id;
+    const userVote = {};
+    if (userId) {
+      const uvRows = db.prepare(`SELECT pick_slot FROM game_votes WHERE espn_game_id = ? AND user_id = ?`).all(game.espn_game_id, userId);
+      for (const r of uvRows) userVote[r.pick_slot] = true;
+    }
+
+    // Stats + lines (on-demand, same as API)
+    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team).catch(() => ({}));
+    const lines = getLinesForGame(game.espn_game_id);
+
+    const publicBetting = getPublicBettingForGame(game.espn_game_id);
+    const payload = {
+      game, picks, pickRanks, votes, userVote, stats, lines, publicBetting,
+      user: req.session?.user || null,
+    };
+
+    // SEO meta
+    const away     = game.away_team || 'Away';
+    const home     = game.home_team || 'Home';
+    const longDate = new Date(game.start_time).toLocaleDateString('en-US',
+      { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'America/New_York' });
+    const title     = `${away} vs. ${home} · ${longDate} · CappingAlpha`;
+    const desc      = `${game.sport} matchup: ${away} at ${home} on ${longDate}. See picks, lines, and sentiment on CappingAlpha.`;
+    const canonical = `https://cappingalpha.com${makeDetailUrl(game)}`;
+    const sportSlug = _sportSlug(game.sport);
+
+    const html = buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug });
+    res.send(html);
+  } catch (err) {
+    console.error('[detail-page] error:', err.message);
+    res.status(500).send('Error loading game detail');
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log('[CappperBoss] ─────────────────────────────────');
@@ -543,6 +674,12 @@ app.listen(PORT, () => {
 
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
+
+  // Immediately seed public betting % — no API credits, just HTML scrape.
+  // Runs unconditionally on startup so data is always fresh after a restart.
+  for (const s of ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB']) {
+    fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
+  }
 })();
 
 // ── Discord scanner + cron jobs (disabled in UI-only mode) ───────────────────
@@ -572,6 +709,10 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
+  // Seed initial public betting percentages
+  for (const s of Object.keys({ NBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+    fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
+  }
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
 }, { timezone: 'America/New_York' });
@@ -587,6 +728,33 @@ if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
+  // Refresh public betting percentages
+  for (const s of Object.keys({ NBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+    fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 4pm ${s}:`, e.message));
+  }
+}, { timezone: 'America/New_York' });
+
+// Smart public betting refresh: every 30 min, hourly cadence unless within 3h of a game start
+const _lastPbFetch = {};
+cron.schedule('*/30 8-23 * * *', async () => {
+  const now = Date.now();
+  const THREE_HOURS = 3 * 60 * 60 * 1000;
+  for (const sport of ['NBA','NFL','MLB','NHL','NCAAF','CBB']) {
+    // Skip only if no games at all today for this sport
+    const anyGame = db.prepare(`SELECT 1 FROM today_games WHERE sport = ? LIMIT 1`).get(sport);
+    if (!anyGame) continue;
+    const upcoming = db.prepare(`
+      SELECT start_time FROM today_games WHERE sport = ? AND status = 'pre'
+      ORDER BY start_time ASC LIMIT 1
+    `).get(sport);
+    const gameStartsIn  = upcoming ? new Date(upcoming.start_time).getTime() - now : Infinity;
+    const withinWindow  = gameStartsIn > 0 && gameStartsIn <= THREE_HOURS;
+    const minsSinceFetch = (now - (_lastPbFetch[sport] || 0)) / 60000;
+    if (withinWindow || minsSinceFetch >= 60) {
+      fetchPublicBetting(sport).catch(e => console.error(`[publicBetting] cron ${sport}:`, e.message));
+      _lastPbFetch[sport] = now;
+    }
+  }
 }, { timezone: 'America/New_York' });
 
 // Every 3 hours — refresh DraftKings lines from ESPN (free, no API credits)
