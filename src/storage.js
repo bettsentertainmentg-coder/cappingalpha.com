@@ -455,14 +455,15 @@ function upsertScoreBreakdown(pick_id, scored) {
 }
 
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score }) {
-  // Capture odds from today_games at save time for P/L calculations
-  let ml_odds = null;
-  let ou_odds = null;
+  // Capture odds + team names from today_games at save time
+  let ml_odds = null, ou_odds = null, home_team = null, away_team = null;
   if (espn_game_id) {
     const game = db.prepare(
-      `SELECT home_team, ml_home, ml_away, ou_over_odds, ou_under_odds FROM today_games WHERE espn_game_id = ?`
+      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds FROM today_games WHERE espn_game_id = ?`
     ).get(espn_game_id);
     if (game) {
+      home_team = game.home_team || null;
+      away_team = game.away_team || null;
       const type = (pick_type || '').toLowerCase();
       const isHome = (game.home_team || '').toLowerCase() === (team || '').toLowerCase();
       if (type === 'ml')    ml_odds = isHome ? game.ml_home : game.ml_away;
@@ -477,18 +478,20 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
 
   if (!exists) {
     db.prepare(`
-      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds);
+      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team);
   } else {
     db.prepare(`
       UPDATE mvp_picks
       SET score        = ?,
           espn_game_id = ?,
           ml_odds      = COALESCE(ml_odds, ?),
-          ou_odds      = COALESCE(ou_odds, ?)
+          ou_odds      = COALESCE(ou_odds, ?),
+          home_team    = COALESCE(home_team, ?),
+          away_team    = COALESCE(away_team, ?)
       WHERE team = ? AND game_date = ? AND pick_type = ?
-    `).run(score, espn_game_id, ml_odds, ou_odds, team, game_date, pick_type ?? null);
+    `).run(score, espn_game_id, ml_odds, ou_odds, home_team, away_team, team, game_date, pick_type ?? null);
   }
 }
 

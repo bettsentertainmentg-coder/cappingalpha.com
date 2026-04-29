@@ -254,6 +254,8 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN result TEXT NOT NULL DEFAULT 'pendin
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN ml_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN annotation TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN ou_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_team TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN away_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_over_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ml REAL`); } catch (_) {}

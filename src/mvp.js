@@ -8,11 +8,11 @@ const db = require('./db');
 function getRecentMvpPicks(threshold = 50) {
   return db.prepare(`
     SELECT m.*,
-           COALESCE(tg1.home_team, tg2.home_team) AS home_team,
-           COALESCE(tg1.away_team, tg2.away_team) AS away_team
+           COALESCE(m.home_team, tg1.home_team, tg2.home_team) AS home_team,
+           COALESCE(m.away_team, tg1.away_team, tg2.away_team) AS away_team
     FROM mvp_picks m
-    LEFT JOIN today_games tg1 ON tg1.espn_game_id = m.espn_game_id
-    LEFT JOIN today_games tg2 ON tg1.espn_game_id IS NULL
+    LEFT JOIN today_games tg1 ON m.home_team IS NULL AND tg1.espn_game_id = m.espn_game_id
+    LEFT JOIN today_games tg2 ON m.home_team IS NULL AND tg1.espn_game_id IS NULL
                               AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
     WHERE m.score >= ?
     ORDER BY m.saved_at DESC LIMIT 50
