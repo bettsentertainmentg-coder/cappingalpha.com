@@ -6,14 +6,15 @@ const db = require('./db');
 // Get last 50 MVP picks ordered by saved_at desc, enriched with matchup.
 // Includes voided picks so annotations are visible in history.
 function getRecentMvpPicks(threshold = 50) {
+  // Only JOIN today_games by espn_game_id (safe — unique key).
+  // Never use name-based JOIN (tg2): causes duplicates on doubleheader days.
+  // New picks have home_team/away_team stored at save time; old ones show p.team.
   return db.prepare(`
     SELECT m.*,
-           COALESCE(m.home_team, tg1.home_team, tg2.home_team) AS home_team,
-           COALESCE(m.away_team, tg1.away_team, tg2.away_team) AS away_team
+           COALESCE(m.home_team, tg.home_team) AS home_team,
+           COALESCE(m.away_team, tg.away_team) AS away_team
     FROM mvp_picks m
-    LEFT JOIN today_games tg1 ON m.home_team IS NULL AND tg1.espn_game_id = m.espn_game_id
-    LEFT JOIN today_games tg2 ON m.home_team IS NULL AND tg1.espn_game_id IS NULL
-                              AND (LOWER(tg2.home_team) = LOWER(m.team) OR LOWER(tg2.away_team) = LOWER(m.team))
+    LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
     WHERE m.score >= ?
     ORDER BY m.saved_at DESC LIMIT 50
   `).all(threshold);
