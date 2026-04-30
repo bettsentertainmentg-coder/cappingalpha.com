@@ -172,6 +172,15 @@ async function resolveResults() {
 
     db.prepare(`UPDATE picks SET result = ? WHERE id = ?`).run(result, pick.id);
 
+    // ── Mirror result into pick_history (permanent archive) ──────────────────
+    try {
+      db.prepare(`
+        UPDATE pick_history
+        SET result = ?, home_score = ?, away_score = ?, resolved_at = datetime('now')
+        WHERE pick_id = ? AND result = 'pending'
+      `).run(result, pick.home_score ?? null, pick.away_score ?? null, pick.id);
+    } catch (_) {}
+
     // ── Persist result into game_votes so voted P/L history survives daily wipe ─
     const slot = pick.pick_type === 'ml'     && pick.is_home_team ? 'home_ml'
                : pick.pick_type === 'ml'                          ? 'away_ml'

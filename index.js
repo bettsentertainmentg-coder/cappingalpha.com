@@ -232,6 +232,28 @@ app.get('/api/mvp/public', (req, res) => {
   res.json({ picks, record: { wins: counts.win, losses: counts.loss, pushes: counts.push, win_rate } });
 });
 
+// GET /api/pick-history — permanent pick archive (≥35pts, survives daily wipe)
+// Query params: ?sport=MLB  ?result=win|loss|push|pending  ?limit=100 (max 500)
+app.get('/api/pick-history', (req, res) => {
+  const sport  = req.query.sport  || null;
+  const result = req.query.result || null;
+  const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+
+  let sql = `SELECT * FROM pick_history WHERE 1=1`;
+  const params = [];
+  if (sport)  { sql += ` AND UPPER(sport)  = UPPER(?)`; params.push(sport); }
+  if (result) { sql += ` AND LOWER(result) = LOWER(?)`; params.push(result); }
+  sql += ` ORDER BY archived_at DESC LIMIT ?`;
+  params.push(limit);
+
+  try {
+    const rows = db.prepare(sql).all(...params);
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/games — today's games for schedule widget, optional ?sport= filter
 app.get('/api/games', (req, res) => {
   const sport = req.query.sport;

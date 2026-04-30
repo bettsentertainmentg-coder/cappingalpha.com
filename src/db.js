@@ -558,6 +558,49 @@ try {
   `);
 } catch (_) {}
 
+// ── pick_history — permanent archive of every pick ≥35 points ─────────────────
+// Populated by archivePickHistory() in wipe.js just before the daily wipe.
+// Survives all wipes. Result updated by results.js when the game finalizes.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pick_history (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      pick_id        INTEGER NOT NULL UNIQUE,
+      espn_game_id   TEXT,
+      sport          TEXT,
+      game_date      TEXT,
+      home_team      TEXT,
+      away_team      TEXT,
+      home_abbr      TEXT,
+      away_abbr      TEXT,
+      team           TEXT,
+      pick_type      TEXT,
+      spread         REAL,
+      ml_odds        REAL,
+      ou_odds        REAL,
+      is_home_team   INTEGER NOT NULL DEFAULT 0,
+      score          REAL,
+      mention_count  INTEGER NOT NULL DEFAULT 1,
+      channel        TEXT,
+      channel_points INTEGER,
+      sport_bonus    INTEGER,
+      home_bonus     INTEGER,
+      capper_name    TEXT,
+      messages_json  TEXT,
+      result         TEXT NOT NULL DEFAULT 'pending',
+      home_score     INTEGER,
+      away_score     INTEGER,
+      first_seen_at  TEXT,
+      resolved_at    TEXT,
+      archived_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_game   ON pick_history (espn_game_id)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_date   ON pick_history (game_date)`);    } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_result ON pick_history (result)`);        } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_sport  ON pick_history (sport)`);         } catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
