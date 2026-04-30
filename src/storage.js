@@ -342,6 +342,8 @@ function updateSlot(slot, pick) {
     });
   }
 
+  if (scored.total >= 35) upsertPickHistory(slot.id, scored);
+
   return slot.id;
 }
 
@@ -395,6 +397,8 @@ function insertNewPick(pick) {
   if (scored.is_mvp) {
     saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id, score: scored.total });
   }
+
+  if (scored.total >= 35) upsertPickHistory(pick_id, scored);
 
   return pick_id;
 }
@@ -493,6 +497,57 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       WHERE team = ? AND game_date = ? AND pick_type = ?
     `).run(score, espn_game_id, ml_odds, ou_odds, home_team, away_team, team, game_date, pick_type ?? null);
   }
+}
+
+// ── Upsert pick into permanent archive when it first hits ≥35pts ─────────────
+// Called live from updateSlot() + insertNewPick() — not at wipe time.
+// INSERT OR IGNORE creates the row; UPDATE keeps score/count/messages fresh.
+function upsertPickHistory(pick_id, scored) {
+  const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pick_id);
+  if (!pick) return;
+
+  const game = pick.espn_game_id
+    ? db.prepare(`SELECT home_team, away_team, home_abbr, away_abbr, home_score, away_score FROM today_games WHERE espn_game_id = ?`)
+        .get(pick.espn_game_id)
+    : null;
+
+  const msgs = db.prepare(
+    `SELECT author, channel, message_text FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
+  ).all(pick_id);
+
+  const bd = scored.breakdown || {};
+
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO pick_history
+        (pick_id, espn_game_id, sport, game_date,
+         home_team, away_team, home_abbr, away_abbr,
+         team, pick_type, spread, ml_odds, ou_odds, is_home_team,
+         score, mention_count, channel, channel_points, sport_bonus, home_bonus,
+         capper_name, messages_json, result, home_score, away_score, first_seen_at)
+      VALUES (?,?,?,?, ?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?)
+    `).run(
+      pick.id,            pick.espn_game_id ?? null, pick.sport ?? null, pick.game_date ?? null,
+      game?.home_team ?? null, game?.away_team ?? null, game?.home_abbr ?? null, game?.away_abbr ?? null,
+      pick.team,          pick.pick_type ?? null, pick.spread ?? null,
+      pick.original_ml ?? null, pick.original_ou ?? null, pick.is_home_team ?? 0,
+      pick.score,         pick.mention_count ?? 1, pick.channel ?? null,
+      bd.channel_points ?? null, bd.sport_bonus ?? null, bd.home_bonus ?? null,
+      pick.capper_name ?? null, JSON.stringify(msgs), pick.result ?? 'pending',
+      game?.home_score ?? null, game?.away_score ?? null, pick.parsed_at ?? null
+    );
+    // Refresh mutable fields — score/mention_count/messages change on each new mention
+    db.prepare(`
+      UPDATE pick_history
+      SET score = ?, mention_count = ?, messages_json = ?,
+          channel_points = ?, sport_bonus = ?, home_bonus = ?
+      WHERE pick_id = ?
+    `).run(
+      pick.score, pick.mention_count ?? 1, JSON.stringify(msgs),
+      bd.channel_points ?? null, bd.sport_bonus ?? null, bd.home_bonus ?? null,
+      pick.id
+    );
+  } catch (_) {}
 }
 
 module.exports = { savePick };

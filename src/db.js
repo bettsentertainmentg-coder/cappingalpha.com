@@ -559,13 +559,13 @@ try {
 } catch (_) {}
 
 // ── pick_history — permanent archive of every pick ≥35 points ─────────────────
-// Populated by archivePickHistory() in wipe.js just before the daily wipe.
+// Written live from storage.js when a pick first scores ≥35pts.
 // Survives all wipes. Result updated by results.js when the game finalizes.
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pick_history (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
-      pick_id        INTEGER NOT NULL UNIQUE,
+      pick_id        INTEGER UNIQUE,
       espn_game_id   TEXT,
       sport          TEXT,
       game_date      TEXT,
@@ -600,6 +600,33 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_game   ON pick_histor
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_date   ON pick_history (game_date)`);    } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_result ON pick_history (result)`);        } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_sport  ON pick_history (sport)`);         } catch (_) {}
+
+// Dedup index: prevents duplicate (game, team, type, date) entries regardless of pick_id source
+try {
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ph_game_dedup
+    ON pick_history (espn_game_id, team, pick_type, game_date)
+    WHERE espn_game_id IS NOT NULL
+  `);
+} catch (_) {}
+
+// Backfill from mvp_picks — runs every startup; INSERT OR IGNORE is idempotent.
+// Uses negative synthetic pick_id (-(id + 10_000_000)) so it never collides with real picks.id.
+try {
+  db.exec(`
+    INSERT OR IGNORE INTO pick_history
+      (pick_id, espn_game_id, sport, game_date,
+       home_team, away_team, team, pick_type, spread, ml_odds, ou_odds,
+       score, result, home_score, away_score, first_seen_at, archived_at)
+    SELECT
+      -(m.id + 10000000),
+      m.espn_game_id, m.sport, m.game_date,
+      m.home_team, m.away_team, m.team, m.pick_type, m.spread, m.ml_odds, m.ou_odds,
+      m.score, m.result, m.home_score, m.away_score, m.saved_at, m.saved_at
+    FROM mvp_picks m
+    WHERE m.espn_game_id IS NOT NULL
+  `);
+} catch (_) {}
 
 function getSetting(key, defaultVal) {
   try {
