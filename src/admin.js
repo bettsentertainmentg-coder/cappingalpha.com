@@ -582,6 +582,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
+      <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
 
@@ -833,6 +834,62 @@ router.get('/dashboard', requireAuth, (req, res) => {
             }).join('')}
           </tbody>
         </table>` : '<div class="empty">No corrections saved yet.</div>'}
+      </div>
+    </div>
+
+    <!-- PICK HISTORY PANEL -->
+    <div class="apanel${ta('history')}" id="panel-history">
+      <h1>Pick History <small style="font-size:14px;color:#8892a4;font-weight:400;">All picks &ge;35 pts &mdash; permanent archive</small></h1>
+
+      <!-- Filters -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
+        <select id="ph-sport" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="">All Sports</option>
+          <option value="MLB">MLB</option>
+          <option value="NBA">NBA</option>
+          <option value="NHL">NHL</option>
+          <option value="NFL">NFL</option>
+          <option value="NCAAF">NCAAF</option>
+          <option value="CBB">CBB</option>
+          <option value="ATP">ATP</option>
+          <option value="WTA">WTA</option>
+        </select>
+        <select id="ph-result" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="">All Results</option>
+          <option value="win">Win</option>
+          <option value="loss">Loss</option>
+          <option value="push">Push</option>
+          <option value="pending">Pending</option>
+        </select>
+        <select id="ph-type" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="">All Types</option>
+          <option value="ml">ML</option>
+          <option value="spread">Spread</option>
+          <option value="over">Over</option>
+          <option value="under">Under</option>
+        </select>
+        <input type="date" id="ph-date" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;" title="Filter by game date" />
+        <input type="text" id="ph-search" placeholder="Search team or capper..." oninput="phFilter()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;min-width:200px;" />
+        <select id="ph-limit" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="100">100 rows</option>
+          <option value="250">250 rows</option>
+          <option value="500" selected>500 rows</option>
+        </select>
+        <button class="btn btn-primary" onclick="phLoad()">Load</button>
+        <span id="ph-count" style="color:#8892a4;font-size:13px;"></span>
+      </div>
+
+      <!-- Record summary strip (appears after load) -->
+      <div id="ph-record" style="display:none;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:12px 18px;margin-bottom:16px;display:none;gap:24px;flex-wrap:wrap;">
+        <span style="font-size:13px;color:#8892a4;">Filtered: </span>
+        <span style="font-size:13px;color:#16a34a;font-weight:700;" id="ph-rec-w">0W</span>
+        <span style="font-size:13px;color:#ef4444;font-weight:700;" id="ph-rec-l">0L</span>
+        <span style="font-size:13px;color:#f59e0b;font-weight:700;" id="ph-rec-p">0P</span>
+        <span style="font-size:13px;color:#8892a4;" id="ph-rec-rate"></span>
+      </div>
+
+      <div id="ph-table-wrap">
+        <p class="empty">Select filters and click Load.</p>
       </div>
     </div>
 
@@ -1586,6 +1643,150 @@ router.get('/dashboard', requireAuth, (req, res) => {
         await fetch('/admin/correction/' + id, { method: 'DELETE' });
         location.reload();
       }
+      // ── Pick History tab ───────────────────────────────────────────────────────
+      let _phData  = [];
+      let _phLoaded = false;
+
+      function phEsc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+      function phFmtOdds(n) { return n == null ? '—' : (n > 0 ? '+' : '') + n; }
+
+      function phAutoLoad() {
+        if (!_phLoaded) phLoad();
+      }
+
+      async function phLoad() {
+        const sport  = document.getElementById('ph-sport').value;
+        const result = document.getElementById('ph-result').value;
+        const limit  = document.getElementById('ph-limit').value;
+        const wrap   = document.getElementById('ph-table-wrap');
+        const countEl = document.getElementById('ph-count');
+
+        wrap.innerHTML = '<p class="empty">Loading...</p>';
+        countEl.textContent = '';
+
+        let url = '/api/pick-history?limit=' + limit;
+        if (sport)  url += '&sport='  + encodeURIComponent(sport);
+        if (result) url += '&result=' + encodeURIComponent(result);
+
+        try {
+          const r = await fetch(url);
+          _phData   = await r.json();
+          _phLoaded = true;
+          phFilter();
+        } catch (err) {
+          wrap.innerHTML = \`<p class="empty" style="color:#ef4444;">Error: \${phEsc(err.message)}</p>\`;
+        }
+      }
+
+      function phFilter() {
+        if (!_phLoaded) return;
+        const q    = (document.getElementById('ph-search').value || '').toLowerCase().trim();
+        const type = document.getElementById('ph-type').value.toLowerCase();
+        const date = document.getElementById('ph-date').value;
+
+        const filtered = _phData.filter(p => {
+          if (type && (p.pick_type || '').toLowerCase() !== type) return false;
+          if (date && (p.game_date || '').slice(0, 10) !== date) return false;
+          if (q) {
+            const hay = [p.team, p.capper_name, p.home_team, p.away_team]
+              .map(v => (v || '').toLowerCase()).join(' ');
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        phRender(filtered);
+      }
+
+      function phRender(rows) {
+        const wrap    = document.getElementById('ph-table-wrap');
+        const countEl = document.getElementById('ph-count');
+        const recEl   = document.getElementById('ph-record');
+
+        if (!rows.length) {
+          wrap.innerHTML = '<p class="empty">No picks match these filters.</p>';
+          countEl.textContent = '';
+          recEl.style.display = 'none';
+          return;
+        }
+
+        // W/L/P summary
+        let wins = 0, losses = 0, pushes = 0;
+        for (const p of rows) {
+          if (p.result === 'win')  wins++;
+          else if (p.result === 'loss') losses++;
+          else if (p.result === 'push') pushes++;
+        }
+        const decided = wins + losses;
+        const wr = decided > 0 ? Math.round(wins / decided * 100) + '%' : '—';
+        document.getElementById('ph-rec-w').textContent = wins + ' W';
+        document.getElementById('ph-rec-l').textContent = losses + ' L';
+        document.getElementById('ph-rec-p').textContent = pushes + ' P';
+        document.getElementById('ph-rec-rate').textContent = wr + ' win rate';
+        recEl.style.display = 'flex';
+
+        countEl.textContent = rows.length + ' picks';
+
+        const rColor = r => r === 'win' ? '#16a34a' : r === 'loss' ? '#ef4444' : r === 'push' ? '#f59e0b' : '#64748b';
+        const rLabel = r => ({ win:'WIN', loss:'LOSS', push:'PUSH', void:'VOID' })[r] || 'PEND';
+        const chShort = ch => ch === 'free-plays' ? 'free' : ch === 'pod-thread' ? 'pod' : ch === 'community-leaks' ? 'leaks' : (ch || '—');
+        const chColor = ch => ch === 'free-plays' ? '#f59e0b' : ch === 'pod-thread' ? '#a78bfa' : '#64748b';
+
+        wrap.innerHTML = \`<div style="overflow-x:auto;">
+          <table id="ph-table">
+            <thead><tr>
+              <th>Date</th>
+              <th>Sport</th>
+              <th>Matchup</th>
+              <th>Picked</th>
+              <th>Type</th>
+              <th>Line</th>
+              <th>Pts</th>
+              <th>Channel</th>
+              <th>Result</th>
+              <th>Final</th>
+            </tr></thead>
+            <tbody>
+              \${rows.map(p => {
+                const date     = (p.game_date || '').slice(0, 10);
+                const matchup  = p.home_team && p.away_team
+                  ? phEsc(p.away_team) + ' @ ' + phEsc(p.home_team)
+                  : phEsc(p.team || '—');
+                const typeStr  = (p.pick_type || '').toLowerCase();
+                const line     = typeStr === 'over' || typeStr === 'under'
+                  ? (p.spread != null ? 'O/U ' + p.spread : '—')
+                  : typeStr === 'spread'
+                  ? (p.spread != null ? (p.spread > 0 ? '+' : '') + p.spread : '—')
+                  : phFmtOdds(p.ml_odds);
+                const final    = p.home_score != null && p.away_score != null
+                  ? p.home_score + '–' + p.away_score
+                  : '—';
+                const scoreTxt = p.score >= 60
+                  ? \`<span style="color:#FFD700;font-weight:700;">\${p.score}</span>\`
+                  : p.score >= 50
+                  ? \`<span style="color:#b0bcd4;font-weight:700;">\${p.score}</span>\`
+                  : p.score;
+                return \`<tr>
+                  <td style="font-size:11px;color:#8892a4;white-space:nowrap;">\${phEsc(date)}</td>
+                  <td><span class="badge" style="background:#1e2330;color:#8892a4;font-size:10px;">\${phEsc(p.sport || '—')}</span></td>
+                  <td style="font-size:12px;">\${matchup}</td>
+                  <td style="font-weight:600;font-size:13px;">\${phEsc(p.team || '—')}</td>
+                  <td style="font-size:11px;text-transform:uppercase;color:#8892a4;">\${phEsc(p.pick_type || '—')}</td>
+                  <td style="font-size:12px;font-weight:600;">\${phEsc(line)}</td>
+                  <td style="font-size:13px;">\${scoreTxt}</td>
+                  <td style="font-size:11px;color:\${chColor(p.channel)};">\${phEsc(chShort(p.channel))}</td>
+                  <td><span style="color:\${rColor(p.result)};font-weight:700;font-size:12px;">\${rLabel(p.result)}</span></td>
+                  <td style="font-size:12px;color:#8892a4;">\${phEsc(final)}</td>
+                </tr>\`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>\`;
+      }
+
     </script>
     <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
   `));
