@@ -868,7 +868,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <option value="over">Over</option>
           <option value="under">Under</option>
         </select>
-        <input type="date" id="ph-date" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;" title="Filter by game date" />
+        <span style="color:#8892a4;font-size:12px;white-space:nowrap;">From</span>
+        <input type="date" id="ph-date-from" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;" title="Start date (leave blank for all time)" />
+        <span style="color:#8892a4;font-size:12px;">to</span>
+        <input type="date" id="ph-date-to" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;" title="End date (leave blank for all time)" />
         <input type="text" id="ph-search" placeholder="Search team or capper..." oninput="phFilter()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;min-width:200px;" />
         <select id="ph-limit" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
           <option value="100">100 rows</option>
@@ -1683,13 +1686,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       function phFilter() {
         if (!_phLoaded) return;
-        const q    = (document.getElementById('ph-search').value || '').toLowerCase().trim();
-        const type = document.getElementById('ph-type').value.toLowerCase();
-        const date = document.getElementById('ph-date').value;
+        const q       = (document.getElementById('ph-search').value || '').toLowerCase().trim();
+        const type    = document.getElementById('ph-type').value.toLowerCase();
+        const dateFrom = document.getElementById('ph-date-from').value;
+        const dateTo   = document.getElementById('ph-date-to').value;
 
         const filtered = _phData.filter(p => {
           if (type && (p.pick_type || '').toLowerCase() !== type) return false;
-          if (date && (p.game_date || '').slice(0, 10) !== date) return false;
+          const d = (p.game_date || '').slice(0, 10);
+          if (dateFrom && d < dateFrom) return false;
+          if (dateTo   && d > dateTo)   return false;
           if (q) {
             const hay = [p.team, p.capper_name, p.home_team, p.away_team]
               .map(v => (v || '').toLowerCase()).join(' ');
