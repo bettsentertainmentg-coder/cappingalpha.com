@@ -215,7 +215,7 @@ app.get('/api/mvp/public', (req, res) => {
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
     WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
       AND (m.annotation IS NULL OR m.annotation NOT LIKE '%not counted%')
-    ORDER BY m.saved_at DESC LIMIT 500
+    ORDER BY m.saved_at DESC
   `).all(threshold);
 
   const rows = db.prepare(`
