@@ -16,7 +16,7 @@ function getRecentMvpPicks(threshold = 50) {
     FROM mvp_picks m
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
     WHERE m.score >= ?
-    ORDER BY m.saved_at DESC LIMIT 50
+    ORDER BY m.saved_at DESC LIMIT 500
   `).all(threshold);
 }
 
