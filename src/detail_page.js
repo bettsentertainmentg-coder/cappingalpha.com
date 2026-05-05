@@ -274,7 +274,7 @@ ${buildNav()}
     <div class="ca-lines-toggle" id="ca-lines-toggle">
       <button class="ca-lt-btn active" data-type="spread" onclick="setLinesType('spread')">SPREAD</button>
       <button class="ca-lt-btn" data-type="total" onclick="setLinesType('total')">TOTAL</button>
-      <button class="ca-lt-btn" data-type="ml" onclick="setLinesType('ml')">ML</button>
+      <button class="ca-lt-btn" data-type="ml" onclick="setLinesType('ml')">WIN</button>
     </div>
   </div>
   <div id="ca-lines-table">

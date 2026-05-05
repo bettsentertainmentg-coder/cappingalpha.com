@@ -116,8 +116,8 @@ function updateStickyOffset() {
 function buildSlots(game) {
   const ou = game.over_under;
   return [
-    { key: 'away_ml',     label: teamNick(game.away_team) + ' ML',       type: 'ml',     team: game.away_team },
-    { key: 'home_ml',     label: teamNick(game.home_team) + ' ML',       type: 'ml',     team: game.home_team },
+    { key: 'away_ml',     label: teamNick(game.away_team) + ' Win',      type: 'ml',     team: game.away_team },
+    { key: 'home_ml',     label: teamNick(game.home_team) + ' Win',      type: 'ml',     team: game.home_team },
     { key: 'away_spread', label: teamNick(game.away_team) + ' Spread',   type: 'spread', team: game.away_team },
     { key: 'home_spread', label: teamNick(game.home_team) + ' Spread',   type: 'spread', team: game.home_team },
     { key: 'over',        label: `Over${ou != null ? ' ' + ou : ''}`,    type: 'over',   team: null },

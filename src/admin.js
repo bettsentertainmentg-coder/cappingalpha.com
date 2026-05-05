@@ -863,7 +863,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         </select>
         <select id="ph-type" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
           <option value="">All Types</option>
-          <option value="ml">ML</option>
+          <option value="ml">Win</option>
           <option value="spread">Spread</option>
           <option value="over">Over</option>
           <option value="under">Under</option>
@@ -1319,7 +1319,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         }
         const STAKE = 20;
         let betOdds = null, oddsLabel = '';
-        if (pt === 'ml') { betOdds = m.ml_odds ?? (pick ? pick.original_ml : null); oddsLabel = 'Moneyline'; }
+        if (pt === 'ml') { betOdds = m.ml_odds ?? (pick ? pick.original_ml : null); oddsLabel = 'Win'; }
         else if (pt === 'over' || pt === 'under') { betOdds = m.ou_odds ?? -115; oddsLabel = pt.charAt(0).toUpperCase() + pt.slice(1) + (sp ? ' ' + sp : ''); }
         else if (pt === 'spread') { betOdds = -115; oddsLabel = 'Spread ' + (sp || ''); }
         const calc = calcPayout(betOdds, STAKE);
@@ -1589,7 +1589,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <input type="text" class="corr-team" placeholder="e.g. Hornets" value="\${pre?.team||''}" style="width:130px;background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;" /></div>
           <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">PICK TYPE</label>
             <select class="corr-type-sel" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;">
-              \${['ML','spread','over','under','NRFI','h2h','top5','top10'].map(t=>\`<option value="\${t}" \${pre?.pick_type===t?'selected':''}>\${t}</option>\`).join('')}
+              \${['ML','spread','over','under','NRFI','h2h','top5','top10'].map(t=>\`<option value="\${t}" \${pre?.pick_type===t?'selected':''}>\${t === 'ML' ? 'Win' : t}</option>\`).join('')}
             </select></div>
           <div><label style="display:block;font-size:10px;color:#8892a4;margin-bottom:3px;">SPORT</label>
             <select class="corr-sport" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:6px 8px;border-radius:5px;font-size:13px;">

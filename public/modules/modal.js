@@ -107,8 +107,8 @@ let _modalData = null;
 
 function buildSlots(game) {
   return [
-    { key: 'home_ml',     label: `${game.home_team?.split(' ').pop() || 'Home'} ML`,     type: 'ml',     team: game.home_team },
-    { key: 'away_ml',     label: `${game.away_team?.split(' ').pop() || 'Away'} ML`,     type: 'ml',     team: game.away_team },
+    { key: 'home_ml',     label: `${game.home_team?.split(' ').pop() || 'Home'} Win`,     type: 'ml',     team: game.home_team },
+    { key: 'away_ml',     label: `${game.away_team?.split(' ').pop() || 'Away'} Win`,     type: 'ml',     team: game.away_team },
     { key: 'home_spread', label: `${game.home_team?.split(' ').pop() || 'Home'} Spread`, type: 'spread', team: game.home_team },
     { key: 'away_spread', label: `${game.away_team?.split(' ').pop() || 'Away'} Spread`, type: 'spread', team: game.away_team },
     { key: 'over',        label: `Over ${game.over_under || ''}`,                        type: 'over',   team: null },

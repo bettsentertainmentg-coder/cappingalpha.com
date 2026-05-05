@@ -121,7 +121,7 @@ export function pickLabel(p) {
     return total ? `${label} ${total}` : label;
   }
   const spreadFmt = spread != null ? (spread > 0 ? `+${spread}` : `${spread}`) : null;
-  if (type === 'ml') return nick ? `${nick} Moneyline` : 'Moneyline';
+  if (type === 'ml') return nick ? `${nick} Win` : 'Win';
   if (type === 'spread') return nick ? `${nick} ${spreadFmt ?? 'Spread'}` : (spreadFmt ?? 'Spread');
   if (nick) return spreadFmt ? `${nick} ${spreadFmt}` : nick;
   return (spreadFmt ? `${p.pick_type} ${spreadFmt}` : p.pick_type) || '—';
