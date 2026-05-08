@@ -253,7 +253,7 @@ ${buildNav()}
 <!-- ── PICKS ─────────────────────────────────────────────────────────────── -->
 <section id="picks" class="ca-section">
   <div class="ca-section-header ca-section-header--picks">
-    <h2 class="ca-section-h2">All picks for this game</h2>
+    <h2 class="ca-section-h2">Picks For This Game</h2>
     <div class="ca-section-meta" id="ca-picks-count"></div>
   </div>
   <div class="ca-slot-grid" id="ca-slot-grid">

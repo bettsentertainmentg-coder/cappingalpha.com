@@ -309,9 +309,11 @@ nav {
 .ca-slot-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.08); }
 .ca-slot-chip.mvp    { border-color: rgba(255,215,0,0.55); background: rgba(255,215,0,0.05); }
 .ca-slot-chip.mvp.active { background: rgba(255,215,0,0.08); }
-.ca-slot-chip.no-pick { opacity: 0.5; cursor: default; }
+.ca-slot-chip.no-pick { opacity: 0.5; }
 .ca-slot-chip.locked  { opacity: 0.72; cursor: default; }
-.ca-slot-chip.no-pick:hover, .ca-slot-chip.locked:hover { border-color: var(--border); background: var(--surface); }
+.ca-slot-chip.no-pick:hover  { border-color: var(--accent); opacity: 0.75; }
+.ca-slot-chip.locked:hover   { border-color: var(--border); background: var(--surface); }
+.ca-slot-chip.no-pick.active { opacity: 1; border-color: var(--accent); background: rgba(59,130,246,0.08); }
 
 .ca-slot-type {
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.7px;
