@@ -640,8 +640,8 @@ function renderLines() {
   } else if (_linesType === 'total') {
     awayLabel = 'Over';
     homeLabel = 'Under';
-    awayFn = (src) => src?.over_under  != null ? `o${src.over_under} (${fmtOdds(src.ou_over_odds  ?? -110)})` : null;
-    homeFn = (src) => src?.over_under  != null ? `u${src.over_under} (${fmtOdds(src.ou_under_odds ?? -110)})` : null;
+    awayFn = (src) => src?.over_under  != null ? `${src.over_under} (${fmtOdds(src.ou_over_odds  ?? -110)})` : null;
+    homeFn = (src) => src?.over_under  != null ? `${src.over_under} (${fmtOdds(src.ou_under_odds ?? -110)})` : null;
   } else { // ml
     awayLabel = `${teamNick(game.away_team)} ML`;
     homeLabel = `${teamNick(game.home_team)} ML`;

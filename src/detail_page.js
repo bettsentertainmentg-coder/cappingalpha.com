@@ -183,18 +183,16 @@ ${buildNav()}
 <div class="ca-page-outer">
 
 <div class="ca-sticky-top">
-<!-- Back bar (top-left) -->
-<div class="ca-page-back">
-  <button class="ca-page-back-btn" onclick="doBack()">
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    Back
-  </button>
-</div>
 
 <!-- Game Header (compact) -->
 <header class="ca-game-header">
-  <!-- One-line meta: badge · time · date · venue · status -->
+  <!-- One-line meta: back · badge · time · date · venue · status -->
   <div class="ca-gh-meta-row">
+    <button class="ca-page-back-btn" onclick="doBack()">
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Back
+    </button>
+    <span class="ca-gh-sep">·</span>
     <span class="ca-sport-badge" style="background:${sportBg};">${esc(sportLbl)}</span>
     <span class="ca-gh-meta-text ca-num">${esc(timeStr)} ET</span>
     ${shortDate ? `<span class="ca-gh-sep">·</span><span class="ca-gh-meta-text ca-num">${esc(shortDate)}</span>` : ''}

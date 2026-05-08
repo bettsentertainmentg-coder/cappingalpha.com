@@ -149,17 +149,13 @@ nav {
   box-shadow: 0 4px 16px rgba(0,0,0,0.45);
 }
 
-/* ── Page back bar (top-left, below sticky nav) ─────────────────────────────── */
-.ca-page-back {
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--border-tertiary);
-}
+/* ── Back button (inline in meta row) ───────────────────────────────────────── */
 .ca-page-back-btn {
   display: inline-flex; align-items: center; gap: 5px;
   background: none; border: none; cursor: pointer;
-  font-family: inherit; font-size: 13px; font-weight: 600;
-  color: var(--text-tertiary); padding: 2px 0;
-  transition: color 0.15s;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  color: var(--text-tertiary); padding: 0;
+  transition: color 0.15s; white-space: nowrap; flex-shrink: 0;
 }
 .ca-page-back-btn:hover { color: var(--text); }
 .ca-page-back-btn svg { flex-shrink: 0; }
