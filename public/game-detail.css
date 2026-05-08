@@ -675,8 +675,9 @@ nav {
 .ca-lt-row:last-child { border-bottom: none; }
 .ca-lt-row:nth-child(even) { background: rgba(255,255,255,0.015); }
 .ca-lt-book { font-weight: 700; color: var(--text-secondary); font-size: 13px; display: flex; flex-direction: column; gap: 2px; justify-content: center; }
-.ca-lt-book--mkt { justify-content: center; }
+.ca-lt-book--mkt { position: relative; justify-content: center; }
 .ca-lt-book-vol  { font-size: 10px; font-weight: 400; color: var(--text-disabled); }
+.ca-lt-book--mkt .ca-lt-book-vol { position: absolute; top: calc(100% + 2px); left: 0; }
 .ca-lt-val  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text); }
 .ca-lt-val.ca-lt-move-up   { color: var(--green); }
 .ca-lt-val.ca-lt-move-down { color: var(--red); }
