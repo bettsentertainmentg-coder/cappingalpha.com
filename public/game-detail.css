@@ -690,8 +690,8 @@ nav {
 .ca-mv-down { color: #f87171; }  /* soft red   */
 
 /* Prediction market rows (Polymarket + Kalshi) */
-.ca-lt-poly-row    { border-top: 1px solid rgba(99,102,241,0.25); }
-.ca-lt-kalshi-row  { border-top: 1px solid rgba(45,212,191,0.2); }
+.ca-lt-poly-row    { border-top: 2px solid rgba(99,102,241,0.3); padding-top: 16px; }
+.ca-lt-kalshi-row  { border-top: 1px solid rgba(45,212,191,0.2); padding-top: 16px; }
 
 .ca-lt-poly-row   .ca-lt-book > span:first-child { color: #818cf8; font-size: 13px; font-weight: 700; }
 .ca-lt-kalshi-row .ca-lt-book > span:first-child { color: #2dd4bf; font-size: 13px; font-weight: 700; }
@@ -703,8 +703,8 @@ nav {
 }
 
 /* Market cell: line on left, % + implied stacked on right */
-.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; gap: 10px; }
-.ca-lt-mkt-pct-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; gap: 10px; align-self: center; }
+.ca-lt-mkt-pct-group { display: flex; flex-direction: column; align-items: center; gap: 2px; align-self: center; justify-content: center; }
 .ca-lt-mkt-pct {
   font-size: 18px; font-weight: 800; line-height: 1;
   font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
