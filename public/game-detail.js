@@ -638,13 +638,13 @@ function renderLines() {
   if (_linesType === 'spread') {
     awayLabel = `${teamNick(game.away_team)} Spread`;
     homeLabel = `${teamNick(game.home_team)} Spread`;
-    awayFn = (src) => src?.spread_away != null ? fmtSpread(src.spread_away) : null;
-    homeFn = (src) => src?.spread_home != null ? fmtSpread(src.spread_home) : null;
+    awayFn = (src) => src?.spread_away != null ? `${fmtSpread(src.spread_away)}<span class="ca-lt-odds-sm ca-num"> -110</span>` : null;
+    homeFn = (src) => src?.spread_home != null ? `${fmtSpread(src.spread_home)}<span class="ca-lt-odds-sm ca-num"> -110</span>` : null;
   } else if (_linesType === 'total') {
     awayLabel = 'Over';
     homeLabel = 'Under';
-    awayFn = (src) => src?.over_under  != null ? `${src.over_under} (${fmtOdds(src.ou_over_odds  ?? -110)})` : null;
-    homeFn = (src) => src?.over_under  != null ? `${src.over_under} (${fmtOdds(src.ou_under_odds ?? -110)})` : null;
+    awayFn = (src) => src?.over_under  != null ? `${src.over_under}<span class="ca-lt-odds-sm ca-num"> ${fmtOdds(src.ou_over_odds  ?? -110)}</span>` : null;
+    homeFn = (src) => src?.over_under  != null ? `${src.over_under}<span class="ca-lt-odds-sm ca-num"> ${fmtOdds(src.ou_under_odds ?? -110)}</span>` : null;
   } else { // ml
     awayLabel = `${teamNick(game.away_team)} ML`;
     homeLabel = `${teamNick(game.home_team)} ML`;
@@ -713,10 +713,18 @@ function renderLines() {
     return `<span class="${d > 0 ? 'ca-mv-up' : 'ca-mv-down'} ca-mv-arrow">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
   };
 
-  // Helper: mkt cell — line (same font as DK/FD) + big % inline
+  // Convert probability to American odds string
+  const probToAmerican = (p) => {
+    if (p == null || isNaN(p) || p <= 0 || p >= 1) return '';
+    if (p >= 0.5) return String(Math.round(-100 * p / (1 - p)));
+    return `+${Math.round(100 * (1 - p) / p)}`;
+  };
+
+  // Helper: mkt cell — optional line on top, big % below, implied odds beneath
   const mktCell = (lineStr, lineChg, prob) => {
     const line = lineStr ? `<span class="ca-lt-val ca-num">${lineStr}${lineChg || ''}</span>` : '';
-    return `<div class="ca-lt-mkt-cell">${line}<span class="ca-lt-mkt-pct ${pctCls(prob)}">${fmtPct(prob)}</span></div>`;
+    const implied = probToAmerican(prob);
+    return `<div class="ca-lt-mkt-cell">${line}<span class="ca-lt-mkt-pct ${pctCls(prob)}">${fmtPct(prob)}</span>${implied ? `<span class="ca-lt-mkt-implied ca-num">${implied}</span>` : ''}</div>`;
   };
 
   const awayNick = game.away_short || teamNick(game.away_team) || game.away_abbr || 'Away';
@@ -929,7 +937,6 @@ function renderSentiment() {
       leftName: awayName,      rightName: homeName,
       leftColors: awayColors,  rightColors: homeColors,
       leftLine: awaySpread,    rightLine: homeSpread,
-      centerLine: game.spread_away != null ? String(Math.abs(game.spread_away)) : null,
       pbLeft: pb?.away_spread_pct, pbRight: pb?.home_spread_pct,
     },
     {

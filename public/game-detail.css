@@ -696,12 +696,22 @@ nav {
 .ca-lt-poly-row   .ca-lt-book > span:first-child { color: #818cf8; font-size: 13px; font-weight: 700; }
 .ca-lt-kalshi-row .ca-lt-book > span:first-child { color: #2dd4bf; font-size: 13px; font-weight: 700; }
 
-/* Market cell: line (same font as DK/FD) + big % inline side-by-side */
-.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+/* Inline book odds (spread −110, total −115 etc.) */
+.ca-lt-odds-sm {
+  font-size: 9px; font-weight: 500; color: var(--text-disabled);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Market cell: optional line → big % → implied American odds */
+.ca-lt-mkt-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .ca-lt-mkt-pct {
   font-size: 18px; font-weight: 800; line-height: 1;
   font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
   letter-spacing: -0.5px;
+}
+.ca-lt-mkt-implied {
+  font-size: 9px; font-weight: 500; color: var(--text-disabled);
+  font-variant-numeric: tabular-nums; font-family: 'JetBrains Mono', monospace;
 }
 .ca-pct-high { color: #4ade80; }
 .ca-pct-low  { color: #f87171; }
