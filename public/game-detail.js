@@ -720,11 +720,15 @@ function renderLines() {
     return `+${Math.round(100 * (1 - p) / p)}`;
   };
 
-  // Helper: mkt cell — optional line on top, big % below, implied odds beneath
+  // Helper: mkt cell — optional line left, big % + implied stacked right
   const mktCell = (lineStr, lineChg, prob) => {
     const line = lineStr ? `<span class="ca-lt-val ca-num">${lineStr}${lineChg || ''}</span>` : '';
     const implied = probToAmerican(prob);
-    return `<div class="ca-lt-mkt-cell">${line}<span class="ca-lt-mkt-pct ${pctCls(prob)}">${fmtPct(prob)}</span>${implied ? `<span class="ca-lt-mkt-implied ca-num">${implied}</span>` : ''}</div>`;
+    const pctGroup = `<div class="ca-lt-mkt-pct-group">
+      <span class="ca-lt-mkt-pct ${pctCls(prob)}">${fmtPct(prob)}</span>
+      ${implied ? `<span class="ca-lt-mkt-implied ca-num">${implied}</span>` : ''}
+    </div>`;
+    return `<div class="ca-lt-mkt-cell">${line}${pctGroup}</div>`;
   };
 
   const awayNick = game.away_short || teamNick(game.away_team) || game.away_abbr || 'Away';

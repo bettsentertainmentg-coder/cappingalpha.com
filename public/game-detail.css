@@ -702,8 +702,9 @@ nav {
   font-variant-numeric: tabular-nums;
 }
 
-/* Market cell: optional line → big % → implied American odds */
-.ca-lt-mkt-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+/* Market cell: line on left, % + implied stacked on right */
+.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.ca-lt-mkt-pct-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .ca-lt-mkt-pct {
   font-size: 18px; font-weight: 800; line-height: 1;
   font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
@@ -1143,4 +1144,10 @@ nav {
   .ca-team-name { font-size: 13px; }
   .nav-tabs .tab-btn:nth-child(n+3) { display: none; }
   .ca-context-grid { grid-template-columns: 1fr 1fr; }
+  /* Compress meta row so date + countdown both fit on one line */
+  .ca-gh-meta-text { font-size: 10px; }
+  .ca-page-back-btn { font-size: 10px; }
+  .ca-gh-sep { font-size: 10px; }
+  .ca-sport-badge { font-size: 9px; padding: 2px 7px; }
+  .ca-gh-status-pill { font-size: 10px; padding: 3px 8px; }
 }
