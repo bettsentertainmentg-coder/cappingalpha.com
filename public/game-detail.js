@@ -182,8 +182,8 @@ function slotLineCurrent(slotKey, game) {
   if (slotKey === 'away_ml')     return game.ml_away     != null ? fmtOdds(game.ml_away)       : null;
   if (slotKey === 'home_spread') return game.spread_home != null ? fmtSpread(game.spread_home) : null;
   if (slotKey === 'away_spread') return game.spread_away != null ? fmtSpread(game.spread_away) : null;
-  if (slotKey === 'over')        return game.over_under  != null ? `o${game.over_under}`        : null;
-  if (slotKey === 'under')       return game.over_under  != null ? `u${game.over_under}`        : null;
+  if (slotKey === 'over')        return game.over_under  != null ? String(game.over_under)     : null;
+  if (slotKey === 'under')       return game.over_under  != null ? String(game.over_under)     : null;
   return null;
 }
 
@@ -439,7 +439,7 @@ function renderDetailPanel() {
       </div>
       <div class="ca-dp-hdr-pick-row">
         <span class="ca-dp-hdr-side">${esc(sideLabel)}</span>
-        ${line ? `<span class="ca-dp-hdr-line-val ca-num">${esc(line)}</span>` : ''}
+        ${line && _activeSlot !== 'over' && _activeSlot !== 'under' ? `<span class="ca-dp-hdr-line-val ca-num">${esc(line)}</span>` : ''}
         ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
       </div>
     </div>
