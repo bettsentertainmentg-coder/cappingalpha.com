@@ -309,15 +309,6 @@ function renderSlotGrid() {
     else if (slot.type === 'ml') pickIdent = abbr || '—';
     else pickIdent = abbr && lineVal ? `${abbr} ${lineVal}` : (lineVal || abbr || '—');
 
-    // ML sub-label: full short name + odds in lighter font
-    const mlShortName = slot.key === 'away_ml'
-      ? (game.away_short || teamNick(game.away_team) || '')
-      : slot.key === 'home_ml'
-        ? (game.home_short || teamNick(game.home_team) || '')
-        : '';
-    const mlSubLabel = slot.type === 'ml' && mlShortName && lineVal
-      ? `<span class="ca-slot-sub-ml"><span class="ca-slot-sub-name">${mlShortName}</span> <span class="ca-slot-sub-odds ca-num">${lineVal}</span></span>`
-      : '';
 
     // Score area
     let scoreAreaHtml = '';
@@ -352,7 +343,6 @@ function renderSlotGrid() {
       ${isMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
       <span class="ca-slot-type">${typeLabel}</span>
       <span class="ca-slot-label">${pickIdent}</span>
-      ${mlSubLabel}
       ${scoreAreaHtml}
     </div>`;
   }).join('');
@@ -451,7 +441,7 @@ function renderDetailPanel() {
       </div>
       <div class="ca-dp-hdr-pick-row">
         <span class="ca-dp-hdr-side">${esc(sideLabel)}</span>
-        ${line && _activeSlot !== 'over' && _activeSlot !== 'under' ? `<span class="ca-dp-hdr-line-val ca-num">${esc(line)}</span>` : ''}
+        ${line && _activeSlot !== 'over' && _activeSlot !== 'under' ? `<span class="${slot.type === 'ml' ? 'ca-dp-hdr-juice' : 'ca-dp-hdr-line-val'} ca-num">${esc(line)}</span>` : ''}
         ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
       </div>
     </div>
@@ -557,14 +547,15 @@ function renderDetailPanel() {
   }
 
   el.innerHTML = headerHtml + `<div class="ca-dp-grid">
+    <div class="ca-dp-col">${pubHtml}</div>
+    <div class="ca-dp-divider"></div>
+    <div class="ca-dp-col">${voteHtml}</div>
+  </div>
+  <div class="ca-dp-lines-row">
     <div class="ca-dp-col">
       <div class="ca-dp-col-label" style="margin-bottom:8px;">Current lines</div>
       <div class="ca-dp-mini-table">${linesMiniHtml}</div>
     </div>
-    <div class="ca-dp-divider"></div>
-    <div class="ca-dp-col">${pubHtml}</div>
-    <div class="ca-dp-divider"></div>
-    <div class="ca-dp-col">${voteHtml}</div>
   </div>`;
 
   // Paywall banner

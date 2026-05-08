@@ -324,13 +324,6 @@ nav {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 120px; line-height: 1.2;
 }
-.ca-slot-sub-ml {
-  font-size: 10px; color: var(--text-secondary); line-height: 1.2;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 110px;
-}
-.ca-slot-sub-name { font-weight: 600; }
-.ca-slot-sub-odds { font-weight: 400; color: var(--text-tertiary); }
 
 /* Score area — centered */
 .ca-slot-score-area {
@@ -404,8 +397,11 @@ nav {
 
 .ca-dp-grid {
   display: grid;
-  grid-template-columns: 1fr 1px 1fr 1px 1fr;
+  grid-template-columns: 1fr 1px 1fr;
   gap: 0;
+}
+.ca-dp-lines-row {
+  border-top: 1px solid var(--border);
 }
 
 .ca-dp-divider { background: var(--border); align-self: stretch; }
@@ -1126,10 +1122,15 @@ nav {
   .ca-footer-disclaimer { font-size: 11px; }
 }
 
+@media (max-width: 600px) {
+  /* Venue too cramped on mobile — hide it, push countdown to far right */
+  .ca-gh-venue, .ca-gh-venue + * { display: none; }
+  .ca-gh-status-pill { margin-left: auto; }
+}
+
 @media (max-width: 480px) {
   .ca-team-logo-circle { width: 40px; height: 40px; }
   .ca-team-name { font-size: 13px; }
   .nav-tabs .tab-btn:nth-child(n+3) { display: none; }
   .ca-context-grid { grid-template-columns: 1fr 1fr; }
-  .ca-gh-venue { display: none; } /* venue too long on very small screens */
 }
