@@ -14,7 +14,9 @@
 
 'use strict';
 
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+// Load env same way as index.js: AgentOSO .env first, local .env as override
+require('dotenv').config({ path: require('path').join(process.env.HOME || '/Users/jack', 'Projects/AgentOSO/.env') });
+require('dotenv').config({ path: require('path').join(__dirname, '../.env'), override: false });
 
 const https   = require('https');
 const http    = require('http');
@@ -118,14 +120,20 @@ async function run() {
         continue;
       }
 
-      const result = await postToRailway({ sport, games });
+      // Retry up to 2 times on non-200 (handles transient 502/413)
+      let result;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await sleep(3000 * attempt);
+        result = await postToRailway({ sport, games });
+        if (result.status === 200) break;
+      }
 
       if (result.status === 200) {
         const r = JSON.parse(result.body);
         console.log(`[pb-relay] ${sport}: ${games.length} scraped → ${r.stored} stored on Railway`);
         totalStored += r.stored || 0;
       } else {
-        console.error(`[pb-relay] ${sport}: Railway returned ${result.status} — ${result.body}`);
+        console.error(`[pb-relay] ${sport}: Railway returned ${result.status} after retries — ${result.body.slice(0, 200)}`);
       }
     } catch (err) {
       console.error(`[pb-relay] ${sport}: ${err.message}`);
