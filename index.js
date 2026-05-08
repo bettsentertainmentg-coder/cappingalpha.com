@@ -95,7 +95,7 @@ app.set('trust proxy', 1); // Required for secure cookies behind Railway/Heroku 
 // Stripe webhook MUST be registered before express.json() — needs raw body for signature verification
 app.post('/auth/stripe-webhook', express.raw({ type: 'application/json' }), auth.stripeWebhook);
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(session({
   secret:            secret,
   resave:            false,
