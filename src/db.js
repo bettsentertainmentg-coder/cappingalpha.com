@@ -677,6 +677,8 @@ try {
 try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN markets_json TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN morning_markets_json TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN updated_at TEXT`); } catch (_) {}
+// Clear stale rows from old flat-column schema so they get re-synced cleanly
+try { db.exec(`DELETE FROM kalshi_cache WHERE markets_json IS NULL`); } catch (_) {}
 
 function getSetting(key, defaultVal) {
   try {
