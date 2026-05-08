@@ -925,7 +925,8 @@ function renderSentiment() {
       leftKey: 'away_spread',  rightKey: 'home_spread',
       leftName: awayName,      rightName: homeName,
       leftColors: awayColors,  rightColors: homeColors,
-      leftLine: `${awayAbbr} ${awaySpread}`, rightLine: `${homeAbbr} ${homeSpread}`,
+      leftLine: awaySpread,    rightLine: homeSpread,
+      centerLine: game.spread_away != null ? String(Math.abs(game.spread_away)) : null,
       pbLeft: pb?.away_spread_pct, pbRight: pb?.home_spread_pct,
     },
     {
@@ -934,7 +935,8 @@ function renderSentiment() {
       leftName: 'UNDER', rightName: 'OVER',
       leftColors:  { primary: '#475569', secondary: '#e2e8f0' },
       rightColors: { primary: '#22c55e', secondary: '#052e0d' },
-      leftLine: `UNDER ${ouLine}`, rightLine: `OVER ${ouLine}`,
+      leftLine: '', rightLine: '',
+      centerLine: ouLine !== '—' ? String(ouLine) : null,
       pbLeft: pb?.under_pct, pbRight: pb?.over_pct,
     },
   ];
@@ -970,6 +972,7 @@ function renderSentiment() {
       </div>
       <div class="ca-senti-bar-foot${isPublic ? ' ca-senti-bar-foot--pub' : ''}">
         <span class="ca-num">${noData ? '—' : lPct + '%'}${lCountStr}</span>
+        ${bt.centerLine ? `<span class="ca-senti-center-val ca-num">${bt.centerLine}</span>` : ''}
         <span class="ca-num">${noData ? '—' : rPct + '%'}${rCountStr}</span>
       </div>`;
   }

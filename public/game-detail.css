@@ -768,18 +768,22 @@ nav {
   border-top: 7px solid #FFD700;
 }
 .ca-senti-seg-lbl {
-  font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+  font-size: 13px; font-weight: 800; letter-spacing: 0.5px;
   text-transform: uppercase; white-space: nowrap;
 }
 
 .ca-senti-bar-foot {
-  display: flex; justify-content: space-between;
+  display: flex; justify-content: space-between; align-items: center;
 }
 .ca-senti-bar-foot span {
-  font-size: 11px; font-weight: 700; color: var(--text-secondary);
+  font-size: 15px; font-weight: 700; color: var(--text-secondary);
 }
 .ca-senti-bar-foot--pub span {
-  font-size: 14px; font-weight: 800; color: var(--text);
+  font-size: 17px; font-weight: 800; color: var(--text);
+}
+.ca-senti-center-val {
+  font-size: 13px; font-weight: 800; color: var(--text-disabled);
+  letter-spacing: 0.3px;
 }
 .ca-senti-vote-count { font-weight: 400; letter-spacing: 0; color: var(--text-disabled); margin-left: 6px; }
 
