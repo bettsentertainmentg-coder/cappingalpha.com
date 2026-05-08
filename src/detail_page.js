@@ -194,10 +194,9 @@ ${buildNav()}
     </button>
     <span class="ca-gh-sep">·</span>
     <span class="ca-sport-badge" style="background:${sportBg};">${esc(sportLbl)}</span>
-    <span class="ca-gh-meta-text ca-num">${esc(timeStr)} ET</span>
     ${shortDate ? `<span class="ca-gh-sep">·</span><span class="ca-gh-meta-text ca-num">${esc(shortDate)}</span>` : ''}
-    ${venue ? `<span class="ca-gh-sep">·</span><span class="ca-gh-meta-text">${esc(venue)}</span>` : ''}
-    <div class="ca-gh-status-pill" id="ca-status-pill" style="margin-left:auto;"><!-- JS --></div>
+    <div class="ca-gh-status-pill" id="ca-status-pill"><!-- JS --></div>
+    ${venue ? `<span class="ca-gh-sep">·</span><span class="ca-gh-meta-text ca-gh-venue">${esc(venue)}</span>` : ''}
   </div>
   <!-- Teams -->
   <div class="ca-gh-matchup">
