@@ -6,6 +6,7 @@ const { getCycleDate } = require('./cycle');
 const { MVP_THRESHOLD } = require('./scoring');
 const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./discord_scanner');
+const { storePublicBettingGames } = require('./public_betting');
 const crypto  = require('crypto');
 
 const router = express.Router();
@@ -2136,6 +2137,44 @@ router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
 
   res.json({ name, picks });
 });
+
+// ── POST /admin/ingest-public-betting — relay from Mac (HMAC-signed) ─────────
+// Mac Mini scrapes ActionNetwork (residential IP) and POSTs here hourly.
+// Body: { sport: "MLB", games: [...] }  (raw ActionNetwork games array)
+// Header: X-Relay-Signature: <hmac-sha256-hex>
+router.post('/ingest-public-betting',
+  express.raw({ type: 'application/json', limit: '2mb' }),
+  (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const sig      = req.headers['x-relay-signature'] || '';
+    const expected = crypto.createHmac('sha256', secret).update(req.body).digest('hex');
+    const sigBuf   = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf   = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    let body;
+    try { body = JSON.parse(req.body.toString()); } catch { return res.status(400).send('Invalid JSON'); }
+
+    const { sport, games } = body;
+    const VALID_SPORTS = ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB'];
+    if (!VALID_SPORTS.includes(sport) || !Array.isArray(games)) {
+      return res.status(400).send('Invalid payload');
+    }
+
+    try {
+      const stored = storePublicBettingGames(sport, games);
+      console.log(`[relay] public betting ${sport}: stored ${stored}/${games.length}`);
+      res.json({ stored });
+    } catch (err) {
+      console.error('[relay] ingest error:', err.message);
+      res.status(500).send('Store failed');
+    }
+  }
+);
 
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {

@@ -48,7 +48,7 @@ body {
 
 /* ── Typography utility ─────────────────────────────────────────────────────── */
 .ca-num {
-  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Mono', Menlo, monospace;
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
 }
 
@@ -277,6 +277,9 @@ nav {
   display: flex; align-items: flex-start; justify-content: space-between;
   margin-bottom: 20px; gap: 16px; flex-wrap: wrap;
 }
+.ca-section-header--picks {
+  align-items: center;
+}
 
 .ca-section-h2 {
   font-size: 15px; font-weight: 700;
@@ -284,7 +287,7 @@ nav {
   color: var(--text-secondary);
 }
 .ca-section-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 3px; }
-.ca-section-meta { font-size: 12px; color: var(--text-tertiary); }
+.ca-section-meta { font-size: 11px; color: var(--text-disabled); }
 
 /* ── Slot picker chips ──────────────────────────────────────────────────────── */
 .ca-slot-grid {
@@ -294,64 +297,88 @@ nav {
 
 .ca-slot-chip {
   position: relative;
-  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  padding: 10px 14px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 2px;
+  padding: 12px 10px 10px;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 8px; cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  min-width: 100px; flex: 1 1 100px;
+  min-width: 90px; flex: 1 1 90px;
 }
 .ca-slot-chip:hover { border-color: var(--accent); background: var(--surface2); }
 .ca-slot-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.08); }
-.ca-slot-chip.mvp    { border-color: rgba(255,215,0,0.5); background: rgba(255,215,0,0.05); }
+.ca-slot-chip.mvp    { border-color: rgba(255,215,0,0.55); background: rgba(255,215,0,0.05); }
 .ca-slot-chip.mvp.active { background: rgba(255,215,0,0.08); }
-.ca-slot-chip.no-pick { opacity: 0.55; }
-.ca-slot-chip.no-pick:hover { border-color: var(--accent); background: var(--surface2); }
+.ca-slot-chip.no-pick { opacity: 0.5; cursor: default; }
+.ca-slot-chip.locked  { opacity: 0.72; cursor: default; }
+.ca-slot-chip.no-pick:hover, .ca-slot-chip.locked:hover { border-color: var(--border); background: var(--surface); }
 
 .ca-slot-type {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.7px;
   text-transform: uppercase; color: var(--text-tertiary);
 }
 .ca-slot-chip.active .ca-slot-type { color: var(--accent); }
 .ca-slot-chip.mvp .ca-slot-type    { color: var(--gold); }
 
 .ca-slot-label {
-  font-size: 13px; font-weight: 600; color: var(--text);
+  font-size: 13px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 130px;
+  max-width: 120px; line-height: 1.2;
 }
 
-.ca-slot-score {
-  font-family: 'JetBrains Mono', monospace;
+/* Score area — centered */
+.ca-slot-score-area {
+  display: flex; flex-direction: column; align-items: center;
+  margin-top: 5px; gap: 2px;
+}
+.ca-slot-pts {
+  font-family: 'Inter', system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
-  font-size: 11px; font-weight: 700; color: var(--text-tertiary);
-  margin-top: 2px;
+  font-size: 20px; font-weight: 700; color: var(--text-tertiary);
+  line-height: 1;
 }
-.ca-slot-chip.active .ca-slot-score { color: var(--accent-brand); }
-.ca-slot-chip.mvp .ca-slot-score    { color: var(--gold); }
+.ca-slot-pts--none { font-size: 14px; color: var(--text-disabled); }
 
-/* Score blur for non-paying users */
-.ca-slot-score.ca-blurred {
-  color: transparent;
-  text-shadow: 0 0 6px rgba(226,232,240,0.5);
-  user-select: none;
+/* Blur + lock overlay */
+.ca-slot-locked-wrap {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 100%;
+}
+.ca-slot-pts.ca-blurred {
+  filter: blur(5px);
+  color: var(--text-secondary);
+  user-select: none; pointer-events: none;
+}
+.ca-slot-lock-overlay {
+  position: absolute;
+  font-size: 13px; color: var(--text-secondary);
+  pointer-events: none;
+}
+/* Lock icon for no-pick locked chips (no score to blur) */
+.ca-slot-lock-solo {
+  font-size: 12px; color: var(--text-disabled);
+  display: flex; align-items: center; justify-content: center;
+  padding: 2px 0;
 }
 
-.ca-slot-lock {
-  font-size: 10px; color: var(--text-disabled); margin-top: 1px;
-}
 .ca-slot-not-rated {
   font-size: 9px; color: var(--text-disabled); letter-spacing: 0.4px;
-  font-weight: 600; text-transform: uppercase; margin-top: 1px;
+  font-weight: 600; text-transform: uppercase;
 }
 
+/* MVP pip badge (top-right corner) */
 .ca-slot-mvp-pip {
-  position: absolute; top: 7px; right: 9px;
-  font-size: 9px; font-weight: 700; letter-spacing: 0.4px;
+  position: absolute; top: 6px; right: 7px;
+  font-size: 8.5px; font-weight: 700; letter-spacing: 0.4px;
   color: var(--gold); background: rgba(255,215,0,0.1);
   border: 1px solid rgba(255,215,0,0.3); border-radius: 3px;
-  padding: 1px 5px;
+  padding: 1px 4px;
 }
+
+/* Legacy — detail panel only */
+.ca-slot-score { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.ca-slot-score.ca-blurred { color: transparent; text-shadow: 0 0 6px rgba(226,232,240,0.5); user-select: none; }
+.ca-slot-lock { font-size: 10px; color: var(--text-disabled); margin-top: 1px; }
 
 .ca-slot-empty {
   text-align: center; color: var(--text-tertiary);
@@ -554,14 +581,20 @@ nav {
 .ca-dp-mini-book { color: var(--text-tertiary); font-weight: 600; font-size: 12px; }
 .ca-dp-mini-val  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 700; }
 
-/* Public betting arc */
-.ca-pub-arc-wrap { text-align: center; }
-.ca-pub-arc-pct { font-size: 26px; font-weight: 900; margin-top: 2px; }
-.ca-pub-arc-label {
-  font-size: 10px; color: var(--text-tertiary);
-  margin-top: auto; padding-top: 8px;
-  text-align: left;
+/* Public betting bar widget */
+.ca-pub-num {
+  font-size: 28px; font-weight: 700; line-height: 1;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
 }
+.ca-pub-bar-track {
+  width: 100%; height: 5px;
+  background: var(--border); border-radius: 3px; overflow: hidden;
+  margin-bottom: 6px;
+}
+.ca-pub-bar-fill { height: 100%; border-radius: 3px; }
+.ca-pub-bar-label { font-size: 10px; color: var(--text-disabled); }
 
 /* For/against vote choice buttons */
 .ca-vc-pair {
@@ -639,14 +672,45 @@ nav {
 }
 .ca-lt-row:last-child { border-bottom: none; }
 .ca-lt-row:nth-child(even) { background: rgba(255,255,255,0.015); }
-.ca-lt-book { font-weight: 700; color: var(--text-secondary); font-size: 13px; }
+.ca-lt-book { font-weight: 700; color: var(--text-secondary); font-size: 13px; display: flex; flex-direction: column; gap: 2px; justify-content: center; }
+.ca-lt-book--mkt { justify-content: center; }
+.ca-lt-book-vol  { font-size: 10px; font-weight: 400; color: var(--text-disabled); }
 .ca-lt-val  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text); }
 .ca-lt-val.ca-lt-move-up   { color: var(--green); }
 .ca-lt-val.ca-lt-move-down { color: var(--red); }
 .ca-lt-val.ca-lt-open      { color: var(--text-tertiary); font-size: 12px; }
 .ca-lt-empty { padding: 24px; text-align: center; color: var(--text-disabled); font-size: 13px; }
 .ca-lt-na   { color: var(--text-disabled); }
-.ca-mv-arrow { font-size: 10px; margin-left: 3px; }
+
+/* Movement arrows — replace ± text with ↑/↓ */
+.ca-mv-arrow { font-size: 11px; margin-left: 3px; font-weight: 600; }
+.ca-mv-up   { color: #4ade80; }  /* soft green */
+.ca-mv-down { color: #f87171; }  /* soft red   */
+
+/* Prediction market rows (Polymarket + Kalshi) */
+.ca-lt-poly-row    { border-top: 1px solid rgba(99,102,241,0.25); }
+.ca-lt-kalshi-row  { border-top: 1px solid rgba(45,212,191,0.2); }
+
+.ca-lt-poly-row   .ca-lt-book > span:first-child { color: #818cf8; font-size: 13px; font-weight: 700; }
+.ca-lt-kalshi-row .ca-lt-book > span:first-child { color: #2dd4bf; font-size: 13px; font-weight: 700; }
+
+/* Market cell: line (same font as DK/FD) + big % inline side-by-side */
+.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.ca-lt-mkt-pct {
+  font-size: 18px; font-weight: 800; line-height: 1;
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: -0.5px;
+}
+.ca-pct-high { color: #4ade80; }
+.ca-pct-low  { color: #f87171; }
+.ca-pct-even { color: var(--text-secondary); }
+
+/* 4th column inline blurb */
+.ca-lt-row-blurb-cell {
+  font-size: 11px; color: var(--text-secondary);
+  font-style: italic; line-height: 1.4;
+  align-self: center;
+}
 
 /* ── Sentiment split layout ─────────────────────────────────────────────────── */
 .ca-sentiment-cards { display: block; }
@@ -1022,7 +1086,8 @@ nav {
   .ca-section { padding: 24px 16px; }
 
   .ca-slot-grid { gap: 6px; }
-  .ca-slot-chip { min-width: 80px; padding: 8px 10px; }
+  .ca-slot-chip { min-width: 76px; padding: 10px 8px 8px; }
+  .ca-slot-pts { font-size: 17px; }
   .ca-slot-label { font-size: 12px; max-width: 100px; }
 
   .ca-dp-grid {
@@ -1037,6 +1102,7 @@ nav {
   .ca-lt-row { grid-template-columns: 90px 1fr 1fr; }
   .ca-lt-header-row > *:nth-child(4),
   .ca-lt-row > *:nth-child(4) { display: none; }
+  .ca-lt-mkt-pct { font-size: 16px; }
 
   .ca-two-col { grid-template-columns: 1fr; gap: 16px; }
 

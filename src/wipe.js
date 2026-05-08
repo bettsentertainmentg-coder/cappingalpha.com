@@ -14,6 +14,9 @@ const WIPE_TABLES = [
   'skipped_messages',  // cycle-scoped — 5am first scan re-fetches from 12:30am anyway
   'line_snapshots',
   'live_lines',
+  'line_history',
+  'polymarket_cache',
+  'kalshi_cache',
 ];
 
 async function runDailyWipe() {

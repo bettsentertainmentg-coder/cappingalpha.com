@@ -628,6 +628,56 @@ try {
   `);
 } catch (_) {}
 
+// ── Line movement history — DraftKings timestamped changes via ESPN internal API ─
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS line_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id TEXT NOT NULL,
+      book         TEXT NOT NULL DEFAULT 'draftkings',
+      recorded_at  TEXT NOT NULL,
+      spread_home  REAL,
+      ml_home      REAL,
+      ml_away      REAL,
+      over_under   REAL,
+      UNIQUE(espn_game_id, book, recorded_at)
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_lh_game ON line_history (espn_game_id, recorded_at DESC)`); } catch (_) {}
+
+// ── Polymarket prediction market cache ───────────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS polymarket_cache (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id         TEXT NOT NULL UNIQUE,
+      markets_json         TEXT,
+      morning_markets_json TEXT,
+      volume_usd           REAL,
+      updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+// ── Kalshi prediction market cache ───────────────────────────────────────────
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS kalshi_cache (
+      id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id         TEXT NOT NULL UNIQUE,
+      markets_json         TEXT,
+      morning_markets_json TEXT,
+      volume_yes           REAL,
+      updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+// Migrate old kalshi_cache schema (flat columns → markets_json)
+try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN markets_json TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN morning_markets_json TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN updated_at TEXT`); } catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

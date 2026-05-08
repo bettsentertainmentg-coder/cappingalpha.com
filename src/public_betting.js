@@ -79,29 +79,10 @@ function getPct(event, type, side, field) {
   return (val != null && val > 0) ? val : null;
 }
 
-// ── Main scrape: fetch + parse + store for one sport ─────────────────────────
-async function fetchPublicBetting(sport) {
-  const slug = AN_SPORT_SLUG[sport];
-  if (!slug) return;
-
-  let html;
-  try {
-    html = await fetchHtml(`https://www.actionnetwork.com/${slug}/public-betting`);
-  } catch (err) {
-    console.error(`[publicBetting] fetch error (${sport}):`, err.message);
-    return;
-  }
-
-  const nextData = extractNextData(html);
-  if (!nextData) {
-    console.error(`[publicBetting] no __NEXT_DATA__ for ${sport}`);
-    return;
-  }
-
-  const games = nextData?.props?.pageProps?.scoreboardResponse?.games;
-  if (!Array.isArray(games) || games.length === 0) return;
-
-  const today = new Date().toISOString().slice(0, 10);
+// ── Match + store raw ActionNetwork games array into public_betting table ─────
+// Shared by fetchPublicBetting (local) and the relay ingest endpoint (Railway).
+function storePublicBettingGames(sport, games) {
+  if (!Array.isArray(games) || games.length === 0) return 0;
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO public_betting (
@@ -122,14 +103,11 @@ async function fetchPublicBetting(sport) {
     const awayTeam = (g.teams || []).find(t => t.id === g.away_team_id);
     if (!homeTeam || !awayTeam) continue;
 
-    // Match to ESPN game by abbr (primary) or team nickname (fallback)
     const homeAbbr = (homeTeam.abbr || '').toUpperCase();
     const awayAbbr = (awayTeam.abbr || '').toUpperCase();
     const homeNick = teamNick(homeTeam.full_name);
     const awayNick = teamNick(awayTeam.full_name);
 
-    // today_games is already wiped+repopulated daily — no date filter needed.
-    // Skipping UTC date check avoids false misses for late games (e.g. 10pm ET = next UTC day).
     const dbGame = db.prepare(`
       SELECT espn_game_id FROM today_games
       WHERE sport = ?
@@ -161,7 +139,31 @@ async function fetchPublicBetting(sport) {
     stored++;
   }
 
-  if (stored > 0) console.log(`[publicBetting] ${sport}: stored ${stored}/${games.length} games`);
+  return stored;
+}
+
+// ── Main scrape: fetch + parse + store for one sport ─────────────────────────
+async function fetchPublicBetting(sport) {
+  const slug = AN_SPORT_SLUG[sport];
+  if (!slug) return;
+
+  let html;
+  try {
+    html = await fetchHtml(`https://www.actionnetwork.com/${slug}/public-betting`);
+  } catch (err) {
+    console.error(`[publicBetting] fetch error (${sport}):`, err.message);
+    return;
+  }
+
+  const nextData = extractNextData(html);
+  if (!nextData) {
+    console.error(`[publicBetting] no __NEXT_DATA__ for ${sport}`);
+    return;
+  }
+
+  const games = nextData?.props?.pageProps?.scoreboardResponse?.games;
+  const stored = storePublicBettingGames(sport, games);
+  if (stored > 0) console.log(`[publicBetting] ${sport}: stored ${stored} games`);
 }
 
 // ── Read back for one game (called from route handlers) ───────────────────────
@@ -169,4 +171,4 @@ function getPublicBettingForGame(espn_game_id) {
   return db.prepare(`SELECT * FROM public_betting WHERE espn_game_id = ?`).get(espn_game_id) || null;
 }
 
-module.exports = { fetchPublicBetting, getPublicBettingForGame };
+module.exports = { fetchPublicBetting, getPublicBettingForGame, storePublicBettingGames };

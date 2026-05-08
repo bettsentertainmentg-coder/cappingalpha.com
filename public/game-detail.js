@@ -257,8 +257,7 @@ function renderSlotGrid() {
   const { game, picks, pickRanks } = _data;
   const SLOTS      = buildSlots(game);
   const pickBySlot = buildPickBySlot(picks || []);
-  const countEl    = document.getElementById('ca-picks-count');
-  if (countEl) countEl.textContent = `${picks?.length || 0} pick${picks?.length !== 1 ? 's' : ''}`;
+  const total      = SLOTS.length; // always 6
 
   // Sort slots: picks with scores highest→lowest left→right; no-pick slots at end
   const sortedSlots = [...SLOTS].sort((a, b) => {
@@ -267,6 +266,17 @@ function renderSlotGrid() {
     return sB - sA;
   });
 
+  const countEl = document.getElementById('ca-picks-count');
+  if (countEl) countEl.textContent = 'Click any pick to see details';
+
+  // Find the rank-1 slot key (used for paywall logic below)
+  const rank1SlotKey = (() => {
+    for (const [key, p] of Object.entries(pickBySlot)) {
+      if (pickRanks && p?.id && pickRanks[p.id] === 1) return key;
+    }
+    return null;
+  })();
+
   el.innerHTML = sortedSlots.map(slot => {
     const p     = pickBySlot[slot.key];
     const score = p?.score || 0;
@@ -274,30 +284,64 @@ function renderSlotGrid() {
     const isActive = slot.key === _activeSlot;
     const noPick = !p || score === 0;
 
-    // Rank-based paywall: hide score if not paying and slot rank > 1
     const rank = (pickRanks && p?.id) ? (pickRanks[p.id] || 0) : 0;
-    const scoreHidden = !isPaying() && rank > 1 && score > 0;
+    // Lock everything except the #1 pick for non-paying users (includes unpicked pairs)
+    const isLocked = !isPaying() && slot.key !== rank1SlotKey;
 
-    const lineCurrent = slotLineCurrent(slot.key, game);
-    let scoreHtml = '';
-    if (noPick) {
-      const lineDisplay = lineCurrent || '—';
-      scoreHtml = `<span class="ca-slot-score" style="color:var(--text-disabled);">${lineDisplay}</span>
-                   <span class="ca-slot-not-rated">Not rated</span>`;
-    } else if (scoreHidden) {
-      scoreHtml = `<span class="ca-slot-score ca-blurred">${score}</span>
-                   <span class="ca-slot-lock"><i class="fa-solid fa-lock" style="font-size:9px;"></i></span>`;
+    // Type label — use WIN instead of ML
+    const typeLabel = (slot.type === 'ml') ? 'WIN'
+      : (slot.type === 'over' || slot.type === 'under') ? 'TOTAL'
+      : slot.type.toUpperCase();
+
+    // Pick identification line: abbr + formatted line value
+    const abbr = (() => {
+      if (slot.key === 'home_ml' || slot.key === 'home_spread')
+        return (game.home_abbr || game.home_short || '').toUpperCase() || teamNick(game.home_team);
+      if (slot.key === 'away_ml' || slot.key === 'away_spread')
+        return (game.away_abbr || game.away_short || '').toUpperCase() || teamNick(game.away_team);
+      return null;
+    })();
+
+    const lineVal = slotLineCurrent(slot.key, game);
+    let pickIdent = '';
+    if (slot.key === 'over')  pickIdent = game.over_under != null ? `Over ${game.over_under}` : 'Over';
+    else if (slot.key === 'under') pickIdent = game.over_under != null ? `Under ${game.over_under}` : 'Under';
+    else pickIdent = abbr && lineVal ? `${abbr} ${lineVal}` : (lineVal || abbr || '—');
+
+    // Score area
+    let scoreAreaHtml = '';
+    if (isLocked) {
+      // Lock icon for all non-#1 chips — blur score if has one, else just icon
+      if (noPick) {
+        scoreAreaHtml = `<div class="ca-slot-score-area">
+          <span class="ca-slot-lock-solo"><i class="fa-solid fa-lock"></i></span>
+        </div>`;
+      } else {
+        scoreAreaHtml = `<div class="ca-slot-score-area">
+          <div class="ca-slot-locked-wrap">
+            <span class="ca-slot-pts ca-blurred" aria-hidden="true">${score}</span>
+            <span class="ca-slot-lock-overlay"><i class="fa-solid fa-lock"></i></span>
+          </div>
+        </div>`;
+      }
+    } else if (noPick) {
+      scoreAreaHtml = `<div class="ca-slot-score-area">
+        <span class="ca-slot-pts ca-slot-pts--none">—</span>
+        <span class="ca-slot-not-rated">Not rated</span>
+      </div>`;
     } else {
       const heat = PICK_HEAT_COLOR(score);
-      scoreHtml = `<span class="ca-slot-score" style="color:${heat.color};">${score}pts</span>`;
+      scoreAreaHtml = `<div class="ca-slot-score-area">
+        <span class="ca-slot-pts" style="color:${heat.color};">${score}</span>
+      </div>`;
     }
 
-    return `<div class="ca-slot-chip${isActive ? ' active' : ''}${isMvp ? ' mvp' : ''}${noPick ? ' no-pick' : ''}"
+    return `<div class="ca-slot-chip${isActive ? ' active' : ''}${isMvp ? ' mvp' : ''}${noPick && !isLocked ? ' no-pick' : ''}${isLocked ? ' locked' : ''}"
               onclick="selectSlot('${slot.key}')">
       ${isMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
-      <span class="ca-slot-type">${slot.type.toUpperCase()}</span>
-      <span class="ca-slot-label">${slot.label}</span>
-      ${scoreHtml}
+      <span class="ca-slot-type">${typeLabel}</span>
+      <span class="ca-slot-label">${pickIdent}</span>
+      ${scoreAreaHtml}
     </div>`;
   }).join('');
 }
@@ -441,17 +485,11 @@ function renderDetailPanel() {
     const arcLen = +(Math.PI * arcR).toFixed(1);
     const arcFill = +((pubPct / 100) * arcLen).toFixed(1);
     const arcColor = pubPct >= 60 ? '#22c55e' : pubPct >= 40 ? '#f59e0b' : '#ef4444';
-    pubHtml += `<div class="ca-pub-arc-wrap">
-      <svg viewBox="0 2 100 54" width="110" height="56" style="display:block;margin:0 auto;overflow:visible;">
-        <path d="M 6 54 A 44 44 0 0 0 94 54" stroke="var(--border)" stroke-width="9" fill="none" stroke-linecap="round"/>
-        <path d="M 6 54 A 44 44 0 0 0 94 54" stroke="${arcColor}" stroke-width="9" fill="none" stroke-linecap="round"
-          stroke-dasharray="${arcFill} ${arcLen}"/>
-        <text x="50" y="48" text-anchor="middle" dominant-baseline="auto"
-          font-family="'JetBrains Mono', monospace" font-size="20" font-weight="900"
-          fill="${arcColor}">${pubPct}%</text>
-      </svg>
+    pubHtml += `<div class="ca-pub-num" style="color:${arcColor};">${pubPct}%</div>
+    <div class="ca-pub-bar-track">
+      <div class="ca-pub-bar-fill" style="width:${pubPct}%;background:${arcColor};"></div>
     </div>
-    <div class="ca-pub-arc-label">${pubPct}% of bettors (tickets)</div>`;
+    <div class="ca-pub-bar-label">${pubPct}% of bettors (tickets)</div>`;
   } else {
     pubHtml += `<div style="font-size:12px;color:var(--text-disabled);padding-top:6px;">No data available</div>`;
   }
@@ -659,15 +697,34 @@ function renderLines() {
   }
 
   const headerHtml = `<div class="ca-lt-header-row">
-    <div>Book</div><div>${awayLabel}</div><div>${homeLabel}</div><div></div>
+    <div>Market</div><div>${awayLabel}</div><div>${homeLabel}</div><div></div>
   </div>`;
+
+  // Shared helpers for market rows
+  const fmtPct  = (p) => `${Math.round(p * 100)}%`;
+  const pctCls  = (p) => p > 0.505 ? 'ca-pct-high' : p < 0.495 ? 'ca-pct-low' : 'ca-pct-even';
+  const fmtVol  = (v) => !v ? '' : v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${Math.round(v / 1e3)}K` : '';
+  const lineDelta = (curL, prevL) => {
+    if (curL == null || prevL == null || curL === prevL) return '';
+    const d = +(curL - prevL).toFixed(1);
+    return `<span class="${d > 0 ? 'ca-mv-up' : 'ca-mv-down'} ca-mv-arrow">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
+  };
+
+  // Helper: mkt cell — line (same font as DK/FD) + big % inline
+  const mktCell = (lineStr, lineChg, prob) => {
+    const line = lineStr ? `<span class="ca-lt-val ca-num">${lineStr}${lineChg || ''}</span>` : '';
+    return `<div class="ca-lt-mkt-cell">${line}<span class="ca-lt-mkt-pct ${pctCls(prob)}">${fmtPct(prob)}</span></div>`;
+  };
+
+  const awayNick = game.away_short || teamNick(game.away_team) || game.away_abbr || 'Away';
+  const homeNick = game.home_short || teamNick(game.home_team) || game.home_abbr || 'Home';
 
   const rowsHtml = rows.map(r => {
     const awayVal = awayFn(r.src);
     const homeVal = homeFn(r.src);
 
-    // DK delta
-    let awayDelta = '', homeDelta = '';
+    // DK: arrow deltas + inline blurb for significant line moves
+    let awayDelta = '', homeDelta = '', rowBlurb = '';
     if (r.book === 'DraftKings' && dk) {
       const awayPrev = _linesType === 'spread' ? dk.prev_spread_away
                     : _linesType === 'total'   ? dk.prev_over_under
@@ -678,11 +735,25 @@ function renderLines() {
       const aCur = getRawAway(dk), hCur = getRawHome(dk);
       if (awayPrev != null && aCur != null && aCur !== awayPrev) {
         const d = aCur - awayPrev;
-        awayDelta = ` <span class="${d > 0 ? 'ca-lt-move-up' : 'ca-lt-move-down'} ca-mv-arrow">(${d > 0 ? '+' : ''}${d})</span>`;
+        awayDelta = ` <span class="${d > 0 ? 'ca-mv-up' : 'ca-mv-down'} ca-mv-arrow">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
       }
       if (homePrev != null && hCur != null && hCur !== homePrev) {
         const d = hCur - homePrev;
-        homeDelta = ` <span class="${d > 0 ? 'ca-lt-move-up' : 'ca-lt-move-down'} ca-mv-arrow">(${d > 0 ? '+' : ''}${d})</span>`;
+        homeDelta = ` <span class="${d > 0 ? 'ca-mv-up' : 'ca-mv-down'} ca-mv-arrow">${d > 0 ? '↑' : '↓'}${Math.abs(d)}</span>`;
+      }
+      // Blurb: significant spread/ML move since 5am snapshot
+      if (_linesType === 'spread' && aCur != null && awayPrev != null) {
+        const mv = Math.abs(aCur - awayPrev);
+        if (mv >= 0.5) {
+          const dir = aCur > awayPrev ? awayNick : homeNick;
+          rowBlurb = `Line moved ${mv % 1 === 0 ? mv : mv.toFixed(1)} pts toward ${dir} since open`;
+        }
+      } else if (_linesType === 'ml' && aCur != null && awayPrev != null) {
+        const mv = Math.abs(aCur - awayPrev);
+        if (mv >= 15) {
+          const dir = aCur < awayPrev ? awayNick : homeNick; // negative ml = favorite, moving lower = team getting more action
+          rowBlurb = `ML shifted ${mv} pts since open`;
+        }
       }
     }
 
@@ -690,11 +761,126 @@ function renderLines() {
       <div class="ca-lt-book">${r.book}</div>
       <div class="ca-lt-val ca-num">${awayVal != null ? awayVal : '<span class="ca-lt-na">—</span>'}${awayDelta}</div>
       <div class="ca-lt-val ca-num">${homeVal != null ? homeVal : '<span class="ca-lt-na">—</span>'}${homeDelta}</div>
-      <div></div>
+      <div class="ca-lt-row-blurb-cell">${rowBlurb}</div>
     </div>`;
   }).join('');
 
-  el.innerHTML = `<div class="ca-lines-table-wrap">${headerHtml}${rowsHtml}</div>`;
+  // ── Polymarket row ────────────────────────────────────────────────────────────
+  let polyHtml = '';
+  const pm = _data.polymarket;
+  if (pm) {
+    try {
+      const cur  = typeof pm.markets_json        === 'string' ? JSON.parse(pm.markets_json)        : pm.markets_json;
+      const morn = typeof pm.morning_markets_json === 'string' ? JSON.parse(pm.morning_markets_json) : pm.morning_markets_json;
+
+      let awayCell = '', homeCell = '';
+
+      if (_linesType === 'spread' && cur?.spread) {
+        const pmLine   = cur.spread.line;
+        const mornLine = morn?.spread?.line;
+        const lineChg  = lineDelta(pmLine, mornLine);
+        const awayStr  = pmLine != null ? (pmLine > 0 ? `−${pmLine}` : `+${Math.abs(pmLine)}`) : '—';
+        const homeStr  = pmLine != null ? (pmLine >= 0 ? `+${pmLine}` : `${pmLine}`) : '—';
+        awayCell = mktCell(awayStr, lineChg, cur.spread.away_prob);
+        homeCell = mktCell(homeStr, lineChg, cur.spread.home_prob);
+      } else if (_linesType === 'total' && cur?.total) {
+        const pmLine   = cur.total.line;
+        const mornLine = morn?.total?.line;
+        const lineChg  = lineDelta(pmLine, mornLine);
+        const ls = pmLine != null ? `${pmLine}` : '—';
+        awayCell = mktCell(`o${ls}`, lineChg, cur.total.over_prob);
+        homeCell = mktCell(`u${ls}`, lineChg, cur.total.under_prob);
+      } else if (_linesType === 'ml' && cur?.moneyline) {
+        awayCell = mktCell('', '', cur.moneyline.away_prob);
+        homeCell = mktCell('', '', cur.moneyline.home_prob);
+      }
+
+      if (awayCell) {
+        // Blurb: significant probability shift since morning (use ML probs as most reliable signal)
+        let pmBlurb = '';
+        const curAP  = cur?.moneyline?.away_prob;
+        const mornAP = morn?.moneyline?.away_prob;
+        if (curAP != null && mornAP != null) {
+          const d = Math.round((curAP - mornAP) * 100);
+          if (Math.abs(d) >= 10) {
+            const teamDir = d > 0 ? awayNick : homeNick;
+            pmBlurb = `Trending ${Math.abs(d)}pp toward ${teamDir} since open`;
+          }
+        }
+
+        const vol = fmtVol(pm.volume_usd);
+        polyHtml = `<div class="ca-lt-row ca-lt-poly-row">
+          <div class="ca-lt-book ca-lt-book--mkt">
+            <span>Polymarket</span>
+            ${vol ? `<span class="ca-lt-book-vol">${vol}</span>` : ''}
+          </div>
+          ${awayCell}
+          ${homeCell}
+          <div class="ca-lt-row-blurb-cell">${pmBlurb}</div>
+        </div>`;
+      }
+    } catch (_) {}
+  }
+
+  // ── Kalshi row ────────────────────────────────────────────────────────────────
+  let kalshiHtml = '';
+  const km = _data.kalshi;
+  if (km) {
+    try {
+      const cur  = typeof km.markets_json         === 'string' ? JSON.parse(km.markets_json)         : km.markets_json;
+      const morn = typeof km.morning_markets_json  === 'string' ? JSON.parse(km.morning_markets_json) : km.morning_markets_json;
+
+      let awayCell = '', homeCell = '';
+
+      if (_linesType === 'spread' && cur?.spread) {
+        const kmLine   = cur.spread.line;
+        const mornLine = morn?.spread?.line;
+        const lineChg  = lineDelta(kmLine, mornLine);
+        const awayStr  = kmLine != null ? (kmLine > 0 ? `−${kmLine}` : `+${Math.abs(kmLine)}`) : '—';
+        const homeStr  = kmLine != null ? (kmLine >= 0 ? `+${kmLine}` : `${kmLine}`) : '—';
+        awayCell = mktCell(awayStr, lineChg, cur.spread.away_prob);
+        homeCell = mktCell(homeStr, lineChg, cur.spread.home_prob);
+      } else if (_linesType === 'total' && cur?.total) {
+        const kmLine   = cur.total.line;
+        const mornLine = morn?.total?.line;
+        const lineChg  = lineDelta(kmLine, mornLine);
+        const ls = kmLine != null ? `${kmLine}` : '—';
+        awayCell = mktCell(`o${ls}`, lineChg, cur.total.over_prob);
+        homeCell = mktCell(`u${ls}`, lineChg, cur.total.under_prob);
+      } else if (cur?.moneyline) {
+        // ML tab or fallback when no spread/total data
+        awayCell = mktCell('', '', cur.moneyline.away_prob);
+        homeCell = mktCell('', '', cur.moneyline.home_prob);
+      }
+
+      if (awayCell) {
+        // Blurb: significant probability shift since morning
+        let kalshiBlurb = '';
+        const curAP  = cur?.moneyline?.away_prob;
+        const mornAP = morn?.moneyline?.away_prob;
+        if (curAP != null && mornAP != null) {
+          const d = Math.round((curAP - mornAP) * 100);
+          if (Math.abs(d) >= 10) {
+            const teamDir = d > 0 ? awayNick : homeNick;
+            kalshiBlurb = `Win probability shifted ${Math.abs(d)}pp toward ${teamDir} since open`;
+          }
+        }
+
+        const vol = fmtVol(km.volume_yes);
+        kalshiHtml = `<div class="ca-lt-row ca-lt-kalshi-row">
+          <div class="ca-lt-book ca-lt-book--mkt">
+            <span>Kalshi</span>
+            ${vol ? `<span class="ca-lt-book-vol">${vol}</span>` : ''}
+          </div>
+          ${awayCell}
+          ${homeCell}
+          <div class="ca-lt-row-blurb-cell">${kalshiBlurb}</div>
+        </div>`;
+      }
+    } catch (_) {}
+  }
+
+  el.innerHTML = `<div class="ca-lines-table-wrap">${headerHtml}${rowsHtml}${polyHtml}${kalshiHtml}</div>`;
 }
 
 // ── Sentiment section ─────────────────────────────────────────────────────────

@@ -306,12 +306,76 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     if (slotKey === 'under')       fdLine = fd.over_under  != null ? `u${fd.over_under} (${fmtOdds(fd.ou_under_odds || -110)})` : '—';
   }
 
+  // ── Polymarket row ──────────────────────────────────────────────────────────
+  const pmTypeMap = {
+    home_ml:'moneyline', away_ml:'moneyline',
+    home_spread:'spread', away_spread:'spread',
+    over:'total', under:'total',
+  };
+  let pmLine = '';
+  try {
+    const pmData = data.polymarket;
+    if (pmData?.markets_json) {
+      const markets  = JSON.parse(pmData.markets_json || '{}');
+      const morning  = pmData.morning_markets_json ? JSON.parse(pmData.morning_markets_json) : null;
+      const pmType   = pmTypeMap[slotKey];
+      const market   = markets[pmType];
+      if (market) {
+        const homeNick = game.home_team?.split(' ').pop() || 'Home';
+        const awayNick = game.away_team?.split(' ').pop() || 'Away';
+        const fmtPct = p => p != null ? Math.round(p * 100) + '%' : '—';
+        const deltaBadge = (cur, morn) => {
+          if (cur == null || morn == null) return '';
+          const d = Math.round((cur - morn) * 100);
+          if (d === 0) return '';
+          const color = d > 0 ? '#4ade80' : '#f87171';
+          return ` <span style="font-size:10px;color:${color};">${d > 0 ? '▲' : '▼'}${Math.abs(d)}%</span>`;
+        };
+
+        if (pmType === 'total') {
+          const isOver = slotKey === 'over';
+          const cur   = isOver ? market.over_prob  : market.under_prob;
+          const morn  = morning?.total ? (isOver ? morning.total.over_prob : morning.total.under_prob) : null;
+          pmLine = fmtPct(cur) + deltaBadge(cur, morn);
+        } else if (pmType === 'spread') {
+          const isHome = slotKey === 'home_spread';
+          const cur  = isHome ? market.home_prob : market.away_prob;
+          const morn = morning?.spread ? (isHome ? morning.spread.home_prob : morning.spread.away_prob) : null;
+          pmLine = fmtPct(cur) + ' cover' + deltaBadge(cur, morn);
+        } else {
+          // moneyline
+          const isHome = slotKey === 'home_ml';
+          const cur  = isHome ? market.home_prob : market.away_prob;
+          const morn = morning?.moneyline ? (isHome ? morning.moneyline.home_prob : morning.moneyline.away_prob) : null;
+          pmLine = fmtPct(cur) + ' to win' + deltaBadge(cur, morn);
+        }
+      }
+    }
+  } catch (_) {}
+
+  // ── Insight chip ────────────────────────────────────────────────────────────
+  const insightSlotMap = {
+    home_ml:'ml', away_ml:'ml',
+    home_spread:'spread', away_spread:'spread',
+    over:'ou', under:'ou',
+  };
+  const insightType = insightSlotMap[slotKey];
+  const matchedInsight = (data.insights || []).find(i => i.type === insightType);
+  const insightChip = matchedInsight
+    ? `<div style="margin-top:8px;padding:7px 10px;background:#0f2318;border:1px solid #1a4a2e;border-radius:6px;font-size:12px;color:#4ade80;line-height:1.4;">${matchedInsight.text}</div>`
+    : '';
+
+  const pmRow = pmLine
+    ? `<div class="line-row"><span class="line-book"><img src="https://polymarket.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">Polymarket</span> <span class="line-val">${pmLine}</span></div>`
+    : '';
+
   const linesHtml = `
     <div class="pick-info-lines">
       <div class="line-row"><span class="line-book">Current</span> <span class="line-val">${currentLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.draftkings.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">DraftKings</span> <span class="line-val">${dkLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.fanduel.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">FanDuel</span> <span class="line-val">${fdLine}</span></div>
-    </div>`;
+      ${pmRow}
+    </div>${insightChip}`;
 
   if (!p) {
     // Check if the paired slot (other ML, spread side, or O/U partner) is top 30 —

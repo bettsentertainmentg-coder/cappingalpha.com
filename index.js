@@ -30,6 +30,10 @@ const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring')
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getLinesForGame }                             = require('./src/lines_scraper');
 const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_betting');
+const { syncLineHistory, syncLineHistorySoon, getLineHistoryForGame } = require('./src/line_history');
+const { syncPolymarketData, syncPolymarketSoon, getPolymarketForGame } = require('./src/polymarket');
+const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kalshi');
+const { getLineInsights } = require('./src/insights');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -108,7 +112,15 @@ app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 app.use('/admin', admin);
 app.use('/auth', auth);
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  },
+}));
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -453,7 +465,11 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   } catch (_) {}
 
   const publicBetting = getPublicBettingForGame(espn_game_id);
-  res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting });
+  const lineHistory   = getLineHistoryForGame(espn_game_id);
+  const polymarket    = getPolymarketForGame(espn_game_id);
+  const kalshi        = getKalshiForGame(espn_game_id);
+  const insights      = getLineInsights(espn_game_id, game);
+  res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting, lineHistory, polymarket, kalshi, insights });
 });
 
 // POST /api/game/:espn_game_id/vote — cast a vote on a pick slot
@@ -634,8 +650,13 @@ app.get('/:sport/:slug', async (req, res) => {
     const lines = getLinesForGame(game.espn_game_id);
 
     const publicBetting = getPublicBettingForGame(game.espn_game_id);
+    const lineHistory   = getLineHistoryForGame(game.espn_game_id);
+    const polymarket    = getPolymarketForGame(game.espn_game_id);
+    const kalshi        = getKalshiForGame(game.espn_game_id);
+    const insights      = getLineInsights(game.espn_game_id, game);
     const payload = {
       game, picks, pickRanks, votes, userVote, stats, lines, publicBetting,
+      lineHistory, polymarket, kalshi, insights,
       user: req.session?.user || null,
     };
 
@@ -697,6 +718,12 @@ app.listen(PORT, () => {
   for (const s of ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB']) {
     fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
   }
+
+  // Seed line history + prediction market caches on startup (free APIs, no credits)
+  const preGamesOnStart = db.prepare("SELECT * FROM today_games WHERE status='pre' AND ml_home IS NOT NULL").all();
+  syncLineHistory(preGamesOnStart).catch(e => console.error('[startup] syncLineHistory:', e.message));
+  syncPolymarketData(preGamesOnStart).catch(e => console.error('[startup] syncPolymarket:', e.message));
+  syncKalshiData(preGamesOnStart).catch(e => console.error('[startup] syncKalshi:', e.message));
 })();
 
 // ── Discord scanner + cron jobs (disabled in UI-only mode) ───────────────────
@@ -730,6 +757,11 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   for (const s of Object.keys({ NBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
   }
+  // Seed initial line history + prediction market data
+  const morningGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
+  syncLineHistory(morningGames).catch(e => console.error('[cron] 5am syncLineHistory:', e.message));
+  syncPolymarketData(morningGames).catch(e => console.error('[cron] 5am syncPolymarket:', e.message));
+  syncKalshiData(morningGames).catch(e => console.error('[cron] 5am syncKalshi:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
 }, { timezone: 'America/New_York' });
@@ -738,6 +770,11 @@ if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   if (!isActiveHours()) return;
   console.log('[cron] 15-min scan');
   await runScan();
+  // Free line data syncs — no API credits
+  const preGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
+  syncLineHistory(preGames).catch(e => console.error('[cron] syncLineHistory:', e.message));
+  syncPolymarketData(preGames).catch(e => console.error('[cron] syncPolymarket:', e.message));
+  syncKalshiData(preGames).catch(e => console.error('[cron] syncKalshi:', e.message));
 });
 
 if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
@@ -791,4 +828,9 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
+  // High-frequency line + market sync for games within 60 min
+  const soonGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
+  syncLineHistorySoon(soonGames).catch(e => console.error('[cron] syncLineHistorySoon:', e.message));
+  syncPolymarketSoon(soonGames).catch(e => console.error('[cron] syncPolymarketSoon:', e.message));
+  syncKalshiSoon(soonGames).catch(e => console.error('[cron] syncKalshiSoon:', e.message));
 });

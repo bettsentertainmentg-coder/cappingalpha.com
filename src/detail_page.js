@@ -171,7 +171,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta property="og:url" content="${esc(canonical)}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Source+Sans+Pro:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="/game-detail.css" />
   <script type="application/ld+json">${jsonLd}</script>
@@ -252,12 +252,9 @@ ${buildNav()}
 
 <!-- ── PICKS ─────────────────────────────────────────────────────────────── -->
 <section id="picks" class="ca-section">
-  <div class="ca-section-header">
-    <div>
-      <h2 class="ca-section-h2">All picks for this game</h2>
-      <div class="ca-section-sub">Click any pick to see details</div>
-    </div>
-    <div class="ca-section-meta ca-num" id="ca-picks-count"></div>
+  <div class="ca-section-header ca-section-header--picks">
+    <h2 class="ca-section-h2">All picks for this game</h2>
+    <div class="ca-section-meta" id="ca-picks-count"></div>
   </div>
   <div class="ca-slot-grid" id="ca-slot-grid">
     <!-- Rendered by game-detail.js -->
