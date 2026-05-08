@@ -702,9 +702,11 @@ nav {
   font-variant-numeric: tabular-nums;
 }
 
-/* Market cell: line → big % → implied odds, all stacked and centered */
-.ca-lt-mkt-cell { display: flex; flex-direction: column; align-items: center; gap: 3px; align-self: center; justify-content: center; }
-.ca-lt-mkt-pct-group { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+/* Market cell: line value left, % right — true Y-axis center alignment */
+/* implied odds float absolutely below % so they don't shift the group's center */
+.ca-lt-mkt-cell { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 20px; align-self: center; }
+.ca-lt-mkt-pct-group { position: relative; display: flex; align-items: center; justify-content: center; }
+.ca-lt-mkt-implied { position: absolute; top: calc(100% + 2px); left: 50%; transform: translateX(-50%); white-space: nowrap; }
 .ca-lt-mkt-pct {
   font-size: 18px; font-weight: 800; line-height: 1;
   font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
