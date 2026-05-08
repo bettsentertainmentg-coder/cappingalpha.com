@@ -677,7 +677,7 @@ nav {
 .ca-lt-book { font-weight: 700; color: var(--text-secondary); font-size: 13px; display: flex; flex-direction: column; gap: 2px; justify-content: center; }
 .ca-lt-book--mkt { position: relative; justify-content: center; }
 .ca-lt-book-vol  { font-size: 10px; font-weight: 400; color: var(--text-disabled); }
-.ca-lt-book--mkt .ca-lt-book-vol { position: absolute; top: calc(100% + 2px); left: 0; }
+.ca-lt-book--mkt .ca-lt-book-vol { position: absolute; top: 100%; left: 0; }
 .ca-lt-val  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text); }
 .ca-lt-val.ca-lt-move-up   { color: var(--green); }
 .ca-lt-val.ca-lt-move-down { color: var(--red); }
@@ -691,8 +691,8 @@ nav {
 .ca-mv-down { color: #f87171; }  /* soft red   */
 
 /* Prediction market rows (Polymarket + Kalshi) */
-.ca-lt-poly-row    { border-top: 2px solid rgba(99,102,241,0.3); padding-top: 16px; }
-.ca-lt-kalshi-row  { border-top: 1px solid rgba(45,212,191,0.2); padding-top: 16px; }
+.ca-lt-poly-row    { border-top: 2px solid rgba(99,102,241,0.3); padding-top: 16px; padding-bottom: 14px; }
+.ca-lt-kalshi-row  { border-top: 1px solid rgba(45,212,191,0.2); padding-top: 16px; padding-bottom: 14px; }
 
 .ca-lt-poly-row   .ca-lt-book > span:first-child { color: #818cf8; font-size: 13px; font-weight: 700; }
 .ca-lt-kalshi-row .ca-lt-book > span:first-child { color: #2dd4bf; font-size: 13px; font-weight: 700; }
