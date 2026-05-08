@@ -306,7 +306,18 @@ function renderSlotGrid() {
     let pickIdent = '';
     if (slot.key === 'over')  pickIdent = game.over_under != null ? `Over ${game.over_under}` : 'Over';
     else if (slot.key === 'under') pickIdent = game.over_under != null ? `Under ${game.over_under}` : 'Under';
+    else if (slot.type === 'ml') pickIdent = abbr || '—';
     else pickIdent = abbr && lineVal ? `${abbr} ${lineVal}` : (lineVal || abbr || '—');
+
+    // ML sub-label: full short name + odds in lighter font
+    const mlShortName = slot.key === 'away_ml'
+      ? (game.away_short || teamNick(game.away_team) || '')
+      : slot.key === 'home_ml'
+        ? (game.home_short || teamNick(game.home_team) || '')
+        : '';
+    const mlSubLabel = slot.type === 'ml' && mlShortName && lineVal
+      ? `<span class="ca-slot-sub-ml"><span class="ca-slot-sub-name">${mlShortName}</span> <span class="ca-slot-sub-odds ca-num">${lineVal}</span></span>`
+      : '';
 
     // Score area
     let scoreAreaHtml = '';
@@ -341,6 +352,7 @@ function renderSlotGrid() {
       ${isMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
       <span class="ca-slot-type">${typeLabel}</span>
       <span class="ca-slot-label">${pickIdent}</span>
+      ${mlSubLabel}
       ${scoreAreaHtml}
     </div>`;
   }).join('');

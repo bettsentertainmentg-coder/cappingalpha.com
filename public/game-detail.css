@@ -324,6 +324,13 @@ nav {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   max-width: 120px; line-height: 1.2;
 }
+.ca-slot-sub-ml {
+  font-size: 10px; color: var(--text-secondary); line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 110px;
+}
+.ca-slot-sub-name { font-weight: 600; }
+.ca-slot-sub-odds { font-weight: 400; color: var(--text-tertiary); }
 
 /* Score area — centered */
 .ca-slot-score-area {
