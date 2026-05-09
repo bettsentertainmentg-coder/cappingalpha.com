@@ -111,6 +111,7 @@ function storePublicBettingGames(sport, games) {
     const dbGame = db.prepare(`
       SELECT espn_game_id FROM today_games
       WHERE sport = ?
+        AND status = 'pre'
         AND (home_abbr = ? OR LOWER(home_team) LIKE ?)
         AND (away_abbr = ? OR LOWER(away_team) LIKE ?)
       LIMIT 1
