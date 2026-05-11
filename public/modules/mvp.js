@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { isPaying } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js';
+import { renderPicks } from './picks.js';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -64,7 +65,9 @@ function _recordBarHtml(rec, limited) {
     <div class="record-item"><div class="record-val green">${rec.wins}</div><div class="record-label">Wins</div></div>
     <div class="record-item"><div class="record-val red">${rec.losses}</div><div class="record-label">Losses</div></div>
     <div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>
-    ${limited ? '' : `<div class="record-item"><div class="record-val">${rec.pending ?? ''}</div><div class="record-label">Pending</div></div>`}`;
+    <div class="record-item"><div class="record-val gold">${rec.winRate}</div><div class="record-label">Win%</div></div>
+    ${limited ? '' : `<div class="record-item"><div class="record-val">${rec.pending ?? ''}</div><div class="record-label">Pending</div></div>`}
+    <div style="margin-left:auto;font-size:10px;color:var(--muted);align-self:center;text-align:right;line-height:1.6;">$10 flat per pick<br>hypothetical</div>`;
 }
 
 // ── MVP tab rendering ─────────────────────────────────────────────────────────
@@ -487,7 +490,8 @@ export function redrawGraph() {
 // ── Home page MVP widget ──────────────────────────────────────────────────────
 export async function loadHomeMvp() {
   try {
-    const res = await fetch('/api/mvp/public');
+    const endpoint = isPaying() ? '/api/mvp' : '/api/mvp/public';
+    const res = await fetch(endpoint);
     if (!res.ok) return;
     const { picks, record } = await res.json();
     if (!picks) return;
@@ -532,62 +536,16 @@ export async function loadHomeMvp() {
           <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
         </div>
         <div id="home-picks-body">
-          <div style="padding:20px;color:var(--muted);font-size:13px;text-align:center;">Loading picks...</div>
+          <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
         </div>
       </div>`;
 
-    _renderHomePicksBody(state.allPicks);
-    document.addEventListener('picksUpdated', () => _renderHomePicksBody(state.allPicks));
+    renderPicks(state.allPicks, 'home-picks-body');
+    document.addEventListener('picksUpdated', () => renderPicks(state.allPicks, 'home-picks-body'));
     drawHomeGraph(picks);
   } catch (err) {
     console.error('[home-mvp] load error:', err);
   }
-}
-
-function _renderHomePicksBody(picks) {
-  const el = document.getElementById('home-picks-body');
-  if (!el) return;
-  if (!picks || picks.length === 0) {
-    el.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:13px;text-align:center;">No picks yet today.</div>`;
-    return;
-  }
-  const threshold = state.CONFIG?.mvp_threshold || 50;
-  const paying = isPaying();
-  const display = picks.slice(0, paying ? 30 : 5);
-
-  const rows = display.map((p, i) => {
-    const score = p.score || 0;
-    const isGold = score >= threshold;
-    const isSilver = score >= 35 && !isGold;
-    const rankColor = isGold ? 'var(--gold)' : isSilver ? '#a0aec0' : 'var(--muted)';
-    const locked = !paying && i > 0;
-    const label = pickLabel(p);
-    const matchup = p.matchup ? `<span class="ca-home-pick-matchup${locked ? ' blurred' : ''}">${p.matchup}</span>` : '';
-    const clickAttr = p.espn_game_id && !locked ? `onclick="openGameModal('${p.espn_game_id}')"` : '';
-    return `<div class="ca-home-pick-row${p.espn_game_id && !locked ? ' ca-home-pick-clickable' : ''}" ${clickAttr}>
-      <span class="ca-home-pick-rank" style="color:${rankColor};">${i + 1}</span>
-      <div class="ca-home-pick-info">
-        <span class="ca-home-pick-label${locked ? ' blurred' : ''}">${label}</span>
-        ${matchup}
-      </div>
-      <div class="ca-home-pick-right">
-        ${sportBadge(p.sport)}
-        <span class="ca-home-pick-score${locked ? ' blurred' : ''}" style="color:${rankColor};">${score}</span>
-      </div>
-    </div>`;
-  }).join('');
-
-  const paywallRow = !paying ? `
-    <div style="padding:16px 20px;text-align:center;border-top:1px solid var(--border);">
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;">Unlock picks #2–${picks.length}</div>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-        <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('day')">$1 / day</button>
-        <button class="btn btn-primary" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('week')">$4 / week</button>
-        <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('year')">$75 / yr</button>
-      </div>
-    </div>` : '';
-
-  el.innerHTML = rows + paywallRow;
 }
 
 function drawHomeGraph(picks) {
