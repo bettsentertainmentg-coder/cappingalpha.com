@@ -71,10 +71,13 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
     const scoreContent = scoreHidden ? LOCK_SVG : (p.score ?? '—');
 
-    const starColor = isMvp ? (isGoldMvp ? 'var(--gold)' : '#a0aec0') : 'inherit';
+    const starColor = isMvp ? 'var(--gold)' : 'inherit';
     const badgeColor = isGoldMvp ? '' : 'background:rgba(160,174,192,0.15);color:#a0aec0;border-color:rgba(160,174,192,0.3);';
     const mvpBadge  = isMvp ? ` <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;${badgeColor}">MVP</span>` : '';
-    const rankInner = rank === 1 ? `<span style="color:${starColor};">★</span>${mvpBadge}` : `${rank}${mvpBadge}`;
+    const starSpan  = rank === 1
+      ? (isMvp ? `<span style="color:var(--gold);">★</span>` : `<span class="star-silver">★</span>`)
+      : '';
+    const rankInner = rank === 1 ? `${starSpan}${mvpBadge}` : `${rank}${mvpBadge}`;
     const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
       ${locked ? `<span class="blurred">${rankInner}</span>` : rankInner}
       <span class="rank-score-mobile${locked ? ' blurred' : ''}">${locked ? '—' : scoreContent}</span>
