@@ -242,12 +242,21 @@ MONEYLINE ABBREVIATION "MI":
   "Suns MI" → Suns ML. "Lakers MI" → Lakers ML. "Thunder MI 2u" → Thunder ML.
 
 MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple cappers.
-  A capper header looks like: emoji + name + optional label.
+  A capper header looks like: emoji + name + optional label, OR a plain name alone on its own line.
   "🔮PorterPicks Full Card Thursday" → capper_name=PorterPicks for all picks that follow, until the next capper header.
   "🔮P4D_Picks4Dayzzz" alone on a line → capper_name=P4D_Picks4Dayzzz.
   Emoji prefixes (✅ 🔮 ⚾ 🏀 🏒 🎾 💎 🔥 ✔️ 🟢 etc.) before a name are capper markers — strip the emoji, the text before any space or bracket is the capper handle.
   "Full Card [Day]", "Today's Card", "Card for [Day]", "Full Card" after the name are section labels — ignore, not picks.
   When a new emoji-prefixed capper line appears, switch capper_name for all picks that follow.
+
+  PLAIN NAME HEADERS (no emoji) — a line that is just a person/company name with no pick information is also a capper header.
+  "Docs Sports" alone on a line → capper_name=Docs Sports for all picks that follow.
+  "Hakeem Profit" alone on a line → capper_name=Hakeem Profit.
+  "Stephen Nover" alone on a line → capper_name=Stephen Nover.
+  If the next line is a sport label ("NBA", "NHL", "MLB") possibly followed by a unit size ("7U", "3*"), that line is context — not a pick. The actual pick is on the line after.
+
+  SEPARATOR LINES — lines consisting only of "=" characters (e.g. "====", "======") are capper block dividers. They mark the end of one capper's section. Treat them like a blank line between blocks.
+
   Extract ALL picks from the message, each labeled with their correct capper_name.
 
 EMBEDDED CARDS / TREND CARDS (TrendsCenter and similar bots):
@@ -350,7 +359,7 @@ async function extractFreePlaysPick(message) {
   return Array.isArray(result.picks) ? result.picks : [];
 }
 
-async function extractCommunityPick(message) {
+async function extractPodThreadPick(message) {
   const instruction = [
     'Extract ALL picks from this message. Include capper_name if a handle is present.',
     'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
@@ -361,10 +370,18 @@ async function extractCommunityPick(message) {
   return Array.isArray(result.picks) ? result.picks : [];
 }
 
+async function extractCommunityLeaksPick(message) {
+  const instruction = `Extract ALL picks from this message. This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`;
+  const result = await claudeExtract(instruction, message);
+  if (!result) return [];
+  return Array.isArray(result.picks) ? result.picks : [];
+}
+
 // ── Route to the right extractor by channel ───────────────────────────────────
 async function extractPicks(content, channelName) {
-  if (channelName === 'free-plays')                                      return extractFreePlaysPick(content);
-  if (channelName === 'pod-thread' || channelName === 'community-leaks') return extractCommunityPick(content);
+  if (channelName === 'free-plays')      return extractFreePlaysPick(content);
+  if (channelName === 'community-leaks') return extractCommunityLeaksPick(content);
+  if (channelName === 'pod-thread')      return extractPodThreadPick(content);
   console.warn(`[reader] Unknown channel: ${channelName}`);
   return [];
 }
@@ -375,6 +392,10 @@ function getBatchInstruction(channelName) {
   if (channelName === 'free-plays') {
     return `${base} Include capper_name if a handle is present, and sport_record if a win-loss record appears.`;
   }
+  if (channelName === 'community-leaks') {
+    return `${base} This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`;
+  }
+  // pod-thread: single capper per message, ignore "Last Play:" lines
   return [
     base,
     'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
