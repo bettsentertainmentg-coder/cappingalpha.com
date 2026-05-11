@@ -119,7 +119,10 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     </div>`;
 
   // Compute initial record for selected range
-  const resolvedPicks = picks.filter(p => p.result === 'win' || p.result === 'loss' || p.result === 'push');
+  const resolvedPicks = picks.filter(p =>
+    (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
+    !(p.annotation && p.annotation.includes('not counted'))
+  );
   const filteredForBar = _filterByDays(resolvedPicks, RANGE_DAYS[_currentRange] ?? Infinity);
   const barRec = _computeRecord(filteredForBar);
   if (!limited) barRec.pending = record.pending;
@@ -465,7 +468,8 @@ export function setGraphDays(key) {
     drawPlGraph(state.mvpData.picks);
     // Update record bar for this range
     const resolvedPicks = (state.mvpData.picks || []).filter(p =>
-      p.result === 'win' || p.result === 'loss' || p.result === 'push'
+      (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
+      !(p.annotation && p.annotation.includes('not counted'))
     );
     const filtered = _filterByDays(resolvedPicks, RANGE_DAYS[key] ?? Infinity);
     const rec = _computeRecord(filtered);
@@ -503,7 +507,10 @@ export async function loadHomeMvp() {
     section.style.display = '';
 
     // Compute initial record (ALL range)
-    const resolvedPicks = picks.filter(p => p.result === 'win' || p.result === 'loss' || p.result === 'push');
+    const resolvedPicks = picks.filter(p =>
+      (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
+      !(p.annotation && p.annotation.includes('not counted'))
+    );
     const initRec = _computeRecord(resolvedPicks);
 
     section.innerHTML = `
