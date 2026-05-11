@@ -120,7 +120,7 @@
     td { padding: 13px 16px; font-size: 14px; }
 
     .rank { font-weight: 700; color: var(--muted); width: 48px; }
-    .rank-1 { color: var(--gold); font-size: 16px; }
+    .rank-1 { font-size: 16px; }
     .matchup-cell { font-weight: 600; }
     /* Mobile merged rank+score — hidden on desktop */
     .rank-score-mobile { display: none; }
@@ -355,6 +355,9 @@
       color: var(--text); padding: 10px 14px; border-radius: 7px; font-size: 15px; font-family: inherit;
     }
     .form-group input:focus { outline: none; border-color: var(--accent); }
+    .tos-row { display: flex !important; align-items: flex-start; gap: 10px; }
+    .tos-row input[type="checkbox"] { width: auto; flex-shrink: 0; margin-top: 3px; }
+    .tos-row label { display: inline; margin-bottom: 0; font-size: 13px; color: var(--muted); cursor: pointer; }
     .form-error { color: var(--red); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
     .form-footer { margin-top: 16px; font-size: 13px; color: var(--muted); text-align: center; }
     .form-footer a { color: var(--accent); cursor: pointer; text-decoration: underline; }
@@ -1258,9 +1261,9 @@
       <div class="form-group"><label>Email</label><input type="email" id="signup-email" autocomplete="email" /></div>
       <div class="form-group"><label>Password</label><input type="password" id="signup-password" autocomplete="new-password" /></div>
       <div class="form-group"><label>Confirm Password</label><input type="password" id="signup-confirm" autocomplete="new-password" /></div>
-      <div class="form-group" style="display:flex;align-items:flex-start;gap:10px;">
-        <input type="checkbox" id="signup-tos" style="margin-top:3px;flex-shrink:0;" />
-        <label for="signup-tos" style="font-size:13px;color:var(--muted);cursor:pointer;">
+      <div class="form-group tos-row">
+        <input type="checkbox" id="signup-tos" />
+        <label for="signup-tos">
           I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent);">Terms of Service</a>
         </label>
       </div>
