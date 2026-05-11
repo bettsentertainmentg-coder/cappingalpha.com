@@ -187,6 +187,22 @@ function slotLineCurrent(slotKey, game) {
   return null;
 }
 
+// ── Tennis score string: "6-4, 7-5" or "6-4, 3-6, 4-2" (away perspective) ───
+function _tennisScoreStr(game, liveInProgress) {
+  let sets = [];
+  try { sets = JSON.parse(game.tennis_score_detail || '[]'); } catch (_) {}
+  if (!sets.length) {
+    // Fallback: just show sets won
+    return `${game.away_score ?? 0}–${game.home_score ?? 0}`;
+  }
+  // Build "away-home" per set (away listed first to match scoreboard convention)
+  return sets.map((s, i) => {
+    const isLastSet = i === sets.length - 1;
+    const suffix = (liveInProgress && isLastSet) ? '*' : '';
+    return `${s.away}-${s.home}${suffix}`;
+  }).join(', ');
+}
+
 // ── Status pill ───────────────────────────────────────────────────────────────
 function renderStatusPill() {
   const pill = document.getElementById('ca-status-pill');
@@ -196,16 +212,29 @@ function renderStatusPill() {
 
   if (s === 'post') {
     pill.className = 'ca-gh-status-pill ca-status-final';
-    pill.innerHTML = `<span class="ca-num">${game.away_score ?? 0}–${game.home_score ?? 0}</span> Final`;
+    const sport = (game.sport || '').toUpperCase();
+    if (sport === 'ATP' || sport === 'WTA') {
+      const scoreStr = _tennisScoreStr(game, false);
+      pill.innerHTML = `<span class="ca-num">${scoreStr}</span> Final`;
+    } else {
+      pill.innerHTML = `<span class="ca-num">${game.away_score ?? 0}–${game.home_score ?? 0}</span> Final`;
+    }
   } else if (s === 'in') {
     const sport = (game.sport || '').toUpperCase();
-    const period = game.period;
-    const clock  = game.clock && sport !== 'MLB' ? ` · ${game.clock}` : '';
-    let periodLabel = period ? `P${period}` : 'LIVE';
-    if (sport === 'NFL' || sport === 'NCAAF') periodLabel = period ? `Q${period}` : 'LIVE';
-    if (sport === 'MLB') periodLabel = period ? `Inn ${period}` : 'LIVE';
-    pill.className = 'ca-gh-status-pill ca-status-live';
-    pill.innerHTML = `<span class="ca-num">${game.away_score ?? 0}–${game.home_score ?? 0}</span> · ${periodLabel}${clock}`;
+    if (sport === 'ATP' || sport === 'WTA') {
+      const scoreStr = _tennisScoreStr(game, true);
+      const setLabel = game.period ? `Set ${game.period}` : 'LIVE';
+      pill.className = 'ca-gh-status-pill ca-status-live';
+      pill.innerHTML = `<span class="ca-num">${scoreStr}</span> · ${setLabel}`;
+    } else {
+      const period = game.period;
+      const clock  = game.clock && sport !== 'MLB' ? ` · ${game.clock}` : '';
+      let periodLabel = period ? `P${period}` : 'LIVE';
+      if (sport === 'NFL' || sport === 'NCAAF') periodLabel = period ? `Q${period}` : 'LIVE';
+      if (sport === 'MLB') periodLabel = period ? `Inn ${period}` : 'LIVE';
+      pill.className = 'ca-gh-status-pill ca-status-live';
+      pill.innerHTML = `<span class="ca-num">${game.away_score ?? 0}–${game.home_score ?? 0}</span> · ${periodLabel}${clock}`;
+    }
   } else {
     pill.className = 'ca-gh-status-pill ca-status-pre';
     const t = new Date(game.start_time);

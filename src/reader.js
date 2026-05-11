@@ -202,6 +202,14 @@ TENNIS (ATP/WTA) — "team" is the player's last name or full name as written.
   "Sinner ML 2u" → team=Sinner, pick_type=ML, sport=ATP
   "Alcaraz -4.5 games" → team=Alcaraz, pick_type=spread, spread_value=-4.5, sport=ATP
   "Swiatek ML" → team=Swiatek, pick_type=ML, sport=WTA
+  "Alcaraz over 22.5 games" → team=Alcaraz, pick_type=over, spread_value=22.5, sport=ATP
+  "under 21.5 total games Sinner" → team=Sinner, pick_type=under, spread_value=21.5, sport=ATP
+  SET PICKS — when a capper picks a player to win a specific set:
+    "Djokovic to win Set 1" → team=Djokovic, pick_type=set_ml, spread_value=1, sport=ATP
+    "Sinner Set 2 ML -130" → team=Sinner, pick_type=set_ml, spread_value=2, sport=ATP
+    "take Alcaraz 1st set" → team=Alcaraz, pick_type=set_ml, spread_value=1, sport=ATP
+    "Swiatek wins set 3" → team=Swiatek, pick_type=set_ml, spread_value=3, sport=WTA
+    Store the set number (1, 2, or 3) in spread_value for set_ml picks.
   Player names are NOT capper_name values. Use ATP unless the message explicitly says WTA.
 
 MONEYLINE ODDS vs SPREAD — critical rule:
@@ -284,7 +292,7 @@ const EXTRACT_TOOL = {
             message_index: { type: 'integer', description: 'Which message this pick is from (1-based). Use 1 for single messages.' },
             is_pick:      { type: 'boolean' },
             team:         { type: 'string',  description: 'Team or player name as written' },
-            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10'] },
+            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml'] },
             spread_value: { type: 'number',  description: 'Spread or total line. Omit for ML.' },
             sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },

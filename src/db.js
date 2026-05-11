@@ -679,6 +679,10 @@ try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN morning_markets_json TEXT`); 
 try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN updated_at TEXT`); } catch (_) {}
 // Clear stale rows from old flat-column schema so they get re-synced cleanly
 try { db.exec(`DELETE FROM kalshi_cache WHERE markets_json IS NULL`); } catch (_) {}
+// Tennis: per-set game counts and score detail for accurate spread/O-U grading and display
+try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_home_games INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_away_games INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_score_detail TEXT`); } catch (_) {}
 
 function getSetting(key, defaultVal) {
   try {

@@ -54,12 +54,27 @@ function upsertTennisMatch(comp, sportLabel) {
   }
 
   const state = comp.status?.type?.state || 'pre';
-  const scores = comp.competitors?.map(c => {
-    const sets = (c.linescores || []).reduce((sum, s) => sum + (Number(s.value) || 0), 0);
-    return { homeAway: c.homeAway, sets };
-  }) || [];
-  const homeScore = scores.find(s => s.homeAway === 'home')?.sets ?? 0;
-  const awayScore = scores.find(s => s.homeAway === 'away')?.sets ?? 0;
+  const homeLinescores = homeComp.linescores || [];
+  const awayLinescores = awayComp.linescores || [];
+
+  // Sets won = count of sets where this player won more games
+  const numSets = Math.max(homeLinescores.length, awayLinescores.length);
+  let homeSetsWon = 0, awaySetsWon = 0;
+  const setDetails = [];
+  for (let i = 0; i < numSets; i++) {
+    const h = Number(homeLinescores[i]?.value) || 0;
+    const a = Number(awayLinescores[i]?.value) || 0;
+    setDetails.push({ set: i + 1, home: h, away: a });
+    if (h > a) homeSetsWon++;
+    else if (a > h) awaySetsWon++;
+  }
+
+  // Total games for spread/O-U grading
+  const homeGames = homeLinescores.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  const awayGames = awayLinescores.reduce((s, l) => s + (Number(l.value) || 0), 0);
+
+  // Score detail string e.g. "7-5, 6-4" (home perspective)
+  const scoreDetailJson = numSets > 0 ? JSON.stringify(setDetails) : null;
 
   db.prepare(`
     INSERT INTO today_games (
@@ -67,15 +82,19 @@ function upsertTennisMatch(comp, sportLabel) {
       home_score, away_score,
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
+      tennis_home_games, tennis_away_games, tennis_score_detail,
       fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
-      status     = excluded.status,
-      period     = excluded.period,
-      clock      = excluded.clock,
-      home_score = excluded.home_score,
-      away_score = excluded.away_score,
-      fetched_at = excluded.fetched_at
+      status               = excluded.status,
+      period               = excluded.period,
+      clock                = excluded.clock,
+      home_score           = excluded.home_score,
+      away_score           = excluded.away_score,
+      tennis_home_games    = excluded.tennis_home_games,
+      tennis_away_games    = excluded.tennis_away_games,
+      tennis_score_detail  = excluded.tennis_score_detail,
+      fetched_at           = excluded.fetched_at
   `).run(
     comp.id,
     sportLabel,
@@ -83,8 +102,8 @@ function upsertTennisMatch(comp, sportLabel) {
     comp.status?.period                                   || null,
     comp.status?.type?.shortDetail || comp.status?.displayClock || null,
     comp.date || comp.startDate                           || null,
-    homeScore,
-    awayScore,
+    homeSetsWon,
+    awaySetsWon,
     homeDisplay,
     playerShortName(homeDisplay),
     playerShortName(homeDisplay),
@@ -92,7 +111,10 @@ function upsertTennisMatch(comp, sportLabel) {
     awayDisplay,
     playerShortName(awayDisplay),
     playerShortName(awayDisplay),
-    playerAbbr(awayDisplay)
+    playerAbbr(awayDisplay),
+    homeGames || null,
+    awayGames || null,
+    scoreDetailJson
   );
 }
 

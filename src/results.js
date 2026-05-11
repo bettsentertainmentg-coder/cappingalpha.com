@@ -47,6 +47,7 @@ async function extractSpreadFromMessage(team, pickId) {
 // ── Evaluate a single pick against final scores ───────────────────────────────
 function evaluatePick(pick, game) {
   const type = (pick.pick_type || '').toLowerCase();
+  const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
 
   // Determine which side was picked
   const homeNames = [game.home_team, game.home_short, game.home_name, game.home_abbr]
@@ -55,8 +56,7 @@ function evaluatePick(pick, game) {
 
   const pickedScore = pickedHome ? game.home_score : game.away_score;
   const oppScore    = pickedHome ? game.away_score  : game.home_score;
-  const margin      = pickedScore - oppScore;
-  const total       = game.home_score + game.away_score;
+  const margin      = pickedScore - oppScore; // sets for tennis, score diff for other sports
 
   // Get locked line
   const snapshot = pick.espn_game_id ? db.prepare(`
@@ -73,26 +73,45 @@ function evaluatePick(pick, game) {
   if (type === 'spread') {
     const line = snapshot?.original_spread ?? pick.spread;
     if (line == null) return 'pending';
-    const covered = margin + line; // e.g. margin=7, line=-6.5 → 0.5 > 0 = win
+    let spreadMargin;
+    if (isTennis) {
+      // Tennis spread = game handicap — use game totals not sets
+      if (game.tennis_home_games == null) return 'pending';
+      const hg = game.tennis_home_games, ag = game.tennis_away_games;
+      spreadMargin = pickedHome ? (hg - ag) : (ag - hg);
+    } else {
+      spreadMargin = margin;
+    }
+    const covered = spreadMargin + line;
     if (covered > 0) return 'win';
     if (covered < 0) return 'loss';
     return 'push';
   }
 
-  if (type === 'over') {
+  if (type === 'over' || type === 'under') {
     const ou = snapshot?.original_ou ?? pick.spread;
     if (ou == null) return 'pending';
-    if (total > ou) return 'win';
-    if (total < ou) return 'loss';
-    return 'push';
+    // Tennis O/U = total games in match, not sets
+    const total = isTennis
+      ? ((game.tennis_home_games ?? 0) + (game.tennis_away_games ?? 0))
+      : (game.home_score + game.away_score);
+    if (isTennis && game.tennis_home_games == null) return 'pending';
+    if (type === 'over')  return total > ou ? 'win' : total < ou ? 'loss' : 'push';
+    if (type === 'under') return total < ou ? 'win' : total > ou ? 'loss' : 'push';
   }
 
-  if (type === 'under') {
-    const ou = snapshot?.original_ou ?? pick.spread;
-    if (ou == null) return 'pending';
-    if (total < ou) return 'win';
-    if (total > ou) return 'loss';
-    return 'push';
+  if (type === 'set_ml') {
+    // spread_value encodes the set number (1, 2, 3)
+    const setNum = Math.round(pick.spread);
+    if (!setNum) return 'pending';
+    let setDetails;
+    try { setDetails = JSON.parse(game.tennis_score_detail || '[]'); } catch { return 'pending'; }
+    const set = setDetails[setNum - 1];
+    if (!set) return 'pending';
+    const homeWon = set.home > set.away;
+    const awayWon = set.away > set.home;
+    if (pickedHome) return homeWon ? 'win' : awayWon ? 'loss' : 'push';
+    return awayWon ? 'win' : homeWon ? 'loss' : 'push';
   }
 
   if (type === 'nrfi') {
@@ -147,9 +166,10 @@ async function resolveResults() {
 
   // ── Pass 1: picks still in today's picks table ────────────────────────────
   const picks = db.prepare(`
-    SELECT p.*, tg.home_score, tg.away_score, tg.status,
+    SELECT p.*, tg.home_score, tg.away_score, tg.status, tg.sport,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
-           tg.away_team, tg.first_inning_runs
+           tg.away_team, tg.first_inning_runs,
+           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE tg.status = 'post'
