@@ -259,6 +259,26 @@ MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple
 
   Extract ALL picks from the message, each labeled with their correct capper_name.
 
+  MIXED-CONTENT DIGESTS — some capper sections may contain only player props (individual stat lines).
+  Skip those sections entirely, but DO NOT return is_pick=false for the whole message.
+  Any message that has at least one valid team pick must return those picks.
+
+  Example digest:
+    "NickyCashin (17-4 MLB)" → capper header; (17-4 MLB) is a record, not a pick
+    "Toronto Blue Jays ML (-125) 1.5U" → valid: team=Blue Jays, ML, capper=NickyCashin
+    "Seattle Mariners ML (-140) 1.5U"  → valid: team=Mariners, ML, capper=NickyCashin
+    "San Francisco Giants +1.5 (-117) 1.5U" → valid: team=Giants, spread=-1.5, capper=NickyCashin
+    "Matthewp07" → capper header
+    "Michael Soroka over 4.5 hits allowed" → SKIP — player prop (pitcher first+last + stat)
+    "Peter Lambert under 15.5 outs"        → SKIP — player prop
+    "Junior Caminero over 1.5 total bases" → SKIP — player prop
+    "Donovan Mitchell over 8.5 rebs+asts"  → SKIP — player prop
+    "MrBigBets" → capper header
+    "Yankees/O's O 9 -110 1u"  → team=Yankees, pick_type=over, spread_value=9 ("O's"=Orioles nickname; "O 9"=over 9; -110 is juice)
+    "Rangers ML -134 1u"       → valid: team=Rangers, ML, capper=MrBigBets
+    "Guardians -1.5 +128 .5u"  → valid: team=Guardians, spread=-1.5 (+128 is juice, ignore), capper=MrBigBets
+    → Return 6 picks total (NickyCashin×3, MrBigBets×3). Matthewp07 section skipped.
+
 EMBEDDED CARDS / TREND CARDS (TrendsCenter and similar bots):
   These bots post embed cards with image attachments and a card title.
   Ignore image attachments entirely. Ignore card titles like "Trends Center", "TrendsCenter Alert".
