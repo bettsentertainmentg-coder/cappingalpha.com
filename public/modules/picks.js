@@ -11,12 +11,14 @@ export async function loadPicks() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.allPicks = await res.json();
     renderPicks(state.allPicks);
-    document.getElementById('last-refresh').textContent =
+    const refreshEl = document.getElementById('last-refresh');
+    if (refreshEl) refreshEl.textContent =
       'Updated ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     // Notify sports tab to refresh if it's loaded
     document.dispatchEvent(new CustomEvent('picksUpdated'));
   } catch (err) {
-    document.getElementById('picks-body').innerHTML =
+    const errEl = document.getElementById('picks-body');
+    if (errEl) errEl.innerHTML =
       `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load picks</h3><p>${err.message}</p></div>`;
   }
 }
@@ -25,6 +27,7 @@ export async function loadPicks() {
 // paywall visibility is determined by global rank, not local position in the filtered list.
 export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) {
   const el = document.getElementById(targetId);
+  if (!el) return;
 
   if (!picks || picks.length === 0) {
     const emptyHtml = `

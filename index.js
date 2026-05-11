@@ -34,6 +34,7 @@ const { syncLineHistory, syncLineHistorySoon, getLineHistoryForGame } = require(
 const { syncPolymarketData, syncPolymarketSoon, getPolymarketForGame } = require('./src/polymarket');
 const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kalshi');
 const { getLineInsights } = require('./src/insights');
+const { getHeadlines }   = require('./src/headlines');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -134,6 +135,15 @@ app.get('/sitemap.xml', (req, res) => {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://cappingalpha.com/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
 </urlset>`);
+});
+
+// GET /api/headlines — sports betting news from Google News, Reddit, ESPN (30-min cache)
+app.get('/api/headlines', async (req, res) => {
+  try {
+    res.json(await getHeadlines());
+  } catch (_) {
+    res.json([]);
+  }
 });
 
 // GET /api/config — scoring constants for the frontend

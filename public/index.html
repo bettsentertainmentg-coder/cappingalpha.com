@@ -61,7 +61,7 @@
 
     /* ── Logo-as-tab ── */
     .logo {
-      font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+      font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
       cursor: pointer; user-select: none; display: flex; align-items: center;
       border-bottom: 2px solid transparent; transition: border-color 0.15s;
       padding: 0; white-space: nowrap;
@@ -106,9 +106,9 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 0 24px 64px; }
 
     /* ── Table card ── */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; position: relative; }
-    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
-    .card-title { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; overflow: hidden; position: relative; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .card-title { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text); }
     .refresh-label { font-size: 12px; color: var(--muted); }
 
     table { width: 100%; border-collapse: collapse; }
@@ -176,7 +176,7 @@
 
     /* ── Record bar ── */
     .section-gap { margin-top: 32px; }
-    .record-bar { display: flex; gap: 24px; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .record-bar { display: flex; gap: 24px; padding: 16px 20px 20px; flex-wrap: wrap; }
     .record-item { text-align: center; }
     .record-val { font-size: 22px; font-weight: 700; }
     .record-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -229,9 +229,9 @@
     .mvp-panel-paywall p  { margin-bottom: 24px; }
     .mvp-panel-paywall .btn { margin: 0 6px; }
 
-    .graph-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 24px 16px; margin-bottom: 24px; }
+    .graph-card { background: var(--surface); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 20px 24px 0; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
     .graph-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 12px; }
-    .graph-title { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+    .graph-title { font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text); }
     .unit-input-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
     .unit-input-row input {
       width: 80px; background: var(--surface2); border: 1px solid var(--border);
@@ -244,7 +244,7 @@
     .graph-pl-label.pos { color: var(--green); }
     .graph-pl-label.neg { color: var(--red); }
 
-    .mvp-section-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 28px 0 12px; }
+    .mvp-section-title { font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text); margin: 28px 0 12px; }
 
     .mvp-history-wrap { max-height: 520px; overflow-y: auto; border-radius: 10px; border: 1px solid var(--border); }
     .mvp-history-wrap::-webkit-scrollbar { width: 6px; }
@@ -740,6 +740,203 @@
         background: rgba(255,215,0,0.08);
       }
     }
+
+    /* ── Home page 2-col grid ── */
+    .ca-home-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 24px 64px;
+      align-items: start;
+    }
+    .ca-home-sidebar {
+      position: sticky;
+      top: 72px;
+    }
+    .ca-home-main { min-width: 0; }
+
+    /* ── Sidebar section header ── */
+    .ca-sidebar-section-header {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--text); opacity: 0.7;
+      margin-bottom: 8px; padding: 0 2px;
+    }
+
+    /* ── Top pick card ── */
+    .ca-top-pick-card {
+      background: var(--surface); border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px; padding: 16px; margin-bottom: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    .ca-top-pick-header {
+      display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px;
+    }
+    .ca-top-pick-rank-num {
+      font-size: 52px; font-weight: 900; line-height: 1; margin-bottom: 4px;
+    }
+    .ca-top-pick-score {
+      display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-top: 6px;
+    }
+    .ca-top-pick-team { font-size: 22px; font-weight: 800; margin-bottom: 3px; }
+    .ca-top-pick-matchup { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .ca-top-pick-cta-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 8px; }
+    .ca-top-pick-pricing-row { display: flex; gap: 6px; margin-top: 6px; }
+    .ca-top-pick-price-btn {
+      flex: 1; padding: 8px 4px; border-radius: 7px;
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1); background: var(--surface2);
+      color: var(--text); font-family: inherit; transition: opacity .15s;
+    }
+    .ca-top-pick-price-btn:hover { opacity: 0.85; }
+    .ca-top-pick-price-btn.featured { background: var(--gold); color: #000; border-color: var(--gold); }
+    .ca-top-pick-empty { text-align: center; }
+
+    /* ── Sidebar sport tabs ── */
+    .ca-sidebar-sport-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ca-sidebar-sport-tab {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 11px; font-weight: 700; padding: 4px 12px;
+      border-radius: 14px; cursor: pointer; transition: all .12s; white-space: nowrap;
+    }
+    .ca-sidebar-sport-tab:hover { color: var(--text); border-color: var(--accent); }
+    .ca-sidebar-sport-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Sidebar games card ── */
+    .ca-sidebar-games-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      overflow: hidden; max-height: 440px; overflow-y: auto;
+    }
+    .ca-sidebar-games-card::-webkit-scrollbar { width: 4px; }
+    .ca-sidebar-games-card::-webkit-scrollbar-track { background: var(--surface2); }
+    .ca-sidebar-games-card::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .ca-sidebar-game-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 14px; border-bottom: 1px solid var(--border);
+      font-size: 13px; cursor: pointer; gap: 8px; transition: background .12s;
+    }
+    .ca-sidebar-game-row:last-child { border-bottom: none; }
+    .ca-sidebar-game-row:hover { background: var(--surface2); }
+    .ca-sidebar-game-matchup { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ca-sidebar-game-time { flex-shrink: 0; display: flex; align-items: center; gap: 4px; }
+    .ca-sidebar-live-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
+      display: inline-block; animation: pulse 1.2s infinite; flex-shrink: 0;
+    }
+
+    /* ── Home main column sections ── */
+    .ca-home-section { margin-bottom: 24px; }
+    .ca-home-section-header {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+    }
+    .ca-home-section-title {
+      font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--text);
+    }
+    .ca-home-section-link {
+      font-size: 13px; color: var(--accent); cursor: pointer; text-decoration: none; background: none; border: none; font-family: inherit;
+    }
+    .ca-home-section-link:hover { text-decoration: underline; }
+
+    /* ── MVP section heading (overrides generic title) ── */
+    .ca-mvp-section-heading { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .ca-mvp-section-heading .ca-mvp-heading-row { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+    .ca-mvp-section-heading .ca-home-section-title {
+      font-size: 16px; font-weight: 800; color: var(--gold);
+      text-transform: uppercase; letter-spacing: .04em;
+    }
+    .ca-mvp-section-heading .ca-home-section-link { font-size: 13px; font-weight: 600; }
+    .ca-mvp-section-desc {
+      font-size: 12px; color: var(--muted); line-height: 1.5; margin: 0;
+    }
+
+    /* ── Record bar blurb ── */
+    .record-blurb {
+      margin-left: auto; max-width: 200px;
+      font-size: 11px; color: var(--muted); line-height: 1.6;
+      align-self: center; text-align: right;
+    }
+
+    /* ── Headlines ── */
+    .ca-headline-row {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      text-decoration: none; color: var(--text); transition: background .12s;
+    }
+    .ca-headline-row:last-child { border-bottom: none; }
+    .ca-headline-row:hover { background: var(--surface2); }
+    .ca-headline-source-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 7px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; margin-top: 2px;
+    }
+    /* source badge colors applied inline via _sourceBadgeStyle() in home_sidebar.js */
+    .ca-headline-title { font-size: 13px; line-height: 1.5; flex: 1; }
+
+    /* ── Hamburger button ── */
+    .ca-hamburger {
+      display: none; background: none; border: none; color: var(--text);
+      cursor: pointer; padding: 4px 8px 4px 0; line-height: 0; flex-shrink: 0;
+    }
+
+    /* ── Mobile drawer ── */
+    .ca-drawer-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 200;
+    }
+    .ca-drawer-overlay.open { display: block; }
+    .ca-drawer {
+      position: fixed; top: 0; left: -300px; width: 280px; height: 100vh;
+      background: var(--surface); border-right: 1px solid var(--border);
+      z-index: 201; transition: left .22s ease; overflow-y: auto; padding-bottom: 32px;
+    }
+    .ca-drawer.open { left: 0; }
+    .ca-drawer-logo {
+      font-size: 17px; font-weight: 700; color: var(--text);
+      padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+    }
+    .ca-drawer-logo span { color: var(--accent); }
+    .ca-drawer-mvp {
+      display: flex; align-items: center; gap: 8px;
+      padding: 15px 20px; font-size: 15px; font-weight: 700; color: var(--gold);
+      border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s;
+    }
+    .ca-drawer-mvp:hover { background: rgba(255,215,0,0.06); }
+    .ca-drawer-item {
+      display: block; padding: 13px 20px; font-size: 14px; font-weight: 600;
+      color: var(--text); cursor: pointer; border-bottom: 1px solid var(--border);
+      transition: background .12s; text-decoration: none;
+    }
+    .ca-drawer-item:hover { background: var(--surface2); }
+    .ca-drawer-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
+    .ca-drawer-account-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 20px; font-size: 14px; font-weight: 600; color: var(--text);
+      cursor: pointer; border-bottom: 1px solid var(--border); transition: background .12s;
+    }
+    .ca-drawer-account-toggle:hover { background: var(--surface2); }
+    .ca-drawer-sub { display: none; }
+    .ca-drawer-sub.open { display: block; }
+    .ca-drawer-sub-item {
+      display: block; padding: 10px 20px 10px 32px; font-size: 13px; color: var(--muted);
+      cursor: pointer; border-bottom: 1px solid var(--border);
+      transition: background .12s, color .12s; text-decoration: none;
+    }
+    .ca-drawer-sub-item:hover { background: var(--surface2); color: var(--text); }
+    .ca-drawer-footer { padding: 16px 20px; }
+
+    /* ── Mobile: stack home grid, show hamburger, hide nav tabs ── */
+    @media (max-width: 768px) {
+      .ca-hamburger { display: flex; align-items: center; }
+      nav .nav-tabs  { display: none; }
+
+      .ca-home-grid {
+        grid-template-columns: 1fr;
+        padding: 16px 12px 48px;
+        gap: 16px;
+      }
+      .ca-home-sidebar { position: static; order: 2; }
+      .ca-home-main    { order: 1; }
+    }
   </style>
 </head>
 <body>
@@ -747,6 +944,9 @@
   <!-- Navbar -->
   <nav>
     <div class="nav-left">
+      <button class="ca-hamburger" onclick="toggleDrawer()" aria-label="Menu">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
+      </button>
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
       <div class="nav-tabs">
         <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')">MVP Picks</button>
@@ -766,36 +966,55 @@
 
   <!-- ── Tab 1: Home ── -->
   <div id="panel-home" class="tab-panel active">
-    <div class="hero">
-      <h1>Today's Top Calculated Plays</h1>
-      <p>Picks scored daily across verified analyst signals, AI sentiment, line movement, and public betting data. Ranked by a proprietary model to identify the highest-edge plays against the books.</p>
-    </div>
-    <div class="container">
-      <div class="card" id="picks-card">
-        <div class="card-header">
-          <span class="card-title">Today's Ranked Picks</span>
-          <span class="refresh-label" id="last-refresh">Loading...</span>
-        </div>
-        <div id="picks-body">
-          <div class="spinner-wrap"><div class="spinner"></div></div>
-        </div>
-        <p class="model-note">* CappingAlpha scores are generated by an AI model trained on public capper algorithms and data. Past performance is not indicative of future results.</p>
-      </div>
+    <div class="ca-home-grid">
 
-      <div id="home-mvp-section" style="display:none;margin-top:32px;">
-        <div class="card" style="margin-bottom:16px;">
-          <div class="card-header">
-            <span class="card-title">MVP Pick Record</span>
+      <!-- Left sidebar -->
+      <aside class="ca-home-sidebar">
+        <div id="ca-top-pick-slot">
+          <div class="ca-top-pick-card ca-top-pick-empty">
+            <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
           </div>
-          <div class="record-bar" id="home-mvp-record"></div>
         </div>
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">MVP Pick History</span>
+
+        <div class="ca-sidebar-section-header" style="margin-top:16px;">Today's Games</div>
+        <div id="ca-sidebar-sport-tabs" class="ca-sidebar-sport-tabs"></div>
+        <div class="ca-sidebar-games-card">
+          <div id="ca-sidebar-games-list">
+            <div class="spinner-wrap" style="padding:18px;"><div class="spinner"></div></div>
           </div>
-          <div id="home-mvp-body"></div>
         </div>
-      </div>
+      </aside>
+
+      <!-- Right main column -->
+      <main class="ca-home-main">
+
+        <!-- MVP P/L Widget -->
+        <div class="ca-home-section">
+          <div class="ca-home-section-header ca-mvp-section-heading">
+            <div class="ca-mvp-heading-row">
+              <span class="ca-home-section-title">MVP Picks</span>
+              <a class="ca-home-section-link" onclick="switchTab('mvp')">View all ↗</a>
+            </div>
+            <p class="ca-mvp-section-desc">High-conviction plays that hit 50+ pts on our signal board — every result logged, no cherry-picking.</p>
+          </div>
+          <div id="home-mvp-section" style="display:none;">
+            <div class="spinner-wrap"><div class="spinner"></div></div>
+          </div>
+        </div>
+
+        <!-- Headlines -->
+        <div class="ca-home-section" id="ca-headlines-section">
+          <div class="ca-home-section-header">
+            <span class="ca-home-section-title">Headlines</span>
+          </div>
+          <div class="card" style="overflow:hidden;">
+            <div id="ca-headlines-list">
+              <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+
+      </main>
     </div>
   </div>
 
@@ -915,7 +1134,7 @@
       <hr class="about-divider" />
 
       <h2 class="about-h2">Transparency and Disclaimers</h2>
-      <p class="about-p">Every MVP pick is logged with the final game score and result. The hypothetical P/L shown in the MVP tab assumes a flat $20 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
+      <p class="about-p">Every MVP pick is logged with the final game score and result. The hypothetical P/L shown in the MVP tab assumes a flat $10 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
       <p class="about-p">Scores generated by CappingAlpha are produced by an AI model trained on public capper data. A high score means more community agreement on a given side. It does not mean that side is likely to cover or win. Past hypothetical performance is not indicative of future results.</p>
       <p class="about-p">CappingAlpha is a research and data tool. Nothing on this site constitutes financial advice, sports betting advice, or a recommendation to wager. Use this data at your own discretion.</p>
 
@@ -946,7 +1165,7 @@
         </div>
       </div>
 
-      <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $20 unit against the morning opening line. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit against the morning opening line. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
 
     </div>
   </div>
@@ -1047,6 +1266,41 @@
     </div>
   </div>
 
+
+  <!-- Mobile drawer overlay -->
+  <div id="ca-drawer-overlay" class="ca-drawer-overlay" onclick="closeDrawer()"></div>
+
+  <!-- Mobile left drawer -->
+  <nav id="ca-drawer" class="ca-drawer" role="navigation" aria-label="Mobile navigation">
+    <div class="ca-drawer-logo">Capping<span>Alpha</span></div>
+
+    <div class="ca-drawer-mvp" onclick="switchTab('mvp')">
+      ★ MVP Picks
+    </div>
+
+    <a class="ca-drawer-item" onclick="switchTab('sports')">Sports</a>
+    <a class="ca-drawer-item" onclick="switchTab('esports')">Esports</a>
+    <a class="ca-drawer-item" onclick="switchTab('about')">About</a>
+
+    <hr class="ca-drawer-divider" />
+
+    <div class="ca-drawer-account-toggle" onclick="toggleDrawerAccount()">
+      <span>Account</span>
+      <span id="ca-drawer-account-arrow">▾</span>
+    </div>
+    <div id="ca-drawer-account-sub" class="ca-drawer-sub">
+      <a class="ca-drawer-sub-item" onclick="startCheckout('week')">Premium Access →</a>
+      <a class="ca-drawer-sub-item" onclick="switchTab('account')">My Account →</a>
+    </div>
+
+    <hr class="ca-drawer-divider" />
+
+    <div class="ca-drawer-footer">
+      <button class="btn btn-ghost" id="drawer-btn-login" style="width:100%;margin-bottom:8px;" onclick="openLogin();closeDrawer();">Login</button>
+      <button class="btn btn-primary" id="drawer-btn-signup" style="width:100%;" onclick="openSignup();closeDrawer();">Get Access</button>
+      <button class="btn btn-danger" id="drawer-btn-logout" style="width:100%;display:none;" onclick="doLogout()">Logout</button>
+    </div>
+  </nav>
 
   <script type="module" src="app.js"></script>
 </body>

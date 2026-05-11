@@ -129,7 +129,8 @@ export function pickLabel(p) {
 
 export function PICK_HEAT_COLOR(score) {
   if (!score || score === 0) return { color: '#4a5568', fire: false };
-  if (score < 50)  return { color: '#ca8a04', fire: false };
+  if (score < 35)  return { color: '#ca8a04', fire: false };
+  if (score < 50)  return { color: '#C0C0C0', fire: false }; // silver tier
   if (score < 80)  return { color: '#ea580c', fire: false };
   if (score < 95)  return { color: '#dc2626', fire: false };
   return { color: '#dc2626', fire: true };

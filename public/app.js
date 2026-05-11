@@ -9,6 +9,7 @@ import { renderEsports } from './modules/esports.js';
 import { loadAccount } from './modules/account.js';
 import './modules/modal.js';
 import { resumePendingCheckout } from './modules/paywall.js';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {
@@ -39,9 +40,47 @@ export function switchTab(tabName) {
     if (!state.currentUser) { switchTab('home'); window.openLogin(); return; }
     loadAccount();
   }
+
+  // Close mobile drawer when navigating
+  closeDrawer();
 }
 
 window.switchTab = switchTab;
+
+// ── Mobile drawer ─────────────────────────────────────────────────────────────
+export function toggleDrawer() {
+  const overlay = document.getElementById('ca-drawer-overlay');
+  const drawer  = document.getElementById('ca-drawer');
+  if (!overlay || !drawer) return;
+  const isOpen = drawer.classList.contains('open');
+  if (isOpen) {
+    closeDrawer();
+  } else {
+    overlay.classList.add('open');
+    drawer.classList.add('open');
+  }
+}
+
+export function closeDrawer() {
+  const overlay = document.getElementById('ca-drawer-overlay');
+  const drawer  = document.getElementById('ca-drawer');
+  if (!overlay || !drawer) return;
+  overlay.classList.remove('open');
+  drawer.classList.remove('open');
+  // Also close account sub-menu
+  const sub = document.getElementById('ca-drawer-account-sub');
+  if (sub) sub.classList.remove('open');
+}
+
+export function toggleDrawerAccount() {
+  const sub = document.getElementById('ca-drawer-account-sub');
+  const arrow = document.getElementById('ca-drawer-account-arrow');
+  if (!sub) return;
+  const isOpen = sub.classList.toggle('open');
+  if (arrow) arrow.textContent = isOpen ? '▴' : '▾';
+}
+
+Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
@@ -72,5 +111,7 @@ window.switchTab = switchTab;
 
   await loadPicks();
   loadHomeMvp();
+  loadHomeSidebar();
+  loadHeadlines();
   setInterval(loadPicks, REFRESH_MS);
 })();

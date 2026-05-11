@@ -7,9 +7,10 @@ export const state = {
   CONFIG:        { mvp_threshold: 50 },
   allPicks:      [],
   mvpData:       null,
+  homeMvpPicks:  null,
   mvpLoaded:     false,
   sportsLoaded:  false,
   esportsLoaded: false,
   activeSport:   'MLB',
-  graphDays:     30,
+  graphDays:     Infinity,
 };
