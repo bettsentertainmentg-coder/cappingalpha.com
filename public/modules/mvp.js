@@ -64,9 +64,7 @@ function _recordBarHtml(rec, limited) {
     <div class="record-item"><div class="record-val green">${rec.wins}</div><div class="record-label">Wins</div></div>
     <div class="record-item"><div class="record-val red">${rec.losses}</div><div class="record-label">Losses</div></div>
     <div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>
-    <div class="record-item"><div class="record-val gold">${rec.winRate}</div><div class="record-label">Win%</div></div>
-    ${limited ? '' : `<div class="record-item"><div class="record-val">${rec.pending ?? ''}</div><div class="record-label">Pending</div></div>`}
-    <div class="record-blurb">Every pick that scored 50+ pts on our signal board — tracked win or loss. No cherry-picking. $10 flat per pick.</div>`;
+    ${limited ? '' : `<div class="record-item"><div class="record-val">${rec.pending ?? ''}</div><div class="record-label">Pending</div></div>`}`;
 }
 
 // ── MVP tab rendering ─────────────────────────────────────────────────────────
@@ -511,49 +509,85 @@ export async function loadHomeMvp() {
             <div class="graph-title" id="home-pl-title">ALL-TIME P/L</div>
             <div id="home-pl-total" class="graph-pl-label" style="margin-top:4px;">—</div>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
             <div class="graph-range-row">
-              <button class="graph-range-btn home-range-btn" data-key="1D"  onclick="setHomeGraphDays('1D')">1D</button>
-              <button class="graph-range-btn home-range-btn" data-key="5D"  onclick="setHomeGraphDays('5D')">5D</button>
-              <button class="graph-range-btn home-range-btn" data-key="7D"  onclick="setHomeGraphDays('7D')">7D</button>
-              <button class="graph-range-btn home-range-btn" data-key="21D" onclick="setHomeGraphDays('21D')">21D</button>
               <button class="graph-range-btn home-range-btn" data-key="1M"  onclick="setHomeGraphDays('1M')">1M</button>
               <button class="graph-range-btn home-range-btn" data-key="3M"  onclick="setHomeGraphDays('3M')">3M</button>
               <button class="graph-range-btn home-range-btn active" data-key="ALL" onclick="setHomeGraphDays('ALL')">ALL</button>
             </div>
-            <div class="graph-range-row">
-              <button class="graph-range-btn home-mode-btn active" data-mode="$" onclick="setHomeGraphMode('$')">$</button>
-              <button class="graph-range-btn home-mode-btn"        data-mode="%" onclick="setHomeGraphMode('%')">%</button>
-            </div>
-            <div class="unit-input-row">
-              <label for="home-unit-size">Unit: $</label>
-              <input type="number" id="home-unit-size" value="10" min="1" oninput="redrawHomeGraph()" />
-            </div>
+            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">50+ pt picks tracked — win/loss logged, no cherry-picking.</div>
           </div>
         </div>
-        <div class="graph-canvas-wrap">
+        <div class="graph-canvas-wrap" style="height:150px;">
           <canvas id="home-pl-chart"></canvas>
         </div>
-        <p class="graph-disclaimer">Hypothetical performance — CappingAlpha never wagers on any game.</p>
-        <div class="record-bar" id="home-record-bar" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:12px;">
+        <div class="record-bar" id="home-record-bar" style="border-top:1px solid rgba(255,255,255,0.06);padding:12px 20px;">
           ${_recordBarHtml(initRec, true)}
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Pick History</span>
+          <span class="card-title">Today's Picks</span>
+          <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
         </div>
-        <div class="mvp-history-wrap" style="max-height:380px;border:none;border-radius:0;">
-          <div id="home-mvp-body"></div>
+        <div id="home-picks-body">
+          <div style="padding:20px;color:var(--muted);font-size:13px;text-align:center;">Loading picks...</div>
         </div>
       </div>`;
 
-    renderMvpRows(picks.slice(0, 20), 'home-mvp-body');
+    _renderHomePicksBody(state.allPicks);
+    document.addEventListener('picksUpdated', () => _renderHomePicksBody(state.allPicks));
     drawHomeGraph(picks);
   } catch (err) {
     console.error('[home-mvp] load error:', err);
   }
+}
+
+function _renderHomePicksBody(picks) {
+  const el = document.getElementById('home-picks-body');
+  if (!el) return;
+  if (!picks || picks.length === 0) {
+    el.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:13px;text-align:center;">No picks yet today.</div>`;
+    return;
+  }
+  const threshold = state.CONFIG?.mvp_threshold || 50;
+  const paying = isPaying();
+  const display = picks.slice(0, paying ? 30 : 5);
+
+  const rows = display.map((p, i) => {
+    const score = p.score || 0;
+    const isGold = score >= threshold;
+    const isSilver = score >= 35 && !isGold;
+    const rankColor = isGold ? 'var(--gold)' : isSilver ? '#a0aec0' : 'var(--muted)';
+    const locked = !paying && i > 0;
+    const label = pickLabel(p);
+    const matchup = p.matchup ? `<span class="ca-home-pick-matchup${locked ? ' blurred' : ''}">${p.matchup}</span>` : '';
+    const clickAttr = p.espn_game_id && !locked ? `onclick="openGameModal('${p.espn_game_id}')"` : '';
+    return `<div class="ca-home-pick-row${p.espn_game_id && !locked ? ' ca-home-pick-clickable' : ''}" ${clickAttr}>
+      <span class="ca-home-pick-rank" style="color:${rankColor};">${i + 1}</span>
+      <div class="ca-home-pick-info">
+        <span class="ca-home-pick-label${locked ? ' blurred' : ''}">${label}</span>
+        ${matchup}
+      </div>
+      <div class="ca-home-pick-right">
+        ${sportBadge(p.sport)}
+        <span class="ca-home-pick-score${locked ? ' blurred' : ''}" style="color:${rankColor};">${score}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  const paywallRow = !paying ? `
+    <div style="padding:16px 20px;text-align:center;border-top:1px solid var(--border);">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;">Unlock picks #2–${picks.length}</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('day')">$1 / day</button>
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('week')">$4 / week</button>
+        <button class="btn btn-ghost" style="font-size:12px;padding:6px 12px;" onclick="startCheckout('year')">$75 / yr</button>
+      </div>
+    </div>` : '';
+
+  el.innerHTML = rows + paywallRow;
 }
 
 function drawHomeGraph(picks) {

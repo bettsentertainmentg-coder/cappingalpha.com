@@ -851,6 +851,21 @@
     /* source badge colors applied inline via _sourceBadgeStyle() in home_sidebar.js */
     .ca-headline-title { font-size: 13px; line-height: 1.5; flex: 1; }
 
+    /* ── Home picks list ── */
+    .ca-home-pick-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 14px;
+    }
+    .ca-home-pick-row:last-child { border-bottom: none; }
+    .ca-home-pick-clickable { cursor: pointer; transition: background .12s; }
+    .ca-home-pick-clickable:hover { background: var(--surface2); }
+    .ca-home-pick-rank { font-size: 15px; font-weight: 800; min-width: 20px; flex-shrink: 0; }
+    .ca-home-pick-info { flex: 1; min-width: 0; }
+    .ca-home-pick-label { font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ca-home-pick-matchup { font-size: 12px; color: var(--muted); display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ca-home-pick-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .ca-home-pick-score { font-size: 13px; font-weight: 700; }
+
     /* ── Hamburger button ── */
     .ca-hamburger {
       display: none; background: none; border: none; color: var(--text);
@@ -991,12 +1006,9 @@
 
         <!-- MVP P/L Widget -->
         <div class="ca-home-section">
-          <div class="ca-home-section-header ca-mvp-section-heading">
-            <div class="ca-mvp-heading-row">
-              <span class="ca-home-section-title">MVP Picks</span>
-              <a class="ca-home-section-link" onclick="switchTab('mvp')">View all ↗</a>
-            </div>
-            <p class="ca-mvp-section-desc">High-conviction plays that hit 50+ pts on our signal board — every result logged, no cherry-picking.</p>
+          <div class="ca-home-section-header">
+            <span class="ca-home-section-title">MVP Picks</span>
+            <a class="ca-home-section-link" onclick="switchTab('mvp')">View all ↗</a>
           </div>
           <div id="home-mvp-section" style="display:none;">
             <div class="spinner-wrap"><div class="spinner"></div></div>
