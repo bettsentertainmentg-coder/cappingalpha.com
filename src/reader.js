@@ -58,7 +58,7 @@ const { RULES, EXTRACT_TOOL } = require('./reader_rules');
 // or if the Mac doesn't respond within 30 seconds.
 const LOCAL_READER_URL        = (process.env.LOCAL_READER_URL    || '').replace(/\/$/, '');
 const LOCAL_READER_SECRET     = process.env.LOCAL_READER_SECRET  || '';
-const LOCAL_READER_TIMEOUT_MS = 30_000;
+const LOCAL_READER_TIMEOUT_MS = 60_000;
 
 // ── Reader mode — settable from admin panel ───────────────────────────────────
 // 'auto' (default): try Mac first, fall back to Haiku
@@ -326,7 +326,7 @@ function correctPickType(parsed) {
   return parsed;
 }
 
-const BATCH_SIZE   = 5;
+const BATCH_SIZE   = 1;
 const MAX_MSG_CHARS = 1500;
 
 // ── Batch entry point (scanner's main path) ───────────────────────────────────
