@@ -684,6 +684,22 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_home_games INTEGER`); }
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_away_games INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_score_detail TEXT`); } catch (_) {}
 
+// Reader path tracking — which extraction path was used (mac/haiku/fallback)
+try { db.exec(`ALTER TABLE api_usage ADD COLUMN reader_path TEXT`); } catch (_) {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reader_call_log (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      path        TEXT NOT NULL,
+      msg_count   INTEGER NOT NULL DEFAULT 1,
+      pick_count  INTEGER NOT NULL DEFAULT 0,
+      latency_ms  INTEGER,
+      error       TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

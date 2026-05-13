@@ -1,5 +1,6 @@
 // src/admin.js — Password-protected admin panel
 const express = require('express');
+const axios   = require('axios');
 const db      = require('./db');
 const scanner = require('./discord_scanner');
 const { getCycleDate } = require('./cycle');
@@ -567,6 +568,32 @@ router.get('/dashboard', requireAuth, (req, res) => {
     catch (_) { return []; }
   })();
 
+  // ── Reader stats ──────────────────────────────────────────────────────────────
+  const readerMode = db.getSetting('reader_mode', 'auto');
+  const readerTodayRows = (() => {
+    try {
+      return db.prepare(`
+        SELECT path,
+               COUNT(*) AS calls,
+               SUM(msg_count) AS msgs,
+               SUM(pick_count) AS picks,
+               ROUND(AVG(latency_ms)) AS avg_ms
+        FROM reader_call_log
+        WHERE DATE(created_at) = DATE('now')
+        GROUP BY path ORDER BY calls DESC
+      `).all();
+    } catch (_) { return []; }
+  })();
+  const readerRecentLog = (() => {
+    try {
+      return db.prepare(`
+        SELECT path, msg_count, pick_count, latency_ms, error, created_at
+        FROM reader_call_log ORDER BY id DESC LIMIT 40
+      `).all();
+    } catch (_) { return []; }
+  })();
+  const localReaderUrl = (process.env.LOCAL_READER_URL || '').replace(/\/$/, '');
+
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
 
@@ -584,6 +611,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
+      <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
 
@@ -918,6 +946,77 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>
     </div>
 
+    <!-- READER PANEL -->
+    <div class="apanel${ta('reader')}" id="panel-reader">
+      <h1>Reader <small style="font-size:13px;color:#8892a4;font-weight:400;">Extraction path control &amp; performance</small></h1>
+
+      <!-- Status + Mode -->
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:28px;align-items:flex-start;">
+        <!-- Mac status card -->
+        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 22px;min-width:240px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8892a4;margin-bottom:10px;">Mac Reader (Ollama)</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span id="reader-dot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#64748b;"></span>
+            <span id="reader-status-text" style="font-size:14px;font-weight:600;color:#8892a4;">Checking...</span>
+          </div>
+          <div id="reader-model-line" style="font-size:12px;color:#64748b;"></div>
+          <div id="reader-url-line" style="font-size:11px;color:#374151;margin-top:4px;word-break:break-all;">${escHtml(localReaderUrl || '(LOCAL_READER_URL not set)')}</div>
+          <button onclick="readerPing()" style="margin-top:12px;padding:5px 14px;border-radius:6px;border:1px solid #252c3b;background:#1e2330;color:#8892a4;font-family:inherit;font-size:12px;cursor:pointer;">Ping</button>
+        </div>
+
+        <!-- Mode toggle -->
+        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 22px;min-width:260px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8892a4;margin-bottom:12px;">Extraction Mode</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${['auto','mac','haiku'].map(m => `
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 12px;border-radius:6px;border:1px solid ${readerMode===m?'#3b82f6':'#252c3b'};background:${readerMode===m?'rgba(59,130,246,0.08)':'transparent'};" id="reader-mode-label-${m}">
+              <input type="radio" name="reader-mode" value="${m}" ${readerMode===m?'checked':''} onchange="setReaderMode('${m}')" style="accent-color:#3b82f6;" />
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#e2e8f0;">${m === 'auto' ? 'Auto (Mac → Haiku fallback)' : m === 'mac' ? 'Mac only (no Haiku fallback)' : 'Haiku only (skip Mac)'}</div>
+                <div style="font-size:11px;color:#64748b;">${m === 'auto' ? 'Default — tries Mac first, falls back if unreachable' : m === 'mac' ? 'Local only — returns no picks if Mac is down' : 'Always use Claude API — ignores Mac'}</div>
+              </div>
+            </label>`).join('')}
+          </div>
+          <p id="reader-mode-msg" style="font-size:12px;color:#8892a4;margin-top:8px;"></p>
+        </div>
+      </div>
+
+      <!-- Today's stats -->
+      <h2 style="margin-top:0;">Today's Call Breakdown</h2>
+      ${(() => {
+        if (!readerTodayRows.length) return '<div class="empty">No calls logged today yet.</div>';
+        const pathLabel = p => p === 'mac' ? 'Mac (Ollama)' : p === 'haiku' ? 'Haiku (direct)' : p === 'haiku-fallback' ? 'Haiku (fallback)' : p === 'mac-fail' ? 'Mac (failed)' : p;
+        const pathColor = p => p === 'mac' ? '#34d399' : p === 'haiku' ? '#60a5fa' : p === 'haiku-fallback' ? '#fbbf24' : p === 'mac-fail' ? '#ef4444' : '#8892a4';
+        return `<table style="margin-bottom:24px;">
+          <thead><tr><th>Path</th><th>Calls</th><th>Messages</th><th>Picks Found</th><th>Avg Latency</th></tr></thead>
+          <tbody>${readerTodayRows.map(r => `<tr>
+            <td><span style="color:${pathColor(r.path)};font-weight:600;">${pathLabel(r.path)}</span></td>
+            <td>${r.calls}</td><td>${r.msgs || 0}</td><td>${r.picks || 0}</td>
+            <td style="color:#8892a4;">${r.avg_ms ? r.avg_ms + 'ms' : '—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+      })()}
+
+      <!-- Recent call log -->
+      <h2>Recent Calls (last 40)</h2>
+      ${(() => {
+        if (!readerRecentLog.length) return '<div class="empty">No calls logged yet.</div>';
+        const pathLabel = p => p === 'mac' ? 'Mac' : p === 'haiku' ? 'Haiku' : p === 'haiku-fallback' ? 'Haiku↩' : p === 'mac-fail' ? 'Mac✗' : p;
+        const pathColor = p => p === 'mac' ? '#34d399' : p === 'haiku' ? '#60a5fa' : p === 'haiku-fallback' ? '#fbbf24' : p === 'mac-fail' ? '#ef4444' : '#8892a4';
+        return `<table>
+          <thead><tr><th>Time</th><th>Path</th><th>Msgs</th><th>Picks</th><th>Latency</th><th>Error</th></tr></thead>
+          <tbody>${readerRecentLog.map(r => `<tr>
+            <td style="color:#64748b;font-size:12px;">${(r.created_at||'').slice(11,19)}</td>
+            <td><span style="font-weight:600;color:${pathColor(r.path)};">${pathLabel(r.path)}</span></td>
+            <td>${r.msg_count}</td>
+            <td>${r.pick_count}</td>
+            <td style="color:#8892a4;">${r.latency_ms != null ? r.latency_ms + 'ms' : '—'}</td>
+            <td style="color:#ef4444;font-size:11px;max-width:300px;word-break:break-word;">${r.error ? escHtml(r.error) : ''}</td>
+          </tr>`).join('')}</tbody>
+        </table>`;
+      })()}
+    </div>
+
     <!-- CORRECTION MODAL -->
     <div id="corr-modal" onclick="closeCorrModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:200;overflow-y:auto;">
       <div onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:640px;margin:40px auto;padding:28px;position:relative;">
@@ -987,6 +1086,66 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── Reader panel ───────────────────────────────────────────────────────────
+      async function readerPing() {
+        const dot  = document.getElementById('reader-dot');
+        const txt  = document.getElementById('reader-status-text');
+        const mdl  = document.getElementById('reader-model-line');
+        if (!dot) return;
+        dot.style.background = '#64748b';
+        txt.textContent = 'Pinging...';
+        mdl.textContent = '';
+        try {
+          const r = await fetch('/admin/api/reader-health');
+          const d = await r.json();
+          if (d.ok) {
+            dot.style.background = '#34d399';
+            txt.style.color = '#34d399';
+            txt.textContent = 'Online';
+            mdl.textContent = 'Model: ' + (d.model || 'unknown');
+          } else {
+            dot.style.background = '#ef4444';
+            txt.style.color = '#ef4444';
+            txt.textContent = d.error || 'Offline';
+          }
+        } catch (e) {
+          dot.style.background = '#ef4444';
+          txt.style.color = '#ef4444';
+          txt.textContent = 'Unreachable';
+        }
+      }
+
+      async function setReaderMode(mode) {
+        const msg = document.getElementById('reader-mode-msg');
+        try {
+          const r = await fetch('/admin/api/reader-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode }),
+          });
+          const d = await r.json();
+          if (d.ok) {
+            msg.textContent = 'Saved.';
+            msg.style.color = '#34d399';
+            // Update label borders
+            ['auto','mac','haiku'].forEach(m => {
+              const lbl = document.getElementById('reader-mode-label-' + m);
+              if (lbl) {
+                lbl.style.borderColor = m === mode ? '#3b82f6' : '#252c3b';
+                lbl.style.background  = m === mode ? 'rgba(59,130,246,0.08)' : 'transparent';
+              }
+            });
+          } else {
+            msg.textContent = d.error || 'Failed to save';
+            msg.style.color = '#ef4444';
+          }
+        } catch (e) {
+          msg.textContent = 'Error: ' + e.message;
+          msg.style.color = '#ef4444';
+        }
+        setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
       }
 
       // ── MVP threshold ──────────────────────────────────────────────────────────
@@ -2174,6 +2333,27 @@ router.post('/ingest-public-betting', (req, res) => {
     }
   }
 );
+
+// ── GET /admin/api/reader-health ──────────────────────────────────────────────
+router.get('/api/reader-health', requireAuth, async (_req, res) => {
+  const url = (process.env.LOCAL_READER_URL || '').replace(/\/$/, '');
+  if (!url) return res.json({ ok: false, error: 'LOCAL_READER_URL not set' });
+  try {
+    const r = await axios.get(`${url}/health`, { timeout: 8000 });
+    res.json({ ok: true, model: r.data?.model || null });
+  } catch (err) {
+    res.json({ ok: false, error: err.message.slice(0, 80) });
+  }
+});
+
+// ── POST /admin/api/reader-mode ───────────────────────────────────────────────
+router.post('/api/reader-mode', requireAuth, express.json(), (req, res) => {
+  const { mode } = req.body || {};
+  if (!['auto', 'mac', 'haiku'].includes(mode)) return res.json({ ok: false, error: 'Invalid mode' });
+  db.setSetting('reader_mode', mode);
+  console.log(`[admin] reader_mode set to ${mode}`);
+  res.json({ ok: true, mode });
+});
 
 // ── HTML escape helper ────────────────────────────────────────────────────────
 function escHtml(str) {
