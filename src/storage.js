@@ -197,16 +197,15 @@ function getCanonicalTeam(game, team) {
     : game.away_team;
 }
 
-// ── Find slot using AI-provided picked_side (home/away) ──────────────────────
-function findSlotWithSide(pick, game, picked_side) {
+// ── Find slot using team name (picked_side from AI is unreliable for home/away) ─
+function findSlotWithSide(pick, game, _picked_side) {
   const isTotal = pick.pick_type === 'over' || pick.pick_type === 'under';
   if (isTotal) {
     return db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND pick_type = ? LIMIT 1`)
       .get(game.espn_game_id, pick.pick_type);
   }
-  const canonicalTeam = picked_side === 'home' ? game.home_team
-                      : picked_side === 'away' ? game.away_team
-                      : getCanonicalTeam(game, pick.team);
+  // Trust the team name — AI's picked_side guess is often wrong (e.g. home team tagged as away)
+  const canonicalTeam = getCanonicalTeam(game, pick.team);
   return db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND LOWER(team) = LOWER(?) AND pick_type = ? LIMIT 1`)
     .get(game.espn_game_id, canonicalTeam, pick.pick_type);
 }

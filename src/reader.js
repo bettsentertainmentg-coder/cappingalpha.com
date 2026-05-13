@@ -257,27 +257,50 @@ async function claudeExtractBatch(channelInstruction, batchTexts) {
   }
 }
 
+// ── Known capper name injection ───────────────────────────────────────────────
+let _capperCache    = null;
+let _capperCacheAt  = 0;
+function getKnownCappers() {
+  if (_capperCache && Date.now() - _capperCacheAt < 10 * 60 * 1000) return _capperCache;
+  try {
+    const rows = db.prepare(
+      `SELECT DISTINCT capper_name FROM capper_history WHERE capper_name IS NOT NULL ORDER BY capper_name`
+    ).all();
+    _capperCache   = rows.map(r => r.capper_name);
+    _capperCacheAt = Date.now();
+  } catch (_) {
+    _capperCache = [];
+  }
+  return _capperCache;
+}
+
+function withCappers(base) {
+  const cappers = getKnownCappers();
+  if (!cappers.length) return base;
+  return `${base}\n\nKNOWN CAPPER NAMES — if any of these appear alone on a line (or immediately before a pick), treat them as capper headers: ${cappers.join(', ')}.`;
+}
+
 // ── Channel-specific extractors ───────────────────────────────────────────────
 async function extractFreePlaysPick(message) {
-  const instruction = `Extract ALL picks from this message. Include capper_name if a handle is present, and sport_record if a win-loss record appears.`;
+  const instruction = withCappers(`Extract ALL picks from this message. Include capper_name if a handle is present, and sport_record if a win-loss record appears.`);
   const result = await claudeExtract(instruction, message);
   if (!result) return [];
   return Array.isArray(result.picks) ? result.picks : [];
 }
 
 async function extractPodThreadPick(message) {
-  const instruction = [
+  const instruction = withCappers([
     'Extract ALL picks from this message. Include capper_name if a handle is present.',
     'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
     'Extract ONLY the current pick (labeled "Today\'s Play:", "POD:", "POD [date]:", or a standalone team/line).',
-  ].join(' ');
+  ].join(' '));
   const result = await claudeExtract(instruction, message);
   if (!result) return [];
   return Array.isArray(result.picks) ? result.picks : [];
 }
 
 async function extractCommunityLeaksPick(message) {
-  const instruction = `Extract ALL picks from this message. This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`;
+  const instruction = withCappers(`Extract ALL picks from this message. This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`);
   const result = await claudeExtract(instruction, message);
   if (!result) return [];
   return Array.isArray(result.picks) ? result.picks : [];
@@ -295,17 +318,19 @@ async function extractPicks(content, channelName) {
 // ── Batch instruction by channel ──────────────────────────────────────────────
 function getBatchInstruction(channelName) {
   const base = 'Extract ALL picks from each numbered message below. Each pick MUST include message_index (1-based integer — which message the pick came from).';
+  let instruction;
   if (channelName === 'free-plays') {
-    return `${base} Include capper_name if a handle is present, and sport_record if a win-loss record appears.`;
+    instruction = `${base} Include capper_name if a handle is present, and sport_record if a win-loss record appears.`;
+  } else if (channelName === 'community-leaks') {
+    instruction = `${base} This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`;
+  } else {
+    instruction = [
+      base,
+      'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
+      "Extract ONLY the current pick (labeled \"Today's Play:\", \"POD:\", or a standalone team/line).",
+    ].join(' ');
   }
-  if (channelName === 'community-leaks') {
-    return `${base} This channel contains digest messages from multiple cappers — extract every pick from every capper block. Include capper_name for each pick (the capper header above the pick). Include sport_record if a win-loss record appears.`;
-  }
-  return [
-    base,
-    'IMPORTANT: Ignore any line labeled "Last Play:", "Last pick:", or similar — those are previous picks.',
-    "Extract ONLY the current pick (labeled \"Today's Play:\", \"POD:\", or a standalone team/line).",
-  ].join(' ');
+  return withCappers(instruction);
 }
 
 // ── Sanity check: fix pick_type vs spread_value mismatches ───────────────────
