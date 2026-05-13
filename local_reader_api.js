@@ -28,7 +28,7 @@ const app    = express();
 app.use(express.json({ limit: '2mb' }));
 
 const SECRET      = process.env.LOCAL_READER_SECRET || '';
-const MODEL       = process.env.LOCAL_MODEL        || 'qwen2.5:7b';
+const MODEL       = process.env.LOCAL_MODEL        || 'qwen2.5:14b';
 const PORT        = parseInt(process.env.LOCAL_READER_PORT || '3002', 10);
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL    || 'http://localhost:11434';
 const OLLAMA_URL  = `${OLLAMA_BASE}/v1/chat/completions`;

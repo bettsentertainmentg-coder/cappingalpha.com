@@ -3,212 +3,89 @@
 // Edit RULES here to update both paths simultaneously.
 
 const RULES = `
-You are extracting sports betting picks from Discord messages posted by cappers and people leaking capper messages (handicappers).
+You extract sports betting picks from Discord messages. These messages are posted by sports cappers (handicappers) or people sharing capper picks in a Discord server.
 
-PICK TYPE — exactly one of: "ML", "spread", "over", "under", "NRFI"
+Your job: find every pick and return it. When in doubt, extract it — a false positive is better than a miss.
 
-ML — team wins outright.
-  "Padres ML" → ML
-  "Royals ML 2u" → ML (2u = unit size, ignore)
-  "Stars reg" → ML ("reg" = regulation win = ML)
-  "1U Marlins ML" → ML
-  "Hurricanes 3way in regulation" → ML ("3way"/"3-way" = win/loss/tie market = ML; "reg"/"regulation" = ML)
-  "Guardians Moneyline -130" → Guardians ML (-130 is juice). "Moneyline" spelled out = ML.
-  "Athletics Moneyline -140 and Over 9 Runs" → TWO picks: Athletics ML + Athletics over 9.
-  A team name alone on its own line with NO spread number and NO over/under indicator → ML.
+── WHAT IS A PICK ────────────────────────────────────────────────────────────
+A pick = a sports team (or player) + a bet type. Examples:
+  "Pistons -3.5"       → team=Pistons, spread=-3.5
+  "Brewers ML"         → team=Brewers, ML
+  "Cavaliers +4"       → team=Cavaliers, spread=+4
+  "Cin over 9"         → team=Reds, over, 9
+  "Pistons u213"       → team=Pistons, under, 213
+  "Cubs F5 -150"       → team=Cubs, ML (F5 = first 5 innings context; -150 is juice)
 
-spread — team name followed by a +/- number under 100.
-  "Orioles -1.5" → spread -1.5
-  "Orioles -1.5 5u" → spread -1.5 (5u = unit size, ignore)
-  "Blue Jays F5 +.5 3u" → spread +0.5 (F5 = first 5 innings, still spread)
-  "Suns -10" → spread -10
-  "Run Line" in MLB = spread. "Yankees Run Line -1.5 +125" → Yankees spread -1.5 (+125 is juice, ignore).
+BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner)
+  - ML: team wins outright. "reg", "moneyline", "MI" all mean ML.
+  - spread: team + number where abs(number) < 100
+  - over/under: "over"/"o" or "under"/"u" before a number. "u213" = under 213.
+  - NRFI: No Run First Inning (MLB only)
+  - Numbers >= 100 in absolute value are JUICE (odds), not spread. Ignore them.
 
-over — word "over" OR standalone letter "o" BEFORE a number.
-  "over 228.5" → over, spread_value=228.5
-  "oilers&sharks o6" → team=Oilers, over, 6
-  "Marlins / Reds O11" → team=Marlins, over, 11
+── CAPPER NAME ───────────────────────────────────────────────────────────────
+A line containing only a name (no pick info) is a capper header — all picks that follow belong to that capper until the next header or "=====" separator.
+  "SmartMoneySports"      → capper header
+  "Bet Labs"              → capper header (company names are valid)
+  "Jason Sharpe 8u MLB GOY" → capper=Jason Sharpe; "8u MLB GOY" are labels, not picks
+  "Big AL"                → capper header
+  Emoji before a name (✅🔮💎🔥) = capper marker; strip emoji, use name.
+  "=====" lines = block separator between cappers.
 
-under — word "under" OR standalone letter "u" BEFORE a number.
-  "under 7.5" → under, spread_value=7.5
-  "Stars u 5.5" → under, 5.5
-  "u 228.5" → under, 228.5
+── MULTI-CAPPER DIGESTS ──────────────────────────────────────────────────────
+Many community messages contain multiple capper blocks separated by "=====" lines.
+Extract EVERY pick from EVERY block. Assign each pick the correct capper_name.
 
-NRFI — No Run First Inning. MLB only. Valid pick type.
-  "Diamondbacks NRFI" → team=Diamondbacks, pick_type=NRFI, sport=MLB.
-  "Mets NRFI -130" → team=Mets, pick_type=NRFI, sport=MLB. (-130 is juice, ignore)
+  Example:
+    "SmartMoneySports"          → capper=SmartMoneySports
+    "Cubs F5 -150 (2U)"         → Cubs ML, capper=SmartMoneySports
+    "Braves +100 (2u)"          → Braves ML, capper=SmartMoneySports
+    "White Sox +100 (2u)"       → White Sox ML, capper=SmartMoneySports
+    "Cavaliers +4 (5u)"         → Cavaliers spread +4, capper=SmartMoneySports
+    "======"                    → separator
+    "Ben Burns"                 → capper=Ben Burns
+    "3% Avalanche under 6.5"    → Avalanche under 6.5, capper=Ben Burns
+    "======"
+    "Stephen Nover"             → capper=Stephen Nover
+    "3* Pistons -3.5"           → Pistons spread -3.5, capper=Stephen Nover
+    → Return all picks found across all blocks.
 
-UNIT SIZE / BET SIZING / STAR RATINGS — ignore completely, extract the pick normally.
-  Unit sizes: "5u", "3u", "2u", "0.75u", "1U". Bet percentages: "4%", "10%". Star ratings: "1*", "2*", "3*", "5*".
-  "Royals ML 2u" → Royals ML. "Orioles -1.5 5u" → Orioles spread -1.5.
-  "4% NHL / Hurricanes 3way" → ignore "4% NHL", extract Hurricanes ML.
-  "1* Pirates -139" → Pirates ML (-139 is juice). "3* MLB TOTAL OF WEEK" → section label, not a pick.
-  A line containing ONLY a unit size, star rating, or percentage is NOT a pick.
+── COMPACT LINES ─────────────────────────────────────────────────────────────
+One line or block can contain multiple picks. Extract all of them.
+  "Guardians ml Cin over 9 Pistons ml" → 3 picks
+  "Shark\nGuardians ml\nCin over 9\nAz tto\nPistons ml"
+    → "Shark" is capper; "Az tto" likely means Arizona team to... skip if unclear but extract the others
 
-RECORDS — not picks, skip entirely.
-  "(16-4)", "MLB 2026: -35.3units", "61-34 NHL", "Overall Record 2-5", "Contest Record 2-5"
-  Any line that is purely a win-loss record or unit tally = skip.
+── LABELS TO IGNORE (not picks) ─────────────────────────────────────────────
+These words/lines are context labels — read past them to find the actual pick:
+  Unit sizes: "1U", "2u", "5*", "3%", "8u", "GOY", "POW", "Game of Month", "Game of Year", "Top Play", "Play of the Week", "MLB Top Play", "NBA Top Play"
+  Records: "(16-4)", "24-16 MLB", "2-1 / 124~88"
+  Sport labels alone: "NBA", "MLB", "NHL" on their own line
+  Sportsbook refs: "@DK", "@FanDuel", "BET365"
+  Pitcher names in parens: "(Cease)", "(Chandler)"
+  Game times: "6:45 pm", "8:00 pm"
 
-CAPPER NAME — appears alone on a line before picks, or as the first line of a message block.
-  "Mrbigbets lunch $" → capper_name=Mrbigbets
-  "Zapped bets (16-4)" → capper_name=Zapped bets
-  "NewYorkSharps 10% Exclusive: ..." → capper_name=NewYorkSharps
-  "BataBingBets: (87-39 MLB)..." → capper_name=BataBingBets
+── SKIP ONLY THESE ───────────────────────────────────────────────────────────
+Skip (is_pick=false) ONLY when there is clearly no team+bet in the message at all:
+  - Pure player props: individual player stat lines like "LeBron over 25.5 PTS", "Soroka u4.5 K's"
+    (Signal: player first+last name + stat word like pts/rebounds/assists/strikeouts/yards/hits)
+  - Pure records with no pick: "Overall: 61-34"
+  - Parlay descriptions with no individual team picks extractable
 
-COMPACT MULTI-PICK LINES — a single line may contain multiple picks separated by spaces or words:
-  "Guardians ml Cin over 9 Pistons ml" → THREE picks: Guardians ML + Cincinnati over 9 + Pistons ML
-  "Shark Guardians ml Cin over 9 Az tto Pistons ml" → "Shark" is likely a capper name; extract all picks: Guardians ML, Cin over 9, Pistons ML
-  Do not stop at the first pick — scan the entire line for every team+pick_type combination.
+If a message has even one valid team pick, return it.
 
-MATCHUP FORMAT "Team A / Team B line", "Team A & Team B line", or "Team A vs. Team B line" — first team is the pick.
-  "Marlins / Reds under 7.5 3u" → team=Marlins, under, 7.5
-  "oilers&sharks o6" → team=Oilers, over, 6
-  "Lakers / Warriors +4" → team=Lakers, spread, +4
-  "Giants vs. Nationals Over 8 Runs" → team=Giants, over, 8 ("Runs" is a unit word, ignore).
-  "Rays vs. Pirates Under 8.5 Runs" → team=Rays, under, 8.5.
-  "Kansas City Royals at New York Yankees: F5 Total Under 4.5" → team=Royals, under, 4.5.
-  "Team A at Team B" format — first team is AWAY (the pick is still the first team).
+── TEAM NAMES ────────────────────────────────────────────────────────────────
+Return the team name as written. Expand obvious NBA nicknames:
+  Cavs→Cavaliers, Dubs→Warriors, Raps→Raptors, Pels→Pelicans, Wiz→Wizards,
+  Clips→Clippers, Nugs→Nuggets, Grizz→Grizzlies
 
-TEAM — return exactly as the capper wrote it. The system resolves it.
-  3-4 letter abbreviations are valid: "VGK ML" → team=VGK. "TOR +1.5" → team=TOR.
-  ALL CAPS is valid: "ROYALS ML" → team=Royals.
-  If a city prefix precedes a full nickname ("CIN Reds" → "Reds"), drop the prefix.
-  Do not change pluralization: "Thunders" → "Thunder". "Sox" stays "Sox".
-  NBA INFORMAL NICKNAMES — expand to the standard name ESPN uses (never return the slang shorthand):
-    "Cavs" → "Cavaliers". "Dubs" → "Warriors". "Raps" → "Raptors".
-    "Pels" → "Pelicans". "Wiz" → "Wizards". "Clips" → "Clippers".
-    "Nugs" → "Nuggets". "Bockers"/"Bockers" → "Knicks". "Grizz" → "Grizzlies".
+For tennis (ATP/WTA): "team" = player last name or full name as written.
+For golf: "team" = player last name. sport=Golf only with explicit golf context.
 
-SPORT — one of: NBA, CBB, WCBB, NFL, NHL, MLB, NCAAF, ATP, WTA, Golf.
-  Determine from team names and context.
-  WCBB only if message explicitly says "women" or "WNCAA".
-  ATP = men's professional tennis. WTA = women's professional tennis.
-
-TENNIS (ATP/WTA) — "team" is the player's last name or full name as written.
-  "Djokovic ML" → team=Djokovic, pick_type=ML, sport=ATP
-  "Sinner ML 2u" → team=Sinner, pick_type=ML, sport=ATP
-  "Alcaraz -4.5 games" → team=Alcaraz, pick_type=spread, spread_value=-4.5, sport=ATP
-  "Swiatek ML" → team=Swiatek, pick_type=ML, sport=WTA
-  "Alcaraz over 22.5 games" → team=Alcaraz, pick_type=over, spread_value=22.5, sport=ATP
-  "under 21.5 total games Sinner" → team=Sinner, pick_type=under, spread_value=21.5, sport=ATP
-  SET PICKS — when a capper picks a player to win a specific set:
-    "Djokovic to win Set 1" → team=Djokovic, pick_type=set_ml, spread_value=1, sport=ATP
-    "Sinner Set 2 ML -130" → team=Sinner, pick_type=set_ml, spread_value=2, sport=ATP
-    "take Alcaraz 1st set" → team=Alcaraz, pick_type=set_ml, spread_value=1, sport=ATP
-    "Swiatek wins set 3" → team=Swiatek, pick_type=set_ml, spread_value=3, sport=WTA
-    Store the set number (1, 2, or 3) in spread_value for set_ml picks.
-  Player names are NOT capper_name values. Use ATP unless the message explicitly says WTA.
-
-MONEYLINE ODDS vs SPREAD — critical rule:
-  abs(number) < 100 → SPREAD. abs(number) >= 100 → ML (do not set spread_value).
-  "Suns -10" → spread -10.  "Magic -6.5" → spread -6.5.
-  "Brewers +120" → ML.  "Padres -108" → ML.
-
-BETTING JUICE — ignore, extract the pick normally.
-  "Knicks -6 -110 @ ProphetX" → Knicks spread -6. "Bulls ML (-115)" → Bulls ML.
-  Sportsbook references after "@" (e.g. "@DK", "@FanDuel") are never part of the pick.
-
-EXOTIC BETS — skip entirely.
-  YRFI, F5 (first 5 innings standalone), alt lines, same-game parlays → skip.
-
-PLAYER PROPS — skip entirely.
-  Skip if subject is a person's individual stat performance, not a team result.
-  Signal: player first + last name before a stat ("LeBron u 25.5 PTS" → skip).
-  Signal: stat words after the number: outs, strikeouts, Ks, yards, TDs, pts, assists, rebounds, hits.
-  "Rhett Lowder (Reds) u 15.5 outs" → skip. "Allen (CLE) O7.5 REB" → skip.
-
-IGNORE: emoji, reactions, "local book", context odds like "(+179)", parlay references, "NOT EXCLUSIVE".
-  Also ignore: "Best Bet:" prefix (extract the pick that follows normally).
-  Also ignore: pitcher names in parentheses like "(Chandler)" or "(Cease)" in MLB picks.
-  Also ignore: game times like "6:45 pm", "8:00 pm" appended to a pick line.
-  Also ignore: section headers like "MLB Selections", "UFL Football Selections", "NBA", "MLB" alone on a line — these are sport/section labels, not picks.
-  Also ignore: "Action" at the end of a pick line — it is a sportsbook qualifier, not part of the pick.
-
-MONEYLINE ABBREVIATION "MI":
-  "MI" means moneyline. Treat identically to "ML".
-  "Suns MI" → Suns ML. "Lakers MI" → Lakers ML. "Thunder MI 2u" → Thunder ML.
-
-MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple cappers.
-  A capper header looks like: emoji + name + optional label, OR a plain name alone on its own line.
-  "🔮PorterPicks Full Card Thursday" → capper_name=PorterPicks for all picks that follow, until the next capper header.
-  "🔮P4D_Picks4Dayzzz" alone on a line → capper_name=P4D_Picks4Dayzzz.
-  Emoji prefixes (✅ 🔮 ⚾ 🏀 🏒 🎾 💎 🔥 ✔️ 🟢 etc.) before a name are capper markers — strip the emoji, the text before any space or bracket is the capper handle.
-  "Full Card [Day]", "Today's Card", "Card for [Day]", "Full Card" after the name are section labels — ignore, not picks.
-  When a new emoji-prefixed capper line appears, switch capper_name for all picks that follow.
-
-  PLAIN NAME HEADERS (no emoji) — a line that is just a person/company name with no pick information is also a capper header.
-  "Docs Sports" alone on a line → capper_name=Docs Sports for all picks that follow.
-  "Hakeem Profit" alone on a line → capper_name=Hakeem Profit.
-  "Stephen Nover" alone on a line → capper_name=Stephen Nover.
-  If the next line is a sport label ("NBA", "NHL", "MLB") possibly followed by a unit size ("7U", "3*"), that line is context — not a pick. The actual pick is on the line after.
-
-  SEPARATOR LINES — lines consisting only of "=" characters (e.g. "====", "======") are capper block dividers. They mark the end of one capper's section. Treat them like a blank line between blocks.
-
-  Extract ALL picks from the message, each labeled with their correct capper_name.
-
-  MIXED-CONTENT DIGESTS — some capper sections may contain only player props (individual stat lines).
-  Skip those sections entirely, but DO NOT return is_pick=false for the whole message.
-  Any message that has at least one valid team pick must return those picks.
-
-  Example digest:
-    "NickyCashin (17-4 MLB)" → capper header; (17-4 MLB) is a record, not a pick
-    "Toronto Blue Jays ML (-125) 1.5U" → valid: team=Blue Jays, ML, capper=NickyCashin
-    "Seattle Mariners ML (-140) 1.5U"  → valid: team=Mariners, ML, capper=NickyCashin
-    "San Francisco Giants +1.5 (-117) 1.5U" → valid: team=Giants, spread=-1.5, capper=NickyCashin
-    "Matthewp07" → capper header
-    "Michael Soroka over 4.5 hits allowed" → SKIP — player prop (pitcher first+last + stat)
-    "Peter Lambert under 15.5 outs"        → SKIP — player prop
-    "Junior Caminero over 1.5 total bases" → SKIP — player prop
-    "Donovan Mitchell over 8.5 rebs+asts"  → SKIP — player prop
-    "MrBigBets" → capper header
-    "Yankees/O's O 9 -110 1u"  → team=Yankees, pick_type=over, spread_value=9 ("O's"=Orioles nickname; "O 9"=over 9; -110 is juice)
-    "Rangers ML -134 1u"       → valid: team=Rangers, ML, capper=MrBigBets
-    "Guardians -1.5 +128 .5u"  → valid: team=Guardians, spread=-1.5 (+128 is juice, ignore), capper=MrBigBets
-    → Return 6 picks total (NickyCashin×3, MrBigBets×3). Matthewp07 section skipped.
-
-  UNIT-PERCENTAGE FORMAT (common in community-leaks digests):
-    "Hakeem Profit" alone on a line → capper header
-    "5% Cavs under 213" → team=Cavaliers, pick_type=under, spread_value=213, sport=NBA, capper_name=Hakeem Profit
-    "Teddy Covers" alone on a line → capper header
-    "5% Cavs under 212.5" → team=Cavaliers, under, 212.5, capper_name=Teddy Covers
-    "Tokyo Brandon" alone on a line → capper header
-    "5% Marlins ML" → team=Marlins, ML, sport=MLB, capper_name=Tokyo Brandon
-    "=======" → separator, marks end of block
-    "MidwestMike" alone on a line → capper header
-    "NBA Top Play" → section label, skip
-    "Play of the week" → section label, skip
-    "6 unit" → unit size, skip
-    "Pistons u213 (-125)" → team=Pistons, under, 213, capper_name=MidwestMike  (u213 = under 213)
-    "Top Play" → section label, skip
-    "5 unit Pistons -3" → team=Pistons, spread, -3, capper_name=MidwestMike
-    "MLB" → sport label, skip
-    "3u Guardians (-150)" → team=Guardians, ML, sport=MLB, capper_name=MidwestMike  (-150 is juice)
-    → Return 6 picks total (one per capper line, three for MidwestMike).
-
-EMBEDDED CARDS / TREND CARDS (TrendsCenter and similar bots):
-  These bots post embed cards with image attachments and a card title.
-  Ignore image attachments entirely. Ignore card titles like "Trends Center", "TrendsCenter Alert".
-  Extract the pick ONLY from the plain text description: e.g. "Trends heavily favor the [Team] to cover tonight" → team=[Team], pick type from context.
-  "Public money and sharp action on [Team] ML" → team=[Team], pick_type=ML.
-  If no clear pick can be identified from plain text alone, return is_pick=false — do not guess.
-
-GOLF (PGA Tour) — sport=Golf. "team" is the player's last name or full name as written.
-  Outright tournament winner: "DeChambeau ML" → team=DeChambeau, pick_type=ML, sport=Golf.
-  Head-to-head matchup: "Rory -115 over Scheffler" → team=McIlroy, pick_type=h2h, vs_player=Scheffler, sport=Golf.
-  "Rory over Scheffler" (no number) → team=McIlroy, pick_type=h2h, vs_player=Scheffler, sport=Golf.
-  Top N finish: "Scheffler top 5" → team=Scheffler, pick_type=top5, sport=Golf.
-               "Rory top 10" → team=McIlroy, pick_type=top10, sport=Golf.
-  Round score prop: "Rory under 67.5" → team=McIlroy, pick_type=under, spread_value=67.5, sport=Golf.
-  CRITICAL: "over" in a golf head-to-head ("Rory over Scheffler") means Rory wins the matchup — pick_type=h2h, NOT pick_type=over.
-  Only use pick_type=over/under for golf when a numeric score line is present (e.g. "under 67.5 strokes").
-  Golf player names are NOT capper names. Use pick context (odds, "over [opponent name]", "top N") to distinguish.
-  Do not infer sport=Golf from player names alone — there must be explicit golf context (tournament name, "Masters", "PGA", "top 5 finish", etc.).
-
-GAME MATCHING — When today's games are listed in the message, match each pick to a game.
-  Team name is the primary signal. Spread value is a secondary hint only — lines move, so close is fine.
-  Return espn_game_id and picked_side when confident. Omit both if the team isn't playing today or uncertain.
-  "Yanks ML" → matches Yankees game → espn_game_id + picked_side=away or home depending on matchup.
-  Golf picks: do not attempt to match golf picks to today_games — omit espn_game_id for all Golf picks.
+── GAME MATCHING ─────────────────────────────────────────────────────────────
+When today's games are listed, match each pick to a game by team name.
+Return espn_game_id + picked_side (home/away) when confident.
+Omit both if uncertain. Never match golf picks to today_games.
 `.trim();
 
 // ── Tool schema ───────────────────────────────────────────────────────────────
