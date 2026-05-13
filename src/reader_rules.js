@@ -55,6 +55,11 @@ CAPPER NAME — appears alone on a line before picks, or as the first line of a 
   "NewYorkSharps 10% Exclusive: ..." → capper_name=NewYorkSharps
   "BataBingBets: (87-39 MLB)..." → capper_name=BataBingBets
 
+COMPACT MULTI-PICK LINES — a single line may contain multiple picks separated by spaces or words:
+  "Guardians ml Cin over 9 Pistons ml" → THREE picks: Guardians ML + Cincinnati over 9 + Pistons ML
+  "Shark Guardians ml Cin over 9 Az tto Pistons ml" → "Shark" is likely a capper name; extract all picks: Guardians ML, Cin over 9, Pistons ML
+  Do not stop at the first pick — scan the entire line for every team+pick_type combination.
+
 MATCHUP FORMAT "Team A / Team B line", "Team A & Team B line", or "Team A vs. Team B line" — first team is the pick.
   "Marlins / Reds under 7.5 3u" → team=Marlins, under, 7.5
   "oilers&sharks o6" → team=Oilers, over, 6
@@ -160,6 +165,25 @@ MULTI-CAPPER BLOCKS — a single Discord message may contain picks from multiple
     "Rangers ML -134 1u"       → valid: team=Rangers, ML, capper=MrBigBets
     "Guardians -1.5 +128 .5u"  → valid: team=Guardians, spread=-1.5 (+128 is juice, ignore), capper=MrBigBets
     → Return 6 picks total (NickyCashin×3, MrBigBets×3). Matthewp07 section skipped.
+
+  UNIT-PERCENTAGE FORMAT (common in community-leaks digests):
+    "Hakeem Profit" alone on a line → capper header
+    "5% Cavs under 213" → team=Cavaliers, pick_type=under, spread_value=213, sport=NBA, capper_name=Hakeem Profit
+    "Teddy Covers" alone on a line → capper header
+    "5% Cavs under 212.5" → team=Cavaliers, under, 212.5, capper_name=Teddy Covers
+    "Tokyo Brandon" alone on a line → capper header
+    "5% Marlins ML" → team=Marlins, ML, sport=MLB, capper_name=Tokyo Brandon
+    "=======" → separator, marks end of block
+    "MidwestMike" alone on a line → capper header
+    "NBA Top Play" → section label, skip
+    "Play of the week" → section label, skip
+    "6 unit" → unit size, skip
+    "Pistons u213 (-125)" → team=Pistons, under, 213, capper_name=MidwestMike  (u213 = under 213)
+    "Top Play" → section label, skip
+    "5 unit Pistons -3" → team=Pistons, spread, -3, capper_name=MidwestMike
+    "MLB" → sport label, skip
+    "3u Guardians (-150)" → team=Guardians, ML, sport=MLB, capper_name=MidwestMike  (-150 is juice)
+    → Return 6 picks total (one per capper line, three for MidwestMike).
 
 EMBEDDED CARDS / TREND CARDS (TrendsCenter and similar bots):
   These bots post embed cards with image attachments and a card title.
