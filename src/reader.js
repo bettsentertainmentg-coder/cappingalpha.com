@@ -326,7 +326,7 @@ function correctPickType(parsed) {
   return parsed;
 }
 
-const BATCH_SIZE   = 1;
+const BATCH_SIZE   = 3;
 const MAX_MSG_CHARS = 1500;
 
 // ── Batch entry point (scanner's main path) ───────────────────────────────────
