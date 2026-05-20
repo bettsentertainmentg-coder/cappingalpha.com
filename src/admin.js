@@ -628,6 +628,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <button class="btn" style="background:#7c3aed;color:#fff;" onclick="confirmAction('rescan')">Rescan From 6am</button>
             <button class="btn" style="background:#0f766e;color:#fff;" onclick="confirmAction('skipped')" id="btn-skipped">Rescan Skipped</button>
             <button class="btn" style="background:#b45309;color:#fff;" onclick="confirmAction('odds')" id="btn-odds">Refresh Odds Now</button>
+            <button class="btn" style="background:#1d4ed8;color:#fff;" onclick="confirmAction('fetch-games')" id="btn-fetch-games">Re-fetch Today's Games</button>
           </div>
         </div>
         <div id="scan-status" style="flex:1;background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;min-height:80px;display:flex;align-items:center;">
@@ -1224,6 +1225,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
           confirm: null,
           typed: false,
         },
+        'fetch-games': {
+          title: "Re-fetch Today's Games",
+          color: '#1d4ed8',
+          body: "Re-fetches today's ESPN game schedule for all team sports + tennis, then reseeds pick slots. Use this after a redeploy when picks are landing in 'skipped' due to missing games.",
+          cost: 'Free — ESPN API only, no credits used.',
+          confirm: null,
+          typed: false,
+        },
       };
 
       function confirmAction(key) {
@@ -1295,6 +1304,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const data = await res.json();
           btn.disabled = false; btn.textContent = 'Refresh Odds Now';
           alert(data.ok ? 'Done: ' + data.updated + ' games updated, slots reseeded.' : 'Error: ' + data.error);
+        } else if (key === 'fetch-games') {
+          const btn = document.getElementById('btn-fetch-games');
+          btn.disabled = true; btn.textContent = 'Fetching...';
+          await fetch('/admin/fetch-games', { method: 'POST' });
+          setTimeout(() => { btn.disabled = false; btn.textContent = "Re-fetch Today's Games"; }, 15000);
+          showStatus('scanning', "Fetching today's games + seeding slots (takes ~10s)...");
         }
       }
 
@@ -2057,6 +2072,20 @@ router.post('/rescan-skipped', requireAuth, (_req, res) => {
   const count = db.prepare(`SELECT COUNT(*) AS c FROM skipped_messages`).get().c;
   rescanSkipped().catch(err => console.error('[admin] rescanSkipped error:', err.message));
   res.json({ ok: true, queued: count });
+});
+
+// ── POST /admin/fetch-games — re-fetch ESPN schedule + seed slots ─────────────
+router.post('/fetch-games', requireAuth, (_req, res) => {
+  res.json({ ok: true });
+  (async () => {
+    const { fetchTodaysGames } = require('./espn_live');
+    const { fetchTodaysTennisMatches } = require('./tennis_espn');
+    const { seedPickSlots } = require('./lines');
+    await fetchTodaysGames();
+    await fetchTodaysTennisMatches();
+    await seedPickSlots();
+    console.log('[admin] fetch-games: done');
+  })().catch(err => console.error('[admin] fetch-games error:', err.message));
 });
 
 // ── GET /admin/mvp → redirect ─────────────────────────────────────────────────

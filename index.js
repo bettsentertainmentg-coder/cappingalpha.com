@@ -706,14 +706,20 @@ app.listen(PORT, () => {
   await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
 
-  const gameCount = db.prepare('SELECT COUNT(*) AS c FROM today_games').get().c;
-  if (gameCount === 0) {
-    console.log('[startup] today_games empty — fetching ESPN games and seeding slots...');
+  // Check for team sport games specifically — tennis rows alone don't count,
+  // since tennis is always fetched above and would make gameCount > 0 even when
+  // NBA/MLB/NHL games are missing (common after a mid-day restart or outage redeploy).
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const teamGameCount = db.prepare(
+    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf') AND date(start_time) = ?`
+  ).get(todayStr).c;
+  if (teamGameCount === 0) {
+    console.log('[startup] no team sport games for today — fetching ESPN games and seeding slots...');
     await fetchTodaysGames().catch(err => console.error('[startup] fetchTodaysGames error:', err.message));
     const { seedPickSlots } = require('./src/lines');
     await seedPickSlots().catch(err => console.error('[startup] seedPickSlots error:', err.message));
   } else {
-    console.log(`[startup] today_games has ${gameCount} games — skipping seed`);
+    console.log(`[startup] today_games has ${teamGameCount} team sport games — skipping seed`);
   }
 
   // Populate ESPN odds (DraftKings) into today_games + book_lines.
