@@ -1,4 +1,4 @@
-// src/discord_scanner.js — Discord channel scanner via selfbot
+// src/expert_data.js — expert data source ingestion (channel scanner via selfbot)
 // free-plays channel (1.5x, with sport record extraction)
 // community-leaks channel (1.0x, pick + team focus, lower trust)
 // pod-thread channel (1.25x, between free-plays and community)
@@ -21,6 +21,9 @@ const CHANNELS = [
   { id: COMMUNITY_CHANNEL_ID,  name: 'community-leaks', weight: 1.0,  extractRecord: false },
   { id: POD_CHANNEL_ID,        name: 'pod-thread',      weight: 1.25, extractRecord: false },
 ];
+
+// Fast lookup for the live messageCreate listener: channel ID → config
+const CHANNEL_BY_ID = new Map(CHANNELS.filter(c => c.id).map(c => [c.id, c]));
 
 // ── Title-case a team name: "LAKERS" → "Lakers", "MIAMI HEAT" → "Miami Heat" ─
 function titleCase(str) {
@@ -70,6 +73,110 @@ function newestId(messages) {
   return max;
 }
 
+// ── Process a single Discord message: extract picks, validate, save ───────────
+// Shared by the batch scanner (scanChannel) and the live messageCreate listener.
+// Returns the number of picks saved from this message.
+async function processMessage(msg, channelConfig, window) {
+  const { windowStart, windowEnd } = window || getCycleWindow();
+  const ts = msg.createdTimestamp;
+  if (ts < windowStart || ts >= windowEnd) {
+    const outET = new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 16);
+    console.log(`[Scanner] Skipped out-of-window message from ${outET} ET`);
+    return 0;
+  }
+  const msgDateET = new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 10);
+  // Skip messages with no real text (pure image posts, reactions, etc.)
+  // Threshold is 4 to allow short picks like "VGK ML" (6 chars)
+  if (!msg.content || msg.content.trim().length < 4) return 0;
+
+  const isSweet16 = /sweet\s*1?6|sweet\s+sixteen/i.test(msg.content);
+
+  // reader.js handles extraction
+  const picks = await readMessage({
+    content:   msg.content,
+    channel:   channelConfig.name,
+    author:    msg.author?.username || null,
+    id:        msg.id,
+    createdAt: msg.createdAt,
+  });
+
+  // Track whether this message produced any saved picks
+  let msgSaved = 0;
+  let skipReason = picks.length === 0 ? 'no_pick' : null;
+
+  for (const pick of picks) {
+    // Normalize casing
+    if (pick.team) pick.team = titleCase(pick.team);
+
+    // Sweet 16 messages are always CBB
+    if (isSweet16 && (pick.sport || '').toUpperCase() !== 'CBB') {
+      console.log(`[Scanner] Sweet 16 override: ${pick.team} sport ${pick.sport} → CBB`);
+      pick.sport = 'CBB';
+    }
+
+    // ESPN lookup — validates team has a game today
+    let todayGame = lookupTodayGame(pick.team, msgDateET);
+
+    // Fallback: if the full string didn't match, try each word individually
+    // Handles "CIN Reds" → try "CIN" then "Reds"; "Reds" finds Cincinnati Reds
+    if (!todayGame) {
+      const words = pick.team.trim().split(/\s+/);
+      for (const word of words) {
+        if (word.length < 3) continue;
+        const g = lookupTodayGame(word, msgDateET);
+        if (g) {
+          console.log(`[Scanner] Word fallback: "${pick.team}" matched via "${word}" → ${g.home_team} vs ${g.away_team}`);
+          todayGame = g;
+          pick.team = word;
+          break;
+        }
+      }
+    }
+
+    if (!todayGame) {
+      console.log(`[Scanner] Dropped: ${pick.team} (${pick.sport}) — no game found today`);
+      skipReason = 'no_game';
+      continue;
+    }
+
+    // Use ESPN's canonical sport label
+    pick.sport = todayGame.sport;
+
+    // Canonicalize team name to full ESPN display name for consistent dedup
+    const tl = pick.team.toLowerCase();
+    const homeMatch =
+      (todayGame.home_team  || '').toLowerCase().includes(tl) ||
+      (todayGame.home_short || '').toLowerCase().includes(tl) ||
+      (todayGame.home_name  || '').toLowerCase().includes(tl);
+    const canonical = homeMatch ? todayGame.home_team : todayGame.away_team;
+    if (canonical && canonical !== pick.team) {
+      console.log(`[Scanner] Canonical: "${pick.team}" → "${canonical}"`);
+      pick.team = canonical;
+    }
+
+    // Augment pick with fields storage.js needs
+    pick.is_home_team  = homeMatch;
+    pick.game_date     = msgDateET;
+    pick.espn_game_id  = todayGame.espn_game_id || null;
+
+    console.log(`[Scanner] Saving: ${pick.team} (${pick.sport})`);
+    savePick(pick);
+    msgSaved++;
+  }
+
+  // If no picks were saved from this message, record it for later rescan
+  if (msgSaved === 0 && skipReason) {
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO skipped_messages (message_id, channel, author, content, reason)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(msg.id, channelConfig.name, msg.author?.username || null, msg.content, skipReason);
+    } catch (_) {}
+  }
+
+  return msgSaved;
+}
+
 // ── Scan a single channel (incremental via Discord "after" snowflake) ─────────
 async function scanChannel(channelConfig) {
   if (!channelConfig.id) {
@@ -115,113 +222,20 @@ async function scanChannel(channelConfig) {
       }
     }
 
-    // Valid window: 6:00am ET today → 5:58am ET tomorrow
     // Valid window: 6:00am ET on cycle-start day → 5:58am ET on cycle-end day
-    const { windowStart, windowEnd } = getCycleWindow();
+    const window = getCycleWindow();
 
     for (const [, msg] of messages) {
-      const ts = msg.createdTimestamp;
-      if (ts < windowStart || ts >= windowEnd) {
-        const msgDateET = new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 16);
-        console.log(`[Scanner] Skipped out-of-window message from ${msgDateET} ET`);
-        continue;
-      }
-      const msgDateET = new Date(ts - ET_OFFSET_MS).toISOString().slice(0, 10);
-      // Skip messages with no real text (pure image posts, reactions, etc.)
-      // Threshold is 4 to allow short picks like "VGK ML" (6 chars)
-      if (!msg.content || msg.content.trim().length < 4) continue;
-
-      const isSweet16 = /sweet\s*1?6|sweet\s+sixteen/i.test(msg.content);
-
-      // reader.js handles extraction
-      const picks = await readMessage({
-        content:   msg.content,
-        channel:   channelConfig.name,
-        author:    msg.author?.username || null,
-        id:        msg.id,
-        createdAt: msg.createdAt,
-      });
-
-      // Track whether this message produced any saved picks
-      let msgSaved = 0;
-      let skipReason = picks.length === 0 ? 'no_pick' : null;
-
-      for (const pick of picks) {
-        // Normalize casing
-        if (pick.team) pick.team = titleCase(pick.team);
-
-        // Sweet 16 messages are always CBB
-        if (isSweet16 && (pick.sport || '').toUpperCase() !== 'CBB') {
-          console.log(`[Scanner] Sweet 16 override: ${pick.team} sport ${pick.sport} → CBB`);
-          pick.sport = 'CBB';
-        }
-
-        // ESPN lookup — validates team has a game today
-        let todayGame = lookupTodayGame(pick.team, msgDateET);
-
-        // Fallback: if the full string didn't match, try each word individually
-        // Handles "CIN Reds" → try "CIN" then "Reds"; "Reds" finds Cincinnati Reds
-        if (!todayGame) {
-          const words = pick.team.trim().split(/\s+/);
-          for (const word of words) {
-            if (word.length < 3) continue;
-            const g = lookupTodayGame(word, msgDateET);
-            if (g) {
-              console.log(`[Scanner] Word fallback: "${pick.team}" matched via "${word}" → ${g.home_team} vs ${g.away_team}`);
-              todayGame = g;
-              pick.team = word;
-              break;
-            }
-          }
-        }
-
-        if (!todayGame) {
-          console.log(`[Scanner] Dropped: ${pick.team} (${pick.sport}) — no game found today`);
-          skipReason = 'no_game';
-          continue;
-        }
-
-        // Use ESPN's canonical sport label
-        pick.sport = todayGame.sport;
-
-        // Canonicalize team name to full ESPN display name for consistent dedup
-        const tl = pick.team.toLowerCase();
-        const homeMatch =
-          (todayGame.home_team  || '').toLowerCase().includes(tl) ||
-          (todayGame.home_short || '').toLowerCase().includes(tl) ||
-          (todayGame.home_name  || '').toLowerCase().includes(tl);
-        const canonical = homeMatch ? todayGame.home_team : todayGame.away_team;
-        if (canonical && canonical !== pick.team) {
-          console.log(`[Scanner] Canonical: "${pick.team}" → "${canonical}"`);
-          pick.team = canonical;
-        }
-
-        // Augment pick with fields storage.js needs
-        pick.is_home_team  = homeMatch;
-        pick.game_date     = msgDateET;
-        pick.espn_game_id  = todayGame.espn_game_id || null;
-
-        console.log(`[Scanner] Saving: ${pick.team} (${pick.sport})`);
-        savePick(pick);
-        saved++;
-        msgSaved++;
-      }
-
-      // If no picks were saved from this message, record it for later rescan
-      if (msgSaved === 0 && skipReason) {
-        try {
-          db.prepare(`
-            INSERT OR IGNORE INTO skipped_messages (message_id, channel, author, content, reason)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(msg.id, channelConfig.name, msg.author?.username || null, msg.content, skipReason);
-        } catch (_) {}
-      }
+      saved += await processMessage(msg, channelConfig, window);
     }
 
-    // Persist newest message ID so next scan resumes from here
+    // Persist newest message ID so next scan resumes from here. Forward-only:
+    // the live messageCreate listener may have already advanced state past this
+    // scan's window, and we must never regress it (would cause needless re-reads).
     const newest = newestId(messages) ||
       String((BigInt(Date.now() - 1420070400000) << BigInt(22)));
-    setLastMessageId(channelConfig.id, newest);
+    const curId = getLastMessageId(channelConfig.id);
+    if (!curId || BigInt(newest) > BigInt(curId)) setLastMessageId(channelConfig.id, newest);
 
     console.log(`[CappperBoss:scanner] ${channelConfig.name}: ${saved} picks from ${messages.size} new messages`);
   } catch (err) {
@@ -276,6 +290,37 @@ async function scanAll() {
 
 const runScan = scanAll;
 
+// ── Live (event-driven) message processing ────────────────────────────────────
+// messageCreate fires the instant a pick is posted. Messages are pushed to a
+// serial queue so bursts are never dropped and the reader is never hammered
+// concurrently. Each processed message advances scanner_state, so the periodic
+// scanAll() cron becomes a free safety net (finds nothing new in steady state,
+// only catches messages missed during gateway disconnects).
+const liveQueue = [];
+let liveDraining = false;
+
+async function drainLiveQueue() {
+  if (liveDraining) return;
+  liveDraining = true;
+  try {
+    while (liveQueue.length) {
+      const { msg, cfg } = liveQueue.shift();
+      try {
+        const saved = await processMessage(msg, cfg);
+        // Advance scanner_state forward-only so the periodic scan won't re-read this
+        const lastId = getLastMessageId(cfg.id);
+        if (!lastId || BigInt(msg.id) > BigInt(lastId)) setLastMessageId(cfg.id, msg.id);
+        if (saved > 0) scanState.lastSaved = saved;
+        scanState.lastScanAt = new Date().toISOString();
+      } catch (err) {
+        console.error('[CappperBoss:scanner] live process error:', err.message);
+      }
+    }
+  } finally {
+    liveDraining = false;
+  }
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 function init() {
   if (!USER_TOKEN) {
@@ -287,6 +332,15 @@ function init() {
     clientReady = true;
     console.log(`[CappperBoss:scanner] Discord ready as ${client.user.tag}`);
     await scanAll();
+  });
+
+  // Event-driven instant picks: process each new message the moment it lands.
+  client.on('messageCreate', (msg) => {
+    const cfg = CHANNEL_BY_ID.get(msg.channelId);
+    if (!cfg) return; // not one of our scanned channels
+    if (!msg.content || msg.content.trim().length < 4) return;
+    liveQueue.push({ msg, cfg });
+    drainLiveQueue();
   });
 
   client.on('error', (err) => console.error('[CappperBoss:discord]', err.message));

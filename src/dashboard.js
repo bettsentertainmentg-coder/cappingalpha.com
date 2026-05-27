@@ -5,7 +5,7 @@ const path    = require('path');
 const db      = require('./db');
 const { getRankedPicks, recalculateToday } = require('./value_engine');
 const { getMonitoredGames, lookupTodayGame } = require('./espn_live');
-const { runScan } = require('./discord_scanner');
+const { runScan } = require('./expert_data');
 const { getTodayAlerts }    = require('./alerts');
 
 const app = express();

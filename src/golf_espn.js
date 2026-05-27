@@ -2,7 +2,7 @@
 // Template: mirrors tennis_espn.js pattern but for multi-day golf tournaments.
 // Tournaments never wiped — golf_picks and golf_tournaments persist across daily wipe.
 //
-// DO NOT import espn_live.js or touch discord_scanner.js.
+// DO NOT import espn_live.js or touch expert_data.js.
 
 const db = require('./db');
 

@@ -13,7 +13,7 @@ const crypto   = require('crypto');
 const SQLiteStore = require('./src/session_store');
 
 const db      = require('./src/db');
-const scanner = require('./src/discord_scanner');
+const scanner = require('./src/expert_data');
 const admin   = require('./src/admin');
 const auth    = require('./src/auth');
 const { runDailyWipe }                    = require('./src/wipe');
@@ -533,7 +533,7 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   res.json({ votes, userVote });
 });
 
-// ── Scan state lives in discord_scanner.js — all paths update the same object ──
+// ── Scan state lives in expert_data.js — all paths update the same object ──
 async function runScan() {
   await scanner.scanAll().catch(err => console.error('[cron] scan error:', err.message));
 }

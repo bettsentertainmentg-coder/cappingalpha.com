@@ -2,11 +2,11 @@
 const express = require('express');
 const axios   = require('axios');
 const db      = require('./db');
-const scanner = require('./discord_scanner');
+const scanner = require('./expert_data');
 const { getCycleDate } = require('./cycle');
 const { MVP_THRESHOLD } = require('./scoring');
 const { reseedFromExisting } = require('./lines');
-const { rescanSkipped }      = require('./discord_scanner');
+const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const crypto  = require('crypto');
 
