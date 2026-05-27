@@ -11,9 +11,7 @@ let homeChart = null;
 // ── Range key → day count ─────────────────────────────────────────────────────
 const RANGE_DAYS = { '1D': 1, '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3M': 90, 'ALL': Infinity };
 let _currentRange     = 'ALL';
-let _graphMode        = '$';   // '$' or '%'
 let _homeRange        = 'ALL';
-let _homeGraphMode    = '$';
 
 // ── MVP tab loading ───────────────────────────────────────────────────────────
 export async function loadMvp() {
@@ -149,10 +147,6 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
             <button class="graph-range-btn mvp-range-btn" data-key="1M"  onclick="setGraphDays('1M')">1M</button>
             <button class="graph-range-btn mvp-range-btn" data-key="3M"  onclick="setGraphDays('3M')">3M</button>
             <button class="graph-range-btn mvp-range-btn active" data-key="ALL" onclick="setGraphDays('ALL')">ALL</button>
-          </div>
-          <div class="graph-range-row">
-            <button class="graph-range-btn mvp-mode-btn active" data-mode="$" onclick="setGraphMode('$')">$</button>
-            <button class="graph-range-btn mvp-mode-btn"        data-mode="%" onclick="setGraphMode('%')">%</button>
           </div>
           <div class="unit-input-row">
             <label for="unit-size">Unit: $</label>
@@ -294,40 +288,34 @@ export function drawPlGraph(picks) {
 
   const plLabel = document.getElementById('pl-total');
   if (resolved.length === 0) {
-    if (plLabel) { plLabel.textContent = (_graphMode === '%' ? '0.0%' : '$0.00'); plLabel.className = 'graph-pl-label'; }
+    if (plLabel) { plLabel.textContent = '$0.00'; plLabel.className = 'graph-pl-label'; }
     return;
   }
 
   const days = RANGE_DAYS[_currentRange] ?? Infinity;
 
-  // ── 1D: per-pick display ──────────────────────────────────────────────────
+  // ── 1D: per-pick display for the latest day (already starts at $0) ────────
   if (days === 1) {
     const latestDate = resolved[resolved.length - 1].game_date;
     const todayPicks = resolved.filter(p => p.game_date === latestDate);
-    let cum = 0, pickCount = 0;
+    let cum = 0;
     const displayData = todayPicks.map(p => {
       const ret = calcReturn(p, unit);
       cum = +(cum + ret).toFixed(2);
-      pickCount++;
-      const pct = pickCount > 0 ? +(cum / (unit * pickCount) * 100).toFixed(1) : 0;
-      return { pick: p, ret, cumPL: cum, pct };
+      return { pick: p, ret, cumPL: cum };
     });
 
-    const windowPL  = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
-    const totalWagered = unit * todayPicks.length;
-    const windowPct = totalWagered > 0 ? +(windowPL / totalWagered * 100).toFixed(1) : 0;
-
-    _updatePlLabel(plLabel, windowPL, windowPct);
+    const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
+    _updatePlLabel(plLabel, windowPL);
     const titleEl = document.getElementById('pl-label-title');
     if (titleEl) titleEl.textContent = "TODAY'S P/L";
 
     const lineColor = windowPL >= 0 ? '#4ade80' : '#f87171';
     _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, {
       labels:    displayData.map((_, i) => `Pick ${i + 1}`),
-      values:    displayData.map(d => _graphMode === '%' ? d.pct : d.cumPL),
+      values:    displayData.map(d => d.cumPL),
       lineColor,
       unit,
-      mode:      _graphMode,
       tooltip: {
         title:      (items, data) => { const d = data[items[0].dataIndex]; const r = (d.pick.result || '').toLowerCase(); return `${r === 'win' ? '✓' : r === 'loss' ? '✗' : '~'} ${pickLabel(d.pick)}`; },
         afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `${d.ret >= 0 ? '+' : ''}$${d.ret.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`; },
@@ -338,9 +326,17 @@ export function drawPlGraph(picks) {
     return;
   }
 
-  // ── Multi-day: per-day display ────────────────────────────────────────────
+  // ── Multi-day: window first (same window as the record bar), then accumulate
+  // from $0 — each timeframe restarts at zero; picks outside it are not carried in.
+  const windowed = _filterByDays(resolved, days);
+  if (windowed.length === 0) {
+    if (plLabel) { plLabel.textContent = '$0.00'; plLabel.className = 'graph-pl-label'; }
+    _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, { labels: [], values: [], lineColor: '#4ade80', unit, tooltip: { title: null, afterTitle: null, afterBody: null }, displayData: [] });
+    return;
+  }
+
   const byDate = {};
-  for (const p of resolved) {
+  for (const p of windowed) {
     const d = p.game_date || 'unknown';
     if (!byDate[d]) byDate[d] = [];
     byDate[d].push(p);
@@ -348,26 +344,21 @@ export function drawPlGraph(picks) {
 
   const allDates = Object.keys(byDate).sort();
   let cumulative = 0, totalPicks = 0;
-  const allDailyData = allDates.map(d => {
+  const displayData = allDates.map(d => {
     const dayPicks = byDate[d];
     const dayPL = dayPicks.reduce((sum, p) => sum + calcReturn(p, unit), 0);
-    cumulative  += dayPL;
-    totalPicks  += dayPicks.length;
-    const pct = totalPicks > 0 ? +(cumulative / (unit * totalPicks) * 100).toFixed(1) : 0;
-    return { date: d, picks: dayPicks, dayPL: +dayPL.toFixed(2), cumPL: +cumulative.toFixed(2), pct, totalPicks };
+    cumulative += dayPL;
+    totalPicks += dayPicks.length;
+    return { date: d, picks: dayPicks, dayPL: +dayPL.toFixed(2), cumPL: +cumulative.toFixed(2), totalPicks };
   });
 
-  const displayData = isFinite(days) ? allDailyData.slice(-days) : allDailyData;
   const labels = displayData.map(d => {
     const dt = new Date(d.date + 'T12:00:00');
     return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   });
 
   const windowPL = +(displayData.reduce((sum, d) => sum + d.dayPL, 0)).toFixed(2);
-  const lastEntry = displayData[displayData.length - 1];
-  const windowPct = lastEntry ? lastEntry.pct : 0;
-
-  _updatePlLabel(plLabel, windowPL, windowPct);
+  _updatePlLabel(plLabel, windowPL);
   const titleEl = document.getElementById('pl-label-title');
   if (titleEl) {
     titleEl.textContent = !isFinite(days) ? 'ALL-TIME P/L' : `${_currentRange} P/L`;
@@ -378,10 +369,9 @@ export function drawPlGraph(picks) {
 
   _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, {
     labels,
-    values:    displayData.map(d => _graphMode === '%' ? d.pct : d.cumPL),
+    values:    displayData.map(d => d.cumPL),
     lineColor,
     unit,
-    mode:      _graphMode,
     tooltip: {
       title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p => p.result === 'win').length; const losses = d.picks.filter(p => p.result === 'loss').length; return `${items[0].label}  —  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day P/L: ${d.dayPL >= 0 ? '+' : ''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
@@ -401,26 +391,19 @@ export function drawPlGraph(picks) {
   });
 }
 
-function _updatePlLabel(el, dollarPL, pct) {
+function _updatePlLabel(el, dollarPL) {
   if (!el) return;
-  if (_graphMode === '%') {
-    el.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
-    el.className   = 'graph-pl-label ' + (pct >= 0 ? 'pos' : 'neg');
-  } else {
-    el.textContent = (dollarPL >= 0 ? '+' : '') + '$' + dollarPL.toFixed(2);
-    el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
-  }
+  el.textContent = (dollarPL >= 0 ? '+' : '') + '$' + dollarPL.toFixed(2);
+  el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
 }
 
 // ── Shared chart renderer ─────────────────────────────────────────────────────
-function _drawChart(canvasId, existingChart, setChart, { labels, values, lineColor, unit, mode, tooltip, displayData }) {
+function _drawChart(canvasId, existingChart, setChart, { labels, values, lineColor, unit, tooltip, displayData }) {
   if (existingChart) { existingChart.destroy(); }
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
 
-  const yCallback = mode === '%'
-    ? v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
-    : v => (v >= 0 ? '+' : '') + '$' + v.toFixed(0);
+  const yCallback = v => (v >= 0 ? '+' : '') + '$' + v.toFixed(0);
 
   const chart = new Chart(ctx, {
     type: 'line',
@@ -479,14 +462,6 @@ export function setGraphDays(key) {
     const limited = !isPaying();
     if (barEl) barEl.innerHTML = _recordBarHtml(rec, limited);
   }
-}
-
-export function setGraphMode(mode) {
-  _graphMode = mode;
-  document.querySelectorAll('.mvp-mode-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.mode === mode);
-  });
-  if (state.mvpData) drawPlGraph(state.mvpData.picks);
 }
 
 export function redrawGraph() {
@@ -565,64 +540,67 @@ function drawHomeGraph(picks) {
 
   const plLabel = document.getElementById('home-pl-total');
   if (resolved.length === 0) {
-    if (plLabel) { plLabel.textContent = _homeGraphMode === '%' ? '0.0%' : '$0.00'; plLabel.className = 'graph-pl-label'; }
+    if (plLabel) { plLabel.textContent = '$0.00'; plLabel.className = 'graph-pl-label'; }
     return;
   }
 
   if (days === 1) {
     const latestDate = resolved[resolved.length - 1].game_date;
     const todayPicks = resolved.filter(p => p.game_date === latestDate);
-    let cum = 0, pickCount = 0;
+    let cum = 0;
     const displayData = todayPicks.map(p => {
-      const ret = calcReturn(p, unit); cum = +(cum + ret).toFixed(2); pickCount++;
-      return { pick: p, ret, cumPL: cum, pct: pickCount > 0 ? +(cum / (unit * pickCount) * 100).toFixed(1) : 0 };
+      const ret = calcReturn(p, unit); cum = +(cum + ret).toFixed(2);
+      return { pick: p, ret, cumPL: cum };
     });
-    const windowPL  = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
-    const windowPct = todayPicks.length > 0 ? +(windowPL / (unit * todayPicks.length) * 100).toFixed(1) : 0;
-    _updateHomePlLabel(plLabel, windowPL, windowPct);
+    const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
+    _updateHomePlLabel(plLabel, windowPL);
     const titleEl = document.getElementById('home-pl-title');
     if (titleEl) titleEl.textContent = "TODAY'S P/L";
     _drawChart('home-pl-chart', homeChart, (c) => { homeChart = c; }, {
       labels: displayData.map((_, i) => `Pick ${i + 1}`),
-      values: displayData.map(d => _homeGraphMode === '%' ? d.pct : d.cumPL),
+      values: displayData.map(d => d.cumPL),
       lineColor: windowPL >= 0 ? '#4ade80' : '#f87171',
-      unit, mode: _homeGraphMode,
+      unit,
       tooltip: { title: (items, data) => { const d = data[items[0].dataIndex]; const r = (d.pick.result||'').toLowerCase(); return `${r==='win'?'✓':r==='loss'?'✗':'~'} ${pickLabel(d.pick)}`; }, afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `${d.ret>=0?'+':''}$${d.ret.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`; }, afterBody: null },
       displayData,
     });
     return;
   }
 
+  // Window first (same window as the record bar), then accumulate from $0.
+  const windowed = _filterByDays(resolved, days);
+  if (windowed.length === 0) {
+    if (plLabel) { plLabel.textContent = '$0.00'; plLabel.className = 'graph-pl-label'; }
+    _drawChart('home-pl-chart', homeChart, (c) => { homeChart = c; }, { labels: [], values: [], lineColor: '#4ade80', unit, tooltip: { title: null, afterTitle: null, afterBody: null }, displayData: [] });
+    return;
+  }
+
   const byDate = {};
-  for (const p of resolved) { const d = p.game_date || 'unknown'; if (!byDate[d]) byDate[d] = []; byDate[d].push(p); }
+  for (const p of windowed) { const d = p.game_date || 'unknown'; if (!byDate[d]) byDate[d] = []; byDate[d].push(p); }
   const allDates = Object.keys(byDate).sort();
   let cumulative = 0, totalPicks = 0;
-  const allDailyData = allDates.map(d => {
+  const displayData = allDates.map(d => {
     const dayPicks = byDate[d];
     const dayPL = dayPicks.reduce((sum, p) => sum + calcReturn(p, unit), 0);
     cumulative += dayPL; totalPicks += dayPicks.length;
-    const pct = totalPicks > 0 ? +(cumulative / (unit * totalPicks) * 100).toFixed(1) : 0;
-    return { date: d, picks: dayPicks, dayPL: +dayPL.toFixed(2), cumPL: +cumulative.toFixed(2), pct, totalPicks };
+    return { date: d, picks: dayPicks, dayPL: +dayPL.toFixed(2), cumPL: +cumulative.toFixed(2), totalPicks };
   });
 
-  const displayData = isFinite(days) ? allDailyData.slice(-days) : allDailyData;
   const labels = displayData.map(d => {
     const dt = new Date(d.date + 'T12:00:00');
     return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   });
-  const windowPL  = +(displayData.reduce((sum, d) => sum + d.dayPL, 0)).toFixed(2);
-  const lastEntry = displayData[displayData.length - 1];
-  const windowPct = lastEntry ? lastEntry.pct : 0;
+  const windowPL = +(displayData.reduce((sum, d) => sum + d.dayPL, 0)).toFixed(2);
 
-  _updateHomePlLabel(plLabel, windowPL, windowPct);
+  _updateHomePlLabel(plLabel, windowPL);
   const titleEl = document.getElementById('home-pl-title');
   if (titleEl) titleEl.textContent = !isFinite(days) ? 'ALL-TIME P/L' : `${_homeRange} P/L`;
 
   _drawChart('home-pl-chart', homeChart, (c) => { homeChart = c; }, {
     labels,
-    values:    displayData.map(d => _homeGraphMode === '%' ? d.pct : d.cumPL),
+    values:    displayData.map(d => d.cumPL),
     lineColor: windowPL >= 0 ? '#4ade80' : '#f87171',
-    unit, mode: _homeGraphMode,
+    unit,
     tooltip: {
       title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p=>p.result==='win').length; const losses = d.picks.filter(p=>p.result==='loss').length; return `${items[0].label}  —  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day: ${d.dayPL>=0?'+':''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
@@ -632,15 +610,10 @@ function drawHomeGraph(picks) {
   });
 }
 
-function _updateHomePlLabel(el, dollarPL, pct) {
+function _updateHomePlLabel(el, dollarPL) {
   if (!el) return;
-  if (_homeGraphMode === '%') {
-    el.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
-    el.className   = 'graph-pl-label ' + (pct >= 0 ? 'pos' : 'neg');
-  } else {
-    el.textContent = (dollarPL >= 0 ? '+' : '') + '$' + dollarPL.toFixed(2);
-    el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
-  }
+  el.textContent = (dollarPL >= 0 ? '+' : '') + '$' + dollarPL.toFixed(2);
+  el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
 }
 
 export function setHomeGraphDays(key) {
@@ -656,17 +629,11 @@ export function setHomeGraphDays(key) {
   }
 }
 
-export function setHomeGraphMode(mode) {
-  _homeGraphMode = mode;
-  document.querySelectorAll('.home-mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
-  if (state.homeMvpPicks) drawHomeGraph(state.homeMvpPicks);
-}
-
 export function redrawHomeGraph() {
   if (state.homeMvpPicks) drawHomeGraph(state.homeMvpPicks);
 }
 
 Object.assign(window, {
-  setGraphDays, setGraphMode, redrawGraph,
-  setHomeGraphDays, setHomeGraphMode, redrawHomeGraph,
+  setGraphDays, redrawGraph,
+  setHomeGraphDays, redrawHomeGraph,
 });
