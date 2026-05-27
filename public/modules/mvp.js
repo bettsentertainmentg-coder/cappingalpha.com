@@ -44,11 +44,21 @@ export async function loadMvpPublic() {
 
 // ── Record computation (client-side, per range) ───────────────────────────────
 function _filterByDays(picks, dayCount) {
-  if (!isFinite(dayCount)) return picks;
+  if (!isFinite(dayCount)) return (picks || []).slice();
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - dayCount);
   const cutStr = cutoff.toISOString().slice(0, 10);
-  return picks.filter(p => (p.game_date || '') >= cutStr);
+  return (picks || []).filter(p => (p.game_date || '') >= cutStr);
+}
+
+// Resolved MVP picks that count toward the W/L/P record: decided results only,
+// excluding voided / deduped ("not counted") picks. Single source of truth so the
+// initial render and every timeframe toggle (home + tab) compute the same record.
+function _resolvedPicks(picks) {
+  return (picks || []).filter(p =>
+    (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
+    !(p.annotation && p.annotation.includes('not counted'))
+  );
 }
 
 function _computeRecord(picks) {
@@ -119,11 +129,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     </div>`;
 
   // Compute initial record for selected range
-  const resolvedPicks = picks.filter(p =>
-    (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
-    !(p.annotation && p.annotation.includes('not counted'))
-  );
-  const filteredForBar = _filterByDays(resolvedPicks, RANGE_DAYS[_currentRange] ?? Infinity);
+  const filteredForBar = _filterByDays(_resolvedPicks(picks), RANGE_DAYS[_currentRange] ?? Infinity);
   const barRec = _computeRecord(filteredForBar);
   if (!limited) barRec.pending = record.pending;
 
@@ -467,11 +473,7 @@ export function setGraphDays(key) {
   if (state.mvpData) {
     drawPlGraph(state.mvpData.picks);
     // Update record bar for this range
-    const resolvedPicks = (state.mvpData.picks || []).filter(p =>
-      (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
-      !(p.annotation && p.annotation.includes('not counted'))
-    );
-    const filtered = _filterByDays(resolvedPicks, RANGE_DAYS[key] ?? Infinity);
+    const filtered = _filterByDays(_resolvedPicks(state.mvpData.picks), RANGE_DAYS[key] ?? Infinity);
     const rec = _computeRecord(filtered);
     const barEl = document.getElementById('record-bar');
     const limited = !isPaying();
@@ -507,11 +509,7 @@ export async function loadHomeMvp() {
     section.style.display = '';
 
     // Compute initial record (ALL range)
-    const resolvedPicks = picks.filter(p =>
-      (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
-      !(p.annotation && p.annotation.includes('not counted'))
-    );
-    const initRec = _computeRecord(resolvedPicks);
+    const initRec = _computeRecord(_resolvedPicks(picks));
 
     section.innerHTML = `
       <div class="graph-card" style="margin-bottom:16px;">
@@ -651,8 +649,7 @@ export function setHomeGraphDays(key) {
   if (state.homeMvpPicks) {
     drawHomeGraph(state.homeMvpPicks);
     // Update home record bar
-    const resolvedPicks = state.homeMvpPicks.filter(p => p.result === 'win' || p.result === 'loss' || p.result === 'push');
-    const filtered = _filterByDays(resolvedPicks, RANGE_DAYS[key] ?? Infinity);
+    const filtered = _filterByDays(_resolvedPicks(state.homeMvpPicks), RANGE_DAYS[key] ?? Infinity);
     const rec = _computeRecord(filtered);
     const barEl = document.getElementById('home-record-bar');
     if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);
