@@ -837,20 +837,20 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const capperInfo = r.capper_name
                 ? `<span style="font-size:12px;">${escHtml(r.capper_name)}</span> ${knownCapperSet.has(normalizeCapper(r.capper_name)) ? '<span class="badge match-ok">matched</span>' : '<span class="badge match-new">new</span>'}`
                 : '<span style="color:#3b4560;">no capper extracted</span>';
-              const capperCurrent = (r.capper_name || '').replace(/'/g, '&#39;');
-              const capperBtn = r.pick_id
-                ? `<button class="btn-sm" style="background:#252c3b;border:1px solid #3b4560;color:#cbd5e1;margin-left:6px;padding:2px 8px;font-size:11px;" onclick="event.stopPropagation();setCapperOnRow(${r.pick_id}, this, '${capperCurrent}')">${r.capper_name ? 'edit' : '+ set'}</button>`
-                : '';
-              const msgEsc = escHtml(r.message_text || '').replace(/'/g, '&#39;');
-              const pickEsc = JSON.stringify({ team: r.team, pick_type: r.pick_type, sport: r.sport, spread: r.spread, capper_name: r.capper_name }).replace(/'/g, '&#39;');
+              // All click data goes through data-* attrs (HTML-safe) so apostrophes
+              // and JSON double-quotes can't break the JS string literal that used
+              // to live inline in onclick="…".
+              const correctBtn = r.pick_id
+                ? `<button class="btn-sm btn-primary" data-pick-id="${r.pick_id}" data-capper="${escHtml(r.capper_name || '')}" onclick="event.stopPropagation();correctCapperFromBtn(this)">Correct</button>`
+                : '<span style="color:#3b4560;font-size:11px;">—</span>';
               return `<tr class="msg-row" data-ch="${escHtml(r.channel || '')}" data-author="${escHtml(r.author || '')}" data-text="${prev.toLowerCase()}">
                 <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
                 <td><span style="font-size:11px;color:#8892a4;">${escHtml(r.channel || '—')}</span></td>
                 <td style="font-size:12px;">${escHtml(r.author || '—')}</td>
                 <td style="font-size:12px;max-width:240px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${r.id},'raw')" title="Click to view full message">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
                 <td style="font-size:12px;">${teamInfo}</td>
-                <td class="capper-cell">${capperInfo}${capperBtn}</td>
-                <td><button class="btn-sm btn-primary" onclick="event.stopPropagation();openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
+                <td class="capper-cell" data-pick-id="${r.pick_id || ''}">${capperInfo}</td>
+                <td>${correctBtn}</td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -1170,14 +1170,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
       }
 
-      // ── Set capper inline on a recorded message row ────────────────────────────
-      // Lightweight path: just update picks/pick_history/archive + register
-      // the name in capper_aliases so the badge flips to "matched" on refresh.
-      // Bypasses the reader-corrections flow on purpose — that's heavier and
-      // teaches the AI, this is just data cleanup.
-      async function setCapperOnRow(pickId, btn, current) {
+      // ── Correct (= set capper) on a recorded row ────────────────────────────
+      // Data comes via data-* attrs on the button so apostrophes and JSON
+      // can't break the inline attribute. Just updates picks + history +
+      // registers the name in capper_aliases so the matched/new badge flips
+      // to green on the next render — no reader-corrections flow.
+      async function correctCapperFromBtn(btn) {
+        const pickId  = parseInt(btn.dataset.pickId, 10);
+        const current = btn.dataset.capper || '';
         if (!pickId) { alert('No pick linked to this message.'); return; }
-        const name = window.prompt('Capper name for this pick (e.g. WestBestServer):', current || '');
+        const name = window.prompt('Capper name for this pick (e.g. WestBestServer):', current);
         if (name === null) return;
         const trimmed = name.trim();
         if (!trimmed) return;
@@ -1189,11 +1191,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
           });
           const j = await r.json();
           if (!j.ok) throw new Error(j.error || 'Failed');
+          // Update the capper cell on the same row (same pickId) so the badge
+          // flips immediately and the next click pre-fills with the new name.
+          btn.dataset.capper = trimmed;
           const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-          const cell = btn.closest('td');
-          cell.innerHTML = '<span style="font-size:12px;">' + esc(trimmed) + '</span> '
-            + '<span class="badge match-ok">matched</span>'
-            + '<button class="btn-sm" style="background:#252c3b;border:1px solid #3b4560;color:#cbd5e1;margin-left:6px;padding:2px 8px;font-size:11px;" onclick="event.stopPropagation();setCapperOnRow(' + pickId + ', this, \'' + trimmed.replace(/'/g, "\\'") + '\')">edit</button>';
+          const row  = btn.closest('tr');
+          const cell = row && row.querySelector('.capper-cell');
+          if (cell) {
+            cell.innerHTML = '<span style="font-size:12px;">' + esc(trimmed) + '</span> '
+              + '<span class="badge match-ok">matched</span>';
+          }
         } catch (err) {
           alert('Failed to set capper: ' + (err.message || err));
         }
