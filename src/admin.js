@@ -837,6 +837,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const capperInfo = r.capper_name
                 ? `<span style="font-size:12px;">${escHtml(r.capper_name)}</span> ${knownCapperSet.has(normalizeCapper(r.capper_name)) ? '<span class="badge match-ok">matched</span>' : '<span class="badge match-new">new</span>'}`
                 : '<span style="color:#3b4560;">no capper extracted</span>';
+              const capperCurrent = (r.capper_name || '').replace(/'/g, '&#39;');
+              const capperBtn = r.pick_id
+                ? `<button class="btn-sm" style="background:#252c3b;border:1px solid #3b4560;color:#cbd5e1;margin-left:6px;padding:2px 8px;font-size:11px;" onclick="event.stopPropagation();setCapperOnRow(${r.pick_id}, this, '${capperCurrent}')">${r.capper_name ? 'edit' : '+ set'}</button>`
+                : '';
               const msgEsc = escHtml(r.message_text || '').replace(/'/g, '&#39;');
               const pickEsc = JSON.stringify({ team: r.team, pick_type: r.pick_type, sport: r.sport, spread: r.spread, capper_name: r.capper_name }).replace(/'/g, '&#39;');
               return `<tr class="msg-row" data-ch="${escHtml(r.channel || '')}" data-author="${escHtml(r.author || '')}" data-text="${prev.toLowerCase()}">
@@ -845,7 +849,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
                 <td style="font-size:12px;">${escHtml(r.author || '—')}</td>
                 <td style="font-size:12px;max-width:240px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${r.id},'raw')" title="Click to view full message">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
                 <td style="font-size:12px;">${teamInfo}</td>
-                <td>${capperInfo}</td>
+                <td class="capper-cell">${capperInfo}${capperBtn}</td>
                 <td><button class="btn-sm btn-primary" onclick="event.stopPropagation();openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
               </tr>`;
             }).join('')}
@@ -1164,6 +1168,35 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── Set capper inline on a recorded message row ────────────────────────────
+      // Lightweight path: just update picks/pick_history/archive + register
+      // the name in capper_aliases so the badge flips to "matched" on refresh.
+      // Bypasses the reader-corrections flow on purpose — that's heavier and
+      // teaches the AI, this is just data cleanup.
+      async function setCapperOnRow(pickId, btn, current) {
+        if (!pickId) { alert('No pick linked to this message.'); return; }
+        const name = window.prompt('Capper name for this pick (e.g. WestBestServer):', current || '');
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        try {
+          const r = await fetch('/admin/api/pick/' + pickId + '/capper', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ capper_name: trimmed }),
+          });
+          const j = await r.json();
+          if (!j.ok) throw new Error(j.error || 'Failed');
+          const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+          const cell = btn.closest('td');
+          cell.innerHTML = '<span style="font-size:12px;">' + esc(trimmed) + '</span> '
+            + '<span class="badge match-ok">matched</span>'
+            + '<button class="btn-sm" style="background:#252c3b;border:1px solid #3b4560;color:#cbd5e1;margin-left:6px;padding:2px 8px;font-size:11px;" onclick="event.stopPropagation();setCapperOnRow(' + pickId + ', this, \'' + trimmed.replace(/'/g, "\\'") + '\')">edit</button>';
+        } catch (err) {
+          alert('Failed to set capper: ' + (err.message || err));
+        }
       }
 
       // ── Archive panel ──────────────────────────────────────────────────────────
@@ -2543,6 +2576,31 @@ router.get('/api/archive', requireAuth, (req, res) => {
     res.json({ rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /admin/api/pick/:id/capper ───────────────────────────────────────────
+// Quick manual capper assignment for a recorded pick. Used when the message
+// has no extracted capper (e.g. someone posting their own picks under a
+// Discord handle that doesn't appear in-message) and we want to attribute it.
+// Updates everywhere the capper_name lives, and registers the name in
+// capper_aliases so the matched/new badge picks it up on next render.
+router.post('/api/pick/:id/capper', requireAuth, express.json(), (req, res) => {
+  const pickId = parseInt(req.params.id, 10);
+  const capper = (req.body?.capper_name || '').trim();
+  if (!pickId)  return res.status(400).json({ ok: false, error: 'Missing pick id' });
+  if (!capper)  return res.status(400).json({ ok: false, error: 'Missing capper_name' });
+  try {
+    db.prepare(`UPDATE picks SET capper_name = ? WHERE id = ?`).run(capper, pickId);
+    try { db.prepare(`UPDATE pick_history SET capper_name = ? WHERE pick_id = ?`).run(capper, pickId); } catch (_) {}
+    try { db.prepare(`UPDATE capper_history SET capper_name = ? WHERE pick_id = ?`).run(capper, pickId); } catch (_) {}
+    try { db.prepare(`UPDATE raw_messages_archive SET capper_name = ?, capper_matched = 1 WHERE pick_id = ?`).run(capper, pickId); } catch (_) {}
+    // Self-alias so resolveCapperName() recognizes this name on future picks.
+    try { db.prepare(`INSERT OR IGNORE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`).run(capper, capper); } catch (_) {}
+    res.json({ ok: true, capper_name: capper, matched: 1 });
+  } catch (err) {
+    console.error('[admin] set capper failed:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
