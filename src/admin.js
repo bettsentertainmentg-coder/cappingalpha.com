@@ -826,22 +826,26 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <div id="msec-recorded">
         ${recentRaw.length ? `
         <table id="raw-table">
-          <thead><tr><th>Time</th><th>Channel</th><th>Author</th><th>Message</th><th>Pick Extracted</th><th></th></tr></thead>
+          <thead><tr><th>Time</th><th>Channel</th><th>Author</th><th>Message</th><th>Team Extracted</th><th>Capper Extracted</th><th></th></tr></thead>
           <tbody>
             ${recentRaw.map(r => {
               const ts   = (r.saved_at || '').slice(0, 16).replace('T', ' ');
               const prev = escHtml((r.message_text || '').replace(/\n/g, ' ').slice(0, 60));
-              const pickInfo = r.team
+              const teamInfo = r.team
                 ? `${escHtml(r.team)} ${escHtml(r.pick_type || '')}${r.spread != null ? ' ' + r.spread : ''} · ${escHtml(r.sport || '')} · ${r.score ?? '—'}pts`
-                : '<span style="color:#3b4560;">no pick linked</span>';
+                : '<span style="color:#3b4560;">no team extracted</span>';
+              const capperInfo = r.capper_name
+                ? `<span style="font-size:12px;">${escHtml(r.capper_name)}</span> ${knownCapperSet.has(normalizeCapper(r.capper_name)) ? '<span class="badge match-ok">matched</span>' : '<span class="badge match-new">new</span>'}`
+                : '<span style="color:#3b4560;">no capper extracted</span>';
               const msgEsc = escHtml(r.message_text || '').replace(/'/g, '&#39;');
               const pickEsc = JSON.stringify({ team: r.team, pick_type: r.pick_type, sport: r.sport, spread: r.spread, capper_name: r.capper_name }).replace(/'/g, '&#39;');
               return `<tr class="msg-row" data-ch="${escHtml(r.channel || '')}" data-author="${escHtml(r.author || '')}" data-text="${prev.toLowerCase()}">
                 <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
                 <td><span style="font-size:11px;color:#8892a4;">${escHtml(r.channel || '—')}</span></td>
                 <td style="font-size:12px;">${escHtml(r.author || '—')}</td>
-                <td style="font-size:12px;max-width:280px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${r.id},'raw')" title="Click to view full message">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
-                <td style="font-size:12px;">${pickInfo}</td>
+                <td style="font-size:12px;max-width:240px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${r.id},'raw')" title="Click to view full message">${prev}${(r.message_text || '').length > 60 ? '…' : ''}</td>
+                <td style="font-size:12px;">${teamInfo}</td>
+                <td>${capperInfo}</td>
                 <td><button class="btn-sm btn-primary" onclick="event.stopPropagation();openCorrModal('${msgEsc}','${escHtml(r.channel || '')}','${escHtml(r.author || '')}','recorded','${pickEsc}')">Correct</button></td>
               </tr>`;
             }).join('')}
