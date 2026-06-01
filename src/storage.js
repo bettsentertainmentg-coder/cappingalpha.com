@@ -11,23 +11,28 @@ function normalizeCapper(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// Returns { name, matched }: name is canonical if an alias hit, raw otherwise.
+// `matched` is 1 when capper_aliases knew the name, 0 when this is a fresh capper.
 function resolveCapperName(raw) {
-  if (!raw) return raw;
+  if (!raw) return { name: raw, matched: 0 };
   const norm = normalizeCapper(raw);
   try {
     const alias = db.prepare(
       `SELECT canonical_name FROM capper_aliases WHERE LOWER(REPLACE(REPLACE(REPLACE(alias,' ',''),'_',''),'-','')) = ? LIMIT 1`
     ).get(norm);
-    return alias ? alias.canonical_name : raw;
+    if (alias) return { name: alias.canonical_name, matched: 1 };
+    return { name: raw, matched: 0 };
   } catch (_) {
-    return raw;
+    return { name: raw, matched: 0 };
   }
 }
 
 // ── Golf pick handler ─────────────────────────────────────────────────────────
 function saveGolfPick(pick) {
   const { team, pick_type, vs_player, spread_value, channel, capper_name, sport_record, raw_message } = pick;
-  const resolvedCapper = resolveCapperName(capper_name);
+  const { name: resolvedCapper, matched: capperMatched } = resolveCapperName(capper_name);
+  pick._capperResolved = resolvedCapper;
+  pick._capperMatched  = capperMatched;
   const playerName = team; // team field holds player name for Golf
 
   // Find which active tournament this player is in
@@ -137,6 +142,7 @@ function saveRawMessageGolf(golf_pick_id, pick) {
     raw_message.createdAt ? new Date(raw_message.createdAt).toISOString() : null,
     raw_message.id          ?? null,
   );
+  archiveRawMessage(golf_pick_id, pick, 'discord-golf');
 }
 
 // ── Normalize common input quirks before matching ────────────────────────────
@@ -262,7 +268,9 @@ function savePick(pick) {
 // ── Update a pre-seeded slot with a new mention ───────────────────────────────
 function updateSlot(slot, pick) {
   const { channel, sport_record, raw_message } = pick;
-  const capper_name = resolveCapperName(pick.capper_name);
+  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name);
+  pick._capperResolved = capper_name;
+  pick._capperMatched  = capperMatched;
 
   // Skip if this exact Discord message was already counted for this slot
   if (raw_message?.id) {
@@ -353,7 +361,9 @@ function insertNewPick(pick) {
     is_home_team, game_date, sport_record,
     raw_message, espn_game_id = null,
   } = pick;
-  const capper_name = resolveCapperName(pick.capper_name);
+  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name);
+  pick._capperResolved = capper_name;
+  pick._capperMatched  = capperMatched;
 
   // Display line always comes from ESPN locked snapshot — never from Ollama
   const snapshot = espn_game_id ? db.prepare(`
@@ -419,6 +429,40 @@ function saveRawMessage(pick_id, pick) {
     raw_message.createdAt ? new Date(raw_message.createdAt).toISOString() : null,
     raw_message.id          ?? null
   );
+  archiveRawMessage(pick_id, pick, 'discord');
+}
+
+// Mirror writes into the 7-day audit archive so we can debug capper extraction
+// after the daily wipe blanks raw_messages. Failures here must never break the
+// scan pipeline — the archive is a side log, not a critical path.
+function archiveRawMessage(pick_id, pick, source) {
+  const { channel, raw_message } = pick;
+  if (!raw_message) return;
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO raw_messages_archive
+        (message_id, channel, author, message_text, message_timestamp,
+         source, pick_id, pick_team, pick_type, pick_sport,
+         capper_raw, capper_name, capper_matched)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      raw_message.id          ?? null,
+      channel                 ?? null,
+      raw_message.author      ?? null,
+      raw_message.content     ?? null,
+      raw_message.createdAt ? new Date(raw_message.createdAt).toISOString() : null,
+      source                  ?? 'discord',
+      pick_id,
+      pick.team               ?? null,
+      pick.pick_type          ?? null,
+      pick.sport              ?? null,
+      pick.capper_name        ?? null,
+      pick._capperResolved    ?? pick.capper_name ?? null,
+      pick._capperMatched     ?? null,
+    );
+  } catch (err) {
+    console.warn('[storage] archiveRawMessage failed:', err.message);
+  }
 }
 
 function upsertScoreBreakdown(pick_id, scored) {
@@ -549,4 +593,4 @@ function upsertPickHistory(pick_id, scored) {
   } catch (_) {}
 }
 
-module.exports = { savePick };
+module.exports = { savePick, normalizeCapper };

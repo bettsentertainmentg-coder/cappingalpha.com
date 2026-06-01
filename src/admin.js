@@ -8,6 +8,7 @@ const { MVP_THRESHOLD } = require('./scoring');
 const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
+const { normalizeCapper } = require('./storage');
 const crypto  = require('crypto');
 
 const router = express.Router();
@@ -58,6 +59,8 @@ function page(title, body) {
     tr:nth-child(even) td { background: #1a1f2e; }
     .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-weight: 700; }
     .mvp  { background: rgba(255,215,0,0.15); color: #FFD700; border: 1px solid rgba(255,215,0,0.3); }
+    .match-ok  { background: rgba(34,197,94,0.15);  color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+    .match-new { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
     .raw-row td { background: #171b24 !important; font-size: 12px; color: #64748b; font-style: italic; word-break: break-word; }
     .btn { padding: 8px 18px; border-radius: 6px; border: none; font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
     .btn-nuke { background: #ef4444; color: #fff; font-size: 16px; padding: 12px 32px; }
@@ -164,14 +167,39 @@ router.get('/dashboard', requireAuth, (req, res) => {
     rawByPick[rm.pick_id].push(rm);
   }
 
+  // Build a normalized lookup of every known capper (canonical + alias).
+  // A pick whose capper_name normalizes to a hit = "matched"; miss = "new".
+  // Lets admins spot fresh cappers that should be aliased to an existing one.
+  let knownCapperSet;
+  try {
+    const aliasRows = db.prepare(`SELECT canonical_name, alias FROM capper_aliases`).all();
+    knownCapperSet = new Set();
+    for (const r of aliasRows) {
+      if (r.canonical_name) knownCapperSet.add(normalizeCapper(r.canonical_name));
+      if (r.alias)          knownCapperSet.add(normalizeCapper(r.alias));
+    }
+    // Also include canonical names already attached to historical picks — they're
+    // de-facto "known" cappers even without an explicit alias row.
+    const histNames = db.prepare(`SELECT DISTINCT capper_name FROM capper_history WHERE capper_name IS NOT NULL`).all();
+    for (const r of histNames) knownCapperSet.add(normalizeCapper(r.capper_name));
+  } catch (_) {
+    knownCapperSet = new Set();
+  }
+
   const pickRowsHtml = picks.map((p, i) => {
     const isMvp = (p.score || 0) >= MVP_THRESHOLD;
     const raws  = rawByPick[p.id] || [];
+    const capperLabel = p.capper_name ? escHtml(p.capper_name) : '<span style="color:#3b4560;">—</span>';
+    const matchBadge = p.capper_name
+      ? (knownCapperSet.has(normalizeCapper(p.capper_name))
+          ? '<span class="badge match-ok">matched</span>'
+          : '<span class="badge match-new">new</span>')
+      : '<span style="color:#3b4560;font-size:11px;">—</span>';
     const rawRowsHtml = raws.length
-      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="8" style="padding:0;">
+      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="10" style="padding:0;">
           <table style="margin:0;border:none;border-radius:0;"><tbody>
-            ${raws.map(rm => `<tr class="raw-row"><td colspan="8">
-              <strong>${escHtml(rm.channel)}</strong>
+            ${raws.map(rm => `<tr class="raw-row"><td colspan="10">
+              ${p.capper_name ? `<strong style="color:#a08020;">${escHtml(p.capper_name)}</strong> · ` : ''}<strong>${escHtml(rm.channel)}</strong>
               ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
               ${rm.message_timestamp ? `· ${rm.message_timestamp.slice(0, 16)}` : ''}
               <br>${escHtml(rm.message_text || '')}
@@ -196,6 +224,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
       <td>${escHtml(p.sport || '—')}</td>
       <td>${escHtml(p.team || '—')} ${escHtml(p.pick_type || '')} ${spreadDisplay}</td>
+      <td>${capperLabel}</td>
+      <td>${matchBadge}</td>
       <td>${p.mention_count}</td>
       <td>${p.score ?? '—'} ${isMvp ? '<span class="badge mvp">MVP</span>' : ''}</td>
       <td><small>${breakdown}</small></td>
@@ -204,7 +234,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }).join('');
 
   const picksTableHtml = picks.length
-    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
+    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Capper</th><th>Match</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
     : '<div class="empty">No picks today.</div>';
 
   // ── Codes panel ──────────────────────────────────────────────────────────────
@@ -610,6 +640,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
+      <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
       <a href="/admin/logout" class="atab-logout">Log out</a>
@@ -867,6 +898,48 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>
     </div>
 
+    <!-- ARCHIVE PANEL (7-day rolling log of scanned messages that produced a pick) -->
+    <div class="apanel${ta('archive')}" id="panel-archive">
+      <h1>Message Archive <small style="font-size:14px;color:#8892a4;font-weight:400;">Last 7 days &middot; every scanned message that produced a pick</small></h1>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:16px;">Lets you audit capper-name extraction after the daily raw_messages wipe. Filter by capper, channel, or date to debug missed matches.</p>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:14px 16px;">
+        <div>
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Capper</label>
+          <input type="text" id="ar-capper" placeholder="any" oninput="archiveLoad()" style="font-size:13px;padding:6px 10px;width:160px;" />
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Channel</label>
+          <select id="ar-channel" onchange="archiveLoad()" style="font-size:13px;padding:6px 10px;">
+            <option value="">All</option>
+            <option value="free-plays">free-plays</option>
+            <option value="community-leaks">community-leaks</option>
+            <option value="pod-thread">pod-thread</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Match</label>
+          <select id="ar-match" onchange="archiveLoad()" style="font-size:13px;padding:6px 10px;">
+            <option value="">All</option>
+            <option value="matched">matched</option>
+            <option value="new">new</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">From</label>
+          <input type="date" id="ar-from" onchange="archiveLoad()" style="font-size:13px;padding:6px 10px;" />
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">To</label>
+          <input type="date" id="ar-to" onchange="archiveLoad()" style="font-size:13px;padding:6px 10px;" />
+        </div>
+        <button onclick="archiveClear()" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:6px;padding:7px 14px;font-size:12px;cursor:pointer;">Clear</button>
+        <span id="ar-count" style="margin-left:auto;color:#8892a4;font-size:12px;"></span>
+      </div>
+
+      <div id="ar-body"><div class="empty">Loading…</div></div>
+    </div>
+
     <!-- PICK HISTORY PANEL -->
     <div class="apanel${ta('history')}" id="panel-history">
       <h1>Pick History <small style="font-size:14px;color:#8892a4;font-weight:400;">All picks &ge;35 pts &mdash; permanent archive</small></h1>
@@ -1087,6 +1160,67 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── Archive panel ──────────────────────────────────────────────────────────
+      let _archiveTimer = null;
+      function archiveLoad() {
+        clearTimeout(_archiveTimer);
+        _archiveTimer = setTimeout(_archiveFetch, 180);
+      }
+      function archiveClear() {
+        ['ar-capper','ar-from','ar-to'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        const ch = document.getElementById('ar-channel'); if (ch) ch.value = '';
+        const m  = document.getElementById('ar-match');   if (m)  m.value  = '';
+        archiveLoad();
+      }
+      async function _archiveFetch() {
+        const body = document.getElementById('ar-body');
+        if (!body) return;
+        body.innerHTML = '<div class="empty">Loading…</div>';
+        const params = new URLSearchParams();
+        const capper = document.getElementById('ar-capper')?.value.trim();
+        const channel = document.getElementById('ar-channel')?.value;
+        const match   = document.getElementById('ar-match')?.value;
+        const from    = document.getElementById('ar-from')?.value;
+        const to      = document.getElementById('ar-to')?.value;
+        if (capper)  params.set('capper', capper);
+        if (channel) params.set('channel', channel);
+        if (match)   params.set('match', match);
+        if (from)    params.set('from', from);
+        if (to)      params.set('to', to);
+        try {
+          const r = await fetch('/admin/api/archive?' + params.toString());
+          const j = await r.json();
+          const rows = j.rows || [];
+          document.getElementById('ar-count').textContent = rows.length + ' message' + (rows.length === 1 ? '' : 's');
+          if (!rows.length) { body.innerHTML = '<div class="empty">No archived messages match.</div>'; return; }
+          body.innerHTML = '<table><thead><tr>' +
+            '<th>Time</th><th>Channel</th><th>Author</th><th>Capper</th><th>Match</th><th>Pick</th><th>Message</th>' +
+            '</tr></thead><tbody>' +
+            rows.map(_archiveRow).join('') +
+            '</tbody></table>';
+        } catch (err) {
+          body.innerHTML = '<div class="empty" style="color:#ef4444;">Failed to load archive: ' + (err?.message || err) + '</div>';
+        }
+      }
+      function _archiveRow(r) {
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const ts  = r.message_timestamp ? r.message_timestamp.slice(0, 16).replace('T', ' ') : (r.archived_at || '').slice(0, 16).replace('T', ' ');
+        const matchCell = r.capper_matched === 1 ? '<span class="badge match-ok">matched</span>'
+                       : r.capper_matched === 0 ? '<span class="badge match-new">new</span>'
+                       : '<span style="color:#3b4560;font-size:11px;">—</span>';
+        const pick = [r.pick_team, r.pick_type, r.pick_sport ? '(' + r.pick_sport + ')' : ''].filter(Boolean).map(esc).join(' ');
+        const msg  = esc(r.message_text || '').slice(0, 240);
+        return '<tr>' +
+          '<td><small>' + esc(ts) + '</small></td>' +
+          '<td>' + esc(r.channel || '—') + '</td>' +
+          '<td><em>' + esc(r.author || '—') + '</em></td>' +
+          '<td>' + esc(r.capper_name || r.capper_raw || '—') + '</td>' +
+          '<td>' + matchCell + '</td>' +
+          '<td>' + (pick || '<span style="color:#3b4560;">—</span>') + '</td>' +
+          '<td><span style="font-size:12px;color:#cbd5e1;">' + msg + (r.message_text && r.message_text.length > 240 ? '…' : '') + '</span></td>' +
+          '</tr>';
       }
 
       // ── Reader panel ───────────────────────────────────────────────────────────
@@ -1968,6 +2102,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
         </div>\`;
       }
 
+      // Auto-load archive panel on direct navigation (?tab=archive) — the tab
+      // button onclick handler only fires on click, so direct nav needs a kick.
+      if (${JSON.stringify(activeTab)} === 'archive') archiveLoad();
     </script>
     <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
   `));
@@ -2372,6 +2509,36 @@ router.get('/api/reader-health', requireAuth, async (_req, res) => {
     res.json({ ok: true, model: r.data?.model || null });
   } catch (err) {
     res.json({ ok: false, error: err.message.slice(0, 80) });
+  }
+});
+
+// ── GET /admin/api/archive — last 7d of scanned-and-extracted messages ───────
+// Filters: capper (substring, case-insensitive), channel (exact), match
+// (matched|new), from / to dates (YYYY-MM-DD on archived_at).
+// Returns up to 500 rows so the panel stays responsive.
+router.get('/api/archive', requireAuth, (req, res) => {
+  const { capper = '', channel = '', match = '', from = '', to = '' } = req.query;
+  const where = [`archived_at >= datetime('now', '-7 days')`];
+  const args  = [];
+  if (capper)  { where.push(`(LOWER(capper_name) LIKE ? OR LOWER(capper_raw) LIKE ?)`); args.push('%' + capper.toLowerCase() + '%', '%' + capper.toLowerCase() + '%'); }
+  if (channel) { where.push(`channel = ?`);        args.push(channel); }
+  if (match === 'matched') where.push(`capper_matched = 1`);
+  if (match === 'new')     where.push(`capper_matched = 0`);
+  if (from) { where.push(`date(archived_at) >= ?`); args.push(from); }
+  if (to)   { where.push(`date(archived_at) <= ?`); args.push(to);   }
+  try {
+    const rows = db.prepare(`
+      SELECT id, message_id, channel, author, message_text, message_timestamp,
+             source, pick_id, pick_team, pick_type, pick_sport,
+             capper_raw, capper_name, capper_matched, archived_at
+      FROM raw_messages_archive
+      WHERE ${where.join(' AND ')}
+      ORDER BY id DESC
+      LIMIT 500
+    `).all(...args);
+    res.json({ rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

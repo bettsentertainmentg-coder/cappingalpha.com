@@ -700,6 +700,35 @@ try {
   `);
 } catch (_) {}
 
+// 7-day rolling archive of every scanned message that produced a pick.
+// raw_messages itself is wiped at 4:58am; this table survives so we can audit
+// capper-name extraction quality across days. Purged daily at 5:30am ET.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS raw_messages_archive (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id        TEXT,
+      channel           TEXT,
+      author            TEXT,
+      message_text      TEXT,
+      message_timestamp TEXT,
+      source            TEXT NOT NULL DEFAULT 'discord',
+      pick_id           INTEGER,
+      pick_team         TEXT,
+      pick_type         TEXT,
+      pick_sport        TEXT,
+      capper_raw        TEXT,
+      capper_name       TEXT,
+      capper_matched    INTEGER,
+      archived_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_archived ON raw_messages_archive (archived_at)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_capper   ON raw_messages_archive (capper_name)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_msgid    ON raw_messages_archive (message_id)`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rma_dedup ON raw_messages_archive (message_id, pick_id) WHERE message_id IS NOT NULL`); } catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

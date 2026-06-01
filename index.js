@@ -762,6 +762,17 @@ if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   await runDailyWipe().catch(err => console.error('[cron] wipe error:', err.message));
 }, { timezone: 'America/New_York' });
 
+// 5:30am ET — purge raw_messages_archive rows older than 7 days. Runs after the
+// 4:58am wipe and 5:00am morning scan so it doesn't fight either.
+cron.schedule('30 5 * * *', () => {
+  try {
+    const r = db.prepare(`DELETE FROM raw_messages_archive WHERE archived_at < datetime('now', '-7 days')`).run();
+    if (r.changes) console.log(`[cron] 5:30am — purged ${r.changes} stale archive rows (>7d)`);
+  } catch (err) {
+    console.error('[cron] archive purge error:', err.message);
+  }
+}, { timezone: 'America/New_York' });
+
 if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   console.log('[cron] 5:00am — morning setup: ESPN + Odds + seed slots');
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
