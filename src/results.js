@@ -6,48 +6,20 @@
 const db    = require('./db');
 const axios = require('axios');
 
-const OLLAMA_URL   = 'http://localhost:11434/api/generate';
-const OLLAMA_MODEL = 'qwen2.5:7b';
-
-// ── Ask Ollama to extract a spread line from a raw message ────────────────────
-// Used only when Odds API didn't return a spread for this game.
-async function extractSpreadFromMessage(team, pickId) {
-  const msgs = db.prepare(
-    `SELECT message_text FROM raw_messages WHERE pick_id = ? ORDER BY id ASC LIMIT 5`
-  ).all(pickId);
-  if (!msgs.length) return null;
-
-  const text = msgs.map(m => m.message_text).join('\n---\n');
-  const prompt =
-    `You are extracting a sports betting spread line from a message.\n` +
-    `Team: ${team}\n` +
-    `Extract ONLY the point spread number for this team (e.g. -1.5, +3, -6.5).\n` +
-    `Reply with a JSON object like: {"spread": -1.5}\n` +
-    `If no spread is mentioned, reply: {"spread": null}\n` +
-    `Message:\n${text}`;
-
-  try {
-    const res = await axios.post(OLLAMA_URL, {
-      model: OLLAMA_MODEL, prompt, stream: false, options: { temperature: 0.0 },
-    }, { timeout: 10000 });
-
-    const raw = (res.data?.response || '').replace(/```json\s*/gi, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(raw);
-    const val = parseFloat(parsed?.spread);
-    if (!isNaN(val)) {
-      console.log(`[results] Ollama extracted spread ${val} for pick ${pickId} (${team})`);
-      return val;
-    }
-  } catch (err) {
-    console.warn('[results] Ollama spread extraction failed:', err.message);
-  }
-  return null;
-}
-
 // ── Evaluate a single pick against final scores ───────────────────────────────
 function evaluatePick(pick, game) {
   const type = (pick.pick_type || '').toLowerCase();
   const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
+
+  // Tennis sanity guard: a finished tennis match can't end 0-0 on sets AND 0 total games.
+  // If we see all zeros, the snapshot is incomplete — refuse to grade, try again later.
+  if (isTennis) {
+    const noSets   = (game.home_score == null || game.home_score === 0) &&
+                     (game.away_score == null || game.away_score === 0);
+    const noGames  = (game.tennis_home_games == null || game.tennis_home_games === 0) &&
+                     (game.tennis_away_games == null || game.tennis_away_games === 0);
+    if (noSets && noGames) return 'pending';
+  }
 
   // Determine which side was picked
   const homeNames = [game.home_team, game.home_short, game.home_name, game.home_abbr]
@@ -124,40 +96,169 @@ function evaluatePick(pick, game) {
 }
 
 // ── Fetch final score for a stale game directly from ESPN API ─────────────────
-async function fetchGameResult(espnGameId, sport) {
-  const sportMap = {
-    MLB:   'baseball/mlb',
-    NBA:   'basketball/nba',
-    NHL:   'hockey/nhl',
-    NFL:   'football/nfl',
-    CBB:   'basketball/mens-college-basketball',
-    NCAAF: 'football/college-football',
-  };
-  const path = sportMap[(sport || '').toUpperCase()] || 'baseball/mlb';
+const SPORT_PATH = {
+  MLB:   'baseball/mlb',
+  NBA:   'basketball/nba',
+  NHL:   'hockey/nhl',
+  NFL:   'football/nfl',
+  CBB:   'basketball/mens-college-basketball',
+  NCAAF: 'football/college-football',
+  ATP:   'tennis/atp',
+  WTA:   'tennis/wta',
+};
+const TENNIS_SPORTS = new Set(['ATP', 'WTA']);
+
+async function fetchGameResult(espnGameId, sport, gameDate = null) {
+  const sportKey = (sport || '').toUpperCase();
+  const path     = SPORT_PATH[sportKey];
+  if (!path) return null;  // never silently fall back to MLB
+
+  // Tennis uses scoreboard-by-date (summary endpoint returns 400 for tennis events)
+  if (TENNIS_SPORTS.has(sportKey)) {
+    return fetchTennisGameByDate(espnGameId, path, gameDate);
+  }
+
   try {
     const url  = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${espnGameId}`;
     const resp = await axios.get(url, { timeout: 8000 });
     const comp = resp.data?.header?.competitions?.[0];
     if (!comp) return null;
     const statusName = (comp.status?.type?.name || '').toLowerCase();
-    if (!statusName.includes('final') && !statusName.includes('complete') && statusName !== 'post') return null;
-    const home = comp.competitors?.find(c => c.homeAway === 'home');
-    const away = comp.competitors?.find(c => c.homeAway === 'away');
+    const stateName  = (comp.status?.type?.state || '').toLowerCase();
+    const isFinal = statusName.includes('final') || statusName.includes('complete')
+                 || statusName === 'post'        || stateName === 'post';
+    if (!isFinal) return null;
+
+    const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
+    const away = comp.competitors?.find(c => c.homeAway === 'away') || comp.competitors?.[1];
     if (!home || !away) return null;
+
+    const homeDisplay = home.team?.displayName || '';
+    const awayDisplay = away.team?.displayName || '';
+
     return {
       status:     'post',
+      sport:      sportKey,
       home_score: parseInt(home.score) || 0,
       away_score: parseInt(away.score) || 0,
-      home_team:  home.team?.displayName   || '',
-      home_short: home.team?.shortDisplayName || '',
-      home_name:  home.team?.name           || '',
-      home_abbr:  home.team?.abbreviation   || '',
-      away_team:  away.team?.displayName    || '',
+      home_team:  homeDisplay,
+      home_short: home.team?.shortDisplayName || lastNameOf(homeDisplay),
+      home_name:  home.team?.name || homeDisplay,
+      home_abbr:  home.team?.abbreviation || abbrOf(homeDisplay),
+      away_team:  awayDisplay,
+      away_short: away.team?.shortDisplayName || lastNameOf(awayDisplay),
+      away_name:  away.team?.name || awayDisplay,
+      away_abbr:  away.team?.abbreviation || abbrOf(awayDisplay),
     };
   } catch (err) {
-    console.warn(`[results] ESPN fetch for game ${espnGameId} failed:`, err.message);
+    console.warn(`[results] ESPN fetch for game ${espnGameId} (${sportKey}) failed:`, err.message);
     return null;
   }
+}
+
+// ── Tennis: pull scoreboard for the game's date, find this match, parse linescores ─
+async function fetchTennisGameByDate(espnGameId, path, gameDate) {
+  // Try the given date first, then -1d and +1d to handle TZ edges
+  const dates = [];
+  const seen  = new Set();
+  function pushDate(s) {
+    if (!s || seen.has(s)) return;
+    seen.add(s); dates.push(s);
+  }
+  function toYmd(dateStr, offsetDays = 0) {
+    if (!dateStr) return null;
+    const d = new Date(dateStr + 'T12:00:00Z');
+    if (isNaN(d)) return null;
+    d.setUTCDate(d.getUTCDate() + offsetDays);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const da = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}${m}${da}`;
+  }
+  pushDate(toYmd(gameDate, 0));
+  pushDate(toYmd(gameDate, -1));
+  pushDate(toYmd(gameDate, 1));
+  if (!dates.length) {
+    // No date provided — fall back to today
+    const now = new Date();
+    pushDate(`${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()).padStart(2,'0')}`);
+  }
+
+  for (const ymd of dates) {
+    try {
+      const url  = `https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${ymd}`;
+      const resp = await axios.get(url, { timeout: 8000 });
+      const events = resp.data?.events || [];
+      for (const ev of events) {
+        const groupings = ev.groupings || [{ competitions: ev.competitions || [] }];
+        for (const g of groupings) {
+          for (const comp of (g.competitions || [])) {
+            if (String(comp.id) !== String(espnGameId)) continue;
+            const statusName = (comp.status?.type?.name || '').toLowerCase();
+            const stateName  = (comp.status?.type?.state || '').toLowerCase();
+            const isFinal = statusName.includes('final') || statusName.includes('complete')
+                         || statusName === 'post'        || stateName === 'post';
+            if (!isFinal) return null;
+
+            const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
+            const away = comp.competitors?.find(c => c.homeAway === 'away') || comp.competitors?.[1];
+            if (!home || !away) return null;
+
+            const homeAth = home.athlete || {};
+            const awayAth = away.athlete || {};
+            const homeDisplay = homeAth.displayName || homeAth.fullName || home.team?.displayName || '';
+            const awayDisplay = awayAth.displayName || awayAth.fullName || away.team?.displayName || '';
+
+            const homeLs = home.linescores || [];
+            const awayLs = away.linescores || [];
+            const numSets = Math.max(homeLs.length, awayLs.length);
+            let homeSetsWon = 0, awaySetsWon = 0;
+            const setDetails = [];
+            for (let i = 0; i < numSets; i++) {
+              const h = Number(homeLs[i]?.value) || 0;
+              const a = Number(awayLs[i]?.value) || 0;
+              setDetails.push({ set: i + 1, home: h, away: a });
+              if (h > a) homeSetsWon++;
+              else if (a > h) awaySetsWon++;
+            }
+            const homeGames = homeLs.reduce((s, l) => s + (Number(l.value) || 0), 0);
+            const awayGames = awayLs.reduce((s, l) => s + (Number(l.value) || 0), 0);
+
+            return {
+              status:              'post',
+              sport:               path === 'tennis/atp' ? 'ATP' : 'WTA',
+              home_score:          homeSetsWon,
+              away_score:          awaySetsWon,
+              home_team:           homeDisplay,
+              home_short:          lastNameOf(homeDisplay),
+              home_name:           lastNameOf(homeDisplay),
+              home_abbr:           abbrOf(homeDisplay),
+              away_team:           awayDisplay,
+              away_short:          lastNameOf(awayDisplay),
+              away_name:           lastNameOf(awayDisplay),
+              away_abbr:           abbrOf(awayDisplay),
+              tennis_home_games:   homeGames || null,
+              tennis_away_games:   awayGames || null,
+              tennis_score_detail: numSets > 0 ? JSON.stringify(setDetails) : null,
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[results] tennis scoreboard ${path} ${ymd} failed:`, err.message);
+    }
+  }
+  return null;
+}
+
+function lastNameOf(displayName) {
+  if (!displayName) return null;
+  const parts = displayName.trim().split(/\s+/);
+  return parts[parts.length - 1] || null;
+}
+function abbrOf(displayName) {
+  const last = lastNameOf(displayName);
+  return last ? last.slice(0, 3).toUpperCase() : null;
 }
 
 // ── Evaluate all picks for finished games ─────────────────────────────────────
@@ -178,15 +279,6 @@ async function resolveResults() {
   `).all();
 
   for (const pick of picks) {
-    const type = (pick.pick_type || '').toLowerCase();
-    if (type === 'spread' && pick.spread == null) {
-      const extracted = await extractSpreadFromMessage(pick.team, pick.id);
-      if (extracted != null) {
-        db.prepare(`UPDATE picks SET spread = ? WHERE id = ?`).run(extracted, pick.id);
-        pick.spread = extracted;
-      }
-    }
-
     const result = evaluatePick(pick, pick);
     if (result === 'pending') continue;
 
@@ -254,9 +346,10 @@ async function resolveResults() {
 
   // ── Pass 2: mvp_picks pending but game is still in today_games (picks wiped) ─
   const directMvps = db.prepare(`
-    SELECT m.*, tg.home_score, tg.away_score, tg.status,
+    SELECT m.*, tg.sport AS sport, tg.home_score, tg.away_score, tg.status,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
-           tg.away_team, tg.first_inning_runs
+           tg.away_team, tg.first_inning_runs,
+           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
     FROM mvp_picks m
     JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
     WHERE tg.status = 'post' AND m.result = 'pending'
@@ -278,12 +371,59 @@ async function resolveResults() {
   `).all();
 
   for (const mvp of staleMvps) {
-    const gameData = await fetchGameResult(mvp.espn_game_id, mvp.sport);
+    const gameData = await fetchGameResult(mvp.espn_game_id, mvp.sport, mvp.game_date);
     if (!gameData) continue;
     const result = evaluatePick(mvp, gameData);
     if (result === 'pending') continue;
     db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ? WHERE id = ?`)
       .run(result, gameData.home_score, gameData.away_score, mvp.id);
+    resolved++;
+  }
+
+  // ── Pass 4: stale pick_history — permanent archive whose source pick was wiped ─
+  // Same shape as Pass 3, but for pick_history. Fetches ESPN once per unique game
+  // (cached in-loop) and grades every pending row attached to that game.
+  const stalePh = db.prepare(`
+    SELECT ph.* FROM pick_history ph
+    LEFT JOIN today_games tg ON tg.espn_game_id = ph.espn_game_id
+    WHERE ph.result = 'pending'
+      AND ph.espn_game_id IS NOT NULL
+      AND tg.espn_game_id IS NULL
+  `).all();
+
+  const gameCache = new Map();   // espn_game_id -> gameData | null
+  for (const ph of stalePh) {
+    const key = `${ph.espn_game_id}|${ph.sport || ''}|${ph.game_date || ''}`;
+    let gameData;
+    if (gameCache.has(key)) {
+      gameData = gameCache.get(key);
+    } else {
+      gameData = await fetchGameResult(ph.espn_game_id, ph.sport, ph.game_date);
+      gameCache.set(key, gameData);
+    }
+    if (!gameData) continue;
+    const result = evaluatePick(ph, gameData);
+    if (result === 'pending') continue;
+    db.prepare(`
+      UPDATE pick_history
+      SET result = ?, home_score = ?, away_score = ?, resolved_at = datetime('now')
+      WHERE id = ?
+    `).run(result, gameData.home_score, gameData.away_score, ph.id);
+    // Mirror into mvp_picks if a matching MVP row exists and isn't already settled
+    try {
+      db.prepare(`
+        UPDATE mvp_picks
+        SET result = ?, home_score = ?, away_score = ?
+        WHERE espn_game_id = ? AND team = ? AND pick_type IS ? AND result = 'pending'
+      `).run(
+        result,
+        gameData.home_score,
+        gameData.away_score,
+        ph.espn_game_id,
+        ph.team,
+        ph.pick_type ?? null
+      );
+    } catch (_) {}
     resolved++;
   }
 

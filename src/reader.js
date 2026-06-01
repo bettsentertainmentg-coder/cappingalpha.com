@@ -133,9 +133,13 @@ function getTodaysGamesContext() {
   const now = Date.now();
   if (_gamesCache !== null && (now - _gamesCacheTime) < GAMES_CACHE_TTL) return _gamesCache;
   try {
+    // Include finished games too — late-arriving picks (especially tennis, where
+    // ATP/WTA matches end fast and Discord posts often trail the result) still
+    // need to match a game so they can be graded. Finished games are tagged
+    // [FINAL] so the model knows; downstream code grades or holds as appropriate.
     const games = db.prepare(`
-      SELECT espn_game_id, sport, home_short, away_short, home_abbr, away_abbr
-      FROM today_games WHERE status != 'post'
+      SELECT espn_game_id, sport, status, home_short, away_short, home_abbr, away_abbr
+      FROM today_games
       ORDER BY sport, start_time
     `).all();
     if (!games || games.length === 0) { _gamesCache = ''; _gamesCacheTime = now; return ''; }
@@ -143,11 +147,12 @@ function getTodaysGamesContext() {
     for (const g of games) {
       (bySport[g.sport] = bySport[g.sport] || []).push(g);
     }
-    const lines = ["Today's games — match picks to these when confident. Return espn_game_id + picked_side (home/away)."];
+    const lines = ["Today's games — match picks to these when confident. Return espn_game_id + picked_side (home/away). [FINAL] = already played; still match the pick to it."];
     for (const [sport, sg] of Object.entries(bySport)) {
-      lines.push(`${sport}: ` + sg.map(g =>
-        `${g.away_short}(${g.away_abbr}) @ ${g.home_short}(${g.home_abbr}) [id:${g.espn_game_id}]`
-      ).join(', '));
+      lines.push(`${sport}: ` + sg.map(g => {
+        const tag = g.status === 'post' ? ' [FINAL]' : '';
+        return `${g.away_short}(${g.away_abbr}) @ ${g.home_short}(${g.home_abbr}) [id:${g.espn_game_id}]${tag}`;
+      }).join(', '));
     }
     _gamesCache     = lines.join('\n');
     _gamesCacheTime = now;

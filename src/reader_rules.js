@@ -22,6 +22,9 @@ BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner)
   - over/under: "over"/"o" or "under"/"u" before a number. "u213" = under 213.
   - NRFI: No Run First Inning (MLB only)
   - Numbers >= 100 in absolute value are JUICE (odds), not spread. Ignore them.
+  - set_ml: tennis "win set N" bet. ONLY use set_ml when the message names a specific set
+    ("1st set", "set 1", "S1", "first set", "to win set 2"). spread_value MUST be the set
+    number (1, 2, 3, 4, or 5). If no set number is given, treat it as a regular ML pick.
 
 ── CAPPER NAME ───────────────────────────────────────────────────────────────
 A line containing only a name (no pick info) is a capper header — all picks that follow belong to that capper until the next header or "=====" separator.
