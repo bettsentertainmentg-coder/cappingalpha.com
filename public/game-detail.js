@@ -6,6 +6,50 @@ import { checkAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js';
+import { cappingGauge } from '/modules/gauge.js';
+import { drawPickTimeline, destroyPickTimeline } from '/modules/score_timeline.js';
+
+function formatActualStart(actualIso, scheduledIso) {
+  if (!actualIso) return '';
+  const iso = actualIso.includes('T') ? actualIso : actualIso.replace(' ', 'T') + 'Z';
+  const actual    = new Date(iso);
+  const scheduled = scheduledIso ? new Date(scheduledIso) : null;
+  if (Number.isNaN(actual.getTime())) return '';
+  if (scheduled && !Number.isNaN(scheduled.getTime())) {
+    if (Math.abs(actual - scheduled) < 60_000) return '';
+  }
+  const t = actual.toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `Started ${t} ET`;
+}
+
+// Build the bottom-right start-time label shown under the chart. Visible to
+// everyone (paid or free), since the start time has no paywall implication.
+//   Pre-game:  "Starts 7:00pm ET"
+//   In/post:   "Started 7:12pm ET"   (with "(sched 7:00pm)" if delayed >1min)
+function formatStartLabel(actualIso, scheduledIso) {
+  const fmt = d => d.toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit',
+  });
+  const scheduled = scheduledIso ? new Date(scheduledIso) : null;
+  const schedOk = scheduled && !Number.isNaN(scheduled.getTime());
+  if (actualIso) {
+    const iso = actualIso.includes('T') ? actualIso : actualIso.replace(' ', 'T') + 'Z';
+    const actual = new Date(iso);
+    if (!Number.isNaN(actual.getTime())) {
+      let out = `Started ${fmt(actual)} ET`;
+      if (schedOk && Math.abs(actual - scheduled) > 60_000) {
+        out += ` <span class="ca-dp-timeline-sched">(sched ${fmt(scheduled)})</span>`;
+      }
+      return out;
+    }
+  }
+  if (schedOk) return `Starts ${fmt(scheduled)} ET`;
+  return '';
+}
 
 // Expose auth functions to window (needed by inline onclick handlers in HTML)
 Object.assign(window, {
@@ -64,6 +108,7 @@ async function init() {
   renderSentiment();
   renderInjuries();
   renderContext();
+  renderCommunity();
 
   // Update sidebar/mobile-tabs top offset to clear the sticky header
   updateStickyOffset();
@@ -342,22 +387,14 @@ function renderSlotGrid() {
     // Score area
     let scoreAreaHtml = '';
     if (isLocked) {
-      // Lock icon for all non-#1 chips — blur score if has one, else just icon
-      if (noPick) {
-        scoreAreaHtml = `<div class="ca-slot-score-area">
-          <span class="ca-slot-lock-solo"><i class="fa-solid fa-lock"></i></span>
-        </div>`;
-      } else {
-        scoreAreaHtml = `<div class="ca-slot-score-area">
-          <div class="ca-slot-locked-wrap">
-            <span class="ca-slot-pts ca-blurred" aria-hidden="true">${score}</span>
-            <span class="ca-slot-lock-overlay"><i class="fa-solid fa-lock"></i></span>
-          </div>
-        </div>`;
-      }
+      // Identical lock UI regardless of whether there's a pick underneath, so
+      // free users can't infer which slots have picks from chip styling.
+      scoreAreaHtml = `<div class="ca-slot-score-area">
+        <span class="ca-slot-lock-solo"><i class="fa-solid fa-lock"></i></span>
+      </div>`;
     } else if (noPick) {
       scoreAreaHtml = `<div class="ca-slot-score-area">
-        <span class="ca-slot-pts ca-slot-pts--none">—</span>
+        <span class="ca-slot-pts ca-slot-pts--none">0</span>
         <span class="ca-slot-not-rated">Not rated</span>
       </div>`;
     } else {
@@ -378,6 +415,13 @@ function renderSlotGrid() {
 }
 
 // ── Slot switching ────────────────────────────────────────────────────────────
+// Map a pick slot key to the matching Lines tab type
+function linesTypeForSlot(key) {
+  if (key === 'home_ml' || key === 'away_ml') return 'ml';
+  if (key === 'over' || key === 'under')      return 'total';
+  return 'spread';
+}
+
 function selectSlot(key) {
   if (!VALID_SLOTS.includes(key)) return;
   _activeSlot = key;
@@ -387,6 +431,12 @@ function selectSlot(key) {
     const onclick = chip.getAttribute('onclick') || '';
     chip.classList.toggle('active', onclick.includes(`'${key}'`));
   });
+
+  // Sync the Lines tab below to the matching bet type
+  const desiredLinesType = linesTypeForSlot(key);
+  if (desiredLinesType !== _linesType) {
+    setLinesType(desiredLinesType);
+  }
 
   renderDetailPanel();
   renderSentiment();
@@ -442,7 +492,7 @@ function renderDetailPanel() {
     : '';
 
   const rankBadge = p && rank === 1
-    ? `<div class="ca-dp-rank-badge ca-dp-rank-1">#1 Pick Today</div>`
+    ? `<div class="ca-dp-rank-badge ca-dp-rank-1">#1 Pick</div>`
     : p && rank > 0
       ? `<div class="ca-dp-rank-badge ca-dp-rank-n">#${rank}</div>`
       : '';
@@ -454,11 +504,18 @@ function renderDetailPanel() {
       : '';
 
   const scoreCls = isGoldMvp ? ' mvp-gold' : isSilverMvp ? ' mvp-silver' : '';
-  const scoreEl = !p
-    ? `<div class="ca-dp-score-big ca-num" style="color:var(--text-disabled);">—</div>`
-    : scoreHidden
-      ? `<div class="ca-dp-score-big ca-num ca-blurred">${score}</div>`
-      : `<div class="ca-dp-score-big ca-num${scoreCls}">${score}</div>`;
+  // Free users see real numbers only for the #1 pick. Everything else (no pick,
+  // or ranks 2+) renders the same locked-wrap visual so they can't tell which
+  // slots have no pick vs. paywalled picks.
+  const showRealScore = isPaying() || (p && rank === 1);
+  const scoreEl = showRealScore
+    ? (!p
+        ? `<div class="ca-dp-score-big ca-num" style="color:var(--text-disabled);opacity:0.55;">0</div>`
+        : `<div class="ca-dp-score-big ca-num${scoreCls}">${score}</div>`)
+    : `<div class="ca-dp-score-locked-wrap" onclick="openSignup()" title="Full access only">
+        <div class="ca-dp-score-big ca-num ca-blurred" aria-hidden="true">88</div>
+        <span class="ca-dp-score-lock-mini"><i class="fa-solid fa-lock"></i></span>
+      </div>`;
 
   const hdrMod = isGoldMvp ? ' ca-dp-header--mvp-gold' : isSilverMvp ? ' ca-dp-header--mvp-silver' : '';
 
@@ -475,7 +532,7 @@ function renderDetailPanel() {
       </div>
     </div>
     <div class="ca-dp-hdr-right">
-      ${p ? `<div class="ca-dp-hdr-score-label">CappingAlpha Score</div>` : ''}
+      <div class="ca-dp-hdr-score-label">CappingAlpha Score</div>
       <div class="ca-dp-hdr-score-row">
         ${scoreEl}
         ${mvpBadge}
@@ -485,45 +542,32 @@ function renderDetailPanel() {
     </div>
   </div>`;
 
-  // ── Body: 3-column (lines mini | public betting | vote) ──────────────────
+  // ── Body: 2-column (score build-up chart | community vote) ──────────────────
 
-  // Col 1: Lines mini-table
-  const lineRows = [
-    { book: 'Open', val: line },
-    { book: 'DraftKings', val: (() => {
-        const dk = _data.lines?.draftkings;
-        return dk ? slotLineCurrent(_activeSlot, dk) : null;
-      })() },
-    { book: 'FanDuel', val: (() => {
-        const fd = _data.lines?.fanduel;
-        return fd ? slotLineCurrent(_activeSlot, fd) : null;
-      })() },
-  ].filter(r => r.val != null);
-
-  const linesMiniHtml = lineRows.length
-    ? lineRows.map(r => `<div class="ca-dp-mini-row">
-        <span class="ca-dp-mini-book">${r.book}</span>
-        <span class="ca-dp-mini-val ca-num">${r.val}</span>
-      </div>`).join('')
-    : `<div style="font-size:12px;color:var(--text-disabled);">No lines available</div>`;
-
-  // Col 2: Public betting — real % for this exact slot
-  const pb = _data.publicBetting;
-  const pubPct = slotPubPct(_activeSlot, pb);
-  let pubHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Public Betting</div>`;
-  if (pubPct != null) {
-    const arcR   = 44;
-    const arcLen = +(Math.PI * arcR).toFixed(1);
-    const arcFill = +((pubPct / 100) * arcLen).toFixed(1);
-    const arcColor = pubPct >= 60 ? '#22c55e' : pubPct >= 40 ? '#f59e0b' : '#ef4444';
-    pubHtml += `<div class="ca-pub-num" style="color:${arcColor};">${pubPct}%</div>
-    <div class="ca-pub-bar-track">
-      <div class="ca-pub-bar-fill" style="width:${pubPct}%;background:${arcColor};"></div>
-    </div>
-    <div class="ca-pub-bar-label">${pubPct}% of bettors (tickets)</div>`;
-  } else {
-    pubHtml += `<div style="font-size:12px;color:var(--text-disabled);padding-top:6px;">No data available</div>`;
-  }
+  // Col 1: Score build-up chart. Paywall mirrors score visibility: free users
+  // see the real chart only on the #1 pick. For everything else we still render
+  // the canvas, but it's blurred behind a lock icon to drive the upgrade.
+  const timelineVisible = isPaying() || rank === 1;
+  const hasTimeline = !!(p?.timeline && p.timeline.length > 0);
+  let pubHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Score build-up</div>`;
+  const wrapMods = [
+    hasTimeline ? '' : 'is-empty',
+    timelineVisible ? '' : 'is-locked',
+  ].filter(Boolean).join(' ');
+  const startLabel = formatStartLabel(game?.actual_start_at, game?.start_time);
+  pubHtml += `<div class="ca-dp-timeline-wrap${wrapMods ? ' ' + wrapMods : ''}">
+    <canvas id="ca-dp-timeline-chart"></canvas>
+    ${!timelineVisible ? `
+      <div class="ca-dp-timeline-lock-overlay" onclick="openSignup()">
+        <i class="fa-solid fa-lock"></i>
+        <span>Full access only</span>
+      </div>` : ''}
+    ${timelineVisible && !hasTimeline ? '<div class="ca-dp-timeline-empty-overlay">No build-up yet.</div>' : ''}
+  </div>
+  <div class="ca-dp-timeline-footer">
+    <div class="ca-dp-timeline-teaser">Picks evolve throughout the day. <a href="/#about">Learn how</a></div>
+    ${startLabel ? `<div class="ca-dp-timeline-start">${startLabel}</div>` : ''}
+  </div>`;
 
   // Col 3: For/against community vote
   const oppKey       = OPP_SLOT[_activeSlot];
@@ -554,45 +598,49 @@ function renderDetailPanel() {
     </div>`;
   };
 
-  let voteHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Community Vote</div>`;
+  let voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>`;
   if (isViewer()) {
-    voteHtml += `<div class="ca-vote-login"><a onclick="openLogin()">Log in</a> to vote.</div>`;
-    voteHtml += `<div class="ca-vc-pair" style="margin-top:8px;">
+    voteHtml += `<div class="ca-dp-vote-sub"><a onclick="openSignup()">Make an account</a> to vote on this game.</div>
+    <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, false, true)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, false, true) : ''}
     </div>`;
   } else if (gameStarted) {
-    voteHtml += `<div class="ca-vote-locked">Voting closed — game ${game.status === 'post' ? 'ended' : 'started'}.</div>`;
-    voteHtml += `<div class="ca-vc-pair" style="margin-top:8px;">
+    voteHtml += `<div class="ca-dp-vote-sub ca-vote-locked-sub">Voting closed. Game ${game.status === 'post' ? 'ended' : 'started'}.</div>
+    <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, userOnThis, true)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, userOnOpp, true) : ''}
     </div>`;
   } else {
-    voteHtml += `<div class="ca-vc-pair">
+    voteHtml += `<div class="ca-dp-vote-sub">Cast your vote on this game. Voting locks at tip-off.</div>
+    <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, userOnThis, false)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, userOnOpp, false) : ''}
-    </div>
-    <div class="ca-dp-vote-heading" style="margin-top:8px;">Voting locks at tip-off</div>`;
+    </div>`;
   }
+
+  destroyPickTimeline();
 
   el.innerHTML = headerHtml + `<div class="ca-dp-grid">
     <div class="ca-dp-col">${pubHtml}</div>
     <div class="ca-dp-divider"></div>
-    <div class="ca-dp-col">${voteHtml}</div>
-  </div>
-  <div class="ca-dp-lines-row">
-    <div class="ca-dp-col">
-      <div class="ca-dp-col-label" style="margin-bottom:8px;">Current lines</div>
-      <div class="ca-dp-mini-table">${linesMiniHtml}</div>
-    </div>
+    <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
   </div>`;
+
+  // Render the chart after innerHTML has settled. Always draw, even when
+  // locked or empty, so the chart frame is visible with the overlay.
+  if (typeof Chart !== 'undefined') {
+    requestAnimationFrame(() =>
+      drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart')
+    );
+  }
 
   // Paywall banner
   if (!isPaying() && p && scoreHidden) {
     el.insertAdjacentHTML('beforeend', `
       <div class="ca-dp-unlock-row">
         <span class="ca-dp-unlock-text">Scores beyond #1 are unlocked for members.</span>
-        <span class="ca-dp-unlock-link" onclick="openSignup()">Get access — from $1/day</span>
+        <span class="ca-dp-unlock-link" onclick="openSignup()">Get access, from $1/day</span>
       </div>`);
   }
 }
@@ -927,155 +975,222 @@ function renderLines() {
   el.innerHTML = `<div class="ca-lines-table-wrap">${headerHtml}${rowsHtml}${polyHtml}${kalshiHtml}</div>`;
 }
 
-// ── Sentiment section ─────────────────────────────────────────────────────────
+// ── Sentiment + Community: shared bet-type config ─────────────────────────────
+// Both renderSentiment() (Public Betting) and renderCommunity() (user votes)
+// use the same three bet rows. Defined once, consumed twice.
+//
+// O/U colors are a non-betting-cliché pair (steel blue + amber): cold vs warm
+// without falling into red/green or green/gray.
+const OU_COLOR_UNDER = '#4682B4'; // steel blue
+const OU_COLOR_OVER  = '#F59E0B'; // amber
+
+// Sport → unit suffix for the over/under line value (e.g. "8.5 runs", "7.5 pts").
+const TOTAL_UNIT = {
+  MLB:   'runs',
+  NHL:   'goals',
+  NBA:   'pts',
+  NFL:   'pts',
+  NCAAF: 'pts',
+  CBB:   'pts',
+  WCBB:  'pts',
+  ATP:   'games',
+  WTA:   'games',
+  // Golf has no game-level total
+};
+
+function _buildBetTypes() {
+  const { game } = _data;
+  const awayColors = teamColors(game, false);
+  const homeColors = teamColors(game, true);
+  const awayName = game.away_short || teamNick(game.away_team) || game.away_abbr || '';
+  const homeName = game.home_short || teamNick(game.home_team) || game.home_abbr || '';
+  const homeSpread = game.spread_home != null ? fmtSpread(game.spread_home) : null;
+  const ouUnit     = TOTAL_UNIT[(game.sport || '').toUpperCase()];
+  const ouLine     = game.over_under != null
+    ? (ouUnit ? `${game.over_under} ${ouUnit}` : String(game.over_under))
+    : null;
+
+  return [
+    {
+      label:     'WIN',
+      betLabelColor: '#22d3ee',  // bright cyan
+      leftKey:   'away_ml',     rightKey:   'home_ml',
+      leftName:  awayName,      rightName:  homeName,
+      leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
+      leftColorSecondary:  awayColors.secondary, rightColorSecondary:  homeColors.secondary,
+      centerLine: null,
+    },
+    {
+      label:     'SPREAD',
+      betLabelColor: '#a78bfa',  // bright violet
+      leftKey:   'away_spread',  rightKey:   'home_spread',
+      leftName:  awayName,       rightName:  homeName,
+      leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
+      leftColorSecondary:  awayColors.secondary, rightColorSecondary:  homeColors.secondary,
+      // Show the home-side line in the center (e.g. -1.5) — matches the line
+      // value users actually see on the lines table.
+      centerLine: homeSpread,
+    },
+    {
+      label:     'TOTAL',
+      betLabelColor: '#fbbf24',  // bright amber
+      leftKey:   'under',        rightKey:   'over',
+      leftName:  'UNDER',        rightName:  'OVER',
+      leftColor: OU_COLOR_UNDER, rightColor: OU_COLOR_OVER,
+      // No team secondary for over/under — labels stay clean.
+      centerLine: ouLine,
+    },
+  ];
+}
+
+// ── Sentiment section (Public Betting only — Community moved to its own section) ──
 function renderSentiment() {
   const cardsEl  = document.getElementById('ca-sentiment-cards');
   const footerEl = document.getElementById('ca-sentiment-footer');
   if (!cardsEl) return;
 
-  const { game, picks, votes, publicBetting } = _data;
-  const pickBySlot = buildPickBySlot(picks || []);
-  const v  = votes || {};
-  const pb = publicBetting || null;
+  const pb = _data.publicBetting || null;
+  const betTypes = _buildBetTypes();
 
-  const awayColors = teamColors(game, false);
-  const homeColors = teamColors(game, true);
-  // Use mascot/nickname (away_short = "Lakers", "Rockets") for bar labels
-  const awayName = game.away_short || teamNick(game.away_team) || game.away_abbr || '';
-  const homeName = game.home_short || teamNick(game.home_team) || game.home_abbr || '';
-  // Keep abbr for spread header lines (shorter)
-  const awayAbbr = (game.away_abbr || game.away_short || '').toUpperCase();
-  const homeAbbr = (game.home_abbr || game.home_short || '').toUpperCase();
+  const pbPair = (leftKey, rightKey) => {
+    const map = {
+      away_ml: pb?.away_ml_pct, home_ml: pb?.home_ml_pct,
+      away_spread: pb?.away_spread_pct, home_spread: pb?.home_spread_pct,
+      over: pb?.over_pct, under: pb?.under_pct,
+    };
+    let lp = map[leftKey], rp = map[rightKey];
+    // ActionNetwork sometimes returns only one side — fill in the complement.
+    if (lp != null && rp == null) rp = 100 - lp;
+    else if (rp != null && lp == null) lp = 100 - rp;
+    return { leftPct: lp ?? null, rightPct: rp ?? null };
+  };
 
-  // Line value strings for headers
-  const awayML     = game.ml_away     != null ? fmtOdds(game.ml_away)       : '—';
-  const homeML     = game.ml_home     != null ? fmtOdds(game.ml_home)       : '—';
-  const awaySpread = game.spread_away != null ? fmtSpread(game.spread_away) : '—';
-  const homeSpread = game.spread_home != null ? fmtSpread(game.spread_home) : '—';
-  const ouLine     = game.over_under  != null ? game.over_under             : '—';
+  // The gauge widget owns its own MONEYLINE/SPREAD/TOTAL label now — no extra
+  // wrapper here.
+  const blocks = betTypes.map(bt => {
+    const { leftPct, rightPct } = pbPair(bt.leftKey, bt.rightKey);
+    return cappingGauge({
+      betLabel:            bt.label,
+      betLabelColor:       bt.betLabelColor,
+      leftLabel:           bt.leftName,
+      rightLabel:          bt.rightName,
+      leftPct,
+      rightPct,
+      leftColor:           bt.leftColor,
+      rightColor:          bt.rightColor,
+      leftColorSecondary:  bt.leftColorSecondary,
+      rightColorSecondary: bt.rightColorSecondary,
+      centerLine:          bt.centerLine,
+      size: 'md',
+    });
+  }).join('');
 
-  // Bet type definitions
-  const betTypes = [
-    {
-      label: 'MONEYLINE',
-      leftKey: 'away_ml',     rightKey: 'home_ml',
-      leftName: awayName,     rightName: homeName,
-      leftColors: awayColors, rightColors: homeColors,
-      leftLine: awayML,       rightLine: homeML,
-      pbLeft: pb?.away_ml_pct, pbRight: pb?.home_ml_pct,
-    },
-    {
-      label: 'SPREAD',
-      leftKey: 'away_spread',  rightKey: 'home_spread',
-      leftName: awayName,      rightName: homeName,
-      leftColors: awayColors,  rightColors: homeColors,
-      leftLine: awaySpread,    rightLine: homeSpread,
-      pbLeft: pb?.away_spread_pct, pbRight: pb?.home_spread_pct,
-    },
-    {
-      label: 'TOTAL',
-      leftKey: 'under',  rightKey: 'over',
-      leftName: 'UNDER', rightName: 'OVER',
-      leftColors:  { primary: '#475569', secondary: '#e2e8f0' },
-      rightColors: { primary: '#22c55e', secondary: '#052e0d' },
-      leftLine: '', rightLine: '',
-      centerLine: ouLine !== '—' ? String(ouLine) : null,
-      pbLeft: pb?.under_pct, pbRight: pb?.over_pct,
-    },
-  ];
-
-  // Render one gradient bar block (used in both columns)
-  function renderBar(bt, leftPct, rightPct, leftCount, rightCount, isPublic) {
-    const noData = leftPct == null || rightPct == null;
-    const lPct   = noData ? 50 : leftPct;
-    const rPct   = noData ? 50 : rightPct;
-    const lColor = noData ? '#1e2736' : bt.leftColors.primary;
-    const rColor = noData ? '#1e2736' : bt.rightColors.primary;
-    const lText  = noData ? 'transparent' : bt.leftColors.secondary;
-    const rText  = noData ? 'transparent' : bt.rightColors.secondary;
-
-    // Soft gradient blend zone ±12% around the split point
-    const BLEND  = 12;
-    const bs     = Math.max(0, lPct - BLEND);
-    const be     = Math.min(100, lPct + BLEND);
-    const bg     = noData
-      ? lColor
-      : `linear-gradient(to right, ${lColor} 0%, ${lColor} ${bs}%, ${rColor} ${be}%, ${rColor} 100%)`;
-
-    const lCountStr = leftCount  != null ? ` (${leftCount})` : '';
-    const rCountStr = rightCount != null ? ` (${rightCount})` : '';
-
-    const tick = noData ? '' : `<div class="ca-senti-split-tick" style="left:${lPct}%;"></div>`;
-
-    return `
-      <div class="ca-senti-bar-outer" style="background:${bg};">
-        <span class="ca-senti-seg-lbl" style="color:${lText};">${bt.leftName}</span>
-        ${tick}
-        <span class="ca-senti-seg-lbl" style="color:${rText};">${bt.rightName}</span>
-      </div>
-      <div class="ca-senti-bar-foot${isPublic ? ' ca-senti-bar-foot--pub' : ''}">
-        <span class="ca-num">${noData ? '—' : lPct + '%'}${lCountStr}</span>
-        ${bt.centerLine ? `<span class="ca-senti-center-val ca-num">${bt.centerLine}</span>` : ''}
-        <span class="ca-num">${noData ? '—' : rPct + '%'}${rCountStr}</span>
-      </div>`;
-  }
-
-  // Render one column's worth of bet blocks
-  function renderColumn(isPublic) {
-    return betTypes.map(bt => {
-      // Header line values
-      const header = `
-        <div class="ca-senti-bet-hdr">
-          <span class="ca-senti-line ca-num">${bt.leftLine}</span>
-          <span class="ca-senti-bet-label">${bt.label}</span>
-          <span class="ca-senti-line ca-num">${bt.rightLine}</span>
-        </div>`;
-
-      let leftPct, rightPct, leftCount, rightCount;
-
-      if (isPublic) {
-        let lp = bt.pbLeft  != null ? bt.pbLeft  : null;
-        let rp = bt.pbRight != null ? bt.pbRight : null;
-        // AN sometimes returns only one side — fill in the complement
-        if (lp != null && rp == null) rp = 100 - lp;
-        else if (rp != null && lp == null) lp = 100 - rp;
-        leftPct = lp; rightPct = rp;
-        leftCount = null; rightCount = null;
-      } else {
-        const lVotes = v[bt.leftKey]  || 0;
-        const rVotes = v[bt.rightKey] || 0;
-        const total  = lVotes + rVotes;
-        leftPct    = total > 0 ? Math.round(lVotes / total * 100) : null;
-        rightPct   = leftPct != null ? 100 - leftPct : null;
-        leftCount  = lVotes;
-        rightCount = rVotes;
-      }
-
-      return `
-        <div class="ca-senti-bet-block">
-          ${header}
-          ${renderBar(bt, leftPct, rightPct, leftCount, rightCount, isPublic)}
-        </div>`;
-    }).join('');
-  }
-
-  const totalVotes = Object.values(v).reduce((a, b) => a + b, 0);
-
-  cardsEl.innerHTML = `
-    <div class="ca-senti-split">
-      <div class="ca-senti-col">
-        <div class="ca-senti-col-hdr">PUBLIC BETTING</div>
-        ${renderColumn(true)}
-      </div>
-      <div class="ca-senti-vdivider"></div>
-      <div class="ca-senti-col">
-        <div class="ca-senti-col-hdr">COMMUNITY <span class="ca-senti-vote-count ca-num">${totalVotes} vote${totalVotes !== 1 ? 's' : ''}</span></div>
-        ${renderColumn(false)}
-      </div>
-    </div>`;
+  cardsEl.innerHTML = `<div class="ca-senti-gauges">${blocks}</div>`;
 
   if (footerEl) footerEl.textContent = '';
 }
+
+// ── Community section (user votes, with vote buttons) ─────────────────────────
+function renderCommunity() {
+  const gaugesEl  = document.getElementById('ca-community-gauges');
+  const votesEl   = document.getElementById('ca-community-vote-row');
+  if (!gaugesEl) return;
+
+  const { game, votes = {}, userVote = {} } = _data;
+  const v = votes || {};
+  const totalVotes = Object.values(v).reduce((a, b) => a + (b || 0), 0);
+  const betTypes = _buildBetTypes();
+
+  const votePair = (leftKey, rightKey) => {
+    const lv = v[leftKey]  || 0;
+    const rv = v[rightKey] || 0;
+    const total = lv + rv;
+    if (total === 0) return { leftPct: null, rightPct: null };
+    const lp = Math.round((lv / total) * 100);
+    return { leftPct: lp, rightPct: 100 - lp };
+  };
+
+  const blocks = betTypes.map(bt => {
+    const { leftPct, rightPct } = votePair(bt.leftKey, bt.rightKey);
+    return cappingGauge({
+      betLabel:            bt.label,
+      betLabelColor:       bt.betLabelColor,
+      leftLabel:           bt.leftName,
+      rightLabel:          bt.rightName,
+      leftPct,
+      rightPct,
+      leftColor:           bt.leftColor,
+      rightColor:          bt.rightColor,
+      leftColorSecondary:  bt.leftColorSecondary,
+      rightColorSecondary: bt.rightColorSecondary,
+      centerLine:          bt.centerLine,
+      size: 'md',
+    });
+  }).join('');
+
+  const totalHdr = totalVotes > 0
+    ? `<span class="ca-senti-vote-count ca-num">${totalVotes} vote${totalVotes !== 1 ? 's' : ''}</span>`
+    : '';
+  gaugesEl.innerHTML = `
+    <div class="ca-cmty-sub-hdr">Community votes ${totalHdr}</div>
+    <div class="ca-senti-gauges">${blocks}</div>`;
+
+  // Vote row: only meaningful if the game hasn't started and the user is logged in.
+  if (votesEl) votesEl.innerHTML = _buildCommunityVoteRow();
+}
+
+// Voting UI — one row of buttons for the currently-active slot.
+// Pre-game only; logged-out viewers see a prompt to sign up.
+function _buildCommunityVoteRow() {
+  const { game, userVote = {} } = _data;
+  if (!game) return '';
+  if (game.status !== 'pre') {
+    return `<div class="ca-cmty-vote-closed">Voting closed. Game has started.</div>`;
+  }
+  // Determine slot + counterpart from the active picks slot.
+  const slot = _activeSlot || 'home_ml';
+  const oppSlot = OPP_SLOT[slot] || 'away_ml';
+  const SLOTS = buildSlots(game);
+  const slotMap = Object.fromEntries(SLOTS.map(s => [s.key, s]));
+  const a = slotMap[slot];
+  const b = slotMap[oppSlot];
+  if (!a || !b) return '';
+
+  if (isViewer()) {
+    return `<div class="ca-cmty-vote-prompt">
+      <a onclick="openLogin()" class="ca-cmty-vote-link">Log in</a> or
+      <a onclick="openSignup()" class="ca-cmty-vote-link">sign up</a>
+      to cast a vote on this game.
+    </div>`;
+  }
+  const aVoted = !!userVote[a.key];
+  const bVoted = !!userVote[b.key];
+  return `<div class="ca-cmty-vote-row">
+    <button class="ca-cmty-vote-btn${aVoted ? ' is-voted' : ''}" onclick="castVote('${a.key}')">${aVoted ? '✓ ' : ''}${a.label}</button>
+    <button class="ca-cmty-vote-btn${bVoted ? ' is-voted' : ''}" onclick="castVote('${b.key}')">${bVoted ? '✓ ' : ''}${b.label}</button>
+  </div>`;
+}
+
+// Cast vote handler (wired to onclick). Calls existing /vote API and re-renders.
+async function castVote(slot) {
+  if (!_data?.game?.espn_game_id) return;
+  try {
+    const res = await fetch(`/api/game/${_data.game.espn_game_id}/vote`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ slot }),
+    });
+    if (res.status === 401) { openLogin(); return; }
+    if (res.status === 409) { alert('Voting is closed. Game has started.'); return; }
+    const data = await res.json();
+    _data.votes    = data.votes;
+    _data.userVote = data.userVote;
+    renderCommunity();
+  } catch (err) {
+    console.warn('[community] vote failed:', err);
+  }
+}
+window.castVote = castVote;
 
 // ── Injuries section ──────────────────────────────────────────────────────────
 function renderInjuries() {

@@ -258,6 +258,9 @@ try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN away_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_over_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch (_) {}
+// First moment a game's status flipped to 'in' (live). Used to enforce the
+// 5-minute-past-actual-start scoring cutoff. NULL until ESPN reports the game live.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_start_at TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ml REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ou REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN is_home_team INTEGER NOT NULL DEFAULT 0`); } catch (_) {}

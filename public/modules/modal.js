@@ -3,6 +3,34 @@
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
 import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js';
+import { cappingGauge } from './gauge.js';
+
+// Sport → unit suffix for the over/under total line value.
+// Same map used in public/game-detail.js _buildBetTypes().
+const TOTAL_UNIT = {
+  MLB: 'runs', NHL: 'goals',
+  NBA: 'pts',  NFL: 'pts', NCAAF: 'pts', CBB: 'pts', WCBB: 'pts',
+  ATP: 'games', WTA: 'games',
+};
+import { drawPickTimeline, destroyPickTimeline } from './score_timeline.js';
+
+function formatActualStart(actualIso, scheduledIso) {
+  if (!actualIso) return '';
+  // SQLite datetime('now') returns 'YYYY-MM-DD HH:MM:SS' UTC with no offset
+  const iso = actualIso.includes('T') ? actualIso : actualIso.replace(' ', 'T') + 'Z';
+  const actual    = new Date(iso);
+  const scheduled = scheduledIso ? new Date(scheduledIso) : null;
+  if (Number.isNaN(actual.getTime())) return '';
+  if (scheduled && !Number.isNaN(scheduled.getTime())) {
+    if (Math.abs(actual - scheduled) < 60_000) return '';
+  }
+  const t = actual.toLocaleTimeString('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return `Started ${t} ET`;
+}
 
 // Team primary colors [primary, secondary]
 const TEAM_COLORS = {
@@ -148,6 +176,7 @@ export function openGameModal(espn_game_id, clickedType = null, clickedTeam = nu
 
 export function closeGameModal(event) {
   if (event && event.target !== event.currentTarget) return;
+  destroyPickTimeline();
   document.getElementById('game-modal').classList.add('hidden');
   document.getElementById('game-modal-content').innerHTML = '';
   _modalData = null;
@@ -265,12 +294,45 @@ export function selectTickerSlot(slotKey) {
   });
 }
 
+function buildTimelineSection(p, pickRank, hasPick) {
+  // Visibility mirrors score paywall: free users see #1 only; paid users see all.
+  const canSeeTimeline = isPaying() || pickRank === 1;
+  if (!canSeeTimeline) {
+    return `<div class="pick-timeline-section locked">
+      <div class="pick-timeline-heading">Score build-up</div>
+      <div class="pick-timeline-locked">${LOCK_SVG} ${isViewer()
+        ? `<a onclick="openSignup()" style="color:var(--gold);cursor:pointer;">Create a free account</a> to view`
+        : `<a onclick="openCodeEntry()" style="color:var(--gold);cursor:pointer;">Upgrade</a> to view`}</div>
+    </div>`;
+  }
+  const hasTimeline = !!(hasPick && p?.timeline && p.timeline.length > 0);
+  if (!hasTimeline) {
+    return `<div class="pick-timeline-section">
+      <div class="pick-timeline-heading">Score build-up</div>
+      <div class="pick-timeline-canvas-wrap is-empty">
+        <canvas id="pick-timeline-chart"></canvas>
+        <div class="pick-timeline-empty-overlay">No build-up yet.</div>
+      </div>
+    </div>`;
+  }
+  return `<div class="pick-timeline-section">
+    <div class="pick-timeline-heading">Score build-up</div>
+    <div class="pick-timeline-canvas-wrap"><canvas id="pick-timeline-chart"></canvas></div>
+    <div class="pick-timeline-teaser">Picks evolve throughout the day. <a onclick="switchTab('about')" style="color:var(--accent);cursor:pointer;">Learn how</a></div>
+  </div>`;
+}
+
 function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   const el = document.getElementById('pick-info-panel');
   if (!el) return;
+  destroyPickTimeline();
   const { game, lines } = data;
   const p    = pickBySlot[slotKey];
   const slot = SLOTS.find(s => s.key === slotKey);
+  const startedNote = formatActualStart(game?.actual_start_at, game?.start_time);
+  const startedHtml = startedNote
+    ? `<div class="pick-started-note">${startedNote}</div>`
+    : '';
 
   // Lines computed up front — shown regardless of whether a pick exists
   let currentLine = '—';
@@ -394,7 +456,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
           ? `${LOCK_SVG} <a onclick="openSignup()" style="color:var(--gold);cursor:pointer;">Create a free account</a> to see picks`
           : `${LOCK_SVG} <a onclick="openCodeEntry()" style="color:var(--gold);cursor:pointer;">Upgrade</a> to unlock scores`}</span>
       </div>`;
-      el.innerHTML = lockedBox + `<div class="pick-info-label">${slot?.label || slotKey}</div>` + linesHtml;
+      el.innerHTML = lockedBox + `<div class="pick-info-label">${slot?.label || slotKey}</div>` + startedHtml + linesHtml;
     } else {
       // No pick and no locked pair — show greyed "no value" box with score 0 + lines
       const noValueBox = `<div class="pick-score-box" style="opacity:0.55;">
@@ -402,7 +464,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
         <span class="pick-info-score" style="color:var(--muted);">0</span>
         <span style="font-size:11px;color:var(--muted);margin-top:4px;display:block;">CappingAlpha doesn't see value in this line right now</span>
       </div>`;
-      el.innerHTML = noValueBox + `<div class="pick-info-label">${slot?.label || slotKey}</div>` + linesHtml;
+      el.innerHTML = noValueBox + `<div class="pick-info-label">${slot?.label || slotKey}</div>` + startedHtml + linesHtml;
     }
     return;
   }
@@ -431,10 +493,19 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
           : `${LOCK_SVG} <a onclick="openCodeEntry()" style="color:var(--gold);cursor:pointer;">Upgrade</a> to unlock scores`}</span>
       </div>`;
 
+  const timelineSection = buildTimelineSection(p, pickRank, true);
+
   el.innerHTML = `
     ${scoreBoxHtml}
     <div class="pick-info-label">${slot?.label || slotKey}</div>
-    ${linesHtml}`;
+    ${startedHtml}
+    ${linesHtml}
+    ${timelineSection}`;
+
+  if (typeof Chart !== 'undefined' && (isPaying() || pickRank === 1)) {
+    const mvp = state.CONFIG?.mvp_threshold || 50;
+    requestAnimationFrame(() => drawPickTimeline(p?.timeline || [], mvp));
+  }
 }
 
 function renderGameData(data) {
@@ -533,34 +604,80 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
   if (!el) return;
   const { game, votes, userVote } = data;
 
-  let aKey, bKey, aLabel, bLabel, aColor, bColor;
+  // Layout: gauge shows LEFT-vs-RIGHT — for ML/spread we put AWAY on the left
+  // and HOME on the right (mirrors the standalone page convention), regardless
+  // of which slot is active. Active slot determines which key pair drives the %.
+  let leftKey, rightKey, leftLabel, rightLabel, leftColor, rightColor,
+      leftColorSecondary = '', rightColorSecondary = '',
+      centerLine = null, betLabel, betLabelColor;
+
   if (slotKey === 'over' || slotKey === 'under') {
-    aKey = 'over';  aLabel = 'Over';  aColor = '#16a34a';
-    bKey = 'under'; bLabel = 'Under'; bColor = '#dc2626';
+    leftKey   = 'under';        rightKey   = 'over';
+    leftLabel = 'UNDER';        rightLabel = 'OVER';
+    // Steel blue + amber — same non-betting-cliché pair as the standalone page.
+    leftColor = '#4682B4';      rightColor = '#F59E0B';
+    const ouUnit = TOTAL_UNIT[(game.sport || '').toUpperCase()];
+    centerLine = game.over_under != null
+      ? (ouUnit ? `${game.over_under} ${ouUnit}` : String(game.over_under))
+      : null;
+    betLabel       = 'TOTAL';
+    betLabelColor  = '#fbbf24';
+    // No team secondaries on totals — keep labels clean.
   } else {
     const homeColors = TEAM_COLORS[game.home_team] || ['#3b82f6','#6366f1'];
     const awayColors = TEAM_COLORS[game.away_team] || ['#8b5cf6','#a78bfa'];
-    aKey = 'home_ml';  aLabel = game.home_team?.split(' ').pop() || 'Home';  aColor = homeColors[0];
-    bKey = 'away_ml';  bLabel = game.away_team?.split(' ').pop() || 'Away';  bColor = awayColors[0];
+    leftLabel  = game.away_team?.split(' ').pop() || 'Away';
+    rightLabel = game.home_team?.split(' ').pop() || 'Home';
+    leftColor           = awayColors[0];
+    rightColor          = homeColors[0];
+    leftColorSecondary  = awayColors[1] || '';
+    rightColorSecondary = homeColors[1] || '';
     if (slotKey === 'home_spread' || slotKey === 'away_spread') {
-      aKey = 'home_spread'; bKey = 'away_spread';
+      leftKey  = 'away_spread';  rightKey = 'home_spread';
+      centerLine = game.spread_home != null ? fmtSpread(game.spread_home) : null;
+      betLabel       = 'SPREAD';
+      betLabelColor  = '#a78bfa';
+    } else {
+      leftKey  = 'away_ml';      rightKey = 'home_ml';
+      betLabel       = 'WIN';
+      betLabelColor  = '#22d3ee';
     }
   }
 
-  const aVotes = votes[aKey] || 0;
-  const bVotes = votes[bKey] || 0;
-  const total  = aVotes + bVotes;
-  const aPct   = total > 0 ? Math.round((aVotes / total) * 100) : 50;
-  const bPct   = total > 0 ? 100 - aPct : 50;
+  const leftVotes  = votes[leftKey]  || 0;
+  const rightVotes = votes[rightKey] || 0;
+  const total = leftVotes + rightVotes;
+  const leftPct  = total > 0 ? Math.round((leftVotes / total) * 100) : null;
+  const rightPct = leftPct  != null ? 100 - leftPct : null;
+
+  const gaugeHtml = cappingGauge({
+    betLabel, betLabelColor,
+    leftLabel, rightLabel, leftPct, rightPct,
+    leftColor, rightColor,
+    leftColorSecondary, rightColorSecondary,
+    centerLine,
+    size: 'sm',
+  });
 
   const locked = gameStatus === 'in' || gameStatus === 'post';
 
   let voteSection = '';
   if (locked) {
-    voteSection = `<div class="vote-closed">Voting closed — game started</div>`;
+    voteSection = `<div class="vote-closed">Voting closed. Game started.</div>`;
   } else if (!state.currentUser) {
     voteSection = `<div style="font-size:12px;color:var(--muted);margin-top:8px;"><a onclick="openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a> or <a onclick="openSignup()" style="color:var(--accent);cursor:pointer;">sign up free</a> to vote</div>`;
   } else {
+    // Vote buttons follow the active slot pair (not necessarily the gauge's home/away axis).
+    let aKey, bKey, aLabel, bLabel;
+    if (slotKey === 'over' || slotKey === 'under') {
+      aKey = 'over';  aLabel = 'Over';  bKey = 'under'; bLabel = 'Under';
+    } else if (slotKey === 'home_spread' || slotKey === 'away_spread') {
+      aKey = 'home_spread'; aLabel = game.home_team?.split(' ').pop() || 'Home';
+      bKey = 'away_spread'; bLabel = game.away_team?.split(' ').pop() || 'Away';
+    } else {
+      aKey = 'home_ml';     aLabel = game.home_team?.split(' ').pop() || 'Home';
+      bKey = 'away_ml';     bLabel = game.away_team?.split(' ').pop() || 'Away';
+    }
     const aVoted = userVote && userVote[aKey];
     const bVoted = userVote && userVote[bKey];
     voteSection = `
@@ -574,22 +691,15 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
       </div>`;
   }
 
+  const totalLine = total > 0
+    ? `<div class="sentiment-vote-count">${total} vote${total !== 1 ? 's' : ''}</div>`
+    : '';
+
   el.innerHTML = `
     <div class="sentiment-heading">Community Sentiment</div>
     <div class="sentiment-gauge-wrap">
-      <div class="sentiment-gauge-teams">
-        <span style="font-weight:600;">${aLabel}</span>
-        <span style="font-weight:600;">${bLabel}</span>
-      </div>
-      <div class="sentiment-gauge">
-        <div class="sentiment-gauge-a" style="width:${aPct}%;background:${aColor};"></div>
-        <div class="sentiment-gauge-b" style="flex:1;background:${bColor};"></div>
-      </div>
-      <div class="sentiment-gauge-pcts">
-        <span style="color:${aColor};">${aPct}%</span>
-        <span>${total} vote${total !== 1 ? 's' : ''}</span>
-        <span style="color:${bColor};">${bPct}%</span>
-      </div>
+      ${gaugeHtml}
+      ${totalLine}
     </div>
     ${voteSection}`;
 }
@@ -602,7 +712,7 @@ export async function voteOnSlot(espn_game_id, slot) {
       body: JSON.stringify({ slot }),
     });
     if (res.status === 401) { window.openLogin(); return; }
-    if (res.status === 409) { alert('Voting is now closed — game has started.'); return; }
+    if (res.status === 409) { alert('Voting is now closed. Game has started.'); return; }
 
     const data = await res.json();
     if (!_modalData) return;

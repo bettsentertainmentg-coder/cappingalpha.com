@@ -3,11 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CappingAlpha — Top Rated Plays</title>
+  <title>CappingAlpha | Top Rated Plays</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="/gauge.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- PostHog analytics -->
   <script>
@@ -446,6 +447,22 @@
     .pick-info-lines .line-row { display: flex; gap: 8px; align-items: baseline; }
     .pick-info-lines .line-book { color: var(--muted); min-width: 28px; font-size: 12px; }
     .pick-info-lines .line-val { font-weight: 600; }
+    .pick-started-note { font-size: 11px; color: var(--muted); margin: -6px 0 10px; letter-spacing: .03em; }
+    .pick-timeline-section { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .pick-timeline-heading { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted);
+      text-transform: uppercase; margin-bottom: 8px; }
+    .pick-timeline-canvas-wrap { position: relative; height: 140px; }
+    .pick-timeline-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+    .pick-timeline-canvas-wrap.is-empty canvas { opacity: 0.4; }
+    .pick-timeline-empty-overlay {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: var(--muted); font-style: italic;
+      pointer-events: none; letter-spacing: .02em;
+    }
+    .pick-timeline-teaser { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+    .pick-timeline-locked { font-size: 12px; color: var(--muted); padding: 18px 12px; text-align: center;
+      border: 1px dashed var(--border); border-radius: 6px; }
     .pick-section-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
     .game-data-heading { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted);
       text-transform: uppercase; margin-bottom: 8px; }
@@ -460,26 +477,10 @@
     .pitcher-team { font-size: 11px; color: var(--muted); margin-top: 1px; opacity: 0.7; }
     .pitcher-vs { font-size: 12px; font-weight: 700; color: var(--muted); padding-top: 2px; }
 
-    /* Sentiment panel */
+    /* Sentiment panel — gauge styles live in gauge.css. Only structural styles here. */
     .sentiment-heading { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; }
-    /* Sentiment gauge meter */
-    .sentiment-gauge-wrap { margin-bottom: 12px; }
-    .sentiment-gauge-teams { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
-    .sentiment-gauge { display: flex; height: 18px; border-radius: 9px; overflow: hidden; }
-    .sentiment-gauge-a { height: 100%; transition: width .4s ease; }
-    .sentiment-gauge-b { height: 100%; }
-    .sentiment-gauge-pcts { display: flex; justify-content: space-between; font-size: 12px; margin-top: 5px; }
-    .sentiment-gauge-pcts span:nth-child(2) { color: var(--muted); font-size: 11px; }
-    /* LEGACY — kept for safety */
-    .sentiment-heading-x { font-size: 11px; font-weight: 700; letter-spacing: .07em; color: var(--muted);
-      text-transform: uppercase; margin-bottom: 12px; }
-    .sentiment-pair { margin-bottom: 14px; }
-    .sentiment-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 13px; }
-    .sentiment-name { flex: 0 0 90px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .sentiment-bar-wrap { flex: 1; background: var(--surface2); border-radius: 8px; height: 10px; overflow: hidden; }
-    .sentiment-bar { height: 100%; border-radius: 8px; transition: width .3s; }
-    .sentiment-pct { flex: 0 0 36px; text-align: right; font-size: 12px; color: var(--muted); }
-    .sentiment-total { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .sentiment-gauge-wrap { margin-bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .sentiment-vote-count { font-size: 11px; color: var(--muted); }
     .vote-btn {
       margin-top: 10px; padding: 7px 16px; font-size: 13px; border-radius: 6px; cursor: pointer;
       border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600;
@@ -526,10 +527,19 @@
       font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
       color: var(--accent); margin-bottom: 16px;
     }
-    .about-hero h1 { font-size: 38px; font-weight: 700; margin-bottom: 16px; max-width: 680px; margin-left: auto; margin-right: auto; line-height: 1.2; }
+    .about-hero h1 { font-size: 30px; font-weight: 700; margin-bottom: 16px; max-width: 680px; margin-left: auto; margin-right: auto; line-height: 1.2; letter-spacing: -0.01em; }
     .about-hero p { color: var(--muted); font-size: 17px; max-width: 560px; margin: 0 auto; line-height: 1.7; }
 
     .about-section { max-width: 860px; margin: 0 auto; padding: 0 24px 80px; }
+    .about-algo-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px 28px 32px; margin: 32px 0 16px;
+    }
+    .about-algo-box .about-h2 { margin-top: 0; }
+    .about-algo-box .about-h3 {
+      font-size: 16px; font-weight: 700; margin: 28px 0 10px;
+      color: var(--text); letter-spacing: .01em;
+    }
     .about-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; margin: 40px 0; }
     .about-signal-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
@@ -1104,31 +1114,40 @@
   <div id="panel-about" class="tab-panel">
     <div class="about-hero">
       <div class="about-hero-slogan">The research layer between you and the market.</div>
-      <h1>Know the Board Better Than Everyone Else</h1>
-      <p>CappingAlpha processes high-end capper signals against live book lines Institutional-grade research. One dollar to access it.</p>
+      <h1>Know the board.</h1>
+      <p>CappingAlpha processes high-end capper signals against live book lines. Institutional-grade research. One dollar to access it.</p>
       <p style="font-size:13px;color:var(--gold);margin-top:12px;max-width:480px;margin-left:auto;margin-right:auto;">The world's #1 sports data aggregation and research tool.</p>
     </div>
     <div class="about-section">
 
       <h2 class="about-h2">What is CappingAlpha?</h2>
-      <p class="about-p">Sports betting is an information problem. The books have it. Most bettors do not. CappingAlpha closes that gap by deploying a network of specialized AI agents trained on years of player data, historical outcomes, and public market behavior. The result is a single ranked list of the day's highest-conviction plays, scored against the morning opening line before a game kicks off.</p>
-      <p class="about-p">We are not a pick service. We do not tell you what to bet. We process publicly available information, normalize it through a proprietary scoring engine, and present it in a structured format so you can see exactly where public conviction is concentrated and how it stacks up against the market. You make the call. We just make sure you're informed when you do.</p>
+      <p class="about-p">Sports betting is an information problem. The books have it, and most bettors do not. CappingAlpha works to close that gap by giving you everything you could possibly want to know about a sports bet in one place. Player data, historical outcomes, public market behavior, live lines, weather, capper signals, and more, all normalized through a proprietary scoring engine and ranked into a single list of the day's highest-conviction plays.</p>
+      <p class="about-p">We are not a pick service. We do not tell you what to bet. We surface the data and let you decide. You make the call. We just make sure you're informed when you do.</p>
       <p class="about-p">CappingAlpha never wagers on any game. All performance data shown is hypothetical and for informational purposes only. Past results are not indicative of future outcomes.</p>
 
-      <h2 class="about-h2">How the Scoring Model Works</h2>
-      <p class="about-p">Each morning at 5am ET, opening book lines (moneylines, spreads, over/unders) are locked as the reference baseline for the day. From there, AI agents monitor public data streams in real time, cross-referencing signals against live game data from ESPN, weather from OpenWeatherMap, public sentiment from X, community intelligence sources, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
-      <p class="about-p">Picks are ranked by score. A higher score means more independent sources aligned on the same side at the same time. The model is calibrated to detect that pressure early, before it moves a line. No single source can spike a score on its own.</p>
+      <div class="about-algo-box">
+        <h2 class="about-h2">How the algorithm works</h2>
+
+        <h3 class="about-h3">Why does the house always win?</h3>
+        <p class="about-p">There are inconsistencies in the lines and spreads that can often give the house an edge. CappingAlpha's algorithm uses a system of complex agents to find the gaps where teams, players, and lines look most profitable versus the books, and ranks them accordingly.</p>
+        <p class="about-p">These calculations happen throughout the day and can sometimes take right up until tip-off to fully crystallize. Picks are ranked, and the day's MVP picks (<span class="mvp-pts-live">50</span>+ points) are highlighted along with a wide range of statistics to help you place your bet.</p>
+        <p class="about-p">This is to inform you and give you an extra layer of insight on each pick. No pick is ever recommended by our side. Anything can happen in a sports match. It's purely statistical data.</p>
+
+        <h3 class="about-h3">How the scoring model works</h3>
+        <p class="about-p">Each morning at 5am ET, opening book lines (moneylines, spreads, over/unders) are locked as the reference baseline for the day. From there, AI agents monitor public data streams in real time, cross-referencing signals against live game data from ESPN, weather from OpenWeatherMap, public sentiment from X, community intelligence sources, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
+        <p class="about-p">Picks are ranked by score. A higher score means more independent sources aligned on the same side at the same time. The model is built to detect that pressure early, before it moves a line. No single source can spike a score on its own.</p>
+        <p class="about-p">Scoring keeps updating throughout the day as new signals come in, and locks 5 minutes after a game's actual tip-off. Schedule slips happen, so the lock follows the real start, not the scheduled one.</p>
 
       <div class="about-grid">
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#22d3ee;">⌬</div>
+          <div class="about-signal-title">Player Tracking</div>
+          <div class="about-signal-desc">Per-player performance, recent form, who's hot, who's cold, injuries, rest days, hours since last game, home and away splits. All factored in before a pick scores.</div>
+        </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#a78bfa;">⬡</div>
           <div class="about-signal-title">Trained AI Agents</div>
           <div class="about-signal-desc">Specialized AI agents trained on data from top-tier paid cappers monitor public information streams in real time. Each agent is tuned to a specific signal type and source class.</div>
-        </div>
-        <div class="about-signal-card">
-          <div class="about-signal-icon" style="color:#38bdf8;">◈</div>
-          <div class="about-signal-title">Sharp Money Signals</div>
-          <div class="about-signal-desc">Professional-grade conviction builds in public data before it ever moves a line. Our agents are calibrated to detect that pressure early, across multiple independent channels.</div>
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#4ade80;">⊕</div>
@@ -1148,9 +1167,20 @@
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#FFD700;">★</div>
           <div class="about-signal-title">MVP Tracking</div>
-          <div class="about-signal-desc">Picks reaching <span id="about-mvp-pts">50</span>+ points earn MVP status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
+          <div class="about-signal-desc">Picks reaching <span id="about-mvp-pts" class="mvp-pts-live">50</span>+ points earn MVP status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#38bdf8;">◈</div>
+          <div class="about-signal-title">Sharp Money Signals</div>
+          <div class="about-signal-desc">Professional-grade conviction builds in public data before it ever moves a line. Our agents are calibrated to detect that pressure early, across multiple independent channels.</div>
+        </div>
+        <div class="about-signal-card">
+          <div class="about-signal-icon" style="color:#5eead4;">⬢</div>
+          <div class="about-signal-title">Cross-Market Validation</div>
+          <div class="about-signal-desc">Picks are cross-checked against prediction markets like Polymarket and Kalshi to surface where independent markets agree, or disagree, with the books.</div>
         </div>
       </div>
+      </div><!-- /.about-algo-box -->
 
       <hr class="about-divider" />
 
@@ -1224,8 +1254,8 @@
   </div>
 
   <footer>
-    <span>Data resets daily at 6am ET. All picks sourced from a verified analyst network.</span>
-    <span class="footer-version">v2.0.0</span>
+    <span></span>
+    <span class="footer-version">v3.1.0</span>
   </footer>
 
   <!-- Login modal -->

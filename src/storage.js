@@ -5,6 +5,7 @@
 
 const db            = require('./db');
 const { scorePick } = require('./scoring');
+const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
 
 // ── Capper name normalization + alias resolution ──────────────────────────────
 function normalizeCapper(name) {
@@ -251,6 +252,11 @@ function savePick(pick) {
   if (aiGameId) {
     const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(aiGameId);
     if (game) {
+      if (!isPickAcceptable(game)) {
+        console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${aiGameId}`);
+        logLatePick(pick);
+        return null;
+      }
       const slot = findSlotWithSide(pick, game, picked_side);
       if (slot) return updateSlot(slot, pick);
       return insertNewPick({ ...pick, espn_game_id: aiGameId });
@@ -259,6 +265,11 @@ function savePick(pick) {
 
   // 2. Fallback: fuzzy match by team name
   const game = findTodayGame(team);
+  if (game && !isPickAcceptable(game)) {
+    console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${game.espn_game_id}`);
+    logLatePick(pick);
+    return null;
+  }
   const slot = game ? findSlot(pick, game) : null;
   if (slot) return updateSlot(slot, pick);
 

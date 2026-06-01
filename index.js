@@ -22,6 +22,8 @@ const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
 const { getSetting } = require('./src/db');
 const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
+const { stampActualStarts } = require('./src/game_start_tracker');
+const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults }   = require('./src/results');
@@ -466,6 +468,11 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   const pickRanks = {};
   picks.forEach((p, i) => { pickRanks[p.id] = i + 1; });
 
+  // Attach score-over-time timeline to each pick for the popup chart
+  for (const p of picks) {
+    p.timeline = getPickTimeline(p.id);
+  }
+
   const lines = getLinesForGame(espn_game_id);
 
   // Stats + weather in parallel (non-blocking — return nulls on error)
@@ -633,6 +640,11 @@ app.get('/:sport/:slug', async (req, res) => {
       ORDER BY score DESC
     `).all(game.espn_game_id);
 
+    // Attach score-over-time timeline for the popup chart
+    for (const p of picks) {
+      p.timeline = getPickTimeline(p.id);
+    }
+
     // Pick ranks — same logic as /api/game/:id
     const allRanked = db.prepare(`
       SELECT id FROM picks WHERE game_date = ? AND mention_count > 0 ORDER BY score DESC
@@ -725,6 +737,9 @@ app.listen(PORT, () => {
   // Populate ESPN odds (DraftKings) into today_games + book_lines.
   // Fills any null odds from today's 5am run and seeds pick slots.
   await refreshEspnOdds().catch(err => console.error('[startup] refreshEspnOdds error:', err.message));
+
+  // Stamp actual_start_at on any game already live at boot time.
+  stampActualStarts();
 
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
@@ -854,6 +869,9 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   await updateLiveScores().catch(err => console.error('[cron] updateLiveScores error:', err.message));
   await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
+  // Stamp actual_start_at the first time any game flips to 'in'. Powers the
+  // 5-min-past-actual-start scoring cutoff in storage.js.
+  stampActualStarts();
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
   // High-frequency line + market sync for games within 60 min
   const soonGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();

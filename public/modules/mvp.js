@@ -84,7 +84,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
   const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= state.CONFIG.mvp_threshold);
 
-  const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance — CappingAlpha never wagers on any game.</p>`;
+  const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance. CappingAlpha never wagers on any game.</p>`;
 
   const liveTodaySections = limited ? '' : `
     ${liveMvpPicks.length > 0 ? `
@@ -123,7 +123,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     <div class="mvp-tab-hero">
       <div class="mvp-tab-badge">MVP Picks</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
-      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points across our verified analyst network. Every result is tracked — wins, losses, pushes — for full transparency. No cherry-picking.</p>
+      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
     </div>`;
 
   // Compute initial record for selected range
@@ -373,7 +373,7 @@ export function drawPlGraph(picks) {
     lineColor,
     unit,
     tooltip: {
-      title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p => p.result === 'win').length; const losses = d.picks.filter(p => p.result === 'loss').length; return `${items[0].label}  —  ${wins}W ${losses}L`; },
+      title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p => p.result === 'win').length; const losses = d.picks.filter(p => p.result === 'loss').length; return `${items[0].label}  ·  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day P/L: ${d.dayPL >= 0 ? '+' : ''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
       afterBody:  useDetailedTooltip ? (items, data) => {
         const d = data[items[0].dataIndex];
@@ -383,7 +383,7 @@ export function drawPlGraph(picks) {
           const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
           const pt   = (p.pick_type || '').toLowerCase();
           const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
-          return `  ${icon} ${label} — ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
+          return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
         });
       } : null,
     },
@@ -499,7 +499,7 @@ export async function loadHomeMvp() {
               <button class="graph-range-btn home-range-btn" data-key="3M"  onclick="setHomeGraphDays('3M')">3M</button>
               <button class="graph-range-btn home-range-btn active" data-key="ALL" onclick="setHomeGraphDays('ALL')">ALL</button>
             </div>
-            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">50+ pt picks tracked — win/loss logged, no cherry-picking.</div>
+            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ pt picks tracked, win/loss logged for every one.</div>
           </div>
         </div>
         <div class="graph-canvas-wrap" style="height:150px;">
@@ -602,9 +602,19 @@ function drawHomeGraph(picks) {
     lineColor: windowPL >= 0 ? '#4ade80' : '#f87171',
     unit,
     tooltip: {
-      title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p=>p.result==='win').length; const losses = d.picks.filter(p=>p.result==='loss').length; return `${items[0].label}  —  ${wins}W ${losses}L`; },
+      title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p=>p.result==='win').length; const losses = d.picks.filter(p=>p.result==='loss').length; return `${items[0].label}  ·  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day: ${d.dayPL>=0?'+':''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
-      afterBody:  null,
+      afterBody: (items, data) => {
+        const d = data[items[0].dataIndex];
+        return d.picks.map(p => {
+          const r    = (p.result || '').toLowerCase();
+          const ret  = calcReturn(p, unit);
+          const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
+          const pt   = (p.pick_type || '').toLowerCase();
+          const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+          return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
+        });
+      },
     },
     displayData,
   });

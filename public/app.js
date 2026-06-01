@@ -47,6 +47,17 @@ export function switchTab(tabName) {
 
 window.switchTab = switchTab;
 
+// Honor a hash like #about / #mvp / #sports on initial load and on subsequent
+// hashchange events (e.g. someone clicks "Learn how" on the standalone game
+// detail page, which links back to /#about).
+const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'about', 'account']);
+function applyHashTab() {
+  const h = (location.hash || '').replace('#', '').trim().toLowerCase();
+  if (HASH_TABS.has(h)) switchTab(h);
+}
+window.addEventListener('hashchange', applyHashTab);
+window.addEventListener('DOMContentLoaded', applyHashTab);
+
 // ── Mobile drawer ─────────────────────────────────────────────────────────────
 export function toggleDrawer() {
   const overlay = document.getElementById('ca-drawer-overlay');
@@ -88,8 +99,11 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   if (cfg) {
     state.CONFIG = cfg;
     const t = cfg.mvp_display_threshold || cfg.mvp_threshold || 50;
+    // Backwards compat — keep updating the old id-based element if it's still around
     const el = document.getElementById('about-mvp-pts');
     if (el) el.textContent = t;
+    // Update every "MVP points" mention site-wide via shared class
+    document.querySelectorAll('.mvp-pts-live').forEach(n => { n.textContent = t; });
   }
   await checkAuth();
 
@@ -99,7 +113,7 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
     history.replaceState({}, '', '/');
     const banner = document.createElement('div');
     banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#16a34a;color:#fff;text-align:center;padding:14px;font-weight:600;font-size:15px;z-index:9999;';
-    banner.textContent = 'Payment successful — welcome to CappingAlpha!';
+    banner.textContent = 'Payment successful. Welcome to CappingAlpha!';
     document.body.prepend(banner);
     setTimeout(() => banner.remove(), 5000);
   } else if (params.get('payment') === 'cancelled') {

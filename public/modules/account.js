@@ -32,7 +32,7 @@ export async function deleteVote(espn_game_id, slot) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slot }),
     });
-    if (res.status === 409) { alert('Game has started — vote cannot be removed.'); return; }
+    if (res.status === 409) { alert('Game has started. Vote cannot be removed.'); return; }
     if (!res.ok) return;
     loadAccount();
   } catch (_) {}

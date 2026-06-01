@@ -336,7 +336,7 @@ nav {
   font-size: 20px; font-weight: 700; color: var(--text-tertiary);
   line-height: 1;
 }
-.ca-slot-pts--none { font-size: 14px; color: var(--text-disabled); }
+.ca-slot-pts--none { color: var(--text-disabled); opacity: 0.7; }
 
 /* Blur + lock overlay */
 .ca-slot-locked-wrap {
@@ -449,6 +449,25 @@ nav {
 .ca-dp-score-big.mvp-gold   { color: var(--gold); }
 .ca-dp-score-big.mvp-silver { color: #b0bcd4; }
 .ca-dp-score-big.mvp        { color: var(--gold); } /* legacy */
+.ca-dp-score-locked-wrap {
+  position: relative; display: inline-block; cursor: pointer;
+  line-height: 1;
+}
+.ca-dp-score-locked-wrap .ca-dp-score-big.ca-blurred {
+  color: transparent;
+  text-shadow: 0 0 16px rgba(226,232,240,0.55);
+  filter: blur(2px);
+  user-select: none; pointer-events: none;
+}
+.ca-dp-score-lock-mini {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--gold, #facc15);
+  font-size: 18px;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  pointer-events: none;
+}
+.ca-dp-score-locked-wrap:hover .ca-dp-score-lock-mini { transform: scale(1.05); }
 .ca-dp-score-big.ca-blurred {
   color: transparent;
   text-shadow: 0 0 14px rgba(226,232,240,0.4);
@@ -584,7 +603,7 @@ nav {
 .ca-dp-mini-book { color: var(--text-tertiary); font-weight: 600; font-size: 12px; }
 .ca-dp-mini-val  { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 700; }
 
-/* Public betting bar widget */
+/* Public betting bar widget (legacy, no longer used in detail panel) */
 .ca-pub-num {
   font-size: 28px; font-weight: 700; line-height: 1;
   font-family: 'Inter', system-ui, sans-serif;
@@ -598,6 +617,72 @@ nav {
 }
 .ca-pub-bar-fill { height: 100%; border-radius: 3px; }
 .ca-pub-bar-label { font-size: 10px; color: var(--text-disabled); }
+
+/* Score build-up chart (replaces public betting widget) */
+.ca-dp-started-note {
+  font-size: 11px; color: var(--text-tertiary); margin: -2px 0 10px;
+  letter-spacing: .03em;
+}
+.ca-dp-timeline-wrap {
+  position: relative; height: 160px; width: 100%;
+}
+.ca-dp-timeline-wrap canvas { width: 100% !important; height: 100% !important; }
+.ca-dp-timeline-wrap.is-empty canvas { opacity: 0.4; }
+.ca-dp-timeline-wrap.is-locked canvas { filter: blur(6px); opacity: 0.55; }
+.ca-dp-timeline-empty-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-tertiary); font-style: italic;
+  pointer-events: none; letter-spacing: .02em;
+}
+.ca-dp-timeline-lock-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; cursor: pointer;
+  color: var(--gold, #facc15);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+}
+.ca-dp-timeline-lock-overlay i { font-size: 22px; }
+.ca-dp-timeline-lock-overlay span {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ca-dp-timeline-lock-overlay:hover i { transform: scale(1.05); }
+
+/* Bigger, more prominent community vote column */
+.ca-dp-vote-col { gap: 10px; }
+.ca-dp-vote-title {
+  font-size: 18px; font-weight: 700; letter-spacing: 0.01em;
+  color: var(--text);
+}
+.ca-dp-vote-sub {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+}
+.ca-dp-vote-sub a { color: var(--accent); cursor: pointer; font-weight: 600; }
+.ca-dp-vote-sub a:hover { text-decoration: underline; }
+.ca-vote-locked-sub { color: var(--text-tertiary); font-style: italic; }
+.ca-dp-vote-col .ca-vc-pair { margin-top: 4px; }
+.ca-dp-vote-col .ca-vote-choice { padding: 14px 10px 12px; }
+.ca-dp-vote-col .ca-vc-label { font-size: 15px; font-weight: 700; }
+.ca-dp-timeline-footer {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-top: 8px; flex-wrap: wrap;
+}
+.ca-dp-timeline-teaser {
+  font-size: 11px; color: var(--text-tertiary); line-height: 1.5;
+}
+.ca-dp-timeline-teaser a { color: var(--accent); text-decoration: none; }
+.ca-dp-timeline-teaser a:hover { text-decoration: underline; }
+.ca-dp-timeline-start {
+  font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+}
+.ca-dp-timeline-sched { color: var(--text-tertiary); margin-left: 4px; }
+.ca-dp-timeline-locked {
+  font-size: 12px; color: var(--text-tertiary);
+  padding: 18px 12px; text-align: center;
+  border: 1px dashed var(--border); border-radius: 6px;
+}
 
 /* For/against vote choice buttons */
 .ca-vc-pair {
@@ -642,18 +727,48 @@ nav {
 .ca-dp-unlock-link:hover { opacity: 0.8; }
 
 /* ── Lines section ──────────────────────────────────────────────────────────── */
+/* Drop the header into a column so the toggle gets its own row, full-width
+   and centered, with chunky tap-target buttons. */
+#lines .ca-section-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
 .ca-lines-toggle {
-  display: flex; gap: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  display: flex;
+  width: 100%;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
 }
 .ca-lt-btn {
-  background: none; border: none; color: var(--text-tertiary);
-  font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
-  padding: 6px 14px; cursor: pointer; transition: background 0.12s, color 0.12s;
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 14px 18px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
   border-right: 1px solid var(--border);
 }
 .ca-lt-btn:last-child { border-right: none; }
 .ca-lt-btn:hover { background: var(--surface2); color: var(--text); }
-.ca-lt-btn.active { background: var(--surface2); color: var(--text); }
+.ca-lt-btn.active {
+  background: var(--surface2);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent-brand);
+}
+
+@media (max-width: 580px) {
+  .ca-lt-btn { font-size: 13px; padding: 13px 10px; }
+}
 
 /* Lines table */
 .ca-lines-table-wrap {
@@ -729,93 +844,60 @@ nav {
   align-self: center;
 }
 
-/* ── Sentiment split layout ─────────────────────────────────────────────────── */
+/* ── Public Betting + Community sections ─────────────────────────────────── */
 .ca-sentiment-cards { display: block; }
 
-.ca-senti-split {
+/* Three gauges per row on wide; wraps to 1 column on narrow viewports. */
+.ca-senti-gauges {
   display: grid;
-  grid-template-columns: 65fr 1px 35fr;
-  gap: 0;
+  grid-template-columns: repeat(3, max-content);
+  gap: 28px 24px;
+  justify-content: center;
+  justify-items: center;
 }
-.ca-senti-vdivider { background: var(--border); }
 
-.ca-senti-col { display: flex; flex-direction: column; gap: 18px; }
-.ca-senti-col:first-child  { padding-right: 20px; }
-.ca-senti-col:last-child   { padding-left:  20px; }
-
-.ca-senti-col-hdr {
-  font-size: 9px; font-weight: 700; letter-spacing: 1.2px;
+.ca-cmty-sub-hdr {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px;
   color: var(--text-tertiary); text-transform: uppercase;
-  padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
 }
-
-/* ── One bet type block ──────────────────────────────────────────────────────── */
-.ca-senti-bet-block { display: flex; flex-direction: column; gap: 6px; }
-
-.ca-senti-bet-hdr {
-  display: flex; justify-content: space-between; align-items: center;
+.ca-senti-vote-count {
+  font-weight: 600; letter-spacing: 0; color: var(--text-secondary); margin-left: 6px;
+  text-transform: none;
 }
-.ca-senti-bet-label {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.8px;
-  color: var(--text-disabled); text-transform: uppercase;
-}
-.ca-senti-line {
-  font-size: 11px; font-weight: 800; color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-/* ── Gradient bar ────────────────────────────────────────────────────────────── */
-.ca-senti-bar-outer {
-  position: relative;
-  display: flex; align-items: center; justify-content: space-between;
-  height: 30px; border-radius: 6px; overflow: hidden;
-  padding: 0 9px;
-}
-.ca-senti-split-tick {
-  position: absolute; top: 0; bottom: 0;
-  width: 3px; background: rgba(0,0,0,0.45);
-  transform: translateX(-50%); pointer-events: none;
-}
-.ca-senti-split-tick::before {
-  content: '';
-  position: absolute; top: 0; left: 50%;
-  transform: translateX(-50%);
-  width: 0; height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 7px solid #FFD700;
-}
-.ca-senti-seg-lbl {
-  font-size: 13px; font-weight: 800; letter-spacing: 0.5px;
-  text-transform: uppercase; white-space: nowrap;
-}
-
-.ca-senti-bar-foot {
-  display: flex; justify-content: space-between; align-items: center;
-}
-.ca-senti-bar-foot span {
-  font-size: 15px; font-weight: 700; color: var(--text-secondary);
-}
-.ca-senti-bar-foot--pub span {
-  font-size: 17px; font-weight: 800; color: var(--text);
-}
-.ca-senti-center-val {
-  font-size: 13px; font-weight: 800; color: var(--text-disabled);
-  letter-spacing: 0.3px;
-}
-.ca-senti-vote-count { font-weight: 400; letter-spacing: 0; color: var(--text-disabled); margin-left: 6px; }
 
 .ca-sentiment-footer { margin-top: 16px; font-size: 11px; color: var(--text-tertiary); }
 
-@media (max-width: 580px) {
-  .ca-senti-split { grid-template-columns: 1fr; }
-  .ca-senti-vdivider { display: none; }
-  .ca-senti-col:first-child {
-    padding-right: 0; padding-bottom: 20px;
-    border-bottom: 1px solid var(--border); margin-bottom: 4px;
-  }
-  .ca-senti-col:last-child { padding-left: 0; }
+@media (max-width: 720px) {
+  .ca-senti-gauges { grid-template-columns: 1fr; gap: 26px; }
 }
+
+/* ── Community vote row ─────────────────────────────────────────────────────── */
+.ca-cmty-vote-row {
+  display: flex; gap: 10px;
+  margin-top: 18px; justify-content: center; flex-wrap: wrap;
+}
+.ca-cmty-vote-btn {
+  background: var(--surface, #171b24);
+  border: 1px solid var(--border, #252c3b);
+  color: var(--text, #e2e8f0);
+  font-size: 13px; font-weight: 600;
+  padding: 9px 18px; border-radius: 6px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.ca-cmty-vote-btn:hover { background: var(--surface2, #1e2330); }
+.ca-cmty-vote-btn.is-voted {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: #22c55e;
+  color: #22c55e;
+}
+.ca-cmty-vote-prompt,
+.ca-cmty-vote-closed {
+  margin-top: 18px; text-align: center;
+  font-size: 12px; color: var(--text-tertiary);
+}
+.ca-cmty-vote-link { color: var(--accent-brand, #3b82f6); cursor: pointer; }
 
 /* ── Coming-soon pill ───────────────────────────────────────────────────────── */
 .ca-coming-soon-pill {
@@ -966,6 +1048,10 @@ nav {
   flex-wrap: wrap; gap: 12px;
 }
 .ca-footer-disclaimer { font-size: 12px; color: var(--text-disabled); line-height: 1.5; max-width: 600px; }
+.ca-footer-version {
+  font-size: 11px; color: var(--text-disabled); opacity: 0.55;
+  margin-left: auto; letter-spacing: .03em;
+}
 .ca-back-top {
   display: flex; align-items: center; gap: 5px;
   background: none; border: 1px solid var(--border);

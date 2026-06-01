@@ -171,9 +171,11 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta property="og:url" content="${esc(canonical)}" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="/game-detail.css" />
+  <link rel="stylesheet" href="/gauge.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
 <body>
@@ -230,9 +232,10 @@ ${buildNav()}
   <aside class="ca-sidebar">
     <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">Picks</a>
     <a href="#lines"     class="ca-sidebar-link"        data-sec="lines">Lines</a>
-    <a href="#sentiment" class="ca-sidebar-link"        data-sec="sentiment">Sentiment</a>
+    <a href="#sentiment" class="ca-sidebar-link"        data-sec="sentiment">Public Betting</a>
     <a href="#injuries"  class="ca-sidebar-link"        data-sec="injuries">Injuries</a>
     <a href="#context"   class="ca-sidebar-link"        data-sec="context">Context</a>
+    <a href="#community" class="ca-sidebar-link"        data-sec="community">Community</a>
   </aside>
 
   <!-- Content column -->
@@ -242,9 +245,10 @@ ${buildNav()}
     <div class="ca-mobile-tabs">
       <a href="#picks"     class="ca-mtab active" data-sec="picks">PICKS</a>
       <a href="#lines"     class="ca-mtab"        data-sec="lines">LINES</a>
-      <a href="#sentiment" class="ca-mtab"        data-sec="sentiment">SENTIMENT</a>
+      <a href="#sentiment" class="ca-mtab"        data-sec="sentiment">BETTING</a>
       <a href="#injuries"  class="ca-mtab"        data-sec="injuries">INJURIES</a>
       <a href="#context"   class="ca-mtab"        data-sec="context">CONTEXT</a>
+      <a href="#community" class="ca-mtab"        data-sec="community">COMMUNITY</a>
     </div>
 
 <!-- ── PICKS ─────────────────────────────────────────────────────────────── -->
@@ -276,9 +280,9 @@ ${buildNav()}
   </div>
 </section>
 
-<!-- ── SENTIMENT ─────────────────────────────────────────────────────────── -->
+<!-- ── PUBLIC BETTING (section id stays 'sentiment' so anchors keep working) ─ -->
 <section id="sentiment" class="ca-section">
-  <h2 class="ca-section-h2" style="margin-bottom:16px;">Sentiment</h2>
+  <h2 class="ca-section-h2" style="margin-bottom:16px;">Public Betting</h2>
   <div class="ca-sentiment-cards" id="ca-sentiment-cards">
     <!-- Rendered by game-detail.js -->
   </div>
@@ -304,6 +308,17 @@ ${buildNav()}
   </div>
 </section>
 
+<!-- ── COMMUNITY ─────────────────────────────────────────────────────────── -->
+<section id="community" class="ca-section">
+  <h2 class="ca-section-h2" style="margin-bottom:14px;">Community</h2>
+  <div id="ca-community-gauges">
+    <!-- Rendered by game-detail.js -->
+  </div>
+  <div id="ca-community-vote-row">
+    <!-- Rendered by game-detail.js -->
+  </div>
+</section>
+
 <!-- Footer (inside content column) -->
 <footer class="ca-footer">
   <span class="ca-footer-disclaimer">CappingAlpha never wagers on any game. All scores are hypothetical and for entertainment purposes only.</span>
@@ -311,6 +326,7 @@ ${buildNav()}
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 7.5L5.5 4L9 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Back to top
   </button>
+  <span class="ca-footer-version">v3.1.0</span>
 </footer>
 
   </div><!-- /.ca-content -->
