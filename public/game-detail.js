@@ -212,9 +212,79 @@ function resolveInitialSlot() {
   return best || 'home_ml';
 }
 
+// ── Country flag colors (tennis) ──────────────────────────────────────────────
+// Tennis players have no team color, so both sides used to fall back to the same
+// blue. Color each player by their country's primary flag color instead, keyed by
+// the ESPN 3-letter country code (game.home_country / game.away_country).
+const COUNTRY_COLORS = {
+  srb:'#C6363C', esp:'#C60B1E', sui:'#D52B1E', usa:'#3C3B6E', gbr:'#012169',
+  fra:'#0055A4', ger:'#DD0000', ita:'#0066CC', rus:'#0039A6', gre:'#0D5EAF',
+  aut:'#ED2939', arg:'#74ACDF', aus:'#00247D', can:'#D52B1E', chn:'#DE2910',
+  jpn:'#BC002D', cro:'#FF0000', pol:'#DC143C', nor:'#BA0C2F', den:'#C8102E',
+  bul:'#00966E', bel:'#FDDA24', ned:'#FF6200', kaz:'#00AFCA', cze:'#11457E',
+  hun:'#CD2A3E', fin:'#003580', swe:'#006AA7', bra:'#009C3B', chi:'#D52B1E',
+  rsa:'#007A4D', tun:'#E70013', ukr:'#0057B7', rou:'#002B7F', slo:'#005DA4',
+  svk:'#0B4EA2', lat:'#9E3039', est:'#4891D9', ltu:'#FDB913', geo:'#FF0000',
+  por:'#006600', mex:'#006847', col:'#FCD116', per:'#D91023', ind:'#FF9933',
+  kor:'#003478', tpe:'#000095', tha:'#241D4F', mda:'#0072CE', mon:'#CE1126',
+  bih:'#002395', blr:'#CE1720', moz:'#007168', egy:'#C8102E', isr:'#0038B8',
+  lux:'#00A1DE', cyp:'#D57800', new:'#00247D', nzl:'#00247D',
+};
+
+function _hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+}
+function _rgbToHex(r,g,b) {
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2,'0');
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+// Blend a color toward white by amt (0..1).
+function _lighten(hex, amt) {
+  const { r,g,b } = _hexToRgb(hex);
+  return _rgbToHex(r + (255-r)*amt, g + (255-g)*amt, b + (255-b)*amt);
+}
+// Euclidean distance in RGB — small = visually similar.
+function _colorDist(a, b) {
+  const x = _hexToRgb(a), y = _hexToRgb(b);
+  return Math.sqrt((x.r-y.r)**2 + (x.g-y.g)**2 + (x.b-y.b)**2);
+}
+// Deterministic distinct color (hex) for an unmapped country code, from a palette.
+const _FALLBACK_PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#0891B2','#DB2777','#65A30D'];
+function _countryFallbackColor(code) {
+  if (!code) return FALLBACK_COLORS.primary;
+  let h = 0;
+  for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+  return _FALLBACK_PALETTE[h % _FALLBACK_PALETTE.length];
+}
+function _countryColor(code) {
+  if (!code) return null;
+  return COUNTRY_COLORS[code] || _countryFallbackColor(code);
+}
+
+// Tennis: resolve both players' country colors, lightening the home side when the
+// two are too similar (e.g. two red countries) so the gauges always read as two
+// distinct sides.
+function tennisColors(game) {
+  const awayC = _countryColor(game.away_country);
+  const homeC = _countryColor(game.home_country);
+  if (!awayC && !homeC) return null;
+  let away = awayC || FALLBACK_COLORS.primary;
+  let home = homeC || FALLBACK_COLORS.primary;
+  if (_colorDist(away, home) < 110) home = _lighten(home, 0.45);
+  return {
+    away: { primary: away, secondary: '' },
+    home: { primary: home, secondary: '' },
+  };
+}
+
 function teamColors(game, isHome) {
+  const sport = (game.sport || '').toUpperCase();
+  if (sport === 'ATP' || sport === 'WTA') {
+    const tc = tennisColors(game);
+    if (tc) return isHome ? tc.home : tc.away;
+  }
   if (!_teamColors) return FALLBACK_COLORS;
-  const sport  = (game.sport || '').toUpperCase();
   const abbr   = isHome
     ? (game.home_abbr || game.home_short || '').toUpperCase()
     : (game.away_abbr || game.away_short || '').toUpperCase();
@@ -1010,7 +1080,10 @@ function _buildBetTypes() {
   const homeColors = teamColors(game, true);
   const awayName = game.away_short || teamNick(game.away_team) || game.away_abbr || '';
   const homeName = game.home_short || teamNick(game.home_team) || game.home_abbr || '';
-  const homeSpread = game.spread_home != null ? fmtSpread(game.spread_home) : null;
+  const spUnit     = ({ ATP: 'games', WTA: 'games' })[(game.sport || '').toUpperCase()];
+  const homeSpread = game.spread_home != null
+    ? (spUnit ? `${fmtSpread(game.spread_home)} ${spUnit}` : fmtSpread(game.spread_home))
+    : null;
   const ouUnit     = TOTAL_UNIT[(game.sport || '').toUpperCase()];
   const ouLine     = game.over_under != null
     ? (ouUnit ? `${game.over_under} ${ouUnit}` : String(game.over_under))

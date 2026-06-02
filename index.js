@@ -25,6 +25,7 @@ const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/e
 const { stampActualStarts } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
+const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames, updateWnbaLiveScores }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults }   = require('./src/results');
@@ -39,6 +40,7 @@ const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kals
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
+const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -609,15 +611,153 @@ function makeDetailUrl(game) {
   return `/${sp}/${away}-vs-${home}-${date}`;
 }
 
-// 301 redirect: /game/:espn_game_id → slug URL
-app.get('/game/:espn_game_id', (req, res) => {
-  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(req.params.espn_game_id);
-  if (!game) return res.status(404).send('Game not found');
-  return res.redirect(301, makeDetailUrl(game));
-});
-
 // Standalone detail page: /:sport/:slug
 const { buildDetailPageHtml } = require('./src/detail_page');
+
+// Loose team-name match (handles "LA Angels" vs "Los Angeles Angels" etc.)
+function _sameTeam(a, b) {
+  const norm = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
+  const x = norm(a), y = norm(b);
+  return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
+}
+
+// Map permanent mvp_picks rows to the picks shape the detail page expects, so a
+// historical MVP game with no live picks row still renders its pick cards.
+function _mvpRowsToPicks(mvpRows, game) {
+  return mvpRows.map(m => {
+    const pt = (m.pick_type || '').toLowerCase();
+    const isHome = (pt === 'ml' || pt === 'spread') ? (_sameTeam(m.team, game.home_team) ? 1 : 0) : 0;
+    return {
+      id: m.id, espn_game_id: m.espn_game_id, team: m.team,
+      pick_type: m.pick_type, spread_value: m.spread, is_home_team: isHome,
+      score: m.score, result: m.result, mention_count: 1, timeline: [],
+    };
+  });
+}
+
+// Reconstruct a historical (post-wipe) game from the MVP snapshot + permanent
+// mvp_picks. Returns { game, picks, snap } or null if we have nothing.
+function resolveHistoricalGame(espnGameId) {
+  const snap = getSnapshot(espnGameId);
+  const mvpRows = db.prepare(`SELECT * FROM mvp_picks WHERE espn_game_id = ? ORDER BY score DESC`).all(espnGameId);
+  if (!snap && !mvpRows.length) return null;
+  const mvp = mvpRows[0] || null;
+
+  let game;
+  if (snap?.game) {
+    game = { ...snap.game };
+  } else if (mvp) {
+    game = {
+      espn_game_id: espnGameId, sport: mvp.sport,
+      home_team: mvp.home_team, away_team: mvp.away_team,
+      start_time: mvp.game_date ? `${mvp.game_date}T00:00:00Z` : null,
+      status: 'post',
+    };
+  }
+  // Overlay the final score/status from permanent mvp_picks (snapshot was taken
+  // at game start, so its scores are empty).
+  if (mvp) {
+    if (mvp.home_score != null) game.home_score = mvp.home_score;
+    if (mvp.away_score != null) game.away_score = mvp.away_score;
+    if (mvp.result && mvp.result !== 'pending') game.status = 'post';
+  }
+
+  const picks = (snap?.picks && snap.picks.length) ? snap.picks : _mvpRowsToPicks(mvpRows, game);
+  return { game, picks, snap };
+}
+
+// Shared detail-page renderer. For live games it queries the live tables; for
+// historical games the caller passes the reconstructed game/picks and the
+// snapshot enrichment via opts (any opt left undefined falls back to live).
+async function renderGameDetail(req, res, game, opts = {}) {
+  try {
+    let picks = opts.picks;
+    if (!picks) {
+      picks = db.prepare(`
+        SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC
+      `).all(game.espn_game_id);
+      for (const p of picks) p.timeline = getPickTimeline(p.id);
+    }
+
+    // Pick ranks. Live: global rank across today's picks. Historical: per-game
+    // rank by score (the global ordering is long gone after the wipe).
+    const pickRanks = {};
+    if (opts.historical) {
+      picks.forEach((p, i) => { pickRanks[p.id] = i + 1; });
+    } else {
+      const allRanked = db.prepare(`
+        SELECT id FROM picks WHERE game_date = ? AND mention_count > 0 ORDER BY score DESC
+      `).all(getCycleDate());
+      allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
+    }
+
+    // Votes + the viewer's votes — always live (game_votes survives the wipe).
+    const voteRows = db.prepare(`
+      SELECT pick_slot, COUNT(*) AS total FROM game_votes WHERE espn_game_id = ? GROUP BY pick_slot
+    `).all(game.espn_game_id);
+    const votes = { home_ml:0, away_ml:0, home_spread:0, away_spread:0, over:0, under:0 };
+    for (const v of voteRows) if (v.pick_slot in votes) votes[v.pick_slot] = v.total;
+
+    const userId = req.session?.user?.id;
+    const userVote = {};
+    if (userId) {
+      const uvRows = db.prepare(`SELECT pick_slot FROM game_votes WHERE espn_game_id = ? AND user_id = ?`).all(game.espn_game_id, userId);
+      for (const r of uvRows) userVote[r.pick_slot] = true;
+    }
+
+    // ESPN stats are re-fetchable for past games, so always pull live.
+    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team).catch(() => ({}));
+
+    const pick = (key, liveFn) => (opts[key] !== undefined ? opts[key] : liveFn());
+    const lines         = pick('lines',         () => getLinesForGame(game.espn_game_id));
+    const publicBetting = pick('publicBetting',  () => getPublicBettingForGame(game.espn_game_id));
+    const lineHistory   = pick('lineHistory',    () => getLineHistoryForGame(game.espn_game_id));
+    const polymarket    = pick('polymarket',     () => getPolymarketForGame(game.espn_game_id));
+    const kalshi        = pick('kalshi',         () => getKalshiForGame(game.espn_game_id));
+    const insights      = pick('insights',       () => getLineInsights(game.espn_game_id, game));
+
+    const payload = {
+      game, picks, pickRanks, votes, userVote, stats, lines, publicBetting,
+      lineHistory, polymarket, kalshi, insights,
+      user: req.session?.user || null,
+    };
+
+    const away     = game.away_team || 'Away';
+    const home     = game.home_team || 'Home';
+    const longDate = game.start_time
+      ? new Date(game.start_time).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'America/New_York' })
+      : '';
+    const title     = `${away} vs. ${home}${longDate ? ' · ' + longDate : ''} · CappingAlpha`;
+    const desc      = `${game.sport} matchup: ${away} at ${home}${longDate ? ' on ' + longDate : ''}. See picks, lines, and sentiment on CappingAlpha.`;
+    const canonical = `https://cappingalpha.com${makeDetailUrl(game)}`;
+    const sportSlug = _sportSlug(game.sport);
+
+    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug }));
+  } catch (err) {
+    console.error('[detail-page] error:', err.message);
+    res.status(500).send('Error loading game detail');
+  }
+}
+
+// /game/:espn_game_id — live games 301 to their slug URL (SEO); historical MVP
+// games (post-wipe) render in place from the snapshot + mvp_picks.
+app.get('/game/:espn_game_id', async (req, res) => {
+  const live = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(req.params.espn_game_id);
+  if (live) return res.redirect(301, makeDetailUrl(live));
+
+  const hist = resolveHistoricalGame(req.params.espn_game_id);
+  if (!hist) return res.status(404).send('Game not found');
+  return renderGameDetail(req, res, hist.game, {
+    historical:    true,
+    picks:         hist.picks,
+    lines:         hist.snap ? hist.snap.lines         : null,
+    publicBetting: hist.snap ? hist.snap.publicBetting : null,
+    lineHistory:   hist.snap ? hist.snap.lineHistory   : null,
+    polymarket:    hist.snap ? hist.snap.polymarket    : null,
+    kalshi:        hist.snap ? hist.snap.kalshi        : null,
+    insights:      hist.snap ? hist.snap.insights      : null,
+  });
+});
 
 app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
@@ -663,70 +803,7 @@ app.get('/:sport/:slug', async (req, res) => {
 
   if (!game) return res.status(404).send('Game not found');
 
-  try {
-    const picks = db.prepare(`
-      SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0
-      ORDER BY score DESC
-    `).all(game.espn_game_id);
-
-    // Attach score-over-time timeline for the popup chart
-    for (const p of picks) {
-      p.timeline = getPickTimeline(p.id);
-    }
-
-    // Pick ranks — same logic as /api/game/:id
-    const allRanked = db.prepare(`
-      SELECT id FROM picks WHERE game_date = ? AND mention_count > 0 ORDER BY score DESC
-    `).all(getCycleDate());
-    const pickRanks = {};
-    allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
-
-    // Votes
-    const voteRows = db.prepare(`
-      SELECT pick_slot, COUNT(*) AS total FROM game_votes WHERE espn_game_id = ? GROUP BY pick_slot
-    `).all(game.espn_game_id);
-    const votes = { home_ml:0, away_ml:0, home_spread:0, away_spread:0, over:0, under:0 };
-    for (const v of voteRows) if (v.pick_slot in votes) votes[v.pick_slot] = v.total;
-
-    // User vote
-    const userId = req.session?.user?.id;
-    const userVote = {};
-    if (userId) {
-      const uvRows = db.prepare(`SELECT pick_slot FROM game_votes WHERE espn_game_id = ? AND user_id = ?`).all(game.espn_game_id, userId);
-      for (const r of uvRows) userVote[r.pick_slot] = true;
-    }
-
-    // Stats + lines (on-demand, same as API)
-    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team).catch(() => ({}));
-    const lines = getLinesForGame(game.espn_game_id);
-
-    const publicBetting = getPublicBettingForGame(game.espn_game_id);
-    const lineHistory   = getLineHistoryForGame(game.espn_game_id);
-    const polymarket    = getPolymarketForGame(game.espn_game_id);
-    const kalshi        = getKalshiForGame(game.espn_game_id);
-    const insights      = getLineInsights(game.espn_game_id, game);
-    const payload = {
-      game, picks, pickRanks, votes, userVote, stats, lines, publicBetting,
-      lineHistory, polymarket, kalshi, insights,
-      user: req.session?.user || null,
-    };
-
-    // SEO meta
-    const away     = game.away_team || 'Away';
-    const home     = game.home_team || 'Home';
-    const longDate = new Date(game.start_time).toLocaleDateString('en-US',
-      { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'America/New_York' });
-    const title     = `${away} vs. ${home} · ${longDate} · CappingAlpha`;
-    const desc      = `${game.sport} matchup: ${away} at ${home} on ${longDate}. See picks, lines, and sentiment on CappingAlpha.`;
-    const canonical = `https://cappingalpha.com${makeDetailUrl(game)}`;
-    const sportSlug = _sportSlug(game.sport);
-
-    const html = buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug });
-    res.send(html);
-  } catch (err) {
-    console.error('[detail-page] error:', err.message);
-    res.status(500).send('Error loading game detail');
-  }
+  return renderGameDetail(req, res, game);
 });
 
 const PORT = process.env.PORT || 3001;
@@ -745,6 +822,7 @@ app.listen(PORT, () => {
   // Always refresh golf tournaments and tennis matches on startup — these are
   // cheap ESPN calls and must be current after any mid-day deploy/restart.
   await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
+  await fetchTennisLines().catch(err => console.error('[startup] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
 
@@ -803,6 +881,8 @@ if (UI_ONLY) {
 if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   console.log('[cron] 4:58am — pre-wipe final resolve');
   await resolveResults().catch(err => console.error('[cron] pre-wipe resolve error:', err.message));
+  // Last-chance MVP snapshot before today_games + caches are wiped.
+  try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] pre-wipe mvp snapshot:', e.message); }
   console.log('[cron] 4:58am — running daily wipe');
   await runDailyWipe().catch(err => console.error('[cron] wipe error:', err.message));
 }, { timezone: 'America/New_York' });
@@ -822,6 +902,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   console.log('[cron] 5:00am — morning setup: ESPN + Odds + seed slots');
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
+  await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
@@ -848,11 +929,13 @@ if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   syncLineHistory(preGames).catch(e => console.error('[cron] syncLineHistory:', e.message));
   syncPolymarketData(preGames).catch(e => console.error('[cron] syncPolymarket:', e.message));
   syncKalshiData(preGames).catch(e => console.error('[cron] syncKalshi:', e.message));
+  fetchTennisLines().catch(e => console.error('[cron] fetchTennisLines:', e.message));
 });
 
 if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   console.log('[cron] 4pm odds refresh');
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
+  await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
   // Refresh public betting percentages
@@ -905,6 +988,9 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // 5-min-past-actual-start scoring cutoff in storage.js.
   stampActualStarts();
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
+  // Freeze the detail bundle for any MVP game that just started — the enrichment
+  // caches still hold the final pre-game values (market syncs stop at 'pre').
+  try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] mvp snapshot:', e.message); }
   // High-frequency line + market sync for games within 60 min
   const soonGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
   syncLineHistorySoon(soonGames).catch(e => console.error('[cron] syncLineHistorySoon:', e.message));

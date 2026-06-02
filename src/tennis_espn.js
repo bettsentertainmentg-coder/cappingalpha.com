@@ -34,6 +34,17 @@ function playerAbbr(displayName) {
   return short ? short.slice(0, 3).toUpperCase() : null;
 }
 
+// ── Country flag from an ESPN athlete object ──────────────────────────────────
+// athlete.flag = { href: '.../countries/500/chn.png', alt: 'China', rel: [...] }
+// Returns { href, code } where code is the 3-letter country code parsed from the URL
+// (e.g. 'chn'), used to color the gauges by country.
+function flagInfo(athlete) {
+  const href = athlete?.flag?.href || null;
+  if (!href) return { href: null, code: null };
+  const m = href.match(/\/([a-z]{2,3})\.(?:png|svg)(?:\?|$)/i);
+  return { href, code: m ? m[1].toLowerCase() : null };
+}
+
 // ── Upsert a single tennis match into today_games ────────────────────────────
 // Accepts a competition object from ev.groupings[n].competitions[m].
 // Uses athlete.displayName instead of team.displayName (tennis has no teams).
@@ -53,7 +64,22 @@ function upsertTennisMatch(comp, sportLabel) {
     return;
   }
 
-  const state = comp.status?.type?.state || 'pre';
+  // Status gate: only treat a match as 'post' (gradeable) when ESPN flags it truly
+  // completed. Postponed / suspended / canceled / delayed matches can carry state='post'
+  // with zero or partial games — those must NOT enter the grading query. Downgrade them
+  // so results.js never grades an unplayed match (see Jodar vs Zverev postponement).
+  const stType    = comp.status?.type || {};
+  const rawState  = stType.state || 'pre';
+  const completed = stType.completed === true;
+  const statusNm  = (stType.name || stType.description || '').toLowerCase();
+  const notFinal  = /postpone|suspend|cancel|delay|rain|abandon/.test(statusNm);
+  let state;
+  if (rawState === 'post') {
+    // 'post' only stands when ESPN confirms completion and it isn't a postponed marker
+    state = (completed && !notFinal) ? 'post' : (notFinal ? 'pre' : 'in');
+  } else {
+    state = rawState;
+  }
   const homeLinescores = homeComp.linescores || [];
   const awayLinescores = awayComp.linescores || [];
 
@@ -76,6 +102,10 @@ function upsertTennisMatch(comp, sportLabel) {
   // Score detail string e.g. "7-5, 6-4" (home perspective)
   const scoreDetailJson = numSets > 0 ? JSON.stringify(setDetails) : null;
 
+  // Country flags (for avatars + gauge colors)
+  const homeFlag = flagInfo(homeAth);
+  const awayFlag = flagInfo(awayAth);
+
   db.prepare(`
     INSERT INTO today_games (
       espn_game_id, sport, status, period, clock, start_time,
@@ -83,8 +113,9 @@ function upsertTennisMatch(comp, sportLabel) {
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
       tennis_home_games, tennis_away_games, tennis_score_detail,
+      home_flag, away_flag, home_country, away_country,
       fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
       status               = excluded.status,
       period               = excluded.period,
@@ -94,6 +125,10 @@ function upsertTennisMatch(comp, sportLabel) {
       tennis_home_games    = excluded.tennis_home_games,
       tennis_away_games    = excluded.tennis_away_games,
       tennis_score_detail  = excluded.tennis_score_detail,
+      home_flag            = COALESCE(excluded.home_flag, today_games.home_flag),
+      away_flag            = COALESCE(excluded.away_flag, today_games.away_flag),
+      home_country         = COALESCE(excluded.home_country, today_games.home_country),
+      away_country         = COALESCE(excluded.away_country, today_games.away_country),
       fetched_at           = excluded.fetched_at
   `).run(
     comp.id,
@@ -114,7 +149,11 @@ function upsertTennisMatch(comp, sportLabel) {
     playerAbbr(awayDisplay),
     homeGames || null,
     awayGames || null,
-    scoreDetailJson
+    scoreDetailJson,
+    homeFlag.href,
+    awayFlag.href,
+    homeFlag.code,
+    awayFlag.code
   );
 }
 
@@ -164,14 +203,16 @@ async function fetchTodaysTennisMatches() {
 // Called every 5 min alongside espn_live.updateLiveScores().
 // Only refreshes games that have picks today — same pattern as espn_live.
 async function updateTennisLiveScores() {
-  // Find tennis game IDs that have picks today
+  // Find tennis game IDs that still have an ungraded pick. Includes carried-over
+  // (postponed) picks from a prior cycle so they update the day they actually play,
+  // not just at the next 5am full fetch.
   const topGames = db.prepare(`
     SELECT DISTINCT p.espn_game_id
     FROM picks p
     INNER JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-    WHERE p.game_date = (SELECT MAX(game_date) FROM picks)
-      AND p.espn_game_id IS NOT NULL
+    WHERE p.espn_game_id IS NOT NULL
       AND p.mention_count > 0
+      AND p.result = 'pending'
       AND tg.sport IN ('ATP', 'WTA')
   `).all().map(r => r.espn_game_id);
 

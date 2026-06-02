@@ -204,7 +204,9 @@ ${buildNav()}
   <div class="ca-gh-matchup">
     <div class="ca-gh-team ca-gh-away">
       <div class="ca-team-logo-circle" id="ca-logo-away" style="background:${sportBg};">
-        <span>${esc((game.away_abbr || game.away_short || away || '?').slice(0,3).toUpperCase())}</span>
+        ${game.away_flag
+          ? `<img class="ca-flag-img" src="${esc(game.away_flag)}" alt="${esc(game.away_country || '')}" loading="lazy">`
+          : `<span>${esc((game.away_abbr || game.away_short || away || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
       <div class="ca-team-info">
         <div class="ca-team-name">${esc(away)}</div>
@@ -214,7 +216,9 @@ ${buildNav()}
     <div class="ca-gh-at">@</div>
     <div class="ca-gh-team ca-gh-home">
       <div class="ca-team-logo-circle" id="ca-logo-home" style="background:${sportBg};">
-        <span>${esc((game.home_abbr || game.home_short || home || '?').slice(0,3).toUpperCase())}</span>
+        ${game.home_flag
+          ? `<img class="ca-flag-img" src="${esc(game.home_flag)}" alt="${esc(game.home_country || '')}" loading="lazy">`
+          : `<span>${esc((game.home_abbr || game.home_short || home || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
       <div class="ca-team-info">
         <div class="ca-team-name">${esc(home)}</div>

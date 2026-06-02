@@ -16,7 +16,7 @@ A pick = a sports team (or player) + a bet type. Examples:
   "Pistons u213"       → team=Pistons, under, 213
   "Cubs F5 -150"       → team=Cubs, ML (F5 = first 5 innings context; -150 is juice)
 
-BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner)
+BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner) | set_spread (tennis set handicap)
   - ML: team wins outright. "reg", "moneyline", "MI" all mean ML.
   - spread: team + number where abs(number) < 100
   - over/under: "over"/"o" or "under"/"u" before a number. "u213" = under 213.
@@ -25,6 +25,13 @@ BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner)
   - set_ml: tennis "win set N" bet. ONLY use set_ml when the message names a specific set
     ("1st set", "set 1", "S1", "first set", "to win set 2"). spread_value MUST be the set
     number (1, 2, 3, 4, or 5). If no set number is given, treat it as a regular ML pick.
+  - TENNIS SPREADS (ATP/WTA only) come in two units:
+      * spread (games handicap): the common one, e.g. "Zverev -5.5", "-3.5 games". Larger
+        numbers (abs >= 2.5) and any "games" wording mean a GAMES spread → pick_type=spread.
+      * set_spread (sets handicap): a small handicap like "-1.5 sets", "+1.5 sets", or a bare
+        "-1.5"/"+1.5" with set context → pick_type=set_spread. spread_value = the set handicap
+        (e.g. -1.5). Use set_spread when the message says "set"/"sets", or the number is the
+        classic set line (+/-1.5) and there's no "games" wording. When unsure, prefer spread (games).
 
 ── CAPPER NAME ───────────────────────────────────────────────────────────────
 A line containing only a name (no pick info) is a capper header — all picks that follow belong to that capper until the next header or "=====" separator.
@@ -123,8 +130,8 @@ const EXTRACT_TOOL = {
             message_index: { type: 'integer', description: 'Which message this pick is from (1-based). Use 1 for single messages.' },
             is_pick:      { type: 'boolean' },
             team:         { type: 'string',  description: 'Team or player name as written' },
-            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml'] },
-            spread_value: { type: 'number',  description: 'Spread or total line. Omit for ML.' },
+            pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml', 'set_spread'] },
+            spread_value: { type: 'number',  description: 'Spread or total line (games for spread, set handicap for set_spread). Omit for ML.' },
             sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
             vs_player:    { type: 'string',  description: 'Golf h2h opponent only.' },

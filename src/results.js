@@ -11,6 +11,10 @@ function evaluatePick(pick, game) {
   const type = (pick.pick_type || '').toLowerCase();
   const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
 
+  // Belt-and-suspenders: never grade a game that isn't truly final. Callers already filter
+  // on status='post', but a postponed/suspended match must never resolve a pick early.
+  if (game.status && game.status !== 'post') return 'pending';
+
   // Tennis sanity guard: a finished tennis match can't end 0-0 on sets AND 0 total games.
   // If we see all zeros, the snapshot is incomplete — refuse to grade, try again later.
   if (isTennis) {
@@ -55,6 +59,19 @@ function evaluatePick(pick, game) {
       spreadMargin = margin;
     }
     const covered = spreadMargin + line;
+    if (covered > 0) return 'win';
+    if (covered < 0) return 'loss';
+    return 'push';
+  }
+
+  if (type === 'set_spread') {
+    // Tennis set handicap — margin measured in SETS won (home_score/away_score = sets)
+    const line = snapshot?.original_spread ?? pick.spread;
+    if (line == null) return 'pending';
+    if (game.home_score == null || game.away_score == null) return 'pending';
+    const setMargin = pickedHome ? (game.home_score - game.away_score)
+                                 : (game.away_score - game.home_score);
+    const covered = setMargin + line;
     if (covered > 0) return 'win';
     if (covered < 0) return 'loss';
     return 'push';

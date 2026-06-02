@@ -114,16 +114,27 @@ export function pickLabel(p) {
   const type   = (p.pick_type || '').toLowerCase();
   const spread = p.spread != null ? p.spread : null;
   const nick   = teamNickname(p.team);
+  const isTennis = ['ATP', 'WTA'].includes((p.sport || '').toUpperCase());
+  // Tennis lines need a unit. Totals + game spreads are games; set_spread is sets.
+  const totalUnit = isTennis ? ' games' : '';
 
   if (type === 'nrfi') return `${nick} NRFI`;
   if (type === 'over' || type === 'under') {
     const total = spread != null ? Math.abs(parseFloat(spread)) : null;
     const label = type === 'over' ? 'Over' : 'Under';
-    return total ? `${label} ${total}` : label;
+    return total ? `${label} ${total}${totalUnit}` : label;
   }
   const spreadFmt = spread != null ? (spread > 0 ? `+${spread}` : `${spread}`) : null;
   if (type === 'ml') return nick ? `${nick} Win` : 'Win';
-  if (type === 'spread') return nick ? `${nick} ${spreadFmt ?? 'Spread'}` : (spreadFmt ?? 'Spread');
+  if (type === 'set_spread') {
+    const lbl = spreadFmt != null ? `${spreadFmt} sets` : 'Set Spread';
+    return nick ? `${nick} ${lbl}` : lbl;
+  }
+  if (type === 'spread') {
+    const unit = isTennis ? ' games' : '';
+    const lbl = spreadFmt != null ? `${spreadFmt}${unit}` : 'Spread';
+    return nick ? `${nick} ${lbl}` : lbl;
+  }
   if (nick) return spreadFmt ? `${nick} ${spreadFmt}` : nick;
   return (spreadFmt ? `${p.pick_type} ${spreadFmt}` : p.pick_type) || '—';
 }

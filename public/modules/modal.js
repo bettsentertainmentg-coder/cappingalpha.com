@@ -12,6 +12,8 @@ const TOTAL_UNIT = {
   NBA: 'pts',  WNBA: 'pts', NFL: 'pts', NCAAF: 'pts', CBB: 'pts', WCBB: 'pts',
   ATP: 'games', WTA: 'games',
 };
+// Tennis spread lines from Bovada are a games handicap — label the unit.
+const SPREAD_UNIT = { ATP: 'games', WTA: 'games' };
 import { drawPickTimeline, destroyPickTimeline } from './score_timeline.js';
 
 function formatActualStart(actualIso, scheduledIso) {
@@ -648,7 +650,10 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
     rightColorSecondary = homeColors[1] || '';
     if (slotKey === 'home_spread' || slotKey === 'away_spread') {
       leftKey  = 'away_spread';  rightKey = 'home_spread';
-      centerLine = game.spread_home != null ? fmtSpread(game.spread_home) : null;
+      const spUnit = SPREAD_UNIT[(game.sport || '').toUpperCase()];
+      centerLine = game.spread_home != null
+        ? (spUnit ? `${fmtSpread(game.spread_home)} ${spUnit}` : fmtSpread(game.spread_home))
+        : null;
       betLabel       = 'SPREAD';
       betLabelColor  = '#a78bfa';
     } else {

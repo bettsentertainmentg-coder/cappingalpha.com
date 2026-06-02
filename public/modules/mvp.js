@@ -223,8 +223,15 @@ export function renderMvpRow(p, i, opts = {}) {
     ? (rank === 1 ? `<span style="color:${starColor};">★</span>` : `${rank}`)
     : `<span class="mvp-tier-dot" style="color:${starColor};font-size:0.7em;">●</span>`;
 
+  // Clicking a row opens the full game detail page (live for today's games,
+  // snapshot-backed for historical MVP picks).
+  const clickable = !!p.espn_game_id;
+  const clickAttr = clickable
+    ? ` class="${rowClass} mvp-row-click" style="cursor:pointer;${dimRow ? 'opacity:0.45;' : ''}" onclick="location.href='/game/${p.espn_game_id}'"`
+    : ` class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}"`;
+
   return `
-    <tr class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}">
+    <tr${clickAttr}>
       <td class="rank">${rankMarker}</td>
       <td class="matchup-cell">${matchupLabel(p)}${resultDisplay}${annotationHtml}</td>
       <td>${sportBadge(p.sport)}</td>

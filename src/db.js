@@ -363,6 +363,27 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_game_messages_game ON game_messages (espn_game_id, created_at)`);
 } catch (_) {}
 
+// Permanent per-game detail snapshot for MVP picks. Captures the free-but-wiped
+// enrichment (public betting, line history, Polymarket, Kalshi, book lines + the
+// game header) at game start so the MVP detail view survives the daily wipe.
+// ESPN data (status, scores, box, stats) is re-fetched live, so it's not stored.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mvp_detail_snapshots (
+      espn_game_id   TEXT PRIMARY KEY,
+      captured_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      game_json      TEXT,
+      picks_json     TEXT,
+      public_betting TEXT,
+      line_history   TEXT,
+      polymarket     TEXT,
+      kalshi         TEXT,
+      lines          TEXT,
+      insights       TEXT
+    )
+  `);
+} catch (_) {}
+
 try { db.exec(`ALTER TABLE users ADD COLUMN username TEXT`); } catch (_) {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username) WHERE username IS NOT NULL`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_customer_id TEXT`); } catch (_) {}
@@ -706,6 +727,14 @@ try { db.exec(`DELETE FROM kalshi_cache WHERE markets_json IS NULL`); } catch (_
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_home_games INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_away_games INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_score_detail TEXT`); } catch (_) {}
+
+// Tennis: per-player country flag (ESPN flag image URL) + ISO-ish country code.
+// Used to render flags in the player avatars and to color the sentiment/vote gauges
+// by country instead of a single shared blue (two players are never the same color).
+try { db.exec(`ALTER TABLE today_games ADD COLUMN home_flag TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN away_flag TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN home_country TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN away_country TEXT`); } catch (_) {}
 
 // Reader path tracking — which extraction path was used (mac/haiku/fallback)
 try { db.exec(`ALTER TABLE api_usage ADD COLUMN reader_path TEXT`); } catch (_) {}
