@@ -3,9 +3,9 @@
 // does for team sports (NBA/MLB/NHL), but lives in its own file because
 // espn_live.js is DO NOT TOUCH and does not export its upsert helper.
 //
-// WNBA is a full team sport: it reuses today_games / picks / mvp_picks, gets the
-// +5 sport bonus AND the +5 home bonus (home court applies). Lines come from
-// ESPN's embedded DraftKings odds — free, no Odds API credits.
+// WNBA is a full team sport: it reuses today_games / picks / mvp_picks. It gets
+// the +5 home bonus (home court applies) but NOT the +5 sport bonus. Lines come
+// from ESPN's embedded DraftKings odds — free, no Odds API credits.
 //
 // Called at 5am (fetchTodaysWnbaGames) + startup, and every 5 min
 // (updateWnbaLiveScores) alongside espn_live.updateLiveScores().
