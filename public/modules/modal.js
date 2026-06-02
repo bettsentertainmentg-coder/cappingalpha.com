@@ -256,7 +256,8 @@ export function renderGameModal(data, clickedType, clickedTeam) {
     const pairedP    = pairedKey ? pickBySlot[pairedKey] : null;
     const pairedRank = (data.pickRanks && pairedP?.id) ? (data.pickRanks[pairedP.id] || 0) : 0;
     const betTypeTop30 = (slotRank > 0 && slotRank <= 30) || (pairedRank > 0 && pairedRank <= 30);
-    const scoreHidden  = !isPaying() && betTypeTop30;
+    // The overall #1 pick's score is always visible (free users included).
+    const scoreHidden  = !isPaying() && betTypeTop30 && p?.globalRank !== 1;
 
     const chipScore = scoreHidden
       ? `<span class="chip-score">${LOCK_SVG}</span>`
@@ -311,8 +312,8 @@ export function selectTickerSlot(slotKey) {
 }
 
 function buildTimelineSection(p, pickRank, hasPick) {
-  // Visibility mirrors score paywall: free users see #1 only; paid users see all.
-  const canSeeTimeline = isPaying() || pickRank === 1;
+  // Visibility mirrors score paywall: free users see the overall #1 pick only; paid see all.
+  const canSeeTimeline = isPaying() || p?.globalRank === 1;
   if (!canSeeTimeline) {
     return `<div class="pick-timeline-section locked">
       <div class="pick-timeline-heading">Conviction curve</div>
@@ -494,7 +495,9 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   const pairedPick     = pairedSlotKey ? pickBySlot[pairedSlotKey] : null;
   const pairedRank     = (data.pickRanks && pairedPick?.id) ? (data.pickRanks[pairedPick.id] || 0) : 0;
   const betTypeIsTop30 = (pickRank > 0 && pickRank <= 30) || (pairedRank > 0 && pairedRank <= 30);
-  const showScore      = isPaying() || (isAccount() && !betTypeIsTop30);
+  // Free users see the CappingAlpha score for the overall #1 pick only.
+  const isOverallTop1  = p.globalRank === 1;
+  const showScore      = isPaying() || isOverallTop1 || (isAccount() && !betTypeIsTop30);
 
   const scoreBoxHtml = showScore
     ? `<div class="pick-score-box${isMvp ? ' mvp' : ''}">
@@ -518,7 +521,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     ${linesHtml}
     ${timelineSection}`;
 
-  if (typeof Chart !== 'undefined' && (isPaying() || pickRank === 1)) {
+  if (typeof Chart !== 'undefined' && (isPaying() || p.globalRank === 1)) {
     const mvp = state.CONFIG?.mvp_threshold || 50;
     requestAnimationFrame(() => drawPickTimeline(p?.timeline || [], mvp));
   }

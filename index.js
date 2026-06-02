@@ -468,12 +468,22 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     for (const r of userVotes) userVote[r.pick_slot] = true;
   }
 
-  // Rank map: pick_id → 1-based rank (picks already sorted score DESC)
+  // Rank map: pick_id → 1-based rank within this game (picks already sorted score DESC)
   const pickRanks = {};
   picks.forEach((p, i) => { pickRanks[p.id] = i + 1; });
 
-  // Attach score-over-time timeline to each pick for the popup chart
+  // Global rank among ALL of today's picks (by score). Free users unlock the
+  // CappingAlpha score + conviction curve for the overall #1 pick only — this is
+  // how the popup knows whether a pick is that single #1 (not just top of its game).
+  const allRanked = db.prepare(
+    `SELECT id FROM picks WHERE mention_count > 0 ORDER BY score DESC, id ASC`
+  ).all();
+  const globalRank = new Map();
+  allRanked.forEach((r, i) => globalRank.set(r.id, i + 1));
+
+  // Attach global rank + score-over-time timeline to each pick for the popup chart
   for (const p of picks) {
+    p.globalRank = globalRank.get(p.id) || null;
     p.timeline = getPickTimeline(p.id);
   }
 
