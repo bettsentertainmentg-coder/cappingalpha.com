@@ -5,6 +5,7 @@
 // DO NOT import espn_live.js or touch expert_data.js.
 
 const db = require('./db');
+const { enrichBroadcasts } = require('./broadcasts');
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/golf/pga';
 
@@ -53,18 +54,31 @@ function parseLeaderboard(competitors) {
   });
 }
 
+// ── Where to watch — pull broadcaster names from an ESPN competition ──────────
+function parseBroadcasts(comp) {
+  const names = [];
+  for (const b of comp?.broadcasts || []) {
+    if (b?.media?.shortName) names.push(b.media.shortName);
+    for (const nm of b?.names || []) names.push(nm);
+  }
+  for (const b of comp?.geoBroadcasts || []) {
+    if (b?.media?.shortName) names.push(b.media.shortName);
+  }
+  return JSON.stringify(enrichBroadcasts(names));
+}
+
 // ── Upsert a tournament into golf_tournaments ─────────────────────────────────
 function upsertTournament(data) {
   const {
     espn_tournament_id, name, course, city, state,
-    start_date, end_date, status, current_round, leaderboard_json,
+    start_date, end_date, status, current_round, leaderboard_json, broadcasts_json,
   } = data;
 
   db.prepare(`
     INSERT INTO golf_tournaments
       (espn_tournament_id, name, course, city, state, start_date, end_date,
-       status, current_round, leaderboard_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       status, current_round, leaderboard_json, broadcasts_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(espn_tournament_id) DO UPDATE SET
       name             = excluded.name,
       course           = excluded.course,
@@ -75,10 +89,11 @@ function upsertTournament(data) {
       status           = excluded.status,
       current_round    = excluded.current_round,
       leaderboard_json = excluded.leaderboard_json,
+      broadcasts_json  = excluded.broadcasts_json,
       updated_at       = datetime('now')
   `).run(
     espn_tournament_id, name, course, city, state,
-    start_date, end_date, status, current_round, leaderboard_json,
+    start_date, end_date, status, current_round, leaderboard_json, broadcasts_json ?? null,
   );
 }
 
@@ -122,6 +137,7 @@ async function fetchGolfTournaments() {
       status:     espnStatus,
       current_round: currentRound,
       leaderboard_json: JSON.stringify(leaderboard),
+      broadcasts_json:  parseBroadcasts(detailComp),
     });
     count++;
     console.log(`[golf_espn] Upserted tournament: ${name} (status=${espnStatus}, players=${leaderboard.length})`);
@@ -154,9 +170,10 @@ async function updateGolfLeaderboards() {
         status           = ?,
         current_round    = ?,
         leaderboard_json = ?,
+        broadcasts_json  = ?,
         updated_at       = datetime('now')
       WHERE espn_tournament_id = ?
-    `).run(espnStatus, currentRound, JSON.stringify(leaderboard), t.espn_tournament_id);
+    `).run(espnStatus, currentRound, JSON.stringify(leaderboard), parseBroadcasts(comp), t.espn_tournament_id);
 
     // Resolve picks if tournament just finished
     if (espnStatus === 'post' && t.status !== 'post') {

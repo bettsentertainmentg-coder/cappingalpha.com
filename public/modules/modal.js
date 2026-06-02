@@ -532,6 +532,8 @@ function renderGameData(data) {
 
   const sections = [];
 
+  const watchSection = buildWatchSection(stats?.broadcasts);
+
   if (sport === 'ATP' || sport === 'WTA') {
     const tourName = stats?.tournament || null;
     const surface  = stats?.surface    || null;
@@ -611,8 +613,58 @@ function renderGameData(data) {
     ${scoreStr}
   </div>`);
 
+  if (watchSection) sections.splice(1, 0, watchSection);
+
   el.innerHTML = `<div class="game-data-full-header"><span class="game-data-full-title">Game Details</span></div>`
     + `<div class="game-data-full-grid">${sections.join('')}</div>`;
+}
+
+// ── Where to Watch — logo + name chips from stats.broadcasts ─────────────────
+function broadcastChip(entry) {
+  const name = entry?.name || '';
+  if (!name) return '';
+  const d = entry.domain;
+  const img = d
+    ? `<img src="https://logo.clearbit.com/${d}" alt="" style="height:18px;width:18px;border-radius:4px;object-fit:contain;flex:none;" onerror="if(!this.dataset.fb){this.dataset.fb=1;this.src='https://www.google.com/s2/favicons?domain=${d}&amp;sz=64';}else{this.style.display='none';}">`
+    : '';
+  return `<span style="display:inline-flex;align-items:center;gap:6px;margin:0 10px 6px 0;">${img}<span>${name}</span></span>`;
+}
+
+function buildWatchSection(b) {
+  if (!b) return '';
+  const rows = [];
+  const addRow = (label, list) => {
+    if (!list || !list.length) return;
+    rows.push(`<div class="game-data-row" style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;">
+      <span style="color:var(--muted);min-width:54px;">${label}</span>${list.map(broadcastChip).join('')}</div>`);
+  };
+  addRow('TV', b.tv);
+  addRow('Stream', b.streaming);
+  addRow('Live TV', b.bundles);
+  if (!rows.length) return '';
+  return `<div>
+    <div class="game-data-heading">Where to Watch</div>
+    ${rows.join('')}
+  </div>`;
+}
+
+// Golf modal variant — parses broadcasts_json and uses the golf modal's h3 styling.
+function buildGolfWatchHtml(broadcastsJson) {
+  let b = null;
+  try { b = broadcastsJson ? JSON.parse(broadcastsJson) : null; } catch (_) { return ''; }
+  if (!b) return '';
+  const rows = [];
+  const addRow = (label, list) => {
+    if (!list || !list.length) return;
+    rows.push(`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin-bottom:6px;">
+      <span style="color:var(--muted);min-width:54px;font-size:13px;">${label}</span>${list.map(broadcastChip).join('')}</div>`);
+  };
+  addRow('TV', b.tv);
+  addRow('Stream', b.streaming);
+  addRow('Live TV', b.bundles);
+  if (!rows.length) return '';
+  return `<h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;">Where to Watch</h3>
+    <div style="margin-bottom:16px;">${rows.join('')}</div>`;
 }
 
 function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
@@ -817,6 +869,8 @@ async function openGolfModal(tournamentId) {
 
     const venue = [tournament.course, tournament.city, tournament.state].filter(Boolean).join(' · ');
 
+    const watchHtml = buildGolfWatchHtml(tournament.broadcasts_json);
+
     content.innerHTML = `
       <div class="modal-header" style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;">
         <div style="flex:1;">
@@ -826,6 +880,7 @@ async function openGolfModal(tournamentId) {
         </div>
         <span class="sport-badge">Golf</span>
       </div>
+      ${watchHtml}
       <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px;">Leaderboard</h3>
       ${leaderboardHtml}
       ${picksHtml}

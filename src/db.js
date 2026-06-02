@@ -439,6 +439,9 @@ try {
   `);
 } catch (_) {}
 
+// Where-to-watch broadcasts (enriched JSON: {tv, streaming, bundles})
+try { db.exec(`ALTER TABLE golf_tournaments ADD COLUMN broadcasts_json TEXT`); } catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS golf_picks (

@@ -1529,6 +1529,28 @@ function renderContext() {
       </div>`, span: true });
   }
 
+  // Where to Watch — TV / streaming / live-TV bundles, with logo chips
+  const bc = stats?.broadcasts;
+  if (bc && (bc.tv?.length || bc.streaming?.length || bc.bundles?.length)) {
+    const chip = e => {
+      const name = esc(e?.name || '');
+      if (!name) return '';
+      const d = e.domain ? esc(e.domain) : '';
+      const img = d
+        ? `<img src="https://logo.clearbit.com/${d}" alt="" style="height:18px;width:18px;border-radius:4px;object-fit:contain;flex:none;" onerror="if(!this.dataset.fb){this.dataset.fb=1;this.src='https://www.google.com/s2/favicons?domain=${d}&amp;sz=64';}else{this.style.display='none';}">`
+        : '';
+      return `<span style="display:inline-flex;align-items:center;gap:6px;margin:0 10px 6px 0;">${img}<span>${name}</span></span>`;
+    };
+    const row = (label, list) => (!list || !list.length) ? '' :
+      `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin-top:4px;">
+        <span class="ca-ctx-sub" style="min-width:54px;">${label}</span>${list.map(chip).join('')}</div>`;
+    cards.push({ raw: `
+      <div class="ca-ctx-title">Where to Watch</div>
+      ${row('TV', bc.tv)}
+      ${row('Stream', bc.streaming)}
+      ${row('Live TV', bc.bundles)}`, span: true });
+  }
+
   // Render
   el.innerHTML = cards.map(c => {
     if (c.raw) {

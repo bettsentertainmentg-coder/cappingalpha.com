@@ -3,6 +3,7 @@
 // Do not import or modify espn_live.js.
 
 const axios = require('axios');
+const { enrichBroadcasts } = require('./broadcasts');
 
 // ── Sport → ESPN league path ──────────────────────────────────────────────────
 const LEAGUE_PATH = {
@@ -177,6 +178,23 @@ async function getGameStats(espn_game_id, sport) {
       lng:  venue.address?.longitude ?? null,
     };
   }
+
+  // Broadcasts — where to watch. ESPN puts these in a few different spots
+  // depending on sport/endpoint, so read defensively and dedupe.
+  const bcNames = [];
+  const pushName = n => { if (n) bcNames.push(n); };
+  for (const b of summary?.broadcasts || []) {
+    pushName(b?.media?.shortName || b?.shortName || b?.station);
+    for (const nm of b?.names || []) pushName(nm);
+  }
+  for (const b of headerComp?.broadcasts || []) {
+    pushName(b?.media?.shortName || b?.shortName);
+    for (const nm of b?.names || []) pushName(nm);
+  }
+  for (const b of headerComp?.geoBroadcasts || []) {
+    pushName(b?.media?.shortName);
+  }
+  result.broadcasts = enrichBroadcasts(bcNames);
 
   // Tennis — extract tournament name and surface
   if (sport === 'ATP' || sport === 'WTA') {
