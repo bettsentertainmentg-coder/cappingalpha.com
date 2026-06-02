@@ -507,14 +507,19 @@
     }
 
     /* ── Graph range buttons ── */
-    .graph-range-row { display: flex; gap: 6px; }
+    .graph-range-row { display: flex; gap: 7px; flex-wrap: wrap; }
     .graph-range-btn {
       background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
-      font-family: inherit; font-size: 12px; font-weight: 700; padding: 4px 10px;
-      border-radius: 4px; cursor: pointer; transition: all 0.12s; letter-spacing: 0.3px;
+      font-family: inherit; font-size: 13px; font-weight: 700; padding: 7px 16px;
+      border-radius: 6px; cursor: pointer; transition: all 0.12s; letter-spacing: 0.3px;
     }
     .graph-range-btn:hover { color: var(--text); border-color: var(--accent); }
     .graph-range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    /* Keep the range buttons compact on phones (desktop gets the bigger tap targets). */
+    @media (max-width: 600px) {
+      .graph-range-row { gap: 5px; }
+      .graph-range-btn { font-size: 11px; padding: 4px 9px; border-radius: 4px; letter-spacing: 0.2px; }
+    }
 
     /* ── About tab ── */
     .about-hero {

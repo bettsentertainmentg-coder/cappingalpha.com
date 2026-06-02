@@ -85,6 +85,20 @@ Return the team name as written. Expand obvious NBA nicknames:
 For tennis (ATP/WTA): "team" = player last name or full name as written.
 For golf: "team" = player last name. sport=Golf only with explicit golf context.
 
+── WNBA vs NBA — CRITICAL DISAMBIGUATION ─────────────────────────────────────
+WNBA cities overlap with NBA and other leagues (Atlanta, Phoenix, Dallas,
+Chicago, Indiana, Los Angeles, Minnesota, New York, Washington, Golden State).
+A bare city name is NOT enough to call something WNBA.
+  WNBA team nicknames: Aces, Liberty, Storm, Dream, Sky, Sun, Wings,
+    Valkyries, Fever, Sparks, Lynx, Mercury, Mystics.
+Set sport=WNBA ONLY when the message explicitly signals it:
+  - the literal word "WNBA" appears, OR
+  - a WNBA team nickname above is used.
+  Examples: "Aces ML" → WNBA. "Liberty -4.5" → WNBA. "WNBA: Phoenix ML" → WNBA.
+A bare city with no WNBA nickname and no "WNBA" keyword must NOT be WNBA —
+treat it as the men's/other sport (e.g. "Atlanta -5" → NBA). When in doubt
+between NBA and WNBA, choose NBA.
+
 ── GAME MATCHING ─────────────────────────────────────────────────────────────
 When today's games are listed, match each pick to a game by team name.
 Return espn_game_id + picked_side (home/away) when confident.
@@ -111,7 +125,7 @@ const EXTRACT_TOOL = {
             team:         { type: 'string',  description: 'Team or player name as written' },
             pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml'] },
             spread_value: { type: 'number',  description: 'Spread or total line. Omit for ML.' },
-            sport:        { type: 'string',  enum: ['NBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
+            sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
             vs_player:    { type: 'string',  description: 'Golf h2h opponent only.' },
             sport_record: { type: 'string',  description: 'Record string e.g. "27-21 CBB". Omit if absent.' },
