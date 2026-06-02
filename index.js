@@ -689,15 +689,20 @@ async function renderGameDetail(req, res, game, opts = {}) {
       for (const p of picks) p.timeline = getPickTimeline(p.id);
     }
 
-    // Pick ranks. Live: global rank across today's picks. Historical: per-game
-    // rank by score (the global ordering is long gone after the wipe).
+    // Pick ranks for the paywall (free users unlock the overall #1 pick only).
+    // Live: global rank across ALL current picks — no game_date filter, which
+    // could miss the cycle date and zero out every rank (that bug locked the #1
+    // pick's own share page). Matches the /api/game popup ranking exactly.
+    // Historical: per-game rank by score (global ordering is gone after the wipe;
+    // pick ids may also have been reused, so never cross-reference the live table).
     const pickRanks = {};
     if (opts.historical) {
-      picks.forEach((p, i) => { pickRanks[p.id] = i + 1; });
+      const sorted = [...picks].sort((a, b) => (b.score || 0) - (a.score || 0));
+      sorted.forEach((p, i) => { pickRanks[p.id] = i + 1; });
     } else {
       const allRanked = db.prepare(`
-        SELECT id FROM picks WHERE game_date = ? AND mention_count > 0 ORDER BY score DESC
-      `).all(getCycleDate());
+        SELECT id FROM picks WHERE mention_count > 0 ORDER BY score DESC, id ASC
+      `).all();
       allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
     }
 
