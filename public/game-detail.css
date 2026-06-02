@@ -872,32 +872,70 @@ nav {
   .ca-senti-gauges { grid-template-columns: 1fr; gap: 26px; }
 }
 
-/* ── Community vote row ─────────────────────────────────────────────────────── */
-.ca-cmty-vote-row {
-  display: flex; gap: 10px;
-  margin-top: 18px; justify-content: center; flex-wrap: wrap;
+/* ── Community vote rows ────────────────────────────────────────────────────── */
+.ca-cmty-vote-lead {
+  margin-top: 20px; text-align: center;
+  font-size: 13px; line-height: 1.5; color: var(--text-secondary);
 }
-.ca-cmty-vote-btn {
-  background: var(--surface, #171b24);
-  border: 1px solid var(--border, #252c3b);
-  color: var(--text, #e2e8f0);
-  font-size: 13px; font-weight: 600;
-  padding: 9px 18px; border-radius: 6px;
-  cursor: pointer;
-  transition: background .15s ease, border-color .15s ease;
-}
-.ca-cmty-vote-btn:hover { background: var(--surface2, #1e2330); }
-.ca-cmty-vote-btn.is-voted {
-  background: rgba(34, 197, 94, 0.12);
-  border-color: #22c55e;
-  color: #22c55e;
-}
-.ca-cmty-vote-prompt,
-.ca-cmty-vote-closed {
-  margin-top: 18px; text-align: center;
-  font-size: 12px; color: var(--text-tertiary);
-}
+.ca-cmty-vote-lead strong { color: var(--text-primary); }
 .ca-cmty-vote-link { color: var(--accent-brand, #3b82f6); cursor: pointer; }
+.ca-cmty-vote-link:hover { text-decoration: underline; }
+
+/* ── Community chat ─────────────────────────────────────────────────────────── */
+.ca-chat { margin-top: 28px; border-top: 1px solid var(--border-tertiary); padding-top: 20px; }
+.ca-chat-hdr {
+  font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--text-tertiary); margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.ca-chat-count {
+  font-size: 11px; font-weight: 700; letter-spacing: 0;
+  background: var(--surface2); color: var(--text-secondary);
+  border-radius: 10px; padding: 1px 8px;
+}
+.ca-chat-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+.ca-chat-empty { font-size: 13px; color: var(--text-tertiary); padding: 8px 0; }
+
+/* Each message: a transparent name tag (username + vote chips + time) above the
+   message body. No bubble — keeps the thread light and readable. */
+.ca-chat-msg { display: flex; flex-direction: column; gap: 4px; }
+.ca-chat-nametag {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 7px;
+}
+.ca-chat-user { font-size: 13px; font-weight: 800; color: var(--text-primary); }
+.ca-chat-votechip {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+  padding: 2px 8px; border-radius: 5px; white-space: nowrap;
+  color: var(--chip, #94a3b8);
+  background: color-mix(in srgb, var(--chip) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip) 38%, transparent);
+}
+.ca-chat-time { font-size: 11px; color: var(--text-tertiary); margin-left: auto; }
+.ca-chat-del {
+  background: none; border: none; color: var(--text-tertiary);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 0 2px;
+}
+.ca-chat-del:hover { color: var(--accent-loss, #ef4444); }
+.ca-chat-body {
+  font-size: 14px; line-height: 1.5; color: var(--text-secondary);
+  word-break: break-word; white-space: pre-wrap;
+}
+
+.ca-chat-input-row { display: flex; gap: 8px; }
+.ca-chat-input {
+  flex: 1; background: var(--surface, #171b24);
+  border: 1px solid var(--border, #252c3b); border-radius: 8px;
+  color: var(--text, #e2e8f0); font-size: 14px; padding: 10px 12px;
+  outline: none; transition: border-color .15s ease;
+}
+.ca-chat-input:focus { border-color: var(--accent-brand, #3b82f6); }
+.ca-chat-send {
+  background: var(--accent-brand, #3b82f6); border: none; border-radius: 8px;
+  color: #fff; font-size: 13px; font-weight: 700; padding: 0 18px; cursor: pointer;
+  transition: filter .15s ease;
+}
+.ca-chat-send:hover { filter: brightness(1.1); }
+.ca-chat-signin { font-size: 13px; color: var(--text-tertiary); }
 
 /* ── Coming-soon pill ───────────────────────────────────────────────────────── */
 .ca-coming-soon-pill {

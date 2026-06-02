@@ -56,21 +56,22 @@
   overflow: visible;
 }
 
-/* Per-side %s + line value on one row below the disc. Three columns:
-   left-% | line-value | right-%. The line value uses the classic Source Sans
-   Pro at a modest size so it sits comfortably between the %s instead of
-   competing with them. */
+/* Per-side %s below the disc. Two equal halves (1fr | 1fr) so each % centers in
+   its half — exactly mirroring the button row below, which uses the same halves.
+   The line value is positioned absolutely dead-center so it never widens the
+   side columns and can't knock the %s out of alignment with the buttons. */
 .cag-pct-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr 1fr;
   align-items: baseline;
-  gap: 8px;
+  gap: 4px;
   padding: 0 4px;
   margin-top: 2px;
 }
 .cag-side-pct {
   font-family: 'Inter', system-ui, sans-serif;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: -0.03em;
@@ -79,14 +80,18 @@
 }
 .cag-side-pct-l,
 .cag-side-pct-r { text-align: center; }
-.cag-block--sm .cag-side-pct { font-size: 14px; }
+.cag-block--sm .cag-side-pct { font-size: 15px; }
 .cag-side-pct.cag-empty { color: #4a5263 !important; text-shadow: none; }
 
-/* Line value tucked between the per-side %s. Source Sans Pro for the classic
-   app feel; size matches the % numbers so it reads as part of the same row. */
+/* Line value floated dead-center over the row (out of grid flow). Source Sans
+   Pro for the classic app feel, sized to clear the %s on either side. */
 .cag-line-mid {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   font-family: 'Source Sans Pro', system-ui, sans-serif;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums lining-nums;
   color: rgba(255, 255, 255, 0.92);
@@ -96,8 +101,8 @@
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
-.cag-block--sm .cag-line-mid { font-size: 15px; }
-.cag-line-mid--empty { visibility: hidden; min-width: 0; }
+.cag-block--sm .cag-line-mid { font-size: 12px; }
+.cag-line-mid--empty { display: none; }
 
 
 /* ── Needle animation ────────────────────────────────────────────────────── */
@@ -112,36 +117,57 @@
 }
 
 /* ── Footer row ──────────────────────────────────────────────────────────────
-   Two-column grid. Horizontal padding matches the widget's inner content
-   inset (widget padding-left 14px + pct-row padding-left 4px = 18px), so the
-   team name sits directly under its % above instead of at the far edge of
-   the widget. UNDER sits under the left %, OVER sits under the right %. */
+   Two equal halves that line up pixel-for-pixel with .cag-pct-row above. Same
+   gap, and a 19px inset that matches the pct-row's content box (widget border 1
+   + widget pad 14 + pct-row pad 4 = 19). Result: each button's center sits
+   exactly under its % on WIN, SPREAD, and TOTAL alike. */
 .cag-footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: baseline;
-  gap: 10px;
-  padding: 0 18px;
+  gap: 4px;
+  padding: 0 19px;
 }
+/* Each name reads as a soft chip/button. Inline-block so the tinted background
+   hugs the text and stays centered inside its grid column (center still lands
+   under the % above). Background + border colors are passed inline per team. */
 .cag-team {
-  font-family: 'Inter', system-ui, sans-serif;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  display: inline-block;
+  font-family: 'Source Sans Pro', system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  padding: 3px 11px;
+  border-radius: 7px;
+  -webkit-font-smoothing: antialiased;
 }
 .cag-team-l,
 .cag-team-r { text-align: center; }
 
-.cag-block--sm .cag-team { font-size: 10px; letter-spacing: 0.08em; }
+/* Votable chips act as buttons. Subtle lift on hover; the picked side is filled
+   more strongly inline (see _teamStyle voted). */
+.cag-team-btn {
+  cursor: pointer;
+  transition: transform .12s ease, filter .12s ease, background .15s ease, border-color .15s ease;
+  user-select: none;
+}
+.cag-team-btn:hover { filter: brightness(1.18); transform: translateY(-1px); }
+.cag-team-btn:active { transform: translateY(0); }
+.cag-team.is-voted { font-weight: 900; }
 
-/* TOTAL gauges: UNDER / OVER labels are consistent width, so bump them up. */
-.cag-block--total .cag-team { font-size: 14px; letter-spacing: 0.14em; }
-.cag-block--total.cag-block--sm .cag-team { font-size: 12px; letter-spacing: 0.10em; }
+.cag-block--sm .cag-team { font-size: 12px; letter-spacing: 0.01em; }
+
+/* TOTAL gauges: Under / Over labels are consistent width, so bump them up. */
+.cag-block--total .cag-team { font-size: 14px; letter-spacing: 0.01em; }
+.cag-block--total.cag-block--sm .cag-team { font-size: 13px; letter-spacing: 0.01em; }
 
 /* ── Empty state ───────────────────────────────────────────────────────────── */
-.cag-block--empty .cag-team { color: #4a5263 !important; text-shadow: none; }
+.cag-block--empty .cag-team {
+  color: #4a5263 !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .cag-needle { animation: none; transform: rotate(var(--target-deg, 0deg)); }

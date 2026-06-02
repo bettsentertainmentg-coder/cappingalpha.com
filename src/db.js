@@ -343,6 +343,26 @@ try {
   `);
 } catch (_) {}
 
+// Community chat per game. Snapshot columns (home/away/sport) let messages
+// survive the daily today_games wipe and stay queryable for the leaderboard.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS game_messages (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL,
+      espn_game_id TEXT    NOT NULL,
+      message      TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      deleted      INTEGER NOT NULL DEFAULT 0,
+      home_team    TEXT,
+      away_team    TEXT,
+      sport        TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_game_messages_game ON game_messages (espn_game_id, created_at)`);
+} catch (_) {}
+
 try { db.exec(`ALTER TABLE users ADD COLUMN username TEXT`); } catch (_) {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username) WHERE username IS NOT NULL`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_customer_id TEXT`); } catch (_) {}

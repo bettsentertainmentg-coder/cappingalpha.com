@@ -37,6 +37,7 @@ const { syncPolymarketData, syncPolymarketSoon, getPolymarketForGame } = require
 const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kalshi');
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
+const community          = require('./src/community');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -538,6 +539,30 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   for (const r of userVotes) userVote[r.pick_slot] = true;
 
   res.json({ votes, userVote });
+});
+
+// GET /api/game/:espn_game_id/chat — public read of the community chat.
+// Each message carries its author's username + current vote annotations.
+app.get('/api/game/:espn_game_id/chat', (req, res) => {
+  const messages = community.getGameChat(req.params.espn_game_id, req.session?.user?.id || null);
+  res.json({ messages, maxLength: community.MAX_MESSAGE_LEN });
+});
+
+// POST /api/game/:espn_game_id/chat — post a message (login required).
+app.post('/api/game/:espn_game_id/chat', (req, res) => {
+  if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
+  const { message } = req.body || {};
+  const result = community.addGameMessage(req.session.user.id, req.params.espn_game_id, message);
+  if (result.error) return res.status(400).json(result);
+  res.json(result);
+});
+
+// DELETE /api/game/:espn_game_id/chat/:id — remove your own message (login required).
+app.delete('/api/game/:espn_game_id/chat/:id', (req, res) => {
+  if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
+  const result = community.deleteGameMessage(req.session.user.id, req.params.espn_game_id, Number(req.params.id));
+  if (result.error) return res.status(result.error === 'Not your message.' ? 403 : 404).json(result);
+  res.json(result);
 });
 
 // ── Scan state lives in expert_data.js — all paths update the same object ──

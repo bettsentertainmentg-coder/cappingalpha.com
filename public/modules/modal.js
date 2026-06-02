@@ -299,7 +299,7 @@ function buildTimelineSection(p, pickRank, hasPick) {
   const canSeeTimeline = isPaying() || pickRank === 1;
   if (!canSeeTimeline) {
     return `<div class="pick-timeline-section locked">
-      <div class="pick-timeline-heading">Score build-up</div>
+      <div class="pick-timeline-heading">Conviction curve</div>
       <div class="pick-timeline-locked">${LOCK_SVG} ${isViewer()
         ? `<a onclick="openSignup()" style="color:var(--gold);cursor:pointer;">Create a free account</a> to view`
         : `<a onclick="openCodeEntry()" style="color:var(--gold);cursor:pointer;">Upgrade</a> to view`}</div>
@@ -308,15 +308,15 @@ function buildTimelineSection(p, pickRank, hasPick) {
   const hasTimeline = !!(hasPick && p?.timeline && p.timeline.length > 0);
   if (!hasTimeline) {
     return `<div class="pick-timeline-section">
-      <div class="pick-timeline-heading">Score build-up</div>
+      <div class="pick-timeline-heading">Conviction curve</div>
       <div class="pick-timeline-canvas-wrap is-empty">
         <canvas id="pick-timeline-chart"></canvas>
-        <div class="pick-timeline-empty-overlay">No build-up yet.</div>
+        <div class="pick-timeline-empty-overlay">Not enough picks yet.</div>
       </div>
     </div>`;
   }
   return `<div class="pick-timeline-section">
-    <div class="pick-timeline-heading">Score build-up</div>
+    <div class="pick-timeline-heading">Conviction curve</div>
     <div class="pick-timeline-canvas-wrap"><canvas id="pick-timeline-chart"></canvas></div>
     <div class="pick-timeline-teaser">Picks evolve throughout the day. <a onclick="switchTab('about')" style="color:var(--accent);cursor:pointer;">Learn how</a></div>
   </div>`;
@@ -613,7 +613,7 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
 
   if (slotKey === 'over' || slotKey === 'under') {
     leftKey   = 'under';        rightKey   = 'over';
-    leftLabel = 'UNDER';        rightLabel = 'OVER';
+    leftLabel = 'Under';        rightLabel = 'Over';
     // Steel blue + amber — same non-betting-cliché pair as the standalone page.
     leftColor = '#4682B4';      rightColor = '#F59E0B';
     const ouUnit = TOTAL_UNIT[(game.sport || '').toUpperCase()];

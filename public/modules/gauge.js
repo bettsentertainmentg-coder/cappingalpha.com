@@ -93,6 +93,13 @@ export function cappingGauge(opts = {}) {
     rightColorSecondary = '',
     centerLine          = null,
     size                = 'md',
+    // Voting: when votable, the team chips become buttons that call castVote(slot).
+    // leftVoted/rightVoted highlight the current user's own pick.
+    votable             = false,
+    leftSlot            = null,
+    rightSlot           = null,
+    leftVoted           = false,
+    rightVoted          = false,
   } = opts;
 
   const noData = leftPct == null || rightPct == null;
@@ -210,9 +217,12 @@ export function cappingGauge(opts = {}) {
         </div>
       </div>
 
+      <!-- Footer mirrors the pct-row's two equal halves, so each team name's
+           center lands exactly under its % above. When votable, the chips become
+           the vote buttons — clicking one casts/toggles the vote. -->
       <div class="cag-footer">
-        <span class="cag-team cag-team-l" style="${_teamStyle(leftColor,  leftColorSecondary)}">${esc(leftLabel)}</span>
-        <span class="cag-team cag-team-r" style="${_teamStyle(rightColor, rightColorSecondary)}">${esc(rightLabel)}</span>
+        ${_teamChip('l', leftLabel,  leftColor,  leftColorSecondary,  votable, leftSlot,  leftVoted)}
+        ${_teamChip('r', rightLabel, rightColor, rightColorSecondary, votable, rightSlot, rightVoted)}
       </div>
     </div>`;
 }
@@ -223,15 +233,34 @@ export function cappingGauge(opts = {}) {
 function _pctStyle(primary, secondary) {
   const fill = brighten(primary, 0.72);
   if (!secondary) return `color:${fill};`;
-  const stroke = hexToRgba(brighten(secondary, 0.55), 0.7);
-  return `color:${fill};-webkit-text-stroke:0.6px ${stroke};`;
+  const stroke = hexToRgba(brighten(secondary, 0.55), 0.65);
+  return `color:${fill};-webkit-text-stroke:0.4px ${stroke};`;
 }
 
-// Inline-style builder for team names. Primary color drives the text fill;
-// secondary color (at 70% opacity) underlines the name.
-function _teamStyle(primary, secondary) {
-  const fill = brighten(primary, 0.66);
-  if (!secondary) return `color:${fill};`;
-  const ucolor = hexToRgba(brighten(secondary, 0.55), 0.7);
-  return `color:${fill};text-decoration:underline;text-decoration-color:${ucolor};text-decoration-thickness:2px;text-underline-offset:4px;`;
+// One team chip in the footer. Plain label when not votable; a clickable vote
+// button when votable. The user's own pick (voted) gets a stronger, fully-tinted
+// fill + checkmark so it stands out from the unselected side.
+function _teamChip(side, label, color, secondary, votable, slot, voted) {
+  const clickable = votable && slot;
+  const cls = `cag-team cag-team-${side}` +
+    (voted ? ' is-voted' : '') +
+    (clickable ? ' cag-team-btn' : '');
+  const attrs = clickable
+    ? ` role="button" tabindex="0" onclick="castVote('${slot}')"`
+    : '';
+  const check = voted ? '✓ ' : '';
+  return `<span class="${cls}" style="${_teamStyle(color, secondary, voted)}"${attrs}>${check}${esc(label)}</span>`;
+}
+
+// Inline-style builder for team names. The name reads as a soft chip/button:
+// primary color fills the text, the team's secondary color tints a translucent
+// background + thin border (kept low-opacity so it's subtle, not aggressive).
+// When `voted`, the chip fills more strongly in the team color to mark the pick.
+function _teamStyle(primary, secondary, voted = false) {
+  const fill = brighten(primary, 0.74);
+  const tint = brighten(secondary || primary, 0.52);
+  if (voted) {
+    return `color:#fff;background:${hexToRgba(tint, 0.34)};border:1px solid ${hexToRgba(tint, 0.95)};`;
+  }
+  return `color:${fill};background:${hexToRgba(tint, 0.16)};border:1px solid ${hexToRgba(tint, 0.34)};`;
 }

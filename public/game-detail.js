@@ -404,9 +404,11 @@ function renderSlotGrid() {
       </div>`;
     }
 
-    return `<div class="ca-slot-chip${isActive ? ' active' : ''}${isMvp ? ' mvp' : ''}${noPick && !isLocked ? ' no-pick' : ''}${isLocked ? ' locked' : ''}"
+    // MVP status is premium info — never reveal it on a locked chip.
+    const showMvp = isMvp && !isLocked;
+    return `<div class="ca-slot-chip${isActive ? ' active' : ''}${showMvp ? ' mvp' : ''}${noPick && !isLocked ? ' no-pick' : ''}${isLocked ? ' locked' : ''}"
               onclick="selectSlot('${slot.key}')">
-      ${isMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
+      ${showMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
       <span class="ca-slot-type">${typeLabel}</span>
       <span class="ca-slot-label">${pickIdent}</span>
       ${scoreAreaHtml}
@@ -474,8 +476,13 @@ function renderDetailPanel() {
     scoreHidden = !isPaying() && rank > 1;
   }
 
-  const isGoldMvp   = isMvp && score >= 60;
-  const isSilverMvp = isMvp && score < 60;
+  // Free users see real numbers + MVP/result/rank reveals only for the #1 pick.
+  // Everything score-derived is gated behind this so non-#1 picks never leak
+  // that they're MVPs (or whether they won) to non-paying users.
+  const showRealScore = isPaying() || (p && rank === 1);
+
+  const isGoldMvp   = showRealScore && isMvp && score >= 60;
+  const isSilverMvp = showRealScore && isMvp && score < 60;
 
   // Juice/odds to show inline next to the spread or total line value
   const juice = (() => {
@@ -487,13 +494,13 @@ function renderDetailPanel() {
     return null; // ML: the line value itself is the odds
   })();
 
-  const resultBadge = p?.result && p.result !== 'pending'
+  const resultBadge = showRealScore && p?.result && p.result !== 'pending'
     ? `<div class="ca-dp-result-badge ca-dp-result-${p.result}">${p.result.toUpperCase()}</div>`
     : '';
 
   const rankBadge = p && rank === 1
     ? `<div class="ca-dp-rank-badge ca-dp-rank-1">#1 Pick</div>`
-    : p && rank > 0
+    : showRealScore && p && rank > 0
       ? `<div class="ca-dp-rank-badge ca-dp-rank-n">#${rank}</div>`
       : '';
 
@@ -507,7 +514,6 @@ function renderDetailPanel() {
   // Free users see real numbers only for the #1 pick. Everything else (no pick,
   // or ranks 2+) renders the same locked-wrap visual so they can't tell which
   // slots have no pick vs. paywalled picks.
-  const showRealScore = isPaying() || (p && rank === 1);
   const scoreEl = showRealScore
     ? (!p
         ? `<div class="ca-dp-score-big ca-num" style="color:var(--text-disabled);opacity:0.55;">0</div>`
@@ -522,7 +528,7 @@ function renderDetailPanel() {
   const headerHtml = `<div class="ca-dp-header${hdrMod}">
     <div class="ca-dp-hdr-left">
       <div class="ca-dp-hdr-eyebrow-row">
-        ${isMvp ? `<span class="ca-dp-hdr-star">★</span>` : ''}
+        ${showRealScore && isMvp ? `<span class="ca-dp-hdr-star">★</span>` : ''}
         <span class="ca-dp-hdr-eyebrow">${esc(eyebrow)}</span>
       </div>
       <div class="ca-dp-hdr-pick-row">
@@ -542,14 +548,14 @@ function renderDetailPanel() {
     </div>
   </div>`;
 
-  // ── Body: 2-column (score build-up chart | community vote) ──────────────────
+  // ── Body: 2-column (conviction curve chart | community vote) ────────────────
 
-  // Col 1: Score build-up chart. Paywall mirrors score visibility: free users
+  // Col 1: Conviction curve chart. Paywall mirrors score visibility: free users
   // see the real chart only on the #1 pick. For everything else we still render
   // the canvas, but it's blurred behind a lock icon to drive the upgrade.
   const timelineVisible = isPaying() || rank === 1;
   const hasTimeline = !!(p?.timeline && p.timeline.length > 0);
-  let pubHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Score build-up</div>`;
+  let pubHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Conviction curve</div>`;
   const wrapMods = [
     hasTimeline ? '' : 'is-empty',
     timelineVisible ? '' : 'is-locked',
@@ -562,7 +568,7 @@ function renderDetailPanel() {
         <i class="fa-solid fa-lock"></i>
         <span>Full access only</span>
       </div>` : ''}
-    ${timelineVisible && !hasTimeline ? '<div class="ca-dp-timeline-empty-overlay">No build-up yet.</div>' : ''}
+    ${timelineVisible && !hasTimeline ? '<div class="ca-dp-timeline-empty-overlay">Not enough picks yet.</div>' : ''}
   </div>
   <div class="ca-dp-timeline-footer">
     <div class="ca-dp-timeline-teaser">Picks evolve throughout the day. <a href="/#about">Learn how</a></div>
@@ -1035,7 +1041,7 @@ function _buildBetTypes() {
       label:     'TOTAL',
       betLabelColor: '#fbbf24',  // bright amber
       leftKey:   'under',        rightKey:   'over',
-      leftName:  'UNDER',        rightName:  'OVER',
+      leftName:  'Under',        rightName:  'Over',
       leftColor: OU_COLOR_UNDER, rightColor: OU_COLOR_OVER,
       // No team secondary for over/under — labels stay clean.
       centerLine: ouLine,
@@ -1110,6 +1116,9 @@ function renderCommunity() {
     return { leftPct: lp, rightPct: 100 - lp };
   };
 
+  // Pre-game games are votable: the gauge chips themselves are the vote buttons.
+  const votable = game?.status === 'pre';
+
   const blocks = betTypes.map(bt => {
     const { leftPct, rightPct } = votePair(bt.leftKey, bt.rightKey);
     return cappingGauge({
@@ -1125,6 +1134,10 @@ function renderCommunity() {
       rightColorSecondary: bt.rightColorSecondary,
       centerLine:          bt.centerLine,
       size: 'md',
+      // Voting wired straight into the gauge chips.
+      votable,
+      leftSlot:  bt.leftKey,            rightSlot:  bt.rightKey,
+      leftVoted: !!userVote[bt.leftKey], rightVoted: !!userVote[bt.rightKey],
     });
   }).join('');
 
@@ -1133,64 +1146,189 @@ function renderCommunity() {
     : '';
   gaugesEl.innerHTML = `
     <div class="ca-cmty-sub-hdr">Community votes ${totalHdr}</div>
+    ${_buildVoteLead(votable)}
     <div class="ca-senti-gauges">${blocks}</div>`;
 
-  // Vote row: only meaningful if the game hasn't started and the user is logged in.
-  if (votesEl) votesEl.innerHTML = _buildCommunityVoteRow();
+  // Button rows removed — the gauge chips are the vote buttons now.
+  if (votesEl) votesEl.innerHTML = '';
+
+  // Chat lives below the gauges. Render the shell now, then load messages.
+  loadAndRenderChat();
 }
 
-// Voting UI — one row of buttons for the currently-active slot.
-// Pre-game only; logged-out viewers see a prompt to sign up.
-function _buildCommunityVoteRow() {
-  const { game, userVote = {} } = _data;
-  if (!game) return '';
-  if (game.status !== 'pre') {
-    return `<div class="ca-cmty-vote-closed">Voting closed. Game has started.</div>`;
+// Short encouragement line shown above the community gauges. Pre-game prompts a
+// vote (and a sign-in for viewers); once locked it explains voting is closed.
+function _buildVoteLead(votable) {
+  if (!votable) {
+    return `<div class="ca-cmty-vote-lead">Voting is closed for this game. The community picks below are locked in.</div>`;
   }
-  // Determine slot + counterpart from the active picks slot.
-  const slot = _activeSlot || 'home_ml';
-  const oppSlot = OPP_SLOT[slot] || 'away_ml';
-  const SLOTS = buildSlots(game);
-  const slotMap = Object.fromEntries(SLOTS.map(s => [s.key, s]));
-  const a = slotMap[slot];
-  const b = slotMap[oppSlot];
-  if (!a || !b) return '';
-
   if (isViewer()) {
-    return `<div class="ca-cmty-vote-prompt">
+    return `<div class="ca-cmty-vote-lead">
+      <strong>Call the game.</strong> Tap a name below a gauge to vote.
       <a onclick="openLogin()" class="ca-cmty-vote-link">Log in</a> or
-      <a onclick="openSignup()" class="ca-cmty-vote-link">sign up</a>
-      to cast a vote on this game.
+      <a onclick="openSignup()" class="ca-cmty-vote-link">sign up free</a>
+      to vote and track your picks.
     </div>`;
   }
-  const aVoted = !!userVote[a.key];
-  const bVoted = !!userVote[b.key];
-  return `<div class="ca-cmty-vote-row">
-    <button class="ca-cmty-vote-btn${aVoted ? ' is-voted' : ''}" onclick="castVote('${a.key}')">${aVoted ? '✓ ' : ''}${a.label}</button>
-    <button class="ca-cmty-vote-btn${bVoted ? ' is-voted' : ''}" onclick="castVote('${b.key}')">${bVoted ? '✓ ' : ''}${b.label}</button>
+  return `<div class="ca-cmty-vote-lead">
+    <strong>Call the game.</strong> Tap a name below any gauge to vote. Tap again to undo.
   </div>`;
 }
 
-// Cast vote handler (wired to onclick). Calls existing /vote API and re-renders.
+// Toggle vote handler. If the slot is already voted, remove it (DELETE);
+// otherwise cast it (POST). Re-renders the community section either way.
 async function castVote(slot) {
   if (!_data?.game?.espn_game_id) return;
+  if (isViewer()) { openLogin(); return; }
+  const already = !!(_data.userVote && _data.userVote[slot]);
+  const method  = already ? 'DELETE' : 'POST';
   try {
     const res = await fetch(`/api/game/${_data.game.espn_game_id}/vote`, {
-      method:  'POST',
+      method,
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ slot }),
     });
     if (res.status === 401) { openLogin(); return; }
     if (res.status === 409) { alert('Voting is closed. Game has started.'); return; }
-    const data = await res.json();
-    _data.votes    = data.votes;
-    _data.userVote = data.userVote;
+    if (method === 'DELETE') {
+      // DELETE returns { ok }, not fresh tallies — update local state by hand.
+      if (_data.userVote) delete _data.userVote[slot];
+      if (_data.votes && _data.votes[slot] > 0) _data.votes[slot] -= 1;
+    } else {
+      const data = await res.json();
+      _data.votes    = data.votes;
+      _data.userVote = data.userVote;
+    }
     renderCommunity();
   } catch (err) {
     console.warn('[community] vote failed:', err);
   }
 }
 window.castVote = castVote;
+
+// ── Community chat ────────────────────────────────────────────────────────────
+let _chatLoaded = false;
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const t = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(t.getTime())) return '';
+  const secs = Math.max(0, Math.floor((Date.now() - t.getTime()) / 1000));
+  if (secs < 60)    return 'just now';
+  if (secs < 3600)  return `${Math.floor(secs / 60)}m`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h`;
+  return `${Math.floor(secs / 86400)}d`;
+}
+
+// Color for a vote-annotation chip, by side. Mirrors the gauge/team palette.
+function voteChipColor(v) {
+  const { game } = _data;
+  if (v.side === 'over')  return '#F59E0B';
+  if (v.side === 'under') return '#4682B4';
+  const c = teamColors(game, v.side === 'home');
+  return c.primary;
+}
+
+function voteChips(votes) {
+  if (!votes || !votes.length) return '';
+  return votes.map(v => {
+    const color = voteChipColor(v);
+    return `<span class="ca-chat-votechip" style="--chip:${color};">${esc(v.label)}</span>`;
+  }).join('');
+}
+
+async function loadAndRenderChat() {
+  const el = document.getElementById('ca-community-chat');
+  if (!el) return;
+  // Render the shell immediately so the input shows without waiting on the fetch.
+  if (!_chatLoaded) el.innerHTML = _chatShell([], true);
+  try {
+    const res = await fetch(`/api/game/${_data.game.espn_game_id}/chat`);
+    const data = await res.json();
+    _chatLoaded = true;
+    el.innerHTML = _chatShell(data.messages || [], false);
+  } catch (err) {
+    console.warn('[community] chat load failed:', err);
+    el.innerHTML = _chatShell([], false);
+  }
+}
+
+function _chatShell(messages, loading) {
+  const header = `<div class="ca-chat-hdr">Community chat ${messages.length ? `<span class="ca-chat-count">${messages.length}</span>` : ''}</div>`;
+
+  let list;
+  if (loading) {
+    list = `<div class="ca-chat-empty">Loading chat…</div>`;
+  } else if (!messages.length) {
+    list = `<div class="ca-chat-empty">No messages yet. Start the conversation.</div>`;
+  } else {
+    list = messages.map(m => `
+      <div class="ca-chat-msg">
+        <div class="ca-chat-nametag">
+          <span class="ca-chat-user">${esc(m.username)}</span>
+          ${voteChips(m.votes)}
+          <span class="ca-chat-time">${timeAgo(m.created_at)}</span>
+          ${m.is_mine ? `<button class="ca-chat-del" title="Delete" onclick="deleteChatMsg(${m.id})">×</button>` : ''}
+        </div>
+        <div class="ca-chat-body">${esc(m.message)}</div>
+      </div>`).join('');
+  }
+
+  let composer;
+  if (isViewer()) {
+    composer = `<div class="ca-chat-signin">
+      <a onclick="openLogin()" class="ca-cmty-vote-link">Log in</a> or
+      <a onclick="openSignup()" class="ca-cmty-vote-link">sign up free</a>
+      to join the conversation and track your picks.
+    </div>`;
+  } else {
+    composer = `<div class="ca-chat-input-row">
+      <input id="ca-chat-input" class="ca-chat-input" type="text" maxlength="500"
+             placeholder="Say something about this game…"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();postChat();}">
+      <button class="ca-chat-send" onclick="postChat()">Post</button>
+    </div>`;
+  }
+
+  return header + `<div class="ca-chat-list">${list}</div>` + composer;
+}
+
+async function postChat() {
+  const input = document.getElementById('ca-chat-input');
+  if (!input) return;
+  const message = input.value.trim();
+  if (!message) return;
+  input.disabled = true;
+  try {
+    const res = await fetch(`/api/game/${_data.game.espn_game_id}/chat`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message }),
+    });
+    if (res.status === 401) { openLogin(); return; }
+    if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Could not post.'); return; }
+    input.value = '';
+    await loadAndRenderChat();
+    document.getElementById('ca-chat-input')?.focus();
+  } catch (err) {
+    console.warn('[community] post failed:', err);
+  } finally {
+    const fresh = document.getElementById('ca-chat-input');
+    if (fresh) fresh.disabled = false;
+  }
+}
+window.postChat = postChat;
+
+async function deleteChatMsg(id) {
+  if (!_data?.game?.espn_game_id) return;
+  try {
+    const res = await fetch(`/api/game/${_data.game.espn_game_id}/chat/${id}`, { method: 'DELETE' });
+    if (res.ok) await loadAndRenderChat();
+  } catch (err) {
+    console.warn('[community] delete failed:', err);
+  }
+}
+window.deleteChatMsg = deleteChatMsg;
 
 // ── Injuries section ──────────────────────────────────────────────────────────
 function renderInjuries() {

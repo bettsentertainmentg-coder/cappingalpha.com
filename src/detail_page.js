@@ -317,6 +317,9 @@ ${buildNav()}
   <div id="ca-community-vote-row">
     <!-- Rendered by game-detail.js -->
   </div>
+  <div id="ca-community-chat" class="ca-chat">
+    <!-- Rendered by game-detail.js -->
+  </div>
 </section>
 
 <!-- Footer (inside content column) -->
