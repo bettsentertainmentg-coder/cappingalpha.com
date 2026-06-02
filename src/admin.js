@@ -8,6 +8,7 @@ const { MVP_THRESHOLD } = require('./scoring');
 const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
+const { storeTennisLines } = require('./bovada');
 const { normalizeCapper } = require('./storage');
 const crypto  = require('crypto');
 
@@ -2539,6 +2540,37 @@ router.post('/ingest-public-betting', (req, res) => {
       res.json({ stored });
     } catch (err) {
       console.error('[relay] ingest error:', err.message);
+      res.status(500).send('Store failed');
+    }
+  }
+);
+
+// ── POST /admin/ingest-tennis-lines — Bovada relay from Mac (HMAC-signed) ─────
+// Bovada geo/bot-blocks Railway's datacenter IP, so the Mac (residential IP)
+// fetches Bovada tennis lines and POSTs them here. Same HMAC scheme as
+// /admin/ingest-public-betting. Body: { lines: [ { players:[{name,ml,spread}], over_under, ... } ] }
+router.post('/ingest-tennis-lines', (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const canonical = JSON.stringify(req.body);
+    const sig        = req.headers['x-relay-signature'] || '';
+    const expected   = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+    const sigBuf     = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf     = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    const { lines } = req.body;
+    if (!Array.isArray(lines)) return res.status(400).send('Invalid payload');
+
+    try {
+      const stored = storeTennisLines(lines);
+      console.log(`[relay] tennis lines: stored ${stored}/${lines.length}`);
+      res.json({ stored });
+    } catch (err) {
+      console.error('[relay] tennis ingest error:', err.message);
       res.status(500).send('Store failed');
     }
   }

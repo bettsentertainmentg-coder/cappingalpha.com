@@ -23,10 +23,13 @@ const http    = require('http');
 const crypto  = require('crypto');
 const { URL } = require('url');
 
-const RELAY_SECRET = process.env.RELAY_SECRET;
-const RAILWAY_URL  = (process.env.RAILWAY_URL || '').replace(/\/$/, '');
-const INGEST_PATH  = '/admin/ingest-public-betting';
-const INTERVAL_MS  = 60 * 60 * 1000; // 1 hour
+const RELAY_SECRET     = process.env.RELAY_SECRET;
+const RAILWAY_URL      = (process.env.RAILWAY_URL || '').replace(/\/$/, '');
+const INGEST_PATH      = '/admin/ingest-public-betting';
+const INGEST_TENNIS    = '/admin/ingest-tennis-lines';
+const INTERVAL_MS      = 60 * 60 * 1000; // 1 hour
+const BOVADA_TENNIS_URL =
+  'https://www.bovada.lv/services/sports/event/coupon/events/A/description/tennis?marketFilterId=def&lang=en';
 
 const SPORTS = ['NBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB'];
 const AN_SLUG = {
@@ -60,11 +63,11 @@ function fetchHtml(url) {
 }
 
 // ── POST HMAC-signed payload to Railway ──────────────────────────────────────
-function postToRailway(payload) {
+function postToRailway(payload, ingestPath = INGEST_PATH) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
     const sig  = crypto.createHmac('sha256', RELAY_SECRET).update(body).digest('hex');
-    const url  = new URL(INGEST_PATH, RAILWAY_URL);
+    const url  = new URL(ingestPath, RAILWAY_URL);
     const lib  = url.protocol === 'https:' ? https : http;
 
     const opts = {
@@ -93,6 +96,82 @@ function postToRailway(payload) {
 
 // ── Sleep helper ──────────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ── Bovada tennis lines (residential IP reaches Bovada; Railway is blocked) ────
+// Parses to orientation-agnostic events; Railway matches players to today_games.
+const _lastName = (n) => (n || '').trim().split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g, '');
+const _american = (o) => { const a = parseFloat(o?.price?.american); return Number.isFinite(a) ? a : null; };
+const _handicap = (o) => { const h = parseFloat(o?.price?.handicap); return Number.isFinite(h) ? h : null; };
+
+function parseBovadaEvent(ev) {
+  const markets = {};
+  for (const dg of ev.displayGroups || []) {
+    if ((dg.description || '') !== 'Game Lines') continue;
+    for (const m of dg.markets || []) {
+      if ((m.period?.description || '') !== 'Match') continue;
+      markets[m.description] = m.outcomes || [];
+    }
+  }
+  const ml = markets['Moneyline'] || [];
+  if (ml.length < 2) return null;
+  const players = ml.map(o => ({ name: o.description, ml: _american(o), spread: null }));
+  for (const o of markets['Game Spread'] || []) {
+    const p = players.find(p => _lastName(p.name) === _lastName(o.description));
+    if (p) p.spread = _handicap(o);
+  }
+  let over_under = null, ou_over_odds = null, ou_under_odds = null;
+  for (const o of markets['Total'] || []) {
+    const d = (o.description || '').toLowerCase();
+    const line = _handicap(o);
+    if (line != null && over_under == null) over_under = line;
+    if (d.startsWith('over'))  ou_over_odds  = _american(o);
+    if (d.startsWith('under')) ou_under_odds = _american(o);
+  }
+  const usable = players.some(p => p.spread != null || p.ml != null) || over_under != null;
+  if (!usable) return null;
+  return { players, over_under, ou_over_odds, ou_under_odds };
+}
+
+async function relayTennis() {
+  let groups;
+  try {
+    const r = await fetch(BOVADA_TENNIS_URL, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) { console.warn(`[pb-relay] bovada tennis HTTP ${r.status}`); return; }
+    groups = await r.json();
+  } catch (err) {
+    console.error('[pb-relay] bovada tennis fetch:', err.message);
+    return;
+  }
+  if (!Array.isArray(groups)) return;
+
+  const lines = [];
+  for (const grp of groups) {
+    for (const ev of grp.events || []) {
+      const parsed = parseBovadaEvent(ev);
+      if (parsed) lines.push(parsed);
+    }
+  }
+  if (!lines.length) { console.log('[pb-relay] tennis: 0 parsed events'); return; }
+
+  let result;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await sleep(3000 * attempt);
+    result = await postToRailway({ lines }, INGEST_TENNIS);
+    if (result.status === 200) break;
+  }
+  if (result.status === 200) {
+    const r = JSON.parse(result.body);
+    console.log(`[pb-relay] tennis: ${lines.length} parsed → ${r.stored} stored on Railway`);
+  } else {
+    console.error(`[pb-relay] tennis: Railway returned ${result.status} — ${result.body.slice(0, 200)}`);
+  }
+}
 
 // ── One full scrape + relay cycle ─────────────────────────────────────────────
 async function run() {
@@ -144,6 +223,9 @@ async function run() {
   }
 
   console.log(`[pb-relay] cycle done — ${totalStored} total games stored`);
+
+  // Bovada tennis lines — same residential-IP relay (Railway is geo-blocked by Bovada)
+  await relayTennis();
 }
 
 // Run immediately on startup, then every hour

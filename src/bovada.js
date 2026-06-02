@@ -3,9 +3,13 @@
 // moneyline. The Odds API and ESPN carry NO tennis spreads/totals, so this is the
 // only source. No auth, no API key, zero Odds API credits.
 //
-// Populates today_games.spread_home / spread_away / over_under / ou_over_odds /
-// ou_under_odds / ml_home / ml_away for ATP + WTA rows only. Team-sport rows
-// (owned by the Odds API) are never touched.
+// Bovada geo/bot-blocks datacenter IPs (Railway gets nothing), so in production the
+// lines are fetched on the Mac (residential IP) and relayed to Railway via
+// POST /admin/ingest-tennis-lines, exactly like the public-betting relay. The split
+// below keeps fetch (Mac) and store (Railway) separate so both paths share the parser:
+//   - fetchBovadaTennisRaw()  — fetch + parse to orientation-agnostic events (no DB)
+//   - storeTennisLines(events) — match to today_games + UPDATE (DB; runs on Railway)
+//   - fetchTennisLines()       — fetch + store in one call (direct path; works locally)
 
 const db = require('./db');
 
@@ -17,103 +21,81 @@ const UA =
 const lastNameOf = (name) =>
   (name || '').trim().split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g, '');
 
-// ── Pull the two competitor names + the match-period markets from a Bovada event ─
+const americanOf = (o) => {
+  const a = parseFloat(o?.price?.american);
+  return Number.isFinite(a) ? a : null;
+};
+const handicapOf = (o) => {
+  const h = parseFloat(o?.price?.handicap);
+  return Number.isFinite(h) ? h : null;
+};
+
+// ── Parse one Bovada event → orientation-agnostic line bundle ─────────────────
+// Returns { players: [{ name, ml, spread }], over_under, ou_over_odds, ou_under_odds }
+// Home/away is NOT assigned here — that happens in storeTennisLines against today_games.
 function parseEvent(ev) {
   const markets = {}; // 'Game Spread' | 'Moneyline' | 'Total' -> outcomes[]
   for (const dg of ev.displayGroups || []) {
     if ((dg.description || '') !== 'Game Lines') continue;
     for (const m of dg.markets || []) {
-      // Match period only — skip per-set / first-set variants
-      if ((m.period?.description || '') !== 'Match') continue;
+      if ((m.period?.description || '') !== 'Match') continue; // skip per-set variants
       markets[m.description] = m.outcomes || [];
     }
   }
-  return markets;
-}
 
-// Build a value object oriented to the ESPN game's home/away players.
-function orientLines(markets, game) {
-  const homeLast = lastNameOf(game.home_team);
-  const awayLast = lastNameOf(game.away_team);
+  const mlOutcomes = markets['Moneyline'] || [];
+  if (mlOutcomes.length < 2) return null;
 
-  const out = {
-    ml_home: null, ml_away: null,
-    spread_home: null, spread_away: null,
-    over_under: null, ou_over_odds: null, ou_under_odds: null,
-  };
+  const players = mlOutcomes.map(o => ({ name: o.description, ml: americanOf(o), spread: null }));
 
-  const sideOf = (outcome) => {
-    const last = lastNameOf(outcome.description);
-    if (last && last === homeLast) return 'home';
-    if (last && last === awayLast) return 'away';
-    return null;
-  };
-  const american = (o) => {
-    const a = parseFloat(o.price?.american);
-    return Number.isFinite(a) ? a : null;
-  };
-  const handicap = (o) => {
-    const h = parseFloat(o.price?.handicap);
-    return Number.isFinite(h) ? h : null;
-  };
-
-  // Moneyline
-  for (const o of markets['Moneyline'] || []) {
-    const side = sideOf(o);
-    if (side === 'home') out.ml_home = american(o);
-    else if (side === 'away') out.ml_away = american(o);
-  }
-
-  // Game Spread — each player carries their own signed games handicap
   for (const o of markets['Game Spread'] || []) {
-    const side = sideOf(o);
-    if (side === 'home') out.spread_home = handicap(o);
-    else if (side === 'away') out.spread_away = handicap(o);
+    const p = players.find(p => lastNameOf(p.name) === lastNameOf(o.description));
+    if (p) p.spread = handicapOf(o);
   }
 
-  // Total games (Over/Under share one line)
+  let over_under = null, ou_over_odds = null, ou_under_odds = null;
   for (const o of markets['Total'] || []) {
     const d = (o.description || '').toLowerCase();
-    const line = handicap(o);
-    if (line != null && out.over_under == null) out.over_under = line;
-    if (d.startsWith('over'))  out.ou_over_odds  = american(o);
-    if (d.startsWith('under')) out.ou_under_odds = american(o);
+    const line = handicapOf(o);
+    if (line != null && over_under == null) over_under = line;
+    if (d.startsWith('over'))  ou_over_odds  = americanOf(o);
+    if (d.startsWith('under')) ou_under_odds = americanOf(o);
   }
 
-  return out;
+  const usable = players.some(p => p.spread != null || p.ml != null) || over_under != null;
+  if (!usable) return null;
+  return { players, over_under, ou_over_odds, ou_under_odds };
 }
 
-// Match a Bovada event to one of our tennis games by both players' last names.
-function matchGame(ev, tennisGames) {
-  const ml = (ev.displayGroups || [])
-    .flatMap(dg => dg.markets || [])
-    .find(m => m.description === 'Moneyline');
-  const names = (ml?.outcomes || []).map(o => lastNameOf(o.description)).filter(Boolean);
-  if (names.length < 2) return null;
-  const nameSet = new Set(names);
-
-  return tennisGames.find(g => {
-    const h = lastNameOf(g.home_team);
-    const a = lastNameOf(g.away_team);
-    return h && a && nameSet.has(h) && nameSet.has(a);
-  }) || null;
-}
-
-// ── Fetch + store tennis lines ────────────────────────────────────────────────
-async function fetchTennisLines() {
+// ── Fetch + parse Bovada tennis (no DB) — runs on the Mac relay ───────────────
+async function fetchBovadaTennisRaw() {
   let groups;
   try {
     const r = await fetch(BOVADA_TENNIS_URL, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },
       signal: AbortSignal.timeout(12000),
     });
-    if (!r.ok) { console.warn(`[bovada] tennis fetch HTTP ${r.status}`); return 0; }
+    if (!r.ok) { console.warn(`[bovada] tennis fetch HTTP ${r.status}`); return []; }
     groups = await r.json();
   } catch (err) {
     console.warn('[bovada] tennis fetch failed:', err.message);
-    return 0;
+    return [];
   }
-  if (!Array.isArray(groups)) return 0;
+  if (!Array.isArray(groups)) return [];
+
+  const events = [];
+  for (const grp of groups) {
+    for (const ev of grp.events || []) {
+      const parsed = parseEvent(ev);
+      if (parsed) events.push(parsed);
+    }
+  }
+  return events;
+}
+
+// ── Match parsed events to today_games tennis rows + UPDATE — runs on Railway ──
+function storeTennisLines(events) {
+  if (!Array.isArray(events) || !events.length) return 0;
 
   const tennisGames = db.prepare(
     `SELECT espn_game_id, home_team, away_team FROM today_games WHERE sport IN ('ATP','WTA')`
@@ -134,27 +116,39 @@ async function fetchTennisLines() {
   `);
 
   let updated = 0;
-  for (const grp of groups) {
-    for (const ev of grp.events || []) {
-      const game = matchGame(ev, tennisGames);
-      if (!game) continue;
-      const markets = parseEvent(ev);
-      if (!Object.keys(markets).length) continue;
-      const v = orientLines(markets, game);
-      // Skip if nothing usable came back
-      if (v.spread_home == null && v.over_under == null && v.ml_home == null) continue;
-      update.run(
-        v.ml_home, v.ml_away,
-        v.spread_home, v.spread_away,
-        v.over_under, v.ou_over_odds, v.ou_under_odds,
-        game.espn_game_id
-      );
-      updated++;
-    }
+  for (const ev of events) {
+    const names = (ev.players || []).map(p => lastNameOf(p.name)).filter(Boolean);
+    if (names.length < 2) continue;
+    const nameSet = new Set(names);
+
+    const game = tennisGames.find(g => {
+      const h = lastNameOf(g.home_team), a = lastNameOf(g.away_team);
+      return h && a && nameSet.has(h) && nameSet.has(a);
+    });
+    if (!game) continue;
+
+    const homeP = ev.players.find(p => lastNameOf(p.name) === lastNameOf(game.home_team));
+    const awayP = ev.players.find(p => lastNameOf(p.name) === lastNameOf(game.away_team));
+    if (!homeP || !awayP) continue;
+    if (homeP.spread == null && ev.over_under == null && homeP.ml == null) continue;
+
+    update.run(
+      homeP.ml, awayP.ml,
+      homeP.spread, awayP.spread,
+      ev.over_under, ev.ou_over_odds, ev.ou_under_odds,
+      game.espn_game_id
+    );
+    updated++;
   }
 
-  if (updated > 0) console.log(`[bovada] tennis lines updated for ${updated} match(es)`);
+  if (updated > 0) console.log(`[bovada] tennis lines stored for ${updated} match(es)`);
   return updated;
 }
 
-module.exports = { fetchTennisLines };
+// ── Direct fetch + store (works locally; on Railway the fetch returns [] when blocked) ─
+async function fetchTennisLines() {
+  const events = await fetchBovadaTennisRaw();
+  return storeTennisLines(events);
+}
+
+module.exports = { fetchTennisLines, fetchBovadaTennisRaw, storeTennisLines };
