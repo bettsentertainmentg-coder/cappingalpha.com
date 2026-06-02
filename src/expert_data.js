@@ -9,7 +9,7 @@ const db = require('./db');
 const { lookupTodayGame } = require('./espn_live');
 const { readMessage, readMessages } = require('./reader');
 const { savePick }    = require('./storage');
-const { getCycleWindow, ET_OFFSET_MS } = require('./cycle');
+const { getCycleWindow, cycleDateForInstant, ET_OFFSET_MS } = require('./cycle');
 
 const FREE_PLAYS_CHANNEL_ID  = process.env.DISCH1;
 const COMMUNITY_CHANNEL_ID   = process.env.DISCH2;
@@ -173,9 +173,11 @@ async function processMessage(msg, channelConfig, window) {
       pick.team = canonical;
     }
 
-    // Augment pick with fields storage.js needs
+    // Augment pick with fields storage.js needs. Attribute to the GAME's cycle
+    // date (from its start_time), not the message date — so an overnight pick for
+    // tomorrow's game rides with that game instead of being dated to today.
     pick.is_home_team  = homeMatch;
-    pick.game_date     = msgDateET;
+    pick.game_date     = (todayGame.start_time ? cycleDateForInstant(todayGame.start_time) : null) || msgDateET;
     pick.espn_game_id  = todayGame.espn_game_id || null;
 
     console.log(`[Scanner] Saving: ${pick.team} (${pick.sport})`);
@@ -396,14 +398,18 @@ async function rescanSkipped() {
   let recovered = 0;
 
   const DISCORD_EPOCH = 1420070400000n;
-  const { windowStart, windowEnd } = getCycleWindow();
+  // Look back 3 days (not just the current cycle window) so a "no_game" skip from
+  // yesterday can re-match once its forward game gets fetched. Matches the prune's
+  // 3-day grace for unmatched picks.
+  const RESCAN_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+  const minTs = Date.now() - RESCAN_LOOKBACK_MS;
 
   try {
   for (const row of rows) {
-    // Derive original message timestamp from Discord snowflake — skip if outside current cycle
+    // Derive original message timestamp from Discord snowflake — skip if too old
     const msgTs = Number((BigInt(row.message_id) >> 22n) + DISCORD_EPOCH);
-    if (msgTs < windowStart || msgTs >= windowEnd) {
-      console.log(`[Scanner] rescanSkipped: skipping out-of-cycle message from ${new Date(msgTs).toISOString()}`);
+    if (msgTs < minTs) {
+      console.log(`[Scanner] rescanSkipped: skipping stale message from ${new Date(msgTs).toISOString()}`);
       continue;
     }
 
@@ -446,8 +452,9 @@ async function rescanSkipped() {
       pick.is_home_team = homeMatch;
       pick.espn_game_id = todayGame.espn_game_id || null;
 
+      // Attribute to the game's cycle date (storage.js re-derives this too).
       const { getCycleDate } = require('./cycle');
-      pick.game_date = getCycleDate();
+      pick.game_date = (todayGame.start_time ? cycleDateForInstant(todayGame.start_time) : null) || getCycleDate();
 
       savePick(pick);
       msgSaved++;

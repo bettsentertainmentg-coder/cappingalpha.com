@@ -16,13 +16,14 @@ const db      = require('./src/db');
 const scanner = require('./src/expert_data');
 const admin   = require('./src/admin');
 const auth    = require('./src/auth');
-const { runDailyWipe }                    = require('./src/wipe');
+const { runDailyWipe, pruneStaleGames }   = require('./src/wipe');
 const { lockMorningLines, getLines } = require('./src/lines');
+const { fetchForwardGames } = require('./src/forward_games');
 const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
 const { getSetting } = require('./src/db');
 const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
-const { stampActualStarts } = require('./src/game_start_tracker');
+const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
@@ -161,65 +162,44 @@ app.get('/api/config', (req, res) => {
 
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
 app.get('/api/picks', (req, res) => {
+  // Active slate = picks whose game still exists in today_games. The hourly prune
+  // is the retention source of truth: it keeps upcoming/forward games, live games,
+  // and finished games until their cycle clear (+ grace tail), and removes the rest.
+  // So "still joined to a today_games row" == "within the visible window" — no
+  // game_date filter needed, which is what lets tomorrow's forward picks show.
   const PICKS_QUERY = `
     SELECT p.*,
-           COALESCE(tg1.home_team, tg2.home_team) AS home_team,
-           COALESCE(tg1.away_team, tg2.away_team) AS away_team,
-           COALESCE(tg1.start_time, tg2.start_time) AS start_time,
-           COALESCE(tg1.status, tg2.status) AS game_status,
-           COALESCE(tg1.period, tg2.period) AS game_period,
-           COALESCE(tg1.clock, tg2.clock) AS game_clock,
-           COALESCE(tg1.home_score, tg2.home_score) AS game_home_score,
-           COALESCE(tg1.away_score, tg2.away_score) AS game_away_score
+           tg.home_team  AS home_team,
+           tg.away_team  AS away_team,
+           tg.start_time AS start_time,
+           tg.status     AS game_status,
+           tg.period     AS game_period,
+           tg.clock      AS game_clock,
+           tg.home_score AS game_home_score,
+           tg.away_score AS game_away_score
     FROM picks p
-    LEFT JOIN today_games tg1 ON tg1.espn_game_id = p.espn_game_id
-    LEFT JOIN today_games tg2 ON (LOWER(tg2.home_team) = LOWER(p.team) OR LOWER(tg2.away_team) = LOWER(p.team))
-    WHERE p.game_date = ? AND p.mention_count > 0
+    JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    WHERE p.mention_count > 0
     GROUP BY p.id
     ORDER BY p.score DESC
   `;
-  let picks = db.prepare(PICKS_QUERY).all(getCycleDate());
-  // Between 12:30am–5am ET the cycle date has already flipped but the 5am scan
-  // hasn't run yet and the wipe hasn't cleared the DB. Show yesterday's picks
-  // as a fallback so the board isn't empty during that window.
-  if (picks.length === 0) {
-    const h = etHour();
-    const inPreWipeWindow = h >= 24 || h < 5; // midnight–5am ET (hour 24-28 wraps)
-    if (inPreWipeWindow) {
-      const yesterday = (() => {
-        const d = new Date(getCycleDate() + 'T12:00:00Z');
-        d.setUTCDate(d.getUTCDate() - 1);
-        return d.toISOString().slice(0, 10);
-      })();
-      picks = db.prepare(PICKS_QUERY).all(yesterday);
-    }
-  }
+  const picks = db.prepare(PICKS_QUERY).all();
   res.json(picks);
 });
 
 // GET /api/picks/top — #1 pick today
 app.get('/api/picks/top', (req, res) => {
+  // #1 pick across the active slate (same retention rule as /api/picks).
   const TOP_QUERY = `
     SELECT p.*,
            tg.home_team AS matchup_home,
            tg.away_team AS matchup_away
     FROM picks p
-    LEFT JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-    WHERE p.game_date = ? AND p.mention_count > 0
+    JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    WHERE p.mention_count > 0
     ORDER BY p.score DESC LIMIT 1
   `;
-  let pick = db.prepare(TOP_QUERY).get(getCycleDate());
-  if (!pick) {
-    const h = etHour();
-    if (h >= 24 || h < 5) {
-      const yesterday = (() => {
-        const d = new Date(getCycleDate() + 'T12:00:00Z');
-        d.setUTCDate(d.getUTCDate() - 1);
-        return d.toISOString().slice(0, 10);
-      })();
-      pick = db.prepare(TOP_QUERY).get(yesterday);
-    }
-  }
+  const pick = db.prepare(TOP_QUERY).get();
   res.json(pick || null);
 });
 
@@ -476,7 +456,8 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // CappingAlpha score + conviction curve for the overall #1 pick only — this is
   // how the popup knows whether a pick is that single #1 (not just top of its game).
   const allRanked = db.prepare(
-    `SELECT id FROM picks WHERE mention_count > 0 ORDER BY score DESC, id ASC`
+    `SELECT p.id FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+     WHERE p.mention_count > 0 ORDER BY p.score DESC, p.id ASC`
   ).all();
   const globalRank = new Map();
   allRanked.forEach((r, i) => globalRank.set(r.id, i + 1));
@@ -701,7 +682,8 @@ async function renderGameDetail(req, res, game, opts = {}) {
       sorted.forEach((p, i) => { pickRanks[p.id] = i + 1; });
     } else {
       const allRanked = db.prepare(`
-        SELECT id FROM picks WHERE mention_count > 0 ORDER BY score DESC, id ASC
+        SELECT p.id FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+        WHERE p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
       `).all();
       allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
     }
@@ -840,6 +822,8 @@ app.listen(PORT, () => {
   await fetchTennisLines().catch(err => console.error('[startup] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
+  // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
+  await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
 
   // Check for team sport games specifically — tennis/WNBA rows alone don't count,
   // since they're always fetched above and would make gameCount > 0 even when
@@ -861,8 +845,25 @@ app.listen(PORT, () => {
   // Fills any null odds from today's 5am run and seeds pick slots.
   await refreshEspnOdds().catch(err => console.error('[startup] refreshEspnOdds error:', err.message));
 
-  // Stamp actual_start_at on any game already live at boot time.
+  // Seed slots for every game in today_games (including forward games) — INSERT OR
+  // IGNORE, so safe even when today's slots already exist. Picks up forward games
+  // that the conditional team-game seed above skipped.
+  {
+    const { seedPickSlots } = require('./src/lines');
+    await seedPickSlots().catch(err => console.error('[startup] seedPickSlots(forward) error:', err.message));
+  }
+
+  // Recover any previously-skipped (no_game) messages whose forward game now exists.
+  // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
+  if (!process.env.UI_ONLY) {
+    scanner.rescanSkipped().catch(err => console.error('[startup] rescanSkipped error:', err.message));
+  }
+
+  // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
+  stampActualEnds();
+  // Prune anything already past its retention so the board is clean on boot.
+  try { pruneStaleGames(); } catch (e) { console.error('[startup] prune error:', e.message); }
 
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
@@ -895,10 +896,11 @@ if (UI_ONLY) {
 // 1am active-hours cutoff but before the wipe clears picks and today_games.
 if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   console.log('[cron] 4:58am — pre-wipe final resolve');
+  stampActualEnds();
   await resolveResults().catch(err => console.error('[cron] pre-wipe resolve error:', err.message));
   // Last-chance MVP snapshot before today_games + caches are wiped.
   try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] pre-wipe mvp snapshot:', e.message); }
-  console.log('[cron] 4:58am — running daily wipe');
+  console.log('[cron] 4:58am — daily reset (per-game prune + operational tables)');
   await runDailyWipe().catch(err => console.error('[cron] wipe error:', err.message));
 }, { timezone: 'America/New_York' });
 
@@ -920,6 +922,8 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
+  // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
+  await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
   // Seed initial public betting percentages
@@ -933,6 +937,8 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   syncKalshiData(morningGames).catch(e => console.error('[cron] 5am syncKalshi:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
+  // Recover yesterday's no_game skips now that forward games are fetched + seeded.
+  await scanner.rescanSkipped().catch(err => console.error('[cron] 5am rescanSkipped error:', err.message));
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
@@ -1002,6 +1008,9 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Stamp actual_start_at the first time any game flips to 'in'. Powers the
   // 5-min-past-actual-start scoring cutoff in storage.js.
   stampActualStarts();
+  // Stamp actual_end_at the first time any game flips to 'post'. Powers the
+  // per-game prune's grace tail.
+  stampActualEnds();
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
   // Freeze the detail bundle for any MVP game that just started — the enrichment
   // caches still hold the final pre-game values (market syncs stop at 'pre').
@@ -1012,3 +1021,16 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   syncPolymarketSoon(soonGames).catch(e => console.error('[cron] syncPolymarketSoon:', e.message));
   syncKalshiSoon(soonGames).catch(e => console.error('[cron] syncKalshiSoon:', e.message));
 });
+
+// Hourly — per-game prune (retire finished games past their cycle clear + grace
+// tail) and refresh the forward-game window so games added to ESPN's schedule
+// mid-day for tomorrow get picked up. Prune runs always (pure DB hygiene); the
+// forward fetch hits ESPN (free) so it's gated to live mode like the other crons.
+cron.schedule('0 * * * *', async () => {
+  try { pruneStaleGames(); } catch (e) { console.error('[cron] hourly prune error:', e.message); }
+  if (!UI_ONLY) {
+    await fetchForwardGames().catch(err => console.error('[cron] hourly fetchForwardGames error:', err.message));
+    const { seedPickSlots } = require('./src/lines');
+    await seedPickSlots().catch(err => console.error('[cron] hourly seedPickSlots error:', err.message));
+  }
+}, { timezone: 'America/New_York' });

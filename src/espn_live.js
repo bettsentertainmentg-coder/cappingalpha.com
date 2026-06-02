@@ -556,4 +556,7 @@ module.exports = {
   fetchScoreboard, fetchScoreboardForDate, toEspnDate, normalizeSport,
   fetchTodaysGames, lookupTodayGame, clearAllState, SPORTS, updateLiveScores,
   refreshEspnOdds,
+  // Exported for the forward-game fetcher (src/forward_games.js) so it can reuse
+  // the canonical upsert (odds-locking, first_inning_runs) instead of duplicating it.
+  upsertTodayGame, TODAY_SPORTS,
 };

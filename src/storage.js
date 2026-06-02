@@ -6,6 +6,7 @@
 const db            = require('./db');
 const { scorePick } = require('./scoring');
 const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
+const { cycleDateForInstant } = require('./cycle');
 
 // ── Capper name normalization + alias resolution ──────────────────────────────
 function normalizeCapper(name) {
@@ -257,6 +258,9 @@ function savePick(pick) {
         logLatePick(pick);
         return null;
       }
+      // Attribute the pick to the GAME's cycle date, not the posting date — so an
+      // overnight pick for tomorrow's game rides along with that game.
+      if (game.start_time) pick.game_date = cycleDateForInstant(game.start_time) ?? pick.game_date;
       const slot = findSlotWithSide(pick, game, picked_side);
       if (slot) return updateSlot(slot, pick);
       return insertNewPick({ ...pick, espn_game_id: aiGameId });
@@ -270,6 +274,7 @@ function savePick(pick) {
     logLatePick(pick);
     return null;
   }
+  if (game?.start_time) pick.game_date = cycleDateForInstant(game.start_time) ?? pick.game_date;
   const slot = game ? findSlot(pick, game) : null;
   if (slot) return updateSlot(slot, pick);
 

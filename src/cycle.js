@@ -37,6 +37,31 @@ function getCycleDate() {
   return beforeCycleEnd ? addDays(currentDateET, -1) : currentDateET;
 }
 
+// Maps an ISO-8601 UTC instant (today_games.start_time) back to the ET cycle
+// date (YYYY-MM-DD) it belongs to. Evening-ET games are stored with a next-day
+// UTC date; this reverses that and applies the same <12:30am rollback rule as
+// getCycleDate(). Single source of truth for pick attribution + display scoping.
+function cycleDateForInstant(iso) {
+  if (!iso) return null;
+  const t = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z').getTime();
+  if (Number.isNaN(t)) return null;
+  const et      = new Date(t - ET_OFFSET_MS);
+  const dateET  = et.toISOString().slice(0, 10);
+  const beforeCycleEnd = et.getUTCHours() === 0 && et.getUTCMinutes() < 30;
+  return beforeCycleEnd ? addDays(dateET, -1) : dateET;
+}
+
+// UTC ms of the daily cycle clear (default 4:58am ET) the morning AFTER gameDate.
+// A finished game rides the live board until this instant. clearHour is "HH:MM" ET
+// (passed in from the settings table so it stays admin-tunable without a redeploy).
+function cycleClearCutoff(gameDate, clearHour = '04:58') {
+  const [h, m] = String(clearHour).split(':').map(n => parseInt(n, 10));
+  const hh = Number.isFinite(h) ? h : 4;
+  const mm = Number.isFinite(m) ? m : 58;
+  const clearDate = addDays(gameDate, 1);
+  return new Date(`${clearDate}T00:00:00Z`).getTime() + (hh * 3600 + mm * 60) * 1000 + ET_OFFSET_MS;
+}
+
 // Returns { windowStart, windowEnd } as UTC milliseconds.
 // Use explicit UTC midnight + offset math to avoid local-timezone double-counting.
 function getCycleWindow() {
@@ -48,4 +73,4 @@ function getCycleWindow() {
   };
 }
 
-module.exports = { getCycleDate, getCycleWindow, ET_OFFSET_MS };
+module.exports = { getCycleDate, getCycleWindow, cycleDateForInstant, cycleClearCutoff, addDays, ET_OFFSET_MS };

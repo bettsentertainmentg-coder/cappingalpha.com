@@ -601,6 +601,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
   // ── Reader stats ──────────────────────────────────────────────────────────────
   const readerMode = db.getSetting('reader_mode', 'auto');
+  // ── Cycle / retention settings ─────────────────────────────────────────────────
+  const cycleClearHour = db.getSetting('cycle_clear_hour', '04:58');
+  const graceHours     = db.getSetting('post_game_grace_hours', '4');
   const readerTodayRows = (() => {
     try {
       return db.prepare(`
@@ -1062,6 +1065,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
           </div>
           <p id="reader-mode-msg" style="font-size:12px;color:#8892a4;margin-top:8px;"></p>
         </div>
+
+        <!-- Cycle / retention -->
+        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 22px;min-width:260px;">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8892a4;margin-bottom:12px;">Cycle / Retention</div>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <label style="font-size:12px;color:#e2e8f0;">Daily clear (ET, HH:MM)
+              <input id="cycle-clear-hour" type="text" value="${escHtml(cycleClearHour)}" placeholder="04:58"
+                style="margin-top:4px;width:100%;padding:6px 8px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;" />
+            </label>
+            <label style="font-size:12px;color:#e2e8f0;">Late-game grace (hours past end)
+              <input id="cycle-grace-hours" type="number" min="0" max="24" step="0.5" value="${escHtml(graceHours)}"
+                style="margin-top:4px;width:100%;padding:6px 8px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;" />
+            </label>
+            <button onclick="saveCycleSettings()"
+              style="padding:7px 12px;border-radius:6px;border:1px solid #3b82f6;background:rgba(59,130,246,0.12);color:#e2e8f0;cursor:pointer;font-size:13px;">Save</button>
+          </div>
+          <div style="font-size:11px;color:#64748b;margin-top:8px;">Finished games stay until the clear time the morning after their game day, plus the grace tail.</div>
+          <p id="cycle-settings-msg" style="font-size:12px;color:#8892a4;margin-top:6px;"></p>
+        </div>
       </div>
 
       <!-- Today's stats -->
@@ -1321,6 +1343,27 @@ router.get('/dashboard', requireAuth, (req, res) => {
             msg.textContent = d.error || 'Failed to save';
             msg.style.color = '#ef4444';
           }
+        } catch (e) {
+          msg.textContent = 'Error: ' + e.message;
+          msg.style.color = '#ef4444';
+        }
+        setTimeout(() => { if (msg) msg.textContent = ''; }, 3000);
+      }
+
+      // ── Cycle / retention settings ──────────────────────────────────────────────
+      async function saveCycleSettings() {
+        const msg = document.getElementById('cycle-settings-msg');
+        const clear_hour  = document.getElementById('cycle-clear-hour').value.trim();
+        const grace_hours = document.getElementById('cycle-grace-hours').value.trim();
+        try {
+          const r = await fetch('/admin/api/cycle-settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clear_hour, grace_hours }),
+          });
+          const d = await r.json();
+          msg.textContent = d.ok ? 'Saved.' : (d.error || 'Failed to save');
+          msg.style.color = d.ok ? '#34d399' : '#ef4444';
         } catch (e) {
           msg.textContent = 'Error: ' + e.message;
           msg.style.color = '#ef4444';
@@ -2650,6 +2693,23 @@ router.post('/api/reader-mode', requireAuth, express.json(), (req, res) => {
   db.setSetting('reader_mode', mode);
   console.log(`[admin] reader_mode set to ${mode}`);
   res.json({ ok: true, mode });
+});
+
+// ── POST /admin/api/cycle-settings ────────────────────────────────────────────
+// Tunes the per-game retention: daily clear hour (ET, HH:MM) + late-game grace.
+router.post('/api/cycle-settings', requireAuth, express.json(), (req, res) => {
+  const { clear_hour, grace_hours } = req.body || {};
+  if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(String(clear_hour || ''))) {
+    return res.json({ ok: false, error: 'Clear hour must be HH:MM (24h ET)' });
+  }
+  const grace = parseFloat(grace_hours);
+  if (!Number.isFinite(grace) || grace < 0 || grace > 24) {
+    return res.json({ ok: false, error: 'Grace hours must be 0–24' });
+  }
+  db.setSetting('cycle_clear_hour', clear_hour);
+  db.setSetting('post_game_grace_hours', String(grace));
+  console.log(`[admin] cycle settings set: clear=${clear_hour} grace=${grace}h`);
+  res.json({ ok: true, clear_hour, grace_hours: grace });
 });
 
 // ── HTML escape helper ────────────────────────────────────────────────────────

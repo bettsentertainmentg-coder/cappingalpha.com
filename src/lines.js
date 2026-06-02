@@ -4,12 +4,11 @@
 // line_snapshots / live_lines are kept for backward compat but no longer the source of truth.
 
 const db             = require('./db');
-const { getCycleDate } = require('./cycle');
+const { getCycleDate, cycleDateForInstant } = require('./cycle');
 
 // ── Seed empty pick slots for every game that has odds in today_games ──────────
 async function seedPickSlots() {
   const games = db.prepare(`SELECT * FROM today_games`).all();
-  const gameDate = getCycleDate();
 
   const insert = db.prepare(`
     INSERT OR IGNORE INTO picks
@@ -31,6 +30,11 @@ async function seedPickSlots() {
   let seeded = 0;
 
   for (const game of games) {
+    // Slot game_date is the GAME's cycle date (from its start_time), not the
+    // current cycle date — so a forward game seeded today gets dated to the day
+    // it actually plays, and its picks attribute + display correctly.
+    const gameDate = game.start_time ? cycleDateForInstant(game.start_time) : getCycleDate();
+
     const ml_home     = game.ml_home     ?? null;
     const ml_away     = game.ml_away     ?? null;
     const spread_home = game.spread_home ?? null;
