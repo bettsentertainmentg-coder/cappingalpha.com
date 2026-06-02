@@ -25,6 +25,17 @@ const CHANNELS = [
 // Fast lookup for the live messageCreate listener: channel ID → config
 const CHANNEL_BY_ID = new Map(CHANNELS.filter(c => c.id).map(c => [c.id, c]));
 
+// ── WNBA disambiguation ───────────────────────────────────────────────────────
+// WNBA cities overlap with NBA (Atlanta, Phoenix, Dallas, etc.). lookupTodayGame
+// matches by team name only, so a bare city could wrongly match a WNBA game when
+// no NBA game exists that day. Only accept a WNBA game match when the message
+// explicitly signals WNBA — the word "WNBA" or a WNBA team nickname. NBA-vs-WNBA
+// same-city conflicts already resolve to NBA via espn_live SPORT_PRIORITY.
+const WNBA_SIGNAL = /\b(wnba|aces|liberty|storm|dream|sky|sun|wings|valkyries|fever|sparks|lynx|mercury|mystics)\b/i;
+function isWnbaSignaled(readerSport, text) {
+  return (readerSport || '').toUpperCase() === 'WNBA' || WNBA_SIGNAL.test(text || '');
+}
+
 // ── Title-case a team name: "LAKERS" → "Lakers", "MIAMI HEAT" → "Miami Heat" ─
 function titleCase(str) {
   return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
@@ -131,6 +142,14 @@ async function processMessage(msg, channelConfig, window) {
           break;
         }
       }
+    }
+
+    // WNBA guard: reject a WNBA game match unless the message explicitly
+    // signaled WNBA (keyword or team nickname). Capture the reader's own sport
+    // before it gets overwritten by the ESPN label below.
+    if (todayGame && todayGame.sport === 'WNBA' && !isWnbaSignaled(pick.sport, msg.content)) {
+      console.log(`[Scanner] WNBA guard: "${pick.team}" matched a WNBA game but no WNBA signal — rejecting`);
+      todayGame = null;
     }
 
     if (!todayGame) {
@@ -408,6 +427,11 @@ async function rescanSkipped() {
           const g = lookupTodayGame(word, null);
           if (g) { todayGame = g; pick.team = word; break; }
         }
+      }
+
+      // WNBA guard (same as processMessage): require an explicit WNBA signal.
+      if (todayGame && todayGame.sport === 'WNBA' && !isWnbaSignaled(pick.sport, row.content)) {
+        continue;
       }
       if (!todayGame) continue;
 

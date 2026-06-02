@@ -216,11 +216,16 @@ export function renderMvpRow(p, i, opts = {}) {
   const isGold   = (p.score || 0) >= displayThreshold;
   const rowClass = isGold ? 'mvp-row' : 'mvp-row-silver';
   const starColor = isGold ? 'var(--gold)' : '#a0aec0';
-  const starHtml  = opts.showStar && rank === 1 ? `<span style="color:${starColor};">★</span> ` : (opts.showStar ? rank + ' ' : '');
+  // Rank marker. Top table: star for #1, number otherwise. History rows get a
+  // small gold/silver tier dot — the literal "MVP" tag on every single row was
+  // redundant (everything in these tables is already an MVP). Keep the gold.
+  const rankMarker = opts.showStar
+    ? (rank === 1 ? `<span style="color:${starColor};">★</span>` : `${rank}`)
+    : `<span class="mvp-tier-dot" style="color:${starColor};font-size:0.7em;">●</span>`;
 
   return `
     <tr class="${rowClass}" style="${dimRow ? 'opacity:0.45;' : ''}">
-      <td class="rank">${starHtml}<span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;${isGold ? '' : 'background:rgba(160,174,192,0.15);color:#a0aec0;border-color:rgba(160,174,192,0.3);'}">MVP</span></td>
+      <td class="rank">${rankMarker}</td>
       <td class="matchup-cell">${matchupLabel(p)}${resultDisplay}${annotationHtml}</td>
       <td>${sportBadge(p.sport)}</td>
       <td class="pick-cell">${pickCol}</td>

@@ -9,6 +9,7 @@ const db    = require('./db');
 // ActionNetwork URL slug per sport
 const AN_SPORT_SLUG = {
   NBA:   'nba',
+  WNBA:  'wnba',
   NFL:   'nfl',
   MLB:   'mlb',
   NHL:   'nhl',

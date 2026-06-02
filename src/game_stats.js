@@ -8,6 +8,7 @@ const axios = require('axios');
 const LEAGUE_PATH = {
   MLB:   'baseball/mlb',
   NBA:   'basketball/nba',
+  WNBA:  'basketball/wnba',
   NHL:   'hockey/nhl',
   NFL:   'americanfootball/nfl',
   NCAAF: 'americanfootball/college-football',

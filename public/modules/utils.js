@@ -19,6 +19,7 @@ const TENNIS_RACKET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="15" he
 export const SPORT_THEMES = {
   MLB:   { grad: 'linear-gradient(115deg,#15803d 0%,#16a34a 40%,#ea580c 60%,#92400e 100%)', fa: 'fa-solid fa-baseball' },
   NBA:   { grad: 'linear-gradient(160deg,#92622a 0%,#c8873a 45%,#92622a 100%)',             fa: 'fa-solid fa-basketball' },
+  WNBA:  { grad: 'linear-gradient(135deg,#c2410c 0%,#ea580c 45%,#fb923c 100%)',             fa: 'fa-solid fa-basketball' },
   NHL:   { grad: 'linear-gradient(135deg,#0c1445 0%,#1e3a8a 50%,#2563eb 100%)',             fa: 'fa-solid fa-hockey-puck' },
   NFL:   { grad: 'linear-gradient(135deg,#14532d 0%,#166534 40%,#15803d 100%)',             fa: 'fa-solid fa-football' },
   CBB:   { grad: 'linear-gradient(135deg,#4c1d95 0%,#6d28d9 50%,#a78bfa 100%)',             fa: 'fa-solid fa-basketball' },

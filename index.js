@@ -25,6 +25,7 @@ const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/e
 const { stampActualStarts } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
+const { fetchTodaysWnbaGames, updateWnbaLiveScores }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults }   = require('./src/results');
 const { getCycleDate }                                = require('./src/cycle');
@@ -415,7 +416,7 @@ app.put('/api/account/preferences', (req, res) => {
   const userId = req.session.user.id;
   const { favorite_sports } = req.body || {};
 
-  const valid = ['MLB', 'NBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+  const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
   const sports = Array.isArray(favorite_sports)
     ? favorite_sports.filter(s => valid.includes(s))
     : [];
@@ -597,7 +598,7 @@ function _teamSlug(name) {
   return (name || '').split(' ').pop().toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 function _sportSlug(sport) {
-  const map = { CBB:'ncaamb', NCAAF:'ncaaf', ATP:'tennis', WTA:'tennis', Golf:'golf' };
+  const map = { CBB:'ncaamb', NCAAF:'ncaaf', ATP:'tennis', WTA:'tennis', Golf:'golf', WNBA:'wnba' };
   return (map[sport] || (sport || 'game')).toLowerCase();
 }
 function makeDetailUrl(game) {
@@ -622,7 +623,7 @@ app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
 
   // Valid sport slugs only — guard against catching arbitrary routes
-  const SPORT_SLUGS = new Set(['nba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb']);
+  const SPORT_SLUGS = new Set(['nba','wnba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb']);
   if (!SPORT_SLUGS.has(sport.toLowerCase())) return res.status(404).send('Not found');
 
   // Parse slug: "timberwolves-vs-nuggets-2026-04-28"
@@ -636,7 +637,7 @@ app.get('/:sport/:slug', async (req, res) => {
 
   // Sport → DB sport label
   const SPORT_MAP = {
-    ncaamb:'CBB', ncaaf:'NCAAF', tennis:'ATP', nba:'NBA',
+    ncaamb:'CBB', ncaaf:'NCAAF', tennis:'ATP', nba:'NBA', wnba:'WNBA',
     mlb:'MLB', nhl:'NHL', nfl:'NFL', golf:'Golf', cbb:'CBB',
   };
   const sportFilter = SPORT_MAP[sport.toLowerCase()] || sport.toUpperCase();
@@ -744,14 +745,15 @@ app.listen(PORT, () => {
   // Always refresh golf tournaments and tennis matches on startup — these are
   // cheap ESPN calls and must be current after any mid-day deploy/restart.
   await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
+  await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
 
-  // Check for team sport games specifically — tennis rows alone don't count,
-  // since tennis is always fetched above and would make gameCount > 0 even when
+  // Check for team sport games specifically — tennis/WNBA rows alone don't count,
+  // since they're always fetched above and would make gameCount > 0 even when
   // NBA/MLB/NHL games are missing (common after a mid-day restart or outage redeploy).
   const todayStr = new Date().toISOString().slice(0, 10);
   const teamGameCount = db.prepare(
-    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf') AND date(start_time) = ?`
+    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf','WNBA') AND date(start_time) = ?`
   ).get(todayStr).c;
   if (teamGameCount === 0) {
     console.log('[startup] no team sport games for today — fetching ESPN games and seeding slots...');
@@ -774,7 +776,7 @@ app.listen(PORT, () => {
 
   // Immediately seed public betting % — no API credits, just HTML scrape.
   // Runs unconditionally on startup so data is always fresh after a restart.
-  for (const s of ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB']) {
+  for (const s of ['NBA', 'WNBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB']) {
     fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
   }
 
@@ -820,11 +822,12 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   console.log('[cron] 5:00am — morning setup: ESPN + Odds + seed slots');
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames error:', err.message));
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
+  await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
   // Seed initial public betting percentages
-  for (const s of Object.keys({ NBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
   }
   // Seed initial line history + prediction market data
@@ -853,7 +856,7 @@ if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
   // Refresh public betting percentages
-  for (const s of Object.keys({ NBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 4pm ${s}:`, e.message));
   }
 }, { timezone: 'America/New_York' });
@@ -863,7 +866,7 @@ const _lastPbFetch = {};
 cron.schedule('*/30 8-23 * * *', async () => {
   const now = Date.now();
   const THREE_HOURS = 3 * 60 * 60 * 1000;
-  for (const sport of ['NBA','NFL','MLB','NHL','NCAAF','CBB']) {
+  for (const sport of ['NBA','WNBA','NFL','MLB','NHL','NCAAF','CBB']) {
     // Skip only if no games at all today for this sport
     const anyGame = db.prepare(`SELECT 1 FROM today_games WHERE sport = ? LIMIT 1`).get(sport);
     if (!anyGame) continue;
@@ -896,6 +899,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   if (!isActiveHours()) return;
   await updateLiveScores().catch(err => console.error('[cron] updateLiveScores error:', err.message));
   await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
+  await updateWnbaLiveScores().catch(err => console.error('[cron] updateWnbaLiveScores error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   // Stamp actual_start_at the first time any game flips to 'in'. Powers the
   // 5-min-past-actual-start scoring cutoff in storage.js.

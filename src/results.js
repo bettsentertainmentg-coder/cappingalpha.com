@@ -99,6 +99,7 @@ function evaluatePick(pick, game) {
 const SPORT_PATH = {
   MLB:   'baseball/mlb',
   NBA:   'basketball/nba',
+  WNBA:  'basketball/wnba',
   NHL:   'hockey/nhl',
   NFL:   'football/nfl',
   CBB:   'basketball/mens-college-basketball',

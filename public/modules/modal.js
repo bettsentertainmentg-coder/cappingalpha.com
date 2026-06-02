@@ -9,7 +9,7 @@ import { cappingGauge } from './gauge.js';
 // Same map used in public/game-detail.js _buildBetTypes().
 const TOTAL_UNIT = {
   MLB: 'runs', NHL: 'goals',
-  NBA: 'pts',  NFL: 'pts', NCAAF: 'pts', CBB: 'pts', WCBB: 'pts',
+  NBA: 'pts',  WNBA: 'pts', NFL: 'pts', NCAAF: 'pts', CBB: 'pts', WCBB: 'pts',
   ATP: 'games', WTA: 'games',
 };
 import { drawPickTimeline, destroyPickTimeline } from './score_timeline.js';
@@ -129,6 +129,20 @@ const TEAM_COLORS = {
   'Nashville Predators':   ['#FFB81C','#041E42'],
   'Winnipeg Jets':         ['#041E42','#004C97'],
   'Arizona Coyotes':       ['#8C2633','#E2D6B5'],
+  // WNBA
+  'Atlanta Dream':           ['#E31837','#000000'],
+  'Chicago Sky':             ['#418FDE','#FFCD00'],
+  'Connecticut Sun':         ['#F05023','#0A2240'],
+  'Dallas Wings':            ['#0C2340','#C4D600'],
+  'Golden State Valkyries':  ['#4B2E83','#000000'],
+  'Indiana Fever':           ['#E03A3E','#002D62'],
+  'Las Vegas Aces':          ['#000000','#C8102E'],
+  'Los Angeles Sparks':      ['#552583','#FDB927'],
+  'Minnesota Lynx':          ['#236192','#0C2340'],
+  'New York Liberty':        ['#6ECEB2','#000000'],
+  'Phoenix Mercury':         ['#201747','#E56020'],
+  'Seattle Storm':           ['#2C5234','#FEE11A'],
+  'Washington Mystics':      ['#0C2340','#E03A3E'],
 };
 
 let _modalData = null;
