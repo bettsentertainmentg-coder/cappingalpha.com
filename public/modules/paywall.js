@@ -29,7 +29,7 @@ export async function startCheckout(plan) {
     });
     const data = await res.json();
     if (res.status === 401) { window.openLogin(); return; }
-    if (!res.ok) { alert(data.error || 'Could not start checkout. Try again.'); return; }
+    if (!res.ok) { alert([data.error || 'Could not start checkout. Try again.', data.detail].filter(Boolean).join('\n\n')); return; }
     window.location.href = data.url;
   } catch (_) {
     alert('Network error. Please try again.');
