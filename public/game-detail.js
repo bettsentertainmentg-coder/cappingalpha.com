@@ -1220,6 +1220,18 @@ function timeAgo(iso) {
   return `${Math.floor(secs / 86400)}d`;
 }
 
+// Absolute timestamp (ET) shown as a tooltip on the relative time.
+function fullTime(iso) {
+  if (!iso) return '';
+  const t = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(t.getTime())) return '';
+  return t.toLocaleString('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  }) + ' ET';
+}
+
 // Color for a vote-annotation chip, by side. Mirrors the gauge/team palette.
 function voteChipColor(v) {
   const { game } = _data;
@@ -1267,8 +1279,8 @@ function _chatShell(messages, loading) {
         <div class="ca-chat-nametag">
           <span class="ca-chat-user">${esc(m.username)}</span>
           ${voteChips(m.votes)}
-          <span class="ca-chat-time">${timeAgo(m.created_at)}</span>
-          ${m.is_mine ? `<button class="ca-chat-del" title="Delete" onclick="deleteChatMsg(${m.id})">×</button>` : ''}
+          <span class="ca-chat-time" title="${esc(fullTime(m.created_at))}">${timeAgo(m.created_at)}</span>
+          ${m.deletable ? `<button class="ca-chat-del" title="Delete (first minute only)" onclick="deleteChatMsg(${m.id})">×</button>` : ''}
         </div>
         <div class="ca-chat-body">${esc(m.message)}</div>
       </div>`).join('');
@@ -1323,7 +1335,11 @@ async function deleteChatMsg(id) {
   if (!_data?.game?.espn_game_id) return;
   try {
     const res = await fetch(`/api/game/${_data.game.espn_game_id}/chat/${id}`, { method: 'DELETE' });
-    if (res.ok) await loadAndRenderChat();
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      if (e.expired) alert('This message can no longer be deleted.');
+    }
+    await loadAndRenderChat();
   } catch (err) {
     console.warn('[community] delete failed:', err);
   }

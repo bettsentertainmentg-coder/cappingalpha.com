@@ -12,6 +12,15 @@
 const db = require('./db');
 
 const MAX_MESSAGE_LEN = 500;
+// Messages can only be deleted within this window after posting.
+const DELETE_WINDOW_MS = 60 * 1000;
+
+// Parse an SQLite datetime('now') string ("2026-06-02 14:30:00", UTC) to ms.
+function parseTs(s) {
+  if (!s) return NaN;
+  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
+  return d.getTime();
+}
 
 // Short, display-friendly label + side for a vote slot. `side` drives the chip
 // color on the frontend (home / away / over / under). Team names come from the
@@ -68,13 +77,17 @@ function getGameChat(espnGameId, currentUserId = null) {
     if (!voteCache.has(r.user_id)) {
       voteCache.set(r.user_id, getUserGameVotes(r.user_id, espnGameId, game));
     }
+    const isMine = currentUserId != null && r.user_id === currentUserId;
+    const ts = parseTs(r.created_at);
     return {
       id:         r.id,
       username:   r.username || (r.email ? r.email.split('@')[0] : 'user'),
       message:    r.message,
       created_at: r.created_at,
       votes:      voteCache.get(r.user_id),
-      is_mine:    currentUserId != null && r.user_id === currentUserId,
+      is_mine:    isMine,
+      // Only the author, and only within the first minute, can delete.
+      deletable:  isMine && !Number.isNaN(ts) && (Date.now() - ts) <= DELETE_WINDOW_MS,
     };
   });
 }
@@ -100,12 +113,17 @@ function addGameMessage(userId, espnGameId, rawText) {
   return { ok: true, message };
 }
 
-// Soft-delete a message — only the author can remove their own.
+// Soft-delete a message — only the author, and only within the delete window
+// (first minute after posting). After that messages are permanent.
 function deleteGameMessage(userId, espnGameId, messageId) {
-  const row = db.prepare(`SELECT user_id FROM game_messages WHERE id = ? AND espn_game_id = ?`)
+  const row = db.prepare(`SELECT user_id, created_at FROM game_messages WHERE id = ? AND espn_game_id = ?`)
     .get(messageId, espnGameId);
   if (!row) return { error: 'Message not found.' };
   if (row.user_id !== userId) return { error: 'Not your message.' };
+  const ts = parseTs(row.created_at);
+  if (!Number.isNaN(ts) && (Date.now() - ts) > DELETE_WINDOW_MS) {
+    return { error: 'This message can no longer be deleted.', expired: true };
+  }
   db.prepare(`UPDATE game_messages SET deleted = 1 WHERE id = ?`).run(messageId);
   return { ok: true };
 }

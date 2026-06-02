@@ -561,7 +561,10 @@ app.post('/api/game/:espn_game_id/chat', (req, res) => {
 app.delete('/api/game/:espn_game_id/chat/:id', (req, res) => {
   if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
   const result = community.deleteGameMessage(req.session.user.id, req.params.espn_game_id, Number(req.params.id));
-  if (result.error) return res.status(result.error === 'Not your message.' ? 403 : 404).json(result);
+  if (result.error) {
+    const status = (result.expired || result.error === 'Not your message.') ? 403 : 404;
+    return res.status(status).json(result);
+  }
   res.json(result);
 });
 
