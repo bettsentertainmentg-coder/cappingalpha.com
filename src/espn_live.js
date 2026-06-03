@@ -480,13 +480,19 @@ function clearAllState() {
 
 // ── Update scores for all picks with active games ────────────────────────────
 async function updateLiveScores() {
-  // Get ALL game IDs with picks today — no limit, ESPN calls are free
+  // Refresh every picked game still on the board — no date filter, no limit
+  // (ESPN calls are free and fetched per-sport). The board can hold multiple
+  // game_dates at once (per-game rolling cycle lets cappers post picks for
+  // future games), so an old MAX(game_date) filter would silently exclude
+  // today's in-progress games and they'd never flip off 'pre'. Join to
+  // today_games and skip games already final so we only poll live/upcoming ones.
   const topGames = db.prepare(`
-    SELECT DISTINCT espn_game_id
-    FROM picks
-    WHERE game_date = (SELECT MAX(game_date) FROM picks)
-      AND espn_game_id IS NOT NULL
-      AND mention_count > 0
+    SELECT DISTINCT p.espn_game_id
+    FROM picks p
+    JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    WHERE p.espn_game_id IS NOT NULL
+      AND p.mention_count > 0
+      AND tg.status != 'post'
   `).all().map(r => r.espn_game_id);
 
   if (!topGames.length) return;

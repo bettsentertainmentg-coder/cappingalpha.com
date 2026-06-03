@@ -115,14 +115,17 @@ async function fetchTodaysWnbaGames() {
 // ── Update live scores for WNBA games that have picks today ────────────────────
 // Mirrors espn_live.updateLiveScores / tennis_espn.updateTennisLiveScores.
 async function updateWnbaLiveScores() {
+  // No date filter: the board can hold multiple game_dates at once (per-game
+  // rolling cycle), so a MAX(game_date) filter would silently drop today's
+  // in-progress WNBA games and they'd never flip off 'pre'. Skip finals only.
   const topGames = db.prepare(`
     SELECT DISTINCT p.espn_game_id
     FROM picks p
     INNER JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-    WHERE p.game_date = (SELECT MAX(game_date) FROM picks)
-      AND p.espn_game_id IS NOT NULL
+    WHERE p.espn_game_id IS NOT NULL
       AND p.mention_count > 0
       AND tg.sport = 'WNBA'
+      AND tg.status != 'post'
   `).all().map(r => r.espn_game_id);
 
   if (!topGames.length) return;
