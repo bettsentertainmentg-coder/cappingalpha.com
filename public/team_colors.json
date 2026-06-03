@@ -1,6 +1,24 @@
 {
   "_comment": "Keyed by ESPN team abbreviation. primary = dominant jersey color, secondary = accent/text-on-primary color.",
 
+  "WNBA": {
+    "ATL": { "primary": "#C8102E", "secondary": "#418FDE" },
+    "CHI": { "primary": "#418FDE", "secondary": "#FDD023" },
+    "CON": { "primary": "#F05023", "secondary": "#0A2240" },
+    "DAL": { "primary": "#002B5C", "secondary": "#C4D600" },
+    "GS":  { "primary": "#4A2A7A", "secondary": "#E03A3E" },
+    "IND": { "primary": "#002D62", "secondary": "#E03A3E" },
+    "LA":  { "primary": "#552583", "secondary": "#FDB927" },
+    "LV":  { "primary": "#A6192E", "secondary": "#000000" },
+    "MIN": { "primary": "#236192", "secondary": "#78BE21" },
+    "NY":  { "primary": "#6ECEB2", "secondary": "#000000" },
+    "PHX": { "primary": "#3C2369", "secondary": "#E56020" },
+    "POR": { "primary": "#C4122E", "secondary": "#1D1160" },
+    "SEA": { "primary": "#2C5234", "secondary": "#FDB927" },
+    "TOR": { "primary": "#6E2B62", "secondary": "#C0C0C0" },
+    "WSH": { "primary": "#0C2340", "secondary": "#E03A3E" }
+  },
+
   "NBA": {
     "ATL": { "primary": "#E03A3E", "secondary": "#C1D32F" },
     "BOS": { "primary": "#007A33", "secondary": "#FFFFFF" },

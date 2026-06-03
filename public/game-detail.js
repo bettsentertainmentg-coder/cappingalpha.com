@@ -330,6 +330,13 @@ function tennisColors(game) {
   };
 }
 
+// ESPN sometimes uses 2-letter abbreviations that differ from the color map's
+// standard 3-letter keys (e.g. NBA "SA" → "SAS", "NY" → "NYK"). Without this the
+// team falls back to the default blue, which is why glows/gauges read blue.
+const ABBR_ALIAS = {
+  NBA: { NY: 'NYK', SA: 'SAS', GS: 'GSW', NO: 'NOP', UTAH: 'UTA' },
+};
+
 function teamColors(game, isHome) {
   const sport = (game.sport || '').toUpperCase();
   if (sport === 'ATP' || sport === 'WTA') {
@@ -341,7 +348,8 @@ function teamColors(game, isHome) {
     ? (game.home_abbr || game.home_short || '').toUpperCase()
     : (game.away_abbr || game.away_short || '').toUpperCase();
   const bucket = _teamColors[sport] || {};
-  return bucket[abbr] || FALLBACK_COLORS;
+  const alias  = (ABBR_ALIAS[sport] || {})[abbr] || abbr;
+  return bucket[abbr] || bucket[alias] || FALLBACK_COLORS;
 }
 
 function slotLineCurrent(slotKey, game) {
