@@ -34,6 +34,11 @@
       --red:       #ef4444;
     }
 
+    html, body {
+      /* Never let the page itself scroll/zoom sideways — only inner rows do. */
+      max-width: 100%;
+      overflow-x: hidden;
+    }
     body {
       font-family: 'Source Sans Pro', sans-serif;
       background: var(--bg);
@@ -1086,7 +1091,7 @@
 
       /* Single-column, but flatten the sidebar/main wrappers so every section
          is a direct flex child and we can interleave them with `order`:
-         Top Games → My Sports → #1 Pick → Headlines → Today's Picks → Games. */
+         Top Games → My Sports → #1 Pick → Today's Picks → MVP → Headlines → Games. */
       .ca-home-grid {
         display: flex;
         flex-direction: column;
@@ -1096,17 +1101,32 @@
       .ca-home-sidebar,
       .ca-home-main { display: contents; position: static; }
 
-      #ca-top-games-section { order: 1; }
-      #ca-my-sports-section { order: 2; }
-      #ca-top-pick-slot     { order: 3; }
-      #ca-headlines-section { order: 4; }
-      #ca-mvp-home-section  { order: 5; }
-      /* Today's Games list (sidebar) drops to the bottom */
-      .ca-home-sidebar .ca-sidebar-section-header { order: 6; margin-top: 0; }
-      #ca-sidebar-sport-tabs { order: 6; }
-      .ca-sidebar-games-card { order: 6; }
+      /* CRITICAL: flex children must be allowed to shrink, or the horizontally
+         scrolling rows (Top Games / My Sports) blow the page width out and the
+         whole site zooms out. min-width:0 + max-width caps every section. */
+      #ca-top-games-section, #ca-my-sports-section, #ca-top-pick-slot,
+      #ca-todays-picks-section, #ca-mvp-home-section, #ca-headlines-section,
+      .ca-sidebar-section-header, #ca-sidebar-sport-tabs, .ca-sidebar-games-card {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+      }
 
-      /* Make the #1 pick read as a headline card on phones. */
+      #ca-top-games-section    { order: 1; }
+      #ca-my-sports-section    { order: 2; }
+      #ca-top-pick-slot        { order: 3; }
+      #ca-todays-picks-section { order: 4; }
+      #ca-mvp-home-section     { order: 5; }
+      #ca-headlines-section    { order: 6; }
+      /* Today's Games list (sidebar) drops to the bottom */
+      .ca-home-sidebar .ca-sidebar-section-header { order: 7; margin-top: 0; }
+      #ca-sidebar-sport-tabs { order: 7; }
+      .ca-sidebar-games-card { order: 7; }
+
+      /* The Top Games strip + My Sports strips scroll sideways within the page. */
+      .ca-top-games-row, .ca-ms-strip-row { max-width: 100%; }
+
+      /* Make the #1 pick read as a headline card on phones, centered full-width. */
       #ca-top-pick-slot .ca-tp-title { font-size: 23px; }
       #ca-top-pick-slot .ca-tp-team  { font-size: 34px; }
       #ca-top-pick-slot .ca-tp-sub   { font-size: 15px; }
@@ -1189,6 +1209,16 @@
           </div>
           <div id="ca-my-sports-row" class="ca-my-sports-row">
             <div class="spinner-wrap" style="padding:12px;"><div class="spinner"></div></div>
+          </div>
+        </div>
+
+        <!-- Today's Picks -->
+        <div class="ca-home-section" id="ca-todays-picks-section">
+          <div class="ca-home-section-header">
+            <span class="ca-home-section-title">Today's Picks</span>
+          </div>
+          <div id="home-picks-card">
+            <div class="spinner-wrap"><div class="spinner"></div></div>
           </div>
         </div>
 

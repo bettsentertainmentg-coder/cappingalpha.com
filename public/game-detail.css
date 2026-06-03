@@ -905,35 +905,32 @@ nav {
 .ca-sentiment-footer { margin-top: 16px; font-size: 11px; color: var(--text-tertiary); }
 
 @media (max-width: 720px) {
-  /* Swipeable gallery: one gauge centered + full-size, neighbors peek smaller.
-     Page still scrolls vertically; this row scrolls horizontally. */
+  /* Lazy-susan gallery: slides are stacked at the center; _layoutCarousel()
+     spins each one out by its distance from the active bet type. One swipe
+     advances one step and the transition locks it in. No native scroll. */
   .ca-senti-gauges {
-    display: flex;
+    display: block;
     grid-template-columns: none;
-    gap: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    justify-content: flex-start;
-    padding: 8px 19%;            /* side gutters so first/last slide can center */
+    position: relative;
+    height: 260px;
+    overflow: hidden;
+    perspective: 1000px;
+    touch-action: pan-y;          /* let vertical scroll through; we handle swipes */
+    padding: 0;
   }
-  .ca-senti-gauges::-webkit-scrollbar { display: none; }
-
-  /* Transform + opacity are driven per-frame by _applyCoverflow() in JS, so the
-     off-center gauges rotate/scale away as you swipe. */
   .ca-gauge-slide {
-    display: flex;
-    justify-content: center;
-    flex: 0 0 62%;
-    scroll-snap-align: center;
+    position: absolute;
+    top: 6px; left: 50%;
+    width: 210px; margin-left: -105px;
+    display: flex; justify-content: center;
     transform-origin: center center;
     backface-visibility: hidden;
     will-change: transform, opacity;
-    opacity: 0.5;                 /* pre-JS baseline; JS overrides immediately */
+    transition: transform .42s cubic-bezier(.22,.7,.18,1.04), opacity .42s ease;
   }
-  .ca-gauge-slide .cag-block { width: 100%; max-width: 210px; }
+  /* Off-center gauges can't be tapped/voted — swipe to bring one to center. */
+  .ca-gauge-slide:not(.is-active) { pointer-events: none; }
+  .ca-gauge-slide .cag-block { width: 210px; }
 }
 
 /* ── Community vote rows ────────────────────────────────────────────────────── */
@@ -1342,4 +1339,29 @@ nav {
   .ca-gh-sep { font-size: 10px; }
   .ca-sport-badge { font-size: 9px; padding: 2px 7px; }
   .ca-gh-status-pill { font-size: 10px; padding: 3px 8px; }
+}
+
+/* ── Mobile nav: hamburger + dropdown menu (matches the home top bar) ───────── */
+.ca-hamburger {
+  display: none; align-items: center; justify-content: center;
+  background: none; border: none; color: var(--text);
+  cursor: pointer; padding: 6px; margin-right: 2px;
+}
+.ca-detail-menu {
+  display: none; position: fixed; top: 58px; left: 12px; z-index: 1200;
+  flex-direction: column; gap: 2px; min-width: 190px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px;
+  box-shadow: 0 14px 34px -10px rgba(0,0,0,0.65);
+}
+.ca-detail-menu.open { display: flex; }
+.ca-detail-menu a {
+  color: var(--text); text-decoration: none; font-weight: 700; font-size: 15px;
+  padding: 10px 14px; border-radius: 8px;
+}
+.ca-detail-menu a:hover { background: var(--surface2); }
+
+@media (max-width: 768px) {
+  .ca-hamburger { display: flex; }
+  nav .nav-tabs { display: none; }
 }

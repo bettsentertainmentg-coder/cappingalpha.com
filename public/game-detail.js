@@ -773,12 +773,14 @@ async function doVoteRequest(gameId, slot, isRemoving) {
 }
 
 // ── Lines section ─────────────────────────────────────────────────────────────
-// ── Mobile gauge carousel ──────────────────────────────────────────────────────
-// On phones the WIN/SPREAD/TOTAL gauges become a swipeable gallery: the centered
-// gauge is full-size + active, neighbors peek smaller. The active bet type stays
-// in sync with the Lines tab, the pick-slot grid, and the other gauge row.
-let _carouselSyncing = false;
-let _carouselReleaseT = null;
+// ── Mobile gauge carousel (lazy-susan) ─────────────────────────────────────────
+// On phones the WIN/SPREAD/TOTAL gauges become a transform-driven gallery: the
+// active gauge sits centered + full-size, neighbors spin away behind it. One
+// swipe advances exactly one step and locks. No native scrolling (which was
+// getting stuck) — a CSS transform per slide, animated by a transition. The
+// active bet type stays in sync with the Lines tab, pick-slot grid, and both
+// gauge rows.
+const BET_ORDER = ['ml', 'spread', 'total'];
 
 function _isPhone() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 720px)').matches;
@@ -790,67 +792,47 @@ function _markActiveSlides(type) {
   });
 }
 
-function _centeredSlide(row) {
-  const mid = row.scrollLeft + row.clientWidth / 2;
-  let best = null, bestD = Infinity;
+// Position every slide in a row relative to the active bet type.
+function _layoutCarousel(row, type) {
+  const activeIdx = BET_ORDER.indexOf(type);
+  if (activeIdx < 0) return;
   row.querySelectorAll('.ca-gauge-slide').forEach(s => {
-    const c = s.offsetLeft + s.offsetWidth / 2;
-    const d = Math.abs(c - mid);
-    if (d < bestD) { bestD = d; best = s; }
+    const off = BET_ORDER.indexOf(s.dataset.bt) - activeIdx;   // -2..+2
+    const abs = Math.abs(off);
+    const tx    = off * 58;                       // % of slide width
+    const rot   = -off * 34;                      // spin away
+    const scale = off === 0 ? 1 : 0.74;
+    const op    = off === 0 ? 1 : (abs === 1 ? 0.5 : 0.22);
+    s.style.transform = `translateX(${tx}%) scale(${scale}) rotateY(${rot}deg)`;
+    s.style.opacity   = String(op);
+    s.style.zIndex    = String(10 - abs);
+    s.classList.toggle('is-active', off === 0);
   });
-  return best;
 }
 
-function _scrollCarouselsTo(type, { exceptRow = null, behavior = 'smooth' } = {}) {
+function _layoutAllCarousels(type) {
   if (!_isPhone()) return;
-  _carouselSyncing = true;
-  document.querySelectorAll('.ca-senti-gauges').forEach(row => {
-    if (row === exceptRow) return;
-    const slide = row.querySelector(`.ca-gauge-slide[data-bt="${type}"]`);
-    if (!slide) return;
-    const left = slide.offsetLeft - (row.clientWidth - slide.offsetWidth) / 2;
-    row.scrollTo({ left, behavior });
-  });
-  clearTimeout(_carouselReleaseT);
-  _carouselReleaseT = setTimeout(() => { _carouselSyncing = false; }, 460);
-}
-
-// Coverflow: each slide rotates/scales by how far it is from center, so the
-// off-center gauges look like they spin away behind the active one.
-function _applyCoverflow(row) {
-  if (!_isPhone()) return;
-  const mid = row.scrollLeft + row.clientWidth / 2;
-  row.querySelectorAll('.ca-gauge-slide').forEach(s => {
-    const c = s.offsetLeft + s.offsetWidth / 2;
-    const r = Math.max(-1.7, Math.min(1.7, (c - mid) / s.offsetWidth));
-    const rot   = (-r * 42).toFixed(1);
-    const scale = (1 - Math.min(Math.abs(r) * 0.22, 0.46)).toFixed(3);
-    const op    = (1 - Math.min(Math.abs(r) * 0.5, 0.62)).toFixed(2);
-    s.style.transform = `perspective(820px) rotateY(${rot}deg) scale(${scale})`;
-    s.style.opacity   = op;
-    s.style.zIndex    = String(100 - Math.round(Math.abs(r) * 10));
-  });
+  document.querySelectorAll('.ca-senti-gauges').forEach(row => _layoutCarousel(row, type));
 }
 
 function _setupCarousels() {
   document.querySelectorAll('.ca-senti-gauges').forEach(row => {
     if (row._cagWired) return;
     row._cagWired = true;
-    let t, raf = 0;
-    row.addEventListener('scroll', () => {
-      if (!_isPhone()) return;
-      // Per-frame coverflow while scrolling, throttled to one rAF.
-      if (!raf) raf = requestAnimationFrame(() => { raf = 0; _applyCoverflow(row); });
-      clearTimeout(t);
-      t = setTimeout(() => {
-        const s = _centeredSlide(row);
-        if (!s) return;
-        _markActiveSlides(s.dataset.bt);
-        // A real swipe (not a programmatic sync) drives everything else.
-        if (!_carouselSyncing && s.dataset.bt !== _linesType) {
-          setLinesType(s.dataset.bt, row);
-        }
-      }, 110);
+    let x0 = null, y0 = null;
+    row.addEventListener('touchstart', e => {
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    }, { passive: true });
+    row.addEventListener('touchend', e => {
+      if (x0 == null || !_isPhone()) { x0 = y0 = null; return; }
+      const dx = e.changedTouches[0].clientX - x0;
+      const dy = e.changedTouches[0].clientY - y0;
+      x0 = y0 = null;
+      // Horizontal swipes only — let vertical gestures scroll the page.
+      if (Math.abs(dx) < 30 || Math.abs(dx) < Math.abs(dy)) return;
+      const i  = BET_ORDER.indexOf(_linesType);
+      const ni = Math.max(0, Math.min(BET_ORDER.length - 1, i + (dx < 0 ? 1 : -1)));
+      if (ni !== i) setLinesType(BET_ORDER[ni]);
     }, { passive: true });
   });
 }
@@ -869,20 +851,14 @@ function _syncSlotGrid(type) {
   grid.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
-// Called after each gauge row renders: wire scroll handlers, mark the active
-// slide, and center the carousels on the current bet type.
+// Called after each gauge row renders: wire swipe handlers + lay out the slides.
 function _afterGaugeRender() {
   _setupCarousels();
   _markActiveSlides(_linesType);
-  if (_isPhone()) {
-    requestAnimationFrame(() => {
-      _scrollCarouselsTo(_linesType, { behavior: 'auto' });
-      requestAnimationFrame(() => document.querySelectorAll('.ca-senti-gauges').forEach(_applyCoverflow));
-    });
-  }
+  if (_isPhone()) requestAnimationFrame(() => _layoutAllCarousels(_linesType));
 }
 
-function setLinesType(type, sourceRow = null) {
+function setLinesType(type) {
   _linesType = type;
   document.querySelectorAll('.ca-lt-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.type === type);
@@ -890,7 +866,7 @@ function setLinesType(type, sourceRow = null) {
   renderLines();
   // Keep the gauge carousels (and their highlight) in lock-step with the bet type.
   _markActiveSlides(type);
-  _scrollCarouselsTo(type, { exceptRow: sourceRow });
+  _layoutAllCarousels(type);
   _syncSlotGrid(type);
 }
 

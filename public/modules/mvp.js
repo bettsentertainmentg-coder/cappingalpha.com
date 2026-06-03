@@ -498,8 +498,10 @@ export async function loadHomeMvp() {
     // Compute initial record (ALL range)
     const initRec = _computeRecord(_resolvedPicks(picks));
 
+    // MVP P/L graph lives in #home-mvp-section; the ranked picks table lives in
+    // its own #home-picks-card so the two can be ordered independently on phones.
     section.innerHTML = `
-      <div class="graph-card" style="margin-bottom:16px;">
+      <div class="graph-card">
         <div class="graph-header">
           <div>
             <div class="graph-title" id="home-pl-title">ALL-TIME P/L</div>
@@ -520,17 +522,21 @@ export async function loadHomeMvp() {
         <div class="record-bar" id="home-record-bar" style="border-top:1px solid rgba(255,255,255,0.06);padding:12px 20px;">
           ${_recordBarHtml(initRec, true)}
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Today's Picks</span>
-          <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
-        </div>
-        <div id="home-picks-body">
-          <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
-        </div>
       </div>`;
+
+    const picksCard = document.getElementById('home-picks-card');
+    if (picksCard) {
+      picksCard.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Today's Picks</span>
+            <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
+          </div>
+          <div id="home-picks-body">
+            <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
+          </div>
+        </div>`;
+    }
 
     renderPicks(state.allPicks, 'home-picks-body');
     document.addEventListener('picksUpdated', () => renderPicks(state.allPicks, 'home-picks-body'));

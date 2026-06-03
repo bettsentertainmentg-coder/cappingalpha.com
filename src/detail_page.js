@@ -68,6 +68,9 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 function buildNav() {
   return `<nav>
     <div class="nav-left">
+      <button class="ca-hamburger" aria-label="Menu" onclick="document.getElementById('ca-detail-menu').classList.toggle('open')">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
+      </button>
       <a href="/" class="logo" style="text-decoration:none;">Capping<span>Alpha</span></a>
       <div class="nav-tabs">
         <a href="/?tab=mvp"     class="tab-btn" style="text-decoration:none;">MVP Picks</a>
@@ -83,7 +86,16 @@ function buildNav() {
       <a href="/?tab=account" class="tab-btn" id="tab-account" style="display:none;text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
       <button class="btn btn-danger" id="btn-logout" style="display:none" onclick="doLogout()">Logout</button>
     </div>
-  </nav>`;
+  </nav>
+  <!-- Mobile dropdown menu (matches the home hamburger) -->
+  <div id="ca-detail-menu" class="ca-detail-menu">
+    <a href="/">Home</a>
+    <a href="/?tab=mvp">MVP Picks</a>
+    <a href="/?tab=sports">Sports</a>
+    <a href="/?tab=esports">Esports</a>
+    <a href="/?tab=about">About</a>
+    <a href="/?tab=account">My Account</a>
+  </div>`;
 }
 
 // ── Auth modals (copied from index.html) ─────────────────────────────────────
