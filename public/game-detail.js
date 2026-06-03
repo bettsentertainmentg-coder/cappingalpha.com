@@ -98,6 +98,17 @@ async function init() {
   // Determine initial slot from ?slot= query param, else top-scored
   _activeSlot = resolveInitialSlot();
 
+  // Open the Lines tab on the bet type that has data (matches the active slot).
+  // Tennis has no point spread — only ML + O/U games — so the old 'spread'
+  // default left tennis showing an empty table (and hid the Polymarket row).
+  _linesType = linesTypeForSlot(_activeSlot);
+  const _initSport = (_data.game.sport || '').toUpperCase();
+  if (_initSport === 'ATP' || _initSport === 'WTA') {
+    if (_linesType === 'spread') _linesType = 'ml';
+    document.querySelectorAll('.ca-lt-btn[data-type="spread"]').forEach(b => { b.style.display = 'none'; });
+  }
+  document.querySelectorAll('.ca-lt-btn').forEach(b => b.classList.toggle('active', b.dataset.type === _linesType));
+
   // Render all dynamic sections
   renderStatusPill();
   renderTeamLogoColors();
