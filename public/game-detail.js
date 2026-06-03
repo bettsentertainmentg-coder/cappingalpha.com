@@ -262,6 +262,28 @@ function _luminance(hex) {
   const { r, g, b } = _hexToRgb(hex);
   return (0.2126*r + 0.7152*g + 0.0722*b) / 255;
 }
+// Colorfulness (chroma) — high for vivid reds/golds, ~0 for black/white/gray.
+function _chroma(hex) {
+  const { r, g, b } = _hexToRgb(hex);
+  return Math.max(r, g, b) - Math.min(r, g, b);
+}
+function _rgba(hex, a) {
+  const { r, g, b } = _hexToRgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+// The team's most vivid color (the one worth glowing): pick the more colorful of
+// primary/secondary so we glow Knights gold + Hurricanes red, not their blacks.
+// Lift it if it's too dark to register as a glow.
+function _vividColor(c) {
+  const p = c.primary, s = c.secondary || c.primary;
+  let pick = _chroma(s) > _chroma(p) ? s : p;
+  if (_luminance(pick) < 0.22) pick = _lighten(pick, 0.28);
+  return pick;
+}
+function _teamGlow(c) {
+  const col = _vividColor(c);
+  return `0 0 26px 4px ${_rgba(col, 0.55)}, 0 0 9px 1px ${_rgba(col, 0.8)}`;
+}
 // Make the gauge's two sides easy to tell apart. Two failure modes:
 //   1) a primary is so dark (e.g. Spurs black) it vanishes on the dark card, so
 //      the disc looks like one color — mix that side 50/50 with its secondary.
@@ -395,8 +417,9 @@ function renderTeamLogoColors() {
   const homeC = teamColors(game, true);
   const awayEl = document.getElementById('ca-logo-away');
   const homeEl = document.getElementById('ca-logo-home');
-  if (awayEl) { awayEl.style.background = awayC.primary; }
-  if (homeEl) { homeEl.style.background = homeC.primary; }
+  // Fill with the team primary + a personalized glow in the team's vivid color.
+  if (awayEl) { awayEl.style.background = awayC.primary; awayEl.style.boxShadow = _teamGlow(awayC); }
+  if (homeEl) { homeEl.style.background = homeC.primary; homeEl.style.boxShadow = _teamGlow(homeC); }
 }
 
 // ── Team meta: season record + last-5 form in the game header ─────────────────

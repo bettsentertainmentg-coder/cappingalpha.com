@@ -317,6 +317,9 @@ nav {
   border-radius: 20px; cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
   white-space: nowrap; user-select: none; flex-shrink: 0;
+  /* Register taps reliably even inside the horizontal scroller (no 300ms delay,
+     don't let a tiny finger movement get swallowed as a scroll). */
+  touch-action: manipulation;
 }
 .ca-slot-chip:hover { border-color: var(--accent); }
 .ca-slot-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.12); }
