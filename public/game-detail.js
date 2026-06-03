@@ -510,6 +510,35 @@ function renderSlotGrid() {
       ${scoreHtml}
     </div>`;
   }).join('');
+
+  _applySlotGlow(_activeSlot);
+}
+
+// The team color a slot should glow in when selected (over/under have no team).
+function _slotGlowColor(slotKey) {
+  const { game } = _data;
+  if (slotKey === 'home_ml' || slotKey === 'home_spread') return _vividColor(teamColors(game, true));
+  if (slotKey === 'away_ml' || slotKey === 'away_spread') return _vividColor(teamColors(game, false));
+  return null;
+}
+
+// Tint + softly glow the active chip in its team's vivid color (a lighter touch
+// than the logo glow). Over/under fall back to the default accent styling.
+function _applySlotGlow(activeKey) {
+  document.querySelectorAll('.ca-slot-chip').forEach(chip => {
+    const onclick  = chip.getAttribute('onclick') || '';
+    const isActive = onclick.includes(`'${activeKey}'`);
+    const glow = isActive ? _slotGlowColor(activeKey) : null;
+    if (isActive && glow) {
+      chip.style.borderColor = glow;
+      chip.style.background   = _rgba(glow, 0.14);
+      chip.style.boxShadow    = `0 0 11px 0 ${_rgba(glow, 0.5)}`;
+    } else {
+      chip.style.borderColor = '';
+      chip.style.background   = '';
+      chip.style.boxShadow    = '';
+    }
+  });
 }
 
 // ── Slot switching ────────────────────────────────────────────────────────────
@@ -524,11 +553,12 @@ function selectSlot(key) {
   if (!VALID_SLOTS.includes(key)) return;
   _activeSlot = key;
 
-  // Update chip active state
+  // Update chip active state + team-colored glow
   document.querySelectorAll('.ca-slot-chip').forEach(chip => {
     const onclick = chip.getAttribute('onclick') || '';
     chip.classList.toggle('active', onclick.includes(`'${key}'`));
   });
+  _applySlotGlow(key);
 
   // Sync the Lines tab below to the matching bet type
   const desiredLinesType = linesTypeForSlot(key);

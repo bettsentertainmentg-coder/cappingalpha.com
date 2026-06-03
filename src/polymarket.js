@@ -13,8 +13,11 @@ const TAG_MAP = {
   NFL:   'nfl',
   CBB:   'ncaab',
   NCAAF: 'ncaaf',
-  ATP:   'tennis-atp',
-  WTA:   'tennis-wta',
+  // Polymarket tags both tours under a single 'tennis' slug (the 'tennis-atp' /
+  // 'tennis-wta' slugs return nothing). Events are player-vs-player; matching is
+  // by player last name, same as team nicknames.
+  ATP:   'tennis',
+  WTA:   'tennis',
 };
 
 // Sync all pre-game games
@@ -49,11 +52,11 @@ async function _syncGames(games) {
 
   for (const [tag, sportGames] of Object.entries(bySport)) {
     try {
-      const url = `https://gamma-api.polymarket.com/events?tag_slug=${tag}&active=true&closed=false&limit=100`;
-      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!r.ok) continue;
-      const events = await r.json();
-      if (!Array.isArray(events)) continue;
+      // The 'tennis' tag has 100+ active events (and the API caps at 100/page),
+      // so page through a few to make sure today's top-tier matches are covered.
+      const pages  = tag === 'tennis' ? 3 : 1;
+      const events = await fetchEvents(tag, pages);
+      if (!events.length) continue;
 
       // Accumulate markets across events — first match per type wins
       const gameMarkets = {}; // espn_game_id → merged markets
@@ -87,6 +90,23 @@ async function _syncGames(games) {
       // Silently ignore network errors
     }
   }
+}
+
+// Fetch up to `pages` pages (100 events each) for a tag, concatenated.
+async function fetchEvents(tag, pages = 1) {
+  const out = [];
+  for (let p = 0; p < pages; p++) {
+    try {
+      const url = `https://gamma-api.polymarket.com/events?tag_slug=${tag}&active=true&closed=false&limit=100&offset=${p * 100}`;
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) break;
+      const evs = await r.json();
+      if (!Array.isArray(evs) || !evs.length) break;
+      out.push(...evs);
+      if (evs.length < 100) break;   // last page
+    } catch (_) { break; }
+  }
+  return out;
 }
 
 // Detect market type from question text
