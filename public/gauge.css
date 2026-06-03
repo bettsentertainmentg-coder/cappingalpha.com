@@ -66,7 +66,7 @@
   grid-template-columns: 1fr 1fr;
   align-items: baseline;
   gap: 4px;
-  padding: 0 4px;
+  padding: 0 10px;
   margin-top: 2px;
 }
 .cag-side-pct {
@@ -78,8 +78,10 @@
   line-height: 1;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
 }
-.cag-side-pct-l,
-.cag-side-pct-r { text-align: center; }
+/* Pushed to the outer edges (left-% hugs the left, right-% hugs the right) so
+   the two readouts sit near the semicircle's edges with clear space between. */
+.cag-side-pct-l { text-align: left; }
+.cag-side-pct-r { text-align: right; }
 .cag-block--sm .cag-side-pct { font-size: 15px; }
 .cag-side-pct.cag-empty { color: #4a5263 !important; text-shadow: none; }
 
@@ -126,7 +128,7 @@
   grid-template-columns: 1fr 1fr;
   align-items: baseline;
   gap: 4px;
-  padding: 0 19px;
+  padding: 0 10px;
 }
 /* Each name reads as a soft chip/button. Inline-block so the tinted background
    hugs the text and stays centered inside its grid column (center still lands
@@ -142,6 +144,7 @@
   border-radius: 7px;
   -webkit-font-smoothing: antialiased;
 }
+/* Names stay centered under each half (the %s above hug the edges). */
 .cag-team-l,
 .cag-team-r { text-align: center; }
 

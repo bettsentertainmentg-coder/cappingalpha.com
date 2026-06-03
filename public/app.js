@@ -10,6 +10,7 @@ import { loadAccount } from './modules/account.js';
 import './modules/modal.js';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
+import { loadTopGames, loadMySports } from './modules/home_top.js';
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {
@@ -124,8 +125,11 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   await resumePendingCheckout();
 
   await loadPicks();
+  loadTopGames();
+  loadMySports();
   loadHomeMvp();
   loadHomeSidebar();
   loadHeadlines();
   setInterval(loadPicks, REFRESH_MS);
+  setInterval(loadTopGames, REFRESH_MS);
 })();

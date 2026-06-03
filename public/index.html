@@ -765,23 +765,58 @@
       margin-bottom: 8px; padding: 0 2px;
     }
 
-    /* ── Top pick card ── */
+    /* ── Top pick card (CA #1 pick) ── */
     .ca-top-pick-card {
-      background: var(--surface); border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 10px; padding: 16px; margin-bottom: 4px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      background: linear-gradient(180deg, #1a2030 0%, var(--surface) 55%);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 16px; margin-bottom: 4px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
     }
-    .ca-top-pick-header {
-      display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px;
+    /* brand row: logo + "Today's #1 Pick" */
+    .ca-tp-brand { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+    /* keep the logo's full rich color, but feather just its outer edges into the
+       card so it sits in the panel instead of on a hard rectangle. */
+    .ca-tp-logo {
+      height: 46px; width: auto; display: block;
+      -webkit-mask-image: radial-gradient(ellipse 86% 76% at 50% 50%, #000 58%, transparent 100%);
+              mask-image: radial-gradient(ellipse 86% 76% at 50% 50%, #000 58%, transparent 100%);
     }
-    .ca-top-pick-rank-num {
-      font-size: 52px; font-weight: 900; line-height: 1; margin-bottom: 4px;
+    .ca-tp-logo-fallback {
+      height: 42px; min-width: 56px; padding: 0 8px; border-radius: 6px;
+      display: none; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 22px; letter-spacing: 1px;
+      color: #7dd3fc; background: #0b2942; border: 1px solid #1e4f73;
+      box-shadow: 0 0 10px rgba(56,189,248,0.25);
     }
-    .ca-top-pick-score {
-      display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; margin-top: 6px;
+    .ca-tp-title { font-size: 18px; font-weight: 800; letter-spacing: .01em; line-height: 1.15; }
+    .ca-tp-title-today { color: var(--text); }
+    .ca-tp-title-rank  { color: var(--gold); }
+    .ca-tp-title-pick  { color: var(--text); }
+    /* whole-card click-through to the MVP page */
+    .ca-top-pick-card.ca-tp-clickable { cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+    .ca-top-pick-card.ca-tp-clickable:hover {
+      border-color: rgba(255,215,0,0.4); transform: translateY(-1px);
+      box-shadow: 0 5px 18px rgba(0,0,0,0.4);
     }
-    .ca-top-pick-team { font-size: 22px; font-weight: 800; margin-bottom: 3px; }
-    .ca-top-pick-matchup { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    /* team + points */
+    .ca-tp-team { font-size: 21px; font-weight: 800; line-height: 1.15; margin-bottom: 3px; }
+    .ca-tp-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+    .ca-tp-pts { color: var(--gold); font-weight: 700; }
+    /* P/L block */
+    .ca-tp-pl-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+    .ca-tp-pl-title { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .ca-tp-graph-wrap { height: 92px; margin: 2px 0 10px; }
+    .ca-tp-record {
+      display: flex; justify-content: space-between; gap: 4px; padding: 10px 2px;
+      border-top: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 13px;
+    }
+    .ca-tp-record > div { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+    .ca-tp-record b { font-size: 18px; font-weight: 800; }
+    .ca-tp-record span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .ca-tp-record b.green { color: var(--green); }
+    .ca-tp-record b.red { color: var(--red); }
+    .ca-tp-record b.gold { color: var(--gold); }
     .ca-top-pick-cta-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 8px; }
     .ca-top-pick-pricing-row { display: flex; gap: 6px; margin-top: 6px; }
     .ca-top-pick-price-btn {
@@ -839,6 +874,87 @@
       font-size: 13px; color: var(--accent); cursor: pointer; text-decoration: none; background: none; border: none; font-family: inherit;
     }
     .ca-home-section-link:hover { text-decoration: underline; }
+
+    /* ── Today's Top Games strip ── */
+    .ca-top-games-row {
+      display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
+      scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+    }
+    .ca-top-games-row::-webkit-scrollbar { height: 5px; }
+    .ca-top-games-row::-webkit-scrollbar-track { background: var(--surface2); border-radius: 3px; }
+    .ca-top-games-row::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .ca-top-games-empty { padding: 16px; color: var(--muted); font-size: 13px; }
+    .ca-tg-tile {
+      flex: 0 0 186px; scroll-snap-align: start;
+      display: flex; flex-direction: column;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px; cursor: pointer; transition: border-color .12s, transform .12s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    }
+    .ca-tg-tile:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .ca-tg-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    /* Corner cluster: abbreviated pick + score + multi-pick badge */
+    .ca-tg-corner { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0; }
+    .ca-tg-pick {
+      font-size: 11px; font-weight: 700; color: var(--accent);
+      max-width: 78px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ca-tg-score {
+      flex-shrink: 0; min-width: 28px; text-align: center;
+      padding: 2px 7px; border-radius: 8px; font-size: 14px; font-weight: 800;
+      border: 1px solid transparent; background: var(--surface2);
+    }
+    .ca-tg-score-none { color: var(--muted); }
+    .ca-tg-score-locked { display: inline-flex; align-items: center; justify-content: center; }
+    .ca-tg-multi {
+      flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1;
+      background: var(--accent); color: #fff; border-radius: 8px;
+      padding: 2px 5px; min-width: 16px; text-align: center;
+    }
+    .ca-tg-matchup { font-size: 15px; font-weight: 800; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Bottom row pinned to the base so every tile lines up, no dead space */
+    .ca-tg-bottom { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
+    .ca-tg-time { color: var(--muted); }
+    /* Game score, enlarged for at-a-glance reading */
+    .ca-tg-score-num { font-size: 17px; font-weight: 800; letter-spacing: .2px; }
+    .ca-tg-meta { display: inline-flex; flex-direction: column; line-height: 1.15; }
+    .ca-tg-period { color: var(--muted); font-weight: 600; font-size: 11px; }
+    .ca-tg-start { color: var(--muted); font-weight: 500; font-size: 10px; opacity: 0.85; }
+    .ca-tg-final { color: var(--muted); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+    .ca-tg-final .ca-tg-score-num { color: var(--text); }
+    .ca-tg-live { color: #38bdf8; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+    .ca-tg-live-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: linear-gradient(135deg,#4ade80,#38bdf8); display: inline-block;
+      animation: pulse 1s infinite; flex-shrink: 0;
+    }
+    .ca-tg-more { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+    /* ── My Sports: selectable chips + inline per-sport strips ── */
+    .ca-my-sports-row { display: block; }
+    .ca-ms-chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+    .ca-ms-chip {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 13px; font-weight: 700; padding: 7px 16px;
+      border-radius: 18px; cursor: pointer; transition: all .12s; white-space: nowrap;
+      opacity: 0.6;
+    }
+    .ca-ms-chip:hover { opacity: 1; border-color: var(--accent); color: var(--text); }
+    .ca-ms-chip.active {
+      opacity: 1; background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .ca-ms-save {
+      opacity: 1; background: var(--gold); color: #000; border-color: var(--gold);
+    }
+    .ca-ms-save:hover { opacity: 0.88; color: #000; }
+    .ca-ms-hint { color: var(--muted); font-size: 12px; margin-left: 4px; }
+
+    .ca-ms-strips { display: flex; flex-direction: column; gap: 18px; }
+    .ca-ms-strip-head {
+      font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--muted); margin-bottom: 8px;
+    }
+    .ca-ms-strip-row { min-height: 40px; }
 
     /* ── MVP section heading (overrides generic title) ── */
     .ca-mvp-section-heading { flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -975,6 +1091,16 @@
       }
       .ca-home-sidebar { position: static; order: 2; }
       .ca-home-main    { order: 1; }
+
+      /* My Sports chips: one swipeable row instead of wrapping, page still
+         scrolls vertically; chips stay put and scroll sideways. */
+      .ca-ms-chips {
+        flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        scrollbar-width: none; padding-bottom: 2px;
+      }
+      .ca-ms-chips::-webkit-scrollbar { display: none; }
+      .ca-ms-chip { flex: 0 0 auto; }
+      .ca-ms-hint { flex: 0 0 auto; }
     }
   </style>
 </head>
@@ -1026,6 +1152,26 @@
 
       <!-- Right main column -->
       <main class="ca-home-main">
+
+        <!-- Today's Top Games (market-hotness strip) -->
+        <div class="ca-home-section" id="ca-top-games-section">
+          <div class="ca-home-section-header">
+            <span class="ca-home-section-title">Today's Top Games</span>
+          </div>
+          <div id="ca-top-games-row" class="ca-top-games-row">
+            <div class="spinner-wrap" style="padding:18px;"><div class="spinner"></div></div>
+          </div>
+        </div>
+
+        <!-- My Sports (quick nav) -->
+        <div class="ca-home-section" id="ca-my-sports-section">
+          <div class="ca-home-section-header">
+            <span class="ca-home-section-title">My Sports</span>
+          </div>
+          <div id="ca-my-sports-row" class="ca-my-sports-row">
+            <div class="spinner-wrap" style="padding:12px;"><div class="spinner"></div></div>
+          </div>
+        </div>
 
         <!-- MVP P/L Widget -->
         <div class="ca-home-section">

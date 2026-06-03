@@ -106,11 +106,13 @@ export function cappingGauge(opts = {}) {
   const lp = noData ? 50 : Math.max(0, Math.min(100, Math.round(leftPct)));
   const rp = noData ? 50 : Math.max(0, Math.min(100, Math.round(rightPct)));
 
-  // Needle: points toward the winning side.
-  //   leftPct=100  → needle straight left  (-90°)
-  //   leftPct=50   → vertical             (0°)
-  //   leftPct=0    → needle straight right (+90°)
-  const needleDeg = noData ? 0 : Math.max(-90, Math.min(90, (rp - 50) * 1.8));
+  // Needle sits on the color boundary — it marks where the left side's share
+  // ends, lining up with the gradient split. A 20/80 split puts the needle at
+  // the 20% mark (left of center), toward the smaller left share.
+  //   leftPct=0    → far left  (-90°)
+  //   leftPct=50   → vertical  (0°)
+  //   leftPct=100  → far right (+90°)
+  const needleDeg = noData ? 0 : Math.max(-90, Math.min(90, (lp - 50) * 1.8));
 
   // Gradient transition position (along the horizontal of the disc), as a %
   // from the LEFT edge. At lp=79 the left color owns the first 79% of the disc.

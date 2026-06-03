@@ -185,7 +185,10 @@ async function claudeExtract(channelInstruction, messageContent) {
   try {
     const response = await client.messages.create({
       model:      MODEL,
-      max_tokens: 1024,
+      // 4096: a single big multi-capper digest can yield 25-40 picks (~1800+ output
+      // tokens). The old 1024 cap truncated the tool JSON mid-array, which parsed to
+      // nothing and dropped the whole message as no_pick. Headroom is free (cap, not spend).
+      max_tokens: 4096,
       system: (() => {
         const blocks = [{ type: 'text', text: RULES, cache_control: { type: 'ephemeral' } }];
         const corrections = getCorrectionsBlock();
@@ -201,6 +204,7 @@ async function claudeExtract(channelInstruction, messageContent) {
       }],
     });
     if (response.usage) logUsage(response.usage, mode === 'haiku' ? 'haiku' : 'haiku-fallback');
+    if (response.stop_reason === 'max_tokens') console.warn('[reader] Haiku hit max_tokens — pick list may be truncated for this message');
     const toolUse = response.content.find(b => b.type === 'tool_use');
     const result = toolUse?.input ?? null;
     const picks = Array.isArray(result?.picks) ? result.picks.filter(p => p?.is_pick) : [];
@@ -235,7 +239,9 @@ async function claudeExtractBatch(channelInstruction, batchTexts) {
   try {
     const response = await client.messages.create({
       model:      MODEL,
-      max_tokens: 2048,
+      // 8192: batch packs up to BATCH_SIZE digests into one call, so it needs even more
+      // output headroom than the single path to avoid truncating the combined pick array.
+      max_tokens: 8192,
       system: (() => {
         const blocks = [{ type: 'text', text: RULES, cache_control: { type: 'ephemeral' } }];
         const corrections = getCorrectionsBlock();
@@ -250,6 +256,7 @@ async function claudeExtractBatch(channelInstruction, batchTexts) {
       }],
     });
     if (response.usage) logUsage(response.usage, mode === 'haiku' ? 'haiku' : 'haiku-fallback');
+    if (response.stop_reason === 'max_tokens') console.warn('[reader] Haiku batch hit max_tokens — pick list may be truncated');
     const toolUse = response.content.find(b => b.type === 'tool_use');
     const result = toolUse?.input ?? null;
     const picks = Array.isArray(result?.picks) ? result.picks.filter(p => p?.is_pick) : [];
@@ -357,7 +364,9 @@ function correctPickType(parsed) {
 }
 
 const BATCH_SIZE   = 3;
-const MAX_MSG_CHARS = 1500;
+// 4000: multi-capper digests routinely run past 1500 chars; clipping the input silently
+// dropped every capper block below the cut. Haiku handles 4k-char messages fine.
+const MAX_MSG_CHARS = 4000;
 
 // ── Batch entry point (scanner's main path) ───────────────────────────────────
 async function readMessages(msgs) {

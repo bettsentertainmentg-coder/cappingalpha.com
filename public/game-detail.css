@@ -292,30 +292,52 @@ nav {
 .ca-section-meta { font-size: 11px; color: var(--text-disabled); }
 
 /* ── Slot picker chips ──────────────────────────────────────────────────────── */
+/* Compact horizontal pill row — mirrors the game popup ticker. Scrolls
+   sideways instead of wrapping, so it stays one tidy row on phones too. */
 .ca-slot-grid {
-  display: flex; gap: 8px; flex-wrap: wrap;
+  display: flex; gap: 8px; flex-wrap: nowrap;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   margin-bottom: 20px;
 }
+.ca-slot-grid::-webkit-scrollbar { display: none; }
 
 .ca-slot-chip {
   position: relative;
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 2px;
-  padding: 12px 10px 10px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; cursor: pointer;
+  display: flex; flex-direction: row; align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 20px; cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
-  min-width: 90px; flex: 1 1 90px;
+  white-space: nowrap; user-select: none; flex-shrink: 0;
 }
-.ca-slot-chip:hover { border-color: var(--accent); background: var(--surface2); }
-.ca-slot-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.08); }
-.ca-slot-chip.mvp    { border-color: rgba(255,215,0,0.55); background: rgba(255,215,0,0.05); }
-.ca-slot-chip.mvp.active { background: rgba(255,215,0,0.08); }
+.ca-slot-chip:hover { border-color: var(--accent); }
+.ca-slot-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.12); }
+.ca-slot-chip.mvp    { border-color: rgba(255,215,0,0.55); background: rgba(255,215,0,0.06); }
+.ca-slot-chip.mvp.active { background: rgba(255,215,0,0.1); }
 .ca-slot-chip.no-pick { opacity: 0.5; }
 .ca-slot-chip.locked  { opacity: 0.72; cursor: default; }
 .ca-slot-chip.no-pick:hover  { border-color: var(--accent); opacity: 0.75; }
-.ca-slot-chip.locked:hover   { border-color: var(--border); background: var(--surface); }
-.ca-slot-chip.no-pick.active { opacity: 1; border-color: var(--accent); background: rgba(59,130,246,0.08); }
+.ca-slot-chip.locked:hover   { border-color: var(--border); background: var(--surface2); }
+.ca-slot-chip.no-pick.active { opacity: 1; border-color: var(--accent); background: rgba(59,130,246,0.12); }
+
+.ca-slot-pill-label {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  line-height: 1.2;
+}
+.ca-slot-chip.mvp .ca-slot-pill-label { color: var(--gold); }
+.ca-slot-pill-score { font-size: 14px; font-weight: 800; line-height: 1; }
+.ca-slot-pill-score.ca-slot-pts--none { color: var(--text-disabled); opacity: 0.7; font-weight: 700; }
+.ca-slot-pill-locked { color: var(--text-disabled); }
+/* Fire glyph faded behind the number — adds heat without taking width. */
+.ca-slot-fire { position: relative; }
+.ca-slot-fire::before {
+  content: '🔥'; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); font-size: 17px; opacity: 0.3;
+  z-index: 0; pointer-events: none;
+}
+.ca-slot-pts-num { position: relative; z-index: 1; }
 
 .ca-slot-type {
   font-size: 9.5px; font-weight: 700; letter-spacing: 0.7px;
@@ -860,6 +882,9 @@ nav {
   justify-content: center;
   justify-items: center;
 }
+/* On desktop the wrapper is transparent — the gauge itself is the grid item.
+   On phones it becomes a carousel slide (see the mobile block below). */
+.ca-gauge-slide { display: contents; }
 
 .ca-cmty-sub-hdr {
   font-size: 11px; font-weight: 700; letter-spacing: 1px;
@@ -874,7 +899,33 @@ nav {
 .ca-sentiment-footer { margin-top: 16px; font-size: 11px; color: var(--text-tertiary); }
 
 @media (max-width: 720px) {
-  .ca-senti-gauges { grid-template-columns: 1fr; gap: 26px; }
+  /* Swipeable gallery: one gauge centered + full-size, neighbors peek smaller.
+     Page still scrolls vertically; this row scrolls horizontally. */
+  .ca-senti-gauges {
+    display: flex;
+    grid-template-columns: none;
+    gap: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    justify-content: flex-start;
+    padding: 8px 19%;            /* side gutters so first/last slide can center */
+  }
+  .ca-senti-gauges::-webkit-scrollbar { display: none; }
+
+  .ca-gauge-slide {
+    display: flex;
+    justify-content: center;
+    flex: 0 0 62%;
+    scroll-snap-align: center;
+    transform: scale(0.82);
+    opacity: 0.5;
+    transition: transform .25s ease, opacity .25s ease;
+  }
+  .ca-gauge-slide.is-active { transform: scale(1); opacity: 1; }
+  .ca-gauge-slide .cag-block { width: 100%; max-width: 210px; }
 }
 
 /* ── Community vote rows ────────────────────────────────────────────────────── */
@@ -1236,9 +1287,9 @@ nav {
   .ca-section { padding: 24px 16px; }
 
   .ca-slot-grid { gap: 6px; }
-  .ca-slot-chip { min-width: 76px; padding: 10px 8px 8px; }
-  .ca-slot-pts { font-size: 17px; }
-  .ca-slot-label { font-size: 12px; max-width: 100px; }
+  .ca-slot-chip { padding: 6px 11px; }
+  .ca-slot-pill-label { font-size: 12px; }
+  .ca-slot-pill-score { font-size: 13px; }
 
   .ca-dp-grid {
     grid-template-columns: 1fr;

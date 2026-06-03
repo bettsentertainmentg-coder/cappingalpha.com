@@ -271,6 +271,133 @@ app.get('/api/games', (req, res) => {
   res.json(rows);
 });
 
+// GET /api/games/top — hottest games of the day, ranked by prediction-market
+// volume (Polymarket + Kalshi). Reads only cached tables — no Odds API calls.
+// Each game carries its top-scored pick for the "CappingAlpha score" corner; the
+// game holding the overall #1 pick is flagged so the frontend can show it free.
+app.get('/api/games/top', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 8, 30);
+
+  // Optional sport filter (used by the home "My Sports" strips). Tennis = ATP+WTA.
+  const sportParam = (req.query.sport || '').trim();
+  let sportFilter = null;
+  if (sportParam) {
+    sportFilter = (sportParam.toLowerCase() === 'tennis')
+      ? ['ATP', 'WTA']
+      : [sportParam.toUpperCase()];
+  }
+
+  // Candidate games = upcoming or live, with whatever cached market volume exists.
+  let candidates = db.prepare(`
+    SELECT tg.espn_game_id, tg.sport, tg.home_team, tg.away_team,
+           tg.home_short, tg.away_short, tg.home_score, tg.away_score,
+           tg.status, tg.period, tg.clock, tg.start_time,
+           pm.volume_usd AS pm_vol,
+           k.volume_yes  AS k_vol
+    FROM today_games tg
+    LEFT JOIN polymarket_cache pm ON pm.espn_game_id = tg.espn_game_id
+    LEFT JOIN kalshi_cache     k  ON k.espn_game_id  = tg.espn_game_id
+    WHERE tg.status IN ('pre', 'in')
+  `).all();
+
+  if (sportFilter) {
+    const want = sportFilter.map(s => s.toUpperCase());
+    candidates = candidates.filter(g => want.includes((g.sport || '').toUpperCase()));
+  }
+
+  // Collapse a multi-game series (e.g. a 3-game set, same two teams on
+  // consecutive days) down to one tile per matchup — prefer the live/today
+  // game, otherwise the soonest upcoming one.
+  const byMatch = new Map();
+  for (const g of candidates) {
+    const key = `${(g.away_team || '').toLowerCase()}@${(g.home_team || '').toLowerCase()}`;
+    const cur = byMatch.get(key);
+    if (!cur) { byMatch.set(key, g); continue; }
+    const liveCur = cur.status === 'in', liveG = g.status === 'in';
+    let keep;
+    if (liveCur !== liveG) keep = liveG ? g : cur;
+    else keep = String(g.start_time || '') < String(cur.start_time || '') ? g : cur;
+    byMatch.set(key, keep);
+  }
+  candidates = [...byMatch.values()];
+
+  if (!candidates.length) return res.json([]);
+
+  // Polymarket (USD) and Kalshi (contracts) are different scales — normalize each
+  // by its max across today's slate (0–1), then sum for a fair "market hotness".
+  const maxPm = Math.max(0, ...candidates.map(g => g.pm_vol || 0));
+  const maxK  = Math.max(0, ...candidates.map(g => g.k_vol  || 0));
+  for (const g of candidates) {
+    const pmN = maxPm > 0 ? (g.pm_vol || 0) / maxPm : 0;
+    const kN  = maxK  > 0 ? (g.k_vol  || 0) / maxK  : 0;
+    g._hotness = pmN + kN;
+  }
+
+  // Fallback before market data syncs in the morning: order by start time so the
+  // row is never empty.
+  const anyVolume = candidates.some(g => g._hotness > 0);
+  candidates.sort(anyVolume
+    ? (a, b) => b._hotness - a._hotness
+    : (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+
+  const top = candidates.slice(0, limit);
+
+  // Overall #1 pick (same rule as /api/picks/top) — its game's score is free.
+  const globalTop = db.prepare(`
+    SELECT p.espn_game_id
+    FROM picks p
+    JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    WHERE p.mention_count > 0
+    ORDER BY p.score DESC LIMIT 1
+  `).get();
+  const globalTopGameId = globalTop ? globalTop.espn_game_id : null;
+
+  const topPickStmt = db.prepare(`
+    SELECT id, score, team, pick_type, spread
+    FROM picks
+    WHERE espn_game_id = ? AND mention_count > 0
+    ORDER BY score DESC LIMIT 1
+  `);
+
+  // How many picks on this game actually scored — drives the "multiple picks"
+  // indicator on the tile.
+  const pickCountStmt = db.prepare(`
+    SELECT COUNT(*) AS c FROM picks
+    WHERE espn_game_id = ? AND mention_count > 0 AND score > 0
+  `);
+
+  const out = top.map(g => {
+    const tp = topPickStmt.get(g.espn_game_id);
+    const pickCount = pickCountStmt.get(g.espn_game_id).c;
+    return {
+      espn_game_id: g.espn_game_id,
+      sport:        g.sport,
+      home_team:    g.home_team,
+      away_team:    g.away_team,
+      home_short:   g.home_short,
+      away_short:   g.away_short,
+      home_score:   g.home_score,
+      away_score:   g.away_score,
+      status:       g.status,
+      period:       g.period,
+      clock:        g.clock,
+      start_time:   g.start_time,
+      pm_vol:       g.pm_vol,
+      k_vol:        g.k_vol,
+      pick_count:   pickCount,
+      top_pick: tp ? {
+        score:       tp.score,
+        team:        tp.team,
+        pick_type:   tp.pick_type,
+        spread:      tp.spread,
+        is_global_1: g.espn_game_id === globalTopGameId,
+      } : null,
+    };
+  });
+
+  res.json(out);
+});
+
 // ── Golf API routes ───────────────────────────────────────────────────────────
 // GET /api/golf/tournaments — list active (non-post) major tournaments
 app.get('/api/golf/tournaments', (req, res) => {

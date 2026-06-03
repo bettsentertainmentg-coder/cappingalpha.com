@@ -15,6 +15,9 @@ A pick = a sports team (or player) + a bet type. Examples:
   "Cin over 9"         → team=Reds, over, 9
   "Pistons u213"       → team=Pistons, under, 213
   "Cubs F5 -150"       → team=Cubs, ML (F5 = first 5 innings context; -150 is juice)
+  "Kostyuk ML"         → team=Kostyuk, ML (tennis player — a player name is a valid pick)
+  "Zverev -1.5 sets"   → team=Zverev, set_spread -1.5
+  "Fonseca -3.5 games" → team=Fonseca, spread -3.5 (games)
 
 BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner) | set_spread (tennis set handicap)
   - ML: team wins outright. "reg", "moneyline", "MI" all mean ML.
@@ -33,6 +36,15 @@ BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner) | set_
         (e.g. -1.5). Use set_spread when the message says "set"/"sets", or the number is the
         classic set line (+/-1.5) and there's no "games" wording. When unsure, prefer spread (games).
 
+── TENNIS MATCH TOTALS ───────────────────────────────────────────────────────
+"PlayerA vs PlayerB over/under N" or "Player over/under N games" is a MATCH TOTAL on the
+combined games in the match. It is a valid over/under pick, NOT a player prop. Set
+team = the first player, vs_player = the opponent (when one is named), pick_type = over/under,
+spread_value = N.
+  "Kostyuk vs Svitolina over 21.5"  → team=Kostyuk, vs_player=Svitolina, over, 21.5
+  "Zverev vs Jodar over 36.5"       → team=Zverev, vs_player=Jodar, over, 36.5
+  "Svitolina over 22.5 games"       → team=Svitolina, over, 22.5
+
 ── CAPPER NAME ───────────────────────────────────────────────────────────────
 A line containing only a name (no pick info) is a capper header — all picks that follow belong to that capper until the next header or "=====" separator.
   "SmartMoneySports"      → capper header
@@ -40,11 +52,23 @@ A line containing only a name (no pick info) is a capper header — all picks th
   "Jason Sharpe 8u MLB GOY" → capper=Jason Sharpe; "8u MLB GOY" are labels, not picks
   "Big AL"                → capper header
   Emoji before a name (✅🔮💎🔥) = capper marker; strip emoji, use name.
+  A sport emoji before a name (🎾🏀⚾️🏈🏒⛳🏐) is also a capper/sport marker, not a pick —
+  the name right after it is a capper header (e.g. "🎾 This Girl Betz" → capper=This Girl Betz).
   "=====" lines = block separator between cappers.
 
 ── MULTI-CAPPER DIGESTS ──────────────────────────────────────────────────────
-Many community messages contain multiple capper blocks separated by "=====" lines.
+Many community messages contain multiple capper blocks. Blocks may be separated by "====="
+lines OR simply by a new capper header on its own line (often led by a sport emoji like
+🎾🏀⚾️, with a blank line before it). A name-only line = the start of a new capper block.
 Extract EVERY pick from EVERY block. Assign each pick the correct capper_name.
+
+  Example (all-tennis digest — extract these too):
+    "🎾 This Girl Betz"        → capper=This Girl Betz
+    "Zverev -1.5 sets (3u)"   → Zverev set_spread -1.5, capper=This Girl Betz
+    "Kostyuk ML (3u)"         → Kostyuk ML, capper=This Girl Betz
+    "🎾 Brandon The Profit"    → capper=Brandon The Profit
+    "Svitolina ML (2u)"       → Svitolina ML, capper=Brandon The Profit
+    "Andreeva -2.5 games (1u)"→ Andreeva spread -2.5 (games), capper=Brandon The Profit
 
   Example:
     "SmartMoneySports"          → capper=SmartMoneySports
@@ -76,13 +100,20 @@ These words/lines are context labels — read past them to find the actual pick:
   Game times: "6:45 pm", "8:00 pm"
 
 ── SKIP ONLY THESE ───────────────────────────────────────────────────────────
-Skip (is_pick=false) ONLY when there is clearly no team+bet in the message at all:
-  - Pure player props: individual player stat lines like "LeBron over 25.5 PTS", "Soroka u4.5 K's"
-    (Signal: player first+last name + stat word like pts/rebounds/assists/strikeouts/yards/hits)
-  - Pure records with no pick: "Overall: 61-34"
-  - Parlay descriptions with no individual team picks extractable
+Skip (is_pick=false) ONLY the individual lines that are clearly not a straight team/player pick:
+  - Pure player props: individual player STAT lines like "LeBron over 25.5 PTS", "Soroka u4.5 K's"
+    (Signal: player name + a stat word like pts/rebounds/assists/strikeouts/yards/hits/saves).
+    A tennis MATCH TOTAL ("Kostyuk vs Svitolina over 21.5", "Svitolina over 22.5 games") is NOT a
+    prop — it is a valid over/under pick. A tennis ML or set/games handicap is always a valid pick.
+  - Pure records / standings with no pick: "Overall: 61-34"
+  - Parlay / multi-leg tickets: ONE line that ties legs together with "+", "MLP", "parlay", or "&"
+    (e.g. "Zverev + Fonseca MLP", "Jodar to win a set + Cirstea to win a set"). Skip the parlay
+    LINE itself, because a leg can't be graded as a standalone straight pick.
 
-If a message has even one valid team pick, return it.
+Skipping a prop or parlay line NEVER means skipping the whole message. If the message contains
+any straight single pick anywhere, return all of them — even when parlay or prop lines surround
+them, and even when the very first line is a parlay. Only return is_pick=false for the entire
+message when EVERY line is a parlay, prop, record, or other non-pick.
 
 ── TEAM NAMES ────────────────────────────────────────────────────────────────
 Return the team name as written. Expand obvious NBA nicknames:
@@ -134,7 +165,7 @@ const EXTRACT_TOOL = {
             spread_value: { type: 'number',  description: 'Spread or total line (games for spread, set handicap for set_spread). Omit for ML.' },
             sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
-            vs_player:    { type: 'string',  description: 'Golf h2h opponent only.' },
+            vs_player:    { type: 'string',  description: 'Opponent name for head-to-head or tennis match-total bets (e.g. "Kostyuk vs Svitolina over 21.5" → vs_player=Svitolina). Also golf h2h.' },
             sport_record: { type: 'string',  description: 'Record string e.g. "27-21 CBB". Omit if absent.' },
             espn_game_id: { type: 'string',  description: "Game id from today's list if matched. Omit if uncertain." },
             picked_side:  { type: 'string',  enum: ['home', 'away'], description: 'Include with espn_game_id.' },

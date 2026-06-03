@@ -2,12 +2,12 @@
 // Home page left sidebar: #1 pick card + today's games by sport.
 // Also exports loadHeadlines() for the right-column headlines section.
 
-import { state }    from './state.js';
-import { isPaying } from './auth.js';
+import { isViewer } from './auth.js';
 import { gameTime } from './utils.js';
 
 let _sidebarSport = 'MLB';
 let _sidebarGames = [];
+let _tpChart      = null;        // CA #1-pick card mini P/L chart
 
 // ── Orchestrator ──────────────────────────────────────────────────────────────
 export async function loadHomeSidebar() {
@@ -15,57 +15,205 @@ export async function loadHomeSidebar() {
 }
 
 // ── #1 pick card ──────────────────────────────────────────────────────────────
+// Marquee CA logo + "#1 PICK", today's top team + points, and a mini P/L graph
+// that auto-highlights the team's best-performing window by win rate.
 async function _renderTopPick() {
   const el = document.getElementById('ca-top-pick-slot');
   if (!el) return;
 
   try {
-    const res = await fetch('/api/picks/top');
-    if (!res.ok) throw new Error('no pick');
-    const pick = await res.json();
+    // Today's #1 pick (team + points) and the resolved MVP history (P/L graph)
+    // are independent feeds — fetch together, tolerate the graph feed failing.
+    const [pick, mvp] = await Promise.all([
+      fetch('/api/picks/top').then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch('/api/mvp/public').then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
     if (!pick || !pick.team) throw new Error('empty');
 
-    const score     = pick.score || 0;
-    const threshold = state.CONFIG?.mvp_threshold || 50;
-    const isGold    = score >= threshold;
-    const isSilver  = score >= 35 && score < threshold;
+    const score = pick.score || 0;
+    const sport = pick.sport ? ` · ${pick.sport}` : '';
 
-    const tierColor = isGold ? '#FFD700' : isSilver ? '#C0C0C0' : 'var(--muted)';
+    // ── P/L block (only when there's enough resolved history) ─────────────────
+    const best = _bestWindow(_resolvedMvp(mvp && mvp.picks));
+    let plHtml = '', plSeries = null;
+    if (best) {
+      const s    = plSeries = _series(best.picks, 10);
+      const sign = s.total >= 0 ? 'pos' : 'neg';
+      const amt  = (s.total >= 0 ? '+' : '') + '$' + Math.abs(s.total).toFixed(2);
+      const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
+      plHtml = `
+        <div class="ca-tp-pl-head">
+          <span class="ca-tp-pl-title">${best.label} P/L</span>
+          <span class="graph-pl-label ${sign}">${amt}</span>
+        </div>
+        <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
+        <div class="ca-tp-record">
+          <div><b class="green">${best.wins}</b><span>Wins</span></div>
+          <div><b class="red">${best.losses}</b><span>Losses</span></div>
+          <div><b>${best.pushes}</b><span>Pushes</span></div>
+          <div><b class="gold">${wr}</b><span>Win%</span></div>
+        </div>`;
+    }
 
-    const badgeStyle = isGold
-      ? 'background:rgba(255,215,0,0.12);color:#FFD700;border:1px solid rgba(255,215,0,0.3);'
-      : isSilver
-        ? 'background:rgba(192,192,192,0.12);color:#C0C0C0;border:1px solid rgba(192,192,192,0.3);'
-        : 'background:var(--surface2);color:var(--muted);border:1px solid rgba(255,255,255,0.1);';
-
-    const matchup = (pick.away_team && pick.home_team)
-      ? `${pick.away_short || pick.away_team} @ ${pick.home_short || pick.home_team}`
-      : (pick.matchup || '');
-
-    const ctaHtml = isPaying()
-      ? `<div class="ca-top-pick-cta-label" style="text-align:left;">Full board unlocked</div>`
-      : `<div>
-           <div class="ca-top-pick-cta-label">Unlock picks #2–30</div>
+    // Anonymous visitors get the upgrade prompt; anyone logged in (free account
+    // or paid) gets a click-through hint, since the whole card opens the MVP page.
+    // Pricing buttons stop their clicks from bubbling to the card navigation.
+    const ctaHtml = isViewer()
+      ? `<div>
+           <div class="ca-top-pick-cta-label">Unlock all picks</div>
            <div class="ca-top-pick-pricing-row">
-             <button class="ca-top-pick-price-btn" onclick="startCheckout('day')">$1 / day</button>
-             <button class="ca-top-pick-price-btn featured" onclick="startCheckout('week')">$4 / week</button>
-             <button class="ca-top-pick-price-btn" onclick="startCheckout('year')">$75 / yr</button>
+             <button class="ca-top-pick-price-btn" onclick="event.stopPropagation();startCheckout('day')">$1 / day</button>
+             <button class="ca-top-pick-price-btn featured" onclick="event.stopPropagation();startCheckout('week')">$4 / week</button>
+             <button class="ca-top-pick-price-btn" onclick="event.stopPropagation();startCheckout('year')">$75 / yr</button>
            </div>
-         </div>`;
+         </div>`
+      : `<div class="ca-top-pick-cta-label" style="text-align:center;">Click to view all picks ›</div>`;
 
     el.innerHTML = `
-      <div class="ca-top-pick-card">
-        <div class="ca-top-pick-header">
-          <div class="ca-top-pick-rank-num" style="color:${tierColor};">1</div>
-          <span class="ca-top-pick-score" style="${badgeStyle}">${score} pts</span>
+      <div class="ca-top-pick-card ca-tp-clickable" onclick="switchTab('mvp')" title="View MVP picks ›">
+        <div class="ca-tp-brand">
+          <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span class="ca-tp-logo-fallback">CA</span>
+          <div class="ca-tp-title"><span class="ca-tp-title-today">Today's</span> <span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
-        <div class="ca-top-pick-team">${pick.team}</div>
-        <div class="ca-top-pick-matchup">${matchup}</div>
+        <div class="ca-tp-team">${pick.team}</div>
+        <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
+        ${plHtml}
         ${ctaHtml}
       </div>`;
+
+    if (plSeries) _drawTpChart(plSeries);
   } catch (_) {
+    if (_tpChart) { _tpChart.destroy(); _tpChart = null; }
     el.innerHTML = `<div class="ca-top-pick-card ca-top-pick-empty"><p style="color:var(--muted);font-size:13px;text-align:center;padding:8px 0;">No picks yet today.</p></div>`;
   }
+}
+
+// ── #1 pick card: best-window P/L helpers ─────────────────────────────────────
+// Mirrors the record/P/L math in mvp.js, kept self-contained so the sidebar card
+// doesn't couple to the MVP tab module.
+const _TP_RANGES = [
+  { key: '1D',  days: 1,        label: '1-Day' },
+  { key: '5D',  days: 5,        label: '5-Day' },
+  { key: '7D',  days: 7,        label: '7-Day' },
+  { key: '21D', days: 21,       label: '21-Day' },
+  { key: '1M',  days: 30,       label: '1-Month' },
+  { key: '3M',  days: 90,       label: '3-Month' },
+  { key: 'ALL', days: Infinity, label: 'All-Time' },
+];
+const _TP_MIN_SAMPLE = 5;  // a window needs 5+ decided picks before it can win
+
+function _resolvedMvp(picks) {
+  // /api/mvp/public already filters to decided, non-voided picks above the
+  // display threshold — just guard against anything unexpected slipping in.
+  return (picks || []).filter(p =>
+    (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
+    !(p.annotation && p.annotation.includes('not counted'))
+  );
+}
+
+function _filterDays(picks, days) {
+  if (!isFinite(days)) return picks.slice();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutStr = cutoff.toISOString().slice(0, 10);
+  return picks.filter(p => (p.game_date || '') >= cutStr);
+}
+
+function _windowStats(picks, range) {
+  const wins   = picks.filter(p => p.result === 'win').length;
+  const losses = picks.filter(p => p.result === 'loss').length;
+  const pushes = picks.filter(p => p.result === 'push').length;
+  const decided = wins + losses;
+  return { ...range, picks, wins, losses, pushes, decided, winRate: decided ? wins / decided : 0 };
+}
+
+// Pick the window with the highest win rate that clears the minimum sample.
+// Ties go to the larger sample (more credible). Falls back to all-time if no
+// sub-window qualifies.
+function _bestWindow(resolved) {
+  if (!resolved || resolved.length === 0) return null;
+  let best = null;
+  for (const r of _TP_RANGES) {
+    const w = _windowStats(_filterDays(resolved, r.days), r);
+    if (w.decided < _TP_MIN_SAMPLE) continue;
+    if (!best || w.winRate > best.winRate || (w.winRate === best.winRate && w.decided > best.decided)) {
+      best = w;
+    }
+  }
+  if (!best) {
+    const all = _windowStats(resolved.slice(), _TP_RANGES[_TP_RANGES.length - 1]);
+    return all.decided ? all : null;
+  }
+  return best;
+}
+
+function _tpReturn(pick, unit) {
+  const r = (pick.result || '').toLowerCase();
+  if (r === 'push' || r === 'pending' || !r) return 0;
+  if (r === 'loss') return -unit;
+  const type = (pick.pick_type || '').toLowerCase();
+  let odds = type === 'ml' ? (pick.ml_odds || -115)
+           : (type === 'over' || type === 'under') ? (pick.ou_odds || -115)
+           : -115;
+  if (!odds) odds = -115;
+  return odds < 0 ? +(unit * (100 / Math.abs(odds))).toFixed(2)
+                  : +(unit * (odds / 100)).toFixed(2);
+}
+
+// Cumulative series for the mini chart. Multiple game-dates plot by day; a
+// single date (e.g. a hot 1-day window) plots per pick so the line isn't a dot.
+function _series(picks, unit) {
+  const sorted = picks.slice().sort((a, b) =>
+    (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
+  const byDate = {};
+  for (const p of sorted) { const d = p.game_date || 'x'; (byDate[d] ||= []).push(p); }
+  const dates = Object.keys(byDate).sort();
+
+  let cum = 0; const labels = [], values = [];
+  if (dates.length < 2) {
+    sorted.forEach((p, i) => { cum += _tpReturn(p, unit); labels.push('P' + (i + 1)); values.push(+cum.toFixed(2)); });
+  } else {
+    for (const d of dates) {
+      cum += byDate[d].reduce((s, p) => s + _tpReturn(p, unit), 0);
+      const dt = new Date(d + 'T12:00:00');
+      labels.push(dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      values.push(+cum.toFixed(2));
+    }
+  }
+  return { labels, values, total: +cum.toFixed(2) };
+}
+
+function _drawTpChart({ labels, values, total }) {
+  if (_tpChart) { _tpChart.destroy(); _tpChart = null; }
+  const ctx = document.getElementById('ca-tp-chart');
+  if (!ctx || typeof Chart === 'undefined') return;
+
+  const color = total >= 0 ? '#22c55e' : '#ef4444';
+  _tpChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values, borderColor: color, backgroundColor: color + '22',
+        borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, fill: true, tension: 0.35,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e2330', borderColor: '#252c3b', borderWidth: 1,
+          titleColor: '#e2e8f0', bodyColor: '#8892a4', padding: 8, displayColors: false,
+          callbacks: { label: c => `$${Number(c.parsed.y).toFixed(2)}` },
+        },
+      },
+      scales: { x: { display: false }, y: { display: false } },
+    },
+  });
 }
 
 // ── Sidebar games ─────────────────────────────────────────────────────────────

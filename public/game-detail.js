@@ -160,13 +160,16 @@ function updateStickyOffset() {
 
 function buildSlots(game) {
   const ou = game.over_under;
+  // Show the actual recorded spread instead of the word "Spread" (any sport).
+  // Falls back to "—" when no line is posted for the slot.
+  const fmtSp = (v) => v == null ? '—' : (v > 0 ? `+${v}` : `${v}`);
   return [
-    { key: 'away_ml',     label: teamNick(game.away_team) + ' Win',      type: 'ml',     team: game.away_team },
-    { key: 'home_ml',     label: teamNick(game.home_team) + ' Win',      type: 'ml',     team: game.home_team },
-    { key: 'away_spread', label: teamNick(game.away_team) + ' Spread',   type: 'spread', team: game.away_team },
-    { key: 'home_spread', label: teamNick(game.home_team) + ' Spread',   type: 'spread', team: game.home_team },
-    { key: 'over',        label: `Over${ou != null ? ' ' + ou : ''}`,    type: 'over',   team: null },
-    { key: 'under',       label: `Under${ou != null ? ' ' + ou : ''}`,   type: 'under',  team: null },
+    { key: 'away_ml',     label: teamNick(game.away_team) + ' Win',                   type: 'ml',     team: game.away_team },
+    { key: 'home_ml',     label: teamNick(game.home_team) + ' Win',                   type: 'ml',     team: game.home_team },
+    { key: 'away_spread', label: `${teamNick(game.away_team)} ${fmtSp(game.spread_away)}`, type: 'spread', team: game.away_team },
+    { key: 'home_spread', label: `${teamNick(game.home_team)} ${fmtSp(game.spread_home)}`, type: 'spread', team: game.home_team },
+    { key: 'over',        label: `Over${ou != null ? ' ' + ou : ''}`,                 type: 'over',   team: null },
+    { key: 'under',       label: `Under${ou != null ? ' ' + ou : ''}`,                type: 'under',  team: null },
   ];
 }
 
@@ -248,6 +251,33 @@ function _lighten(hex, amt) {
 function _colorDist(a, b) {
   const x = _hexToRgb(a), y = _hexToRgb(b);
   return Math.sqrt((x.r-y.r)**2 + (x.g-y.g)**2 + (x.b-y.b)**2);
+}
+// Blend two hex colors by t (0 = a, 1 = b). t=0.5 → even mix.
+function _mixHex(a, b, t = 0.5) {
+  const x = _hexToRgb(a), y = _hexToRgb(b);
+  return _rgbToHex(x.r + (y.r-x.r)*t, x.g + (y.g-x.g)*t, x.b + (y.b-x.b)*t);
+}
+// Perceived brightness 0..1.
+function _luminance(hex) {
+  const { r, g, b } = _hexToRgb(hex);
+  return (0.2126*r + 0.7152*g + 0.0722*b) / 255;
+}
+// Make the gauge's two sides easy to tell apart. Two failure modes:
+//   1) a primary is so dark (e.g. Spurs black) it vanishes on the dark card, so
+//      the disc looks like one color — mix that side 50/50 with its secondary.
+//   2) the two primaries are near-identical (e.g. both blue) — mix each 50/50
+//      with its secondary, then lighten the home side as a last resort.
+function distinctColors(away, home) {
+  const lift = (c) => (c.secondary && _luminance(c.primary) < 0.16)
+    ? { ...c, primary: _mixHex(c.primary, c.secondary, 0.5) }
+    : { ...c };
+  const a = lift(away), h = lift(home);
+  if (_colorDist(a.primary, h.primary) < 110) {
+    if (away.secondary) a.primary = _mixHex(a.primary, away.secondary, 0.5);
+    if (home.secondary) h.primary = _mixHex(h.primary, home.secondary, 0.5);
+    if (_colorDist(a.primary, h.primary) < 80) h.primary = _lighten(h.primary, 0.4);
+  }
+  return { away: a, home: h };
 }
 // Deterministic distinct color (hex) for an unmapped country code, from a palette.
 const _FALLBACK_PALETTE = ['#2563EB','#DC2626','#16A34A','#D97706','#7C3AED','#0891B2','#DB2777','#65A30D'];
@@ -432,56 +462,29 @@ function renderSlotGrid() {
     // Lock everything except the #1 pick for non-paying users (includes unpicked pairs)
     const isLocked = !isPaying() && slot.key !== rank1SlotKey;
 
-    // Type label — use WIN instead of ML
-    const typeLabel = (slot.type === 'ml') ? 'WIN'
-      : (slot.type === 'over' || slot.type === 'under') ? 'TOTAL'
-      : slot.type.toUpperCase();
-
-    // Pick identification line: abbr + formatted line value
-    const abbr = (() => {
-      if (slot.key === 'home_ml' || slot.key === 'home_spread')
-        return (game.home_abbr || game.home_short || '').toUpperCase() || teamNick(game.home_team);
-      if (slot.key === 'away_ml' || slot.key === 'away_spread')
-        return (game.away_abbr || game.away_short || '').toUpperCase() || teamNick(game.away_team);
-      return null;
-    })();
-
-    const lineVal = slotLineCurrent(slot.key, game);
-    let pickIdent = '';
-    if (slot.key === 'over')  pickIdent = game.over_under != null ? `Over ${game.over_under}` : 'Over';
-    else if (slot.key === 'under') pickIdent = game.over_under != null ? `Under ${game.over_under}` : 'Under';
-    else if (slot.type === 'ml') pickIdent = abbr || '—';
-    else pickIdent = abbr && lineVal ? `${abbr} ${lineVal}` : (lineVal || abbr || '—');
-
-
-    // Score area
-    let scoreAreaHtml = '';
+    // Compact pill, mirroring the game popup ticker: "{team} {bet}" + inline score.
+    // slot.label already reads e.g. "Hurricanes Win" / "Under 5.5".
+    let scoreHtml;
     if (isLocked) {
       // Identical lock UI regardless of whether there's a pick underneath, so
       // free users can't infer which slots have picks from chip styling.
-      scoreAreaHtml = `<div class="ca-slot-score-area">
-        <span class="ca-slot-lock-solo"><i class="fa-solid fa-lock"></i></span>
-      </div>`;
+      scoreHtml = `<span class="ca-slot-pill-score ca-slot-pill-locked"><i class="fa-solid fa-lock"></i></span>`;
     } else if (noPick) {
-      scoreAreaHtml = `<div class="ca-slot-score-area">
-        <span class="ca-slot-pts ca-slot-pts--none">0</span>
-        <span class="ca-slot-not-rated">Not rated</span>
-      </div>`;
+      scoreHtml = `<span class="ca-slot-pill-score ca-slot-pts--none">—</span>`;
     } else {
       const heat = PICK_HEAT_COLOR(score);
-      scoreAreaHtml = `<div class="ca-slot-score-area">
-        <span class="ca-slot-pts" style="color:${heat.color};">${score}</span>
-      </div>`;
+      // For top-tier scores, place the fire as a faded glyph *behind* the number
+      // so it adds heat without taking horizontal space.
+      scoreHtml = `<span class="ca-slot-pill-score${heat.fire ? ' ca-slot-fire' : ''}" style="color:${heat.color};"><span class="ca-slot-pts-num">${score}</span></span>`;
     }
 
-    // MVP status is premium info — never reveal it on a locked chip.
+    // MVP status is premium info — never reveal it on a locked chip. Shown as a
+    // subtle gold tint via the .mvp class (matches the popup, which has no pip).
     const showMvp = isMvp && !isLocked;
     return `<div class="ca-slot-chip${isActive ? ' active' : ''}${showMvp ? ' mvp' : ''}${noPick && !isLocked ? ' no-pick' : ''}${isLocked ? ' locked' : ''}"
               onclick="selectSlot('${slot.key}')">
-      ${showMvp ? `<span class="ca-slot-mvp-pip">MVP</span>` : ''}
-      <span class="ca-slot-type">${typeLabel}</span>
-      <span class="ca-slot-label">${pickIdent}</span>
-      ${scoreAreaHtml}
+      <span class="ca-slot-pill-label">${slot.label}</span>
+      ${scoreHtml}
     </div>`;
   }).join('');
 }
@@ -770,12 +773,101 @@ async function doVoteRequest(gameId, slot, isRemoving) {
 }
 
 // ── Lines section ─────────────────────────────────────────────────────────────
-function setLinesType(type) {
+// ── Mobile gauge carousel ──────────────────────────────────────────────────────
+// On phones the WIN/SPREAD/TOTAL gauges become a swipeable gallery: the centered
+// gauge is full-size + active, neighbors peek smaller. The active bet type stays
+// in sync with the Lines tab, the pick-slot grid, and the other gauge row.
+let _carouselSyncing = false;
+let _carouselReleaseT = null;
+
+function _isPhone() {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 720px)').matches;
+}
+
+function _markActiveSlides(type) {
+  document.querySelectorAll('.ca-gauge-slide').forEach(s => {
+    s.classList.toggle('is-active', s.dataset.bt === type);
+  });
+}
+
+function _centeredSlide(row) {
+  const mid = row.scrollLeft + row.clientWidth / 2;
+  let best = null, bestD = Infinity;
+  row.querySelectorAll('.ca-gauge-slide').forEach(s => {
+    const c = s.offsetLeft + s.offsetWidth / 2;
+    const d = Math.abs(c - mid);
+    if (d < bestD) { bestD = d; best = s; }
+  });
+  return best;
+}
+
+function _scrollCarouselsTo(type, { exceptRow = null, behavior = 'smooth' } = {}) {
+  if (!_isPhone()) return;
+  _carouselSyncing = true;
+  document.querySelectorAll('.ca-senti-gauges').forEach(row => {
+    if (row === exceptRow) return;
+    const slide = row.querySelector(`.ca-gauge-slide[data-bt="${type}"]`);
+    if (!slide) return;
+    const left = slide.offsetLeft - (row.clientWidth - slide.offsetWidth) / 2;
+    row.scrollTo({ left, behavior });
+  });
+  clearTimeout(_carouselReleaseT);
+  _carouselReleaseT = setTimeout(() => { _carouselSyncing = false; }, 460);
+}
+
+function _setupCarousels() {
+  document.querySelectorAll('.ca-senti-gauges').forEach(row => {
+    if (row._cagWired) return;
+    row._cagWired = true;
+    let t;
+    row.addEventListener('scroll', () => {
+      if (!_isPhone()) return;
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const s = _centeredSlide(row);
+        if (!s) return;
+        _markActiveSlides(s.dataset.bt);
+        // A real swipe (not a programmatic sync) drives everything else.
+        if (!_carouselSyncing && s.dataset.bt !== _linesType) {
+          setLinesType(s.dataset.bt, row);
+        }
+      }, 110);
+    }, { passive: true });
+  });
+}
+
+// Bring the matching-type pick slots into view so the slot grid "cycles" with
+// the bet type too (phones only — it's a horizontal scroller there).
+function _syncSlotGrid(type) {
+  if (!_isPhone()) return;
+  const keys = { ml: ['home_ml','away_ml'], spread: ['home_spread','away_spread'], total: ['over','under'] }[type] || [];
+  const grid = document.getElementById('ca-slot-grid');
+  if (!grid) return;
+  const chips = [...grid.querySelectorAll('.ca-slot-chip')];
+  const target = chips.find(c => keys.some(k => (c.getAttribute('onclick') || '').includes(`'${k}'`)));
+  if (!target) return;
+  const left = target.offsetLeft - (grid.clientWidth - target.offsetWidth) / 2;
+  grid.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+}
+
+// Called after each gauge row renders: wire scroll handlers, mark the active
+// slide, and center the carousels on the current bet type.
+function _afterGaugeRender() {
+  _setupCarousels();
+  _markActiveSlides(_linesType);
+  if (_isPhone()) requestAnimationFrame(() => _scrollCarouselsTo(_linesType, { behavior: 'auto' }));
+}
+
+function setLinesType(type, sourceRow = null) {
   _linesType = type;
   document.querySelectorAll('.ca-lt-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.type === type);
   });
   renderLines();
+  // Keep the gauge carousels (and their highlight) in lock-step with the bet type.
+  _markActiveSlides(type);
+  _scrollCarouselsTo(type, { exceptRow: sourceRow });
+  _syncSlotGrid(type);
 }
 
 function renderLines() {
@@ -1076,8 +1168,10 @@ const TOTAL_UNIT = {
 
 function _buildBetTypes() {
   const { game } = _data;
-  const awayColors = teamColors(game, false);
-  const homeColors = teamColors(game, true);
+  // Pull team palettes, then push them apart if they're near-identical so the
+  // gauge's two sides (and which way the needle leans) are easy to read.
+  const { away: awayColors, home: homeColors } =
+    distinctColors(teamColors(game, false), teamColors(game, true));
   const awayName = game.away_short || teamNick(game.away_team) || game.away_abbr || '';
   const homeName = game.home_short || teamNick(game.home_team) || game.home_abbr || '';
   const spUnit     = ({ ATP: 'games', WTA: 'games' })[(game.sport || '').toUpperCase()];
@@ -1093,6 +1187,7 @@ function _buildBetTypes() {
     {
       label:     'WIN',
       betLabelColor: '#22d3ee',  // bright cyan
+      linesType: 'ml',
       leftKey:   'away_ml',     rightKey:   'home_ml',
       leftName:  awayName,      rightName:  homeName,
       leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
@@ -1102,6 +1197,7 @@ function _buildBetTypes() {
     {
       label:     'SPREAD',
       betLabelColor: '#a78bfa',  // bright violet
+      linesType: 'spread',
       leftKey:   'away_spread',  rightKey:   'home_spread',
       leftName:  awayName,       rightName:  homeName,
       leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
@@ -1113,6 +1209,7 @@ function _buildBetTypes() {
     {
       label:     'TOTAL',
       betLabelColor: '#fbbf24',  // bright amber
+      linesType: 'total',
       leftKey:   'under',        rightKey:   'over',
       leftName:  'Under',        rightName:  'Over',
       leftColor: OU_COLOR_UNDER, rightColor: OU_COLOR_OVER,
@@ -1148,7 +1245,7 @@ function renderSentiment() {
   // wrapper here.
   const blocks = betTypes.map(bt => {
     const { leftPct, rightPct } = pbPair(bt.leftKey, bt.rightKey);
-    return cappingGauge({
+    return `<div class="ca-gauge-slide" data-bt="${bt.linesType}">` + cappingGauge({
       betLabel:            bt.label,
       betLabelColor:       bt.betLabelColor,
       leftLabel:           bt.leftName,
@@ -1161,10 +1258,11 @@ function renderSentiment() {
       rightColorSecondary: bt.rightColorSecondary,
       centerLine:          bt.centerLine,
       size: 'md',
-    });
+    }) + '</div>';
   }).join('');
 
   cardsEl.innerHTML = `<div class="ca-senti-gauges">${blocks}</div>`;
+  _afterGaugeRender();
 
   if (footerEl) footerEl.textContent = '';
 }
@@ -1194,7 +1292,7 @@ function renderCommunity() {
 
   const blocks = betTypes.map(bt => {
     const { leftPct, rightPct } = votePair(bt.leftKey, bt.rightKey);
-    return cappingGauge({
+    return `<div class="ca-gauge-slide" data-bt="${bt.linesType}">` + cappingGauge({
       betLabel:            bt.label,
       betLabelColor:       bt.betLabelColor,
       leftLabel:           bt.leftName,
@@ -1211,7 +1309,7 @@ function renderCommunity() {
       votable,
       leftSlot:  bt.leftKey,            rightSlot:  bt.rightKey,
       leftVoted: !!userVote[bt.leftKey], rightVoted: !!userVote[bt.rightKey],
-    });
+    }) + '</div>';
   }).join('');
 
   const totalHdr = totalVotes > 0
@@ -1221,6 +1319,7 @@ function renderCommunity() {
     <div class="ca-cmty-sub-hdr">Community votes ${totalHdr}</div>
     ${_buildVoteLead(votable)}
     <div class="ca-senti-gauges">${blocks}</div>`;
+  _afterGaugeRender();
 
   // Button rows removed — the gauge chips are the vote buttons now.
   if (votesEl) votesEl.innerHTML = '';
