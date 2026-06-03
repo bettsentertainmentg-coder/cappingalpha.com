@@ -815,13 +815,32 @@ function _scrollCarouselsTo(type, { exceptRow = null, behavior = 'smooth' } = {}
   _carouselReleaseT = setTimeout(() => { _carouselSyncing = false; }, 460);
 }
 
+// Coverflow: each slide rotates/scales by how far it is from center, so the
+// off-center gauges look like they spin away behind the active one.
+function _applyCoverflow(row) {
+  if (!_isPhone()) return;
+  const mid = row.scrollLeft + row.clientWidth / 2;
+  row.querySelectorAll('.ca-gauge-slide').forEach(s => {
+    const c = s.offsetLeft + s.offsetWidth / 2;
+    const r = Math.max(-1.7, Math.min(1.7, (c - mid) / s.offsetWidth));
+    const rot   = (-r * 42).toFixed(1);
+    const scale = (1 - Math.min(Math.abs(r) * 0.22, 0.46)).toFixed(3);
+    const op    = (1 - Math.min(Math.abs(r) * 0.5, 0.62)).toFixed(2);
+    s.style.transform = `perspective(820px) rotateY(${rot}deg) scale(${scale})`;
+    s.style.opacity   = op;
+    s.style.zIndex    = String(100 - Math.round(Math.abs(r) * 10));
+  });
+}
+
 function _setupCarousels() {
   document.querySelectorAll('.ca-senti-gauges').forEach(row => {
     if (row._cagWired) return;
     row._cagWired = true;
-    let t;
+    let t, raf = 0;
     row.addEventListener('scroll', () => {
       if (!_isPhone()) return;
+      // Per-frame coverflow while scrolling, throttled to one rAF.
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; _applyCoverflow(row); });
       clearTimeout(t);
       t = setTimeout(() => {
         const s = _centeredSlide(row);
@@ -855,7 +874,12 @@ function _syncSlotGrid(type) {
 function _afterGaugeRender() {
   _setupCarousels();
   _markActiveSlides(_linesType);
-  if (_isPhone()) requestAnimationFrame(() => _scrollCarouselsTo(_linesType, { behavior: 'auto' }));
+  if (_isPhone()) {
+    requestAnimationFrame(() => {
+      _scrollCarouselsTo(_linesType, { behavior: 'auto' });
+      requestAnimationFrame(() => document.querySelectorAll('.ca-senti-gauges').forEach(_applyCoverflow));
+    });
+  }
 }
 
 function setLinesType(type, sourceRow = null) {

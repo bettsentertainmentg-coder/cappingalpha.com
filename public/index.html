@@ -1084,13 +1084,32 @@
       .ca-hamburger { display: flex; align-items: center; }
       nav .nav-tabs  { display: none; }
 
+      /* Single-column, but flatten the sidebar/main wrappers so every section
+         is a direct flex child and we can interleave them with `order`:
+         Top Games → My Sports → #1 Pick → Headlines → Today's Picks → Games. */
       .ca-home-grid {
-        grid-template-columns: 1fr;
+        display: flex;
+        flex-direction: column;
         padding: 16px 12px 48px;
         gap: 16px;
       }
-      .ca-home-sidebar { position: static; order: 2; }
-      .ca-home-main    { order: 1; }
+      .ca-home-sidebar,
+      .ca-home-main { display: contents; position: static; }
+
+      #ca-top-games-section { order: 1; }
+      #ca-my-sports-section { order: 2; }
+      #ca-top-pick-slot     { order: 3; }
+      #ca-headlines-section { order: 4; }
+      #ca-mvp-home-section  { order: 5; }
+      /* Today's Games list (sidebar) drops to the bottom */
+      .ca-home-sidebar .ca-sidebar-section-header { order: 6; margin-top: 0; }
+      #ca-sidebar-sport-tabs { order: 6; }
+      .ca-sidebar-games-card { order: 6; }
+
+      /* Make the #1 pick read as a headline card on phones. */
+      #ca-top-pick-slot .ca-tp-title { font-size: 23px; }
+      #ca-top-pick-slot .ca-tp-team  { font-size: 34px; }
+      #ca-top-pick-slot .ca-tp-sub   { font-size: 15px; }
 
       /* My Sports chips: one swipeable row instead of wrapping, page still
          scrolls vertically; chips stay put and scroll sideways. */
@@ -1174,7 +1193,7 @@
         </div>
 
         <!-- MVP P/L Widget -->
-        <div class="ca-home-section">
+        <div class="ca-home-section" id="ca-mvp-home-section">
           <div class="ca-home-section-header">
             <span class="ca-home-section-title">MVP Picks</span>
             <a class="ca-home-section-link" onclick="switchTab('mvp')">View all ↗</a>

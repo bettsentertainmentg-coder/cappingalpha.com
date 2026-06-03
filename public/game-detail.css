@@ -37,6 +37,12 @@
   --bg-deep: #0a0d13;
 }
 
+html, body {
+  /* Lock the page horizontally so only the inner carousels/tables scroll
+     sideways — the page itself stays centered, no drifting edges. */
+  max-width: 100%;
+  overflow-x: hidden;
+}
 body {
   font-family: 'Source Sans Pro', system-ui, sans-serif;
   background: var(--bg);
@@ -915,16 +921,18 @@ nav {
   }
   .ca-senti-gauges::-webkit-scrollbar { display: none; }
 
+  /* Transform + opacity are driven per-frame by _applyCoverflow() in JS, so the
+     off-center gauges rotate/scale away as you swipe. */
   .ca-gauge-slide {
     display: flex;
     justify-content: center;
     flex: 0 0 62%;
     scroll-snap-align: center;
-    transform: scale(0.82);
-    opacity: 0.5;
-    transition: transform .25s ease, opacity .25s ease;
+    transform-origin: center center;
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+    opacity: 0.5;                 /* pre-JS baseline; JS overrides immediately */
   }
-  .ca-gauge-slide.is-active { transform: scale(1); opacity: 1; }
   .ca-gauge-slide .cag-block { width: 100%; max-width: 210px; }
 }
 

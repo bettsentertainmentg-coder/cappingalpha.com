@@ -172,6 +172,14 @@
   border-color: rgba(255, 255, 255, 0.07) !important;
 }
 
+/* Phones: push the two %s out to the very edges so they clear the center line
+   value (e.g. SPREAD's -4.5) instead of mushing into it. */
+@media (max-width: 720px) {
+  .cag-pct-row { padding: 0; gap: 2px; }
+  .cag-side-pct-l { padding-left: 1px; }
+  .cag-side-pct-r { padding-right: 1px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cag-needle { animation: none; transform: rotate(var(--target-deg, 0deg)); }
 }
