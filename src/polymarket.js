@@ -53,8 +53,9 @@ async function _syncGames(games) {
   for (const [tag, sportGames] of Object.entries(bySport)) {
     try {
       // The 'tennis' tag has 100+ active events (and the API caps at 100/page),
-      // so page through a few to make sure today's top-tier matches are covered.
-      const pages  = tag === 'tennis' ? 3 : 1;
+      // so page through several to cover today's AND upcoming matches. Free API,
+      // generous rate limit — extra pages are cheap.
+      const pages  = tag === 'tennis' ? 6 : 1;
       const events = await fetchEvents(tag, pages);
       if (!events.length) continue;
 
