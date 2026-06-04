@@ -582,7 +582,11 @@
       gap: 14px; text-align: center;
       pointer-events: none;
     }
-    .esports-construction-icon { font-size: 40px; opacity: 0.6; }
+    .esports-construction-icon { font-size: 40px; opacity: 0.6; cursor: pointer; pointer-events: auto; user-select: none; }
+    /* Easter egg: 5 helmet clicks unlocks the page for preview/editing */
+    #panel-esports.unlocked .esports-construction-overlay { display: none; }
+    #panel-esports.unlocked .hero,
+    #panel-esports.unlocked .container { filter: none; pointer-events: auto; }
     .esports-construction-title {
       font-size: 22px; font-weight: 700; color: #e2e8f0;
     }
@@ -1434,7 +1438,7 @@
   <!-- ── Tab 4: Esports ── -->
   <div id="panel-esports" class="tab-panel">
     <div class="esports-construction-overlay">
-      <div class="esports-construction-icon"><i class="fa-solid fa-helmet-safety"></i></div>
+      <div class="esports-construction-icon" id="esports-helmet" title=""><i class="fa-solid fa-helmet-safety"></i></div>
       <div class="esports-construction-title">Coming Soon</div>
       <div class="esports-construction-sub">Esports data integration is under construction. Pick tracking and live match signals launching soon.</div>
       <div class="esports-construction-badge"><i class="fa-solid fa-clock"></i> In Development</div>

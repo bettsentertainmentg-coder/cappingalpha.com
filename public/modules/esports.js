@@ -13,7 +13,33 @@ const ESPORTS_GAMES = [
   { rank: 10, name: 'PUBG Esports',       short: 'PUBG', genre: 'Battle Royale', grad: 'linear-gradient(135deg,#0a1628 0%,#1c3a5e 50%,#f5c518 100%)',   icon: 'fa-solid fa-circle-dot',      color: '#f5c518' },
 ];
 
+function unlockEsports() {
+  const panel = document.getElementById('panel-esports');
+  if (panel) panel.classList.add('unlocked');
+}
+
+// Easter egg: click the construction helmet 5 times to preview/edit the page.
+// Stays unlocked for the session so a refresh keeps it open.
+function wireHelmetUnlock() {
+  if (sessionStorage.getItem('esportsUnlocked') === '1') {
+    unlockEsports();
+    return;
+  }
+  const helmet = document.getElementById('esports-helmet');
+  if (!helmet || helmet.dataset.wired) return;
+  helmet.dataset.wired = '1';
+  let clicks = 0;
+  helmet.addEventListener('click', () => {
+    clicks += 1;
+    if (clicks >= 5) {
+      sessionStorage.setItem('esportsUnlocked', '1');
+      unlockEsports();
+    }
+  });
+}
+
 export function renderEsports() {
+  wireHelmetUnlock();
   const grid = document.getElementById('esports-grid');
   if (!grid) return;
 
