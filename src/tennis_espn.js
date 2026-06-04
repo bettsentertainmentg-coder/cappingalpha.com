@@ -64,6 +64,12 @@ function upsertTennisMatch(comp, sportLabel) {
     return;
   }
 
+  // Skip future-round bracket slots whose players are not yet determined — ESPN
+  // returns these as "TBD". They would otherwise flood today_games with empty
+  // "TBD vs TBD" rows and crowd out the real matches on the home/schedule views.
+  const _isTbd = (n) => n.trim().toUpperCase() === 'TBD';
+  if (_isTbd(homeDisplay) || _isTbd(awayDisplay)) return;
+
   // Status gate: only treat a match as 'post' (gradeable) when ESPN flags it truly
   // completed. Postponed / suspended / canceled / delayed matches can carry state='post'
   // with zero or partial games — those must NOT enter the grading query. Downgrade them
@@ -120,6 +126,14 @@ function upsertTennisMatch(comp, sportLabel) {
       status               = excluded.status,
       period               = excluded.period,
       clock                = excluded.clock,
+      home_team            = excluded.home_team,
+      home_short           = excluded.home_short,
+      home_name            = excluded.home_name,
+      home_abbr            = excluded.home_abbr,
+      away_team            = excluded.away_team,
+      away_short           = excluded.away_short,
+      away_name            = excluded.away_name,
+      away_abbr            = excluded.away_abbr,
       home_score           = excluded.home_score,
       away_score           = excluded.away_score,
       tennis_home_games    = excluded.tennis_home_games,
@@ -174,15 +188,24 @@ function extractMatches(tournamentEvent) {
 
 // ── Fetch today's ATP + WTA matches, upsert into today_games ─────────────────
 async function fetchTodaysTennisMatches() {
-  const dateStr = getCycleDate().replace(/-/g, ''); // YYYYMMDD
+  const todayET = getCycleDate();              // YYYY-MM-DD
+  const dateStr = todayET.replace(/-/g, '');   // YYYYMMDD
 
   let total = 0;
   for (const { path, label } of TENNIS_SPORTS) {
     try {
+      // ESPN returns the ENTIRE tournament draw (every round, every date) for a
+      // Grand Slam regardless of the dates= param, so filter down to matches that
+      // are still relevant today: drop earlier rounds that already finished on a
+      // prior day. Keep today's matches and anything not yet completed (which
+      // includes carried-over postponed matches that haven't been graded).
       const events = await fetchScoreboardForDate(path, dateStr);
       let count = 0;
       for (const tournament of events) {
         for (const comp of extractMatches(tournament)) {
+          const compDate  = (comp.date || '').slice(0, 10);
+          const completed = comp.status?.type?.completed === true;
+          if (completed && compDate && compDate < todayET) continue;
           upsertTennisMatch(comp, label);
           count++;
         }

@@ -266,9 +266,11 @@ app.get('/api/pick-history', (req, res) => {
 // GET /api/games — today's games for schedule widget, optional ?sport= filter
 app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
+  // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
+  const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
   const rows = sport
-    ? db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games WHERE UPPER(sport) = UPPER(?) ORDER BY start_time ASC`).all(sport)
-    : db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games ORDER BY start_time ASC`).all();
+    ? db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
+    : db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
   res.json(rows);
 });
 
@@ -306,6 +308,14 @@ app.get('/api/games/top', (req, res) => {
     candidates = candidates.filter(g => want.includes((g.sport || '').toUpperCase()));
   }
 
+  // Drop bracket placeholders — future-round tennis slots whose players are not
+  // yet determined come back from ESPN as "TBD vs TBD" and must never be featured.
+  candidates = candidates.filter(g => {
+    const h = (g.home_team || '').trim().toUpperCase();
+    const a = (g.away_team || '').trim().toUpperCase();
+    return h && a && h !== 'TBD' && a !== 'TBD';
+  });
+
   // Collapse a multi-game series (e.g. a 3-game set, same two teams on
   // consecutive days) down to one tile per matchup — prefer the live/today
   // game, otherwise the soonest upcoming one.
@@ -324,14 +334,20 @@ app.get('/api/games/top', (req, res) => {
 
   if (!candidates.length) return res.json([]);
 
-  // Polymarket (USD) and Kalshi (contracts) are different scales — normalize each
-  // by its max across today's slate (0–1), then sum for a fair "market hotness".
+  // Polymarket (USD) and Kalshi (contracts) live on different scales — normalize
+  // each to 0–1 against today's slate, then AVERAGE only the sources that actually
+  // matched this game. Averaging present sources (instead of summing with a missing
+  // source counted as 0) stops a marquee game that dominates one market but is
+  // absent from the other from losing to a minor game that merely tops the smaller
+  // market. e.g. an NBA Finals game with $22M Polymarket volume and no Kalshi match
+  // should still outrank a regular MLB game that happens to lead the Kalshi column.
   const maxPm = Math.max(0, ...candidates.map(g => g.pm_vol || 0));
   const maxK  = Math.max(0, ...candidates.map(g => g.k_vol  || 0));
   for (const g of candidates) {
-    const pmN = maxPm > 0 ? (g.pm_vol || 0) / maxPm : 0;
-    const kN  = maxK  > 0 ? (g.k_vol  || 0) / maxK  : 0;
-    g._hotness = pmN + kN;
+    const parts = [];
+    if (g.pm_vol != null && maxPm > 0) parts.push(g.pm_vol / maxPm);
+    if (g.k_vol  != null && maxK  > 0) parts.push(g.k_vol  / maxK);
+    g._hotness = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
   }
 
   // Fallback before market data syncs in the morning: order by start time so the
