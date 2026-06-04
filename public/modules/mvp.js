@@ -150,7 +150,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
           </div>
           <div class="unit-input-row">
             <label for="unit-size">Unit: $</label>
-            <input type="number" id="unit-size" value="10" min="1" oninput="redrawGraph()" />
+            <input type="number" id="unit-size" value="${parseFloat(state.CONFIG?.bet_unit) || 10}" min="1" oninput="redrawGraph()" />
           </div>
         </div>
       </div>
@@ -290,7 +290,7 @@ function calcReturn(pick, unit) {
 
 // ── MVP tab P/L graph ─────────────────────────────────────────────────────────
 export function drawPlGraph(picks) {
-  const unit = parseFloat(document.getElementById('unit-size')?.value) || 10;
+  const unit = parseFloat(document.getElementById('unit-size')?.value) || parseFloat(state.CONFIG?.bet_unit) || 10;
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
@@ -547,7 +547,7 @@ export async function loadHomeMvp() {
 }
 
 function drawHomeGraph(picks) {
-  const unit = parseFloat(document.getElementById('home-unit-size')?.value) || 10;
+  const unit = parseFloat(document.getElementById('home-unit-size')?.value) || parseFloat(state.CONFIG?.bet_unit) || 10;
   const days = RANGE_DAYS[_homeRange] ?? Infinity;
 
   const resolved = (picks || [])

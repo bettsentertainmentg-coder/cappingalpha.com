@@ -143,6 +143,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const activeTab = req.query.tab || 'picks';
   const today = getCycleDate();
   const mvpDisplayThreshold = parseInt(db.getSetting('mvp_display_threshold', 50), 10);
+  const betUnit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
 
   // ── Picks panel ─────────────────────────────────────────────────────────────
   const picks = db.prepare(`
@@ -742,6 +743,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <button onclick="saveThreshold()" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;">Save &amp; Apply</button>
         <span id="threshold-status" style="font-size:12px;color:#8892a4;"></span>
         <span style="margin-left:auto;font-size:11px;color:#3b4560;">Changes what shows on the public MVP page and chart. Save threshold = ${MVP_THRESHOLD} pts (unchanged).</span>
+      </div>
+      <div style="background:#1a1f2e;border:1px solid #2a3a5c;border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <span style="font-size:12px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;">Bet Size</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#8892a4;font-size:13px;">$</span>
+          <input type="number" id="bet-unit-input" value="${betUnit}" min="1" max="10000" step="1"
+            style="width:80px;background:#0f1117;border:1px solid #3b4560;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:14px;font-weight:700;text-align:center;" />
+          <span style="color:#8892a4;font-size:13px;">flat unit</span>
+        </div>
+        <button onclick="saveBetUnit()" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;">Save &amp; Apply</button>
+        <span id="bet-unit-status" style="font-size:12px;color:#8892a4;"></span>
+        <span style="margin-left:auto;font-size:11px;color:#3b4560;">Sets the hypothetical bet size shown on the #1 pick card and used for all MVP P/L math.</span>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:14px 16px;">
         <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Date</label>
@@ -1390,6 +1403,32 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const d = await r.json();
         if (d.ok) {
           status.textContent = 'Saved. Reload to see updated table.';
+          status.style.color = '#16a34a';
+        } else {
+          status.textContent = 'Error: ' + (d.error || 'unknown');
+          status.style.color = '#ef4444';
+        }
+      }
+
+      // ── Bet size (flat unit) ────────────────────────────────────────────────────
+      async function saveBetUnit() {
+        const val = parseFloat(document.getElementById('bet-unit-input').value);
+        const status = document.getElementById('bet-unit-status');
+        if (isNaN(val) || val < 1 || val > 10000) {
+          status.textContent = 'Invalid value (1–10000).';
+          status.style.color = '#ef4444';
+          return;
+        }
+        status.textContent = 'Saving...';
+        status.style.color = '#8892a4';
+        const r = await fetch('/admin/bet-unit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unit: val }),
+        });
+        const d = await r.json();
+        if (d.ok) {
+          status.textContent = 'Saved. Reload the public site to see it.';
           status.style.color = '#16a34a';
         } else {
           status.textContent = 'Error: ' + (d.error || 'unknown');
@@ -2236,6 +2275,13 @@ router.post('/mvp-threshold', requireAuth, express.json(), (req, res) => {
   if (isNaN(val) || val < 0 || val > 200) return res.json({ ok: false, error: 'Must be 0–200' });
   db.setSetting('mvp_display_threshold', val);
   res.json({ ok: true, threshold: val });
+});
+
+router.post('/bet-unit', requireAuth, express.json(), (req, res) => {
+  const val = parseFloat(req.body?.unit);
+  if (isNaN(val) || val < 1 || val > 10000) return res.json({ ok: false, error: 'Must be 1–10000' });
+  db.setSetting('bet_unit', val);
+  res.json({ ok: true, unit: val });
 });
 
 router.post('/capper-alias', requireAuth, express.json(), (req, res) => {

@@ -112,6 +112,129 @@ function evaluatePick(pick, game) {
   return 'pending';
 }
 
+// ── Evaluate a single VOTE against final scores ───────────────────────────────
+// Self-contained: the picked side is read straight from pick_slot, so a vote
+// grades even when no capper backed that slot. `line` is the spread/total the
+// vote needs (null for moneyline). `game` carries final scores + sport.
+function evaluateVote(slot, line, game) {
+  if (game.status && game.status !== 'post') return 'pending';
+  const isTennis = ['atp', 'wta'].includes((game.sport || '').toLowerCase());
+  const hs = game.home_score, as = game.away_score;
+  if (hs == null || as == null) return 'pending';
+
+  // Tennis all-zeros guard — incomplete snapshot, refuse to grade yet.
+  if (isTennis) {
+    const noSets  = (hs === 0 || hs == null) && (as === 0 || as == null);
+    const noGames = (game.tennis_home_games == null || game.tennis_home_games === 0) &&
+                    (game.tennis_away_games == null || game.tennis_away_games === 0);
+    if (noSets && noGames) return 'pending';
+  }
+
+  const pickedHome = slot === 'home_ml' || slot === 'home_spread';
+
+  if (slot === 'home_ml' || slot === 'away_ml') {
+    const margin = pickedHome ? hs - as : as - hs;
+    return margin > 0 ? 'win' : margin < 0 ? 'loss' : 'push';
+  }
+
+  if (slot === 'home_spread' || slot === 'away_spread') {
+    if (line == null) return 'pending';
+    let margin;
+    if (isTennis) {
+      if (game.tennis_home_games == null) return 'pending';
+      const hg = game.tennis_home_games, ag = game.tennis_away_games;
+      margin = pickedHome ? hg - ag : ag - hg;
+    } else {
+      margin = pickedHome ? hs - as : as - hs;
+    }
+    const covered = margin + line;
+    return covered > 0 ? 'win' : covered < 0 ? 'loss' : 'push';
+  }
+
+  if (slot === 'over' || slot === 'under') {
+    if (line == null) return 'pending';
+    if (isTennis && game.tennis_home_games == null) return 'pending';
+    const total = isTennis
+      ? ((game.tennis_home_games ?? 0) + (game.tennis_away_games ?? 0))
+      : hs + as;
+    if (slot === 'over')  return total > line ? 'win' : total < line ? 'loss' : 'push';
+    return total < line ? 'win' : total > line ? 'loss' : 'push';
+  }
+
+  return 'pending';
+}
+
+// Pick the line a vote needs from whatever snapshot/live columns are available.
+function lineForVote(slot, row) {
+  if (slot === 'home_spread') return row.vote_spread ?? row.spread_home ?? null;
+  if (slot === 'away_spread') return row.vote_spread ?? row.spread_away ?? null;
+  if (slot === 'over' || slot === 'under') return row.vote_spread ?? row.over_under ?? null;
+  return null; // moneyline
+}
+
+// ── Resolve ALL votes independently of cappers ────────────────────────────────
+// Grades game_votes straight from final scores so a user's voted P/L is complete
+// whether or not a capper picked the same slot. Writes result back into
+// game_votes (which survives the daily wipe via its snapshot columns).
+async function resolveVotes() {
+  let resolved = 0;
+
+  // ── Pass A: game still in today_games (same-day, pre-wipe) ────────────────
+  const liveVotes = db.prepare(`
+    SELECT DISTINCT gv.espn_game_id, gv.pick_slot, gv.spread AS vote_spread,
+           tg.sport, tg.status, tg.home_score, tg.away_score,
+           tg.spread_home, tg.spread_away, tg.over_under,
+           tg.tennis_home_games, tg.tennis_away_games
+    FROM game_votes gv
+    JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
+    WHERE tg.status = 'post' AND gv.result = 'pending'
+  `).all();
+
+  for (const v of liveVotes) {
+    const result = evaluateVote(v.pick_slot, lineForVote(v.pick_slot, v), v);
+    if (result === 'pending') continue;
+    db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+      .run(result, v.espn_game_id, v.pick_slot);
+    resolved++;
+  }
+
+  // ── Pass B: game wiped from today_games — fetch final from ESPN ───────────
+  // Only the vote's own snapshot line is available here, so spread/total votes
+  // grade only if the line was captured at vote time; moneyline always grades.
+  const staleVotes = db.prepare(`
+    SELECT DISTINCT gv.espn_game_id, gv.pick_slot, gv.spread AS vote_spread,
+           gv.sport, gv.voted_at
+    FROM game_votes gv
+    LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
+    WHERE gv.result = 'pending'
+      AND gv.espn_game_id IS NOT NULL
+      AND tg.espn_game_id IS NULL
+  `).all();
+
+  const gameCache = new Map();   // espn_game_id -> gameData | null
+  for (const v of staleVotes) {
+    if (!v.sport) continue;      // can't pick the ESPN sport path without it
+    const key = v.espn_game_id;
+    let gameData;
+    if (gameCache.has(key)) {
+      gameData = gameCache.get(key);
+    } else {
+      const gameDate = (v.voted_at || '').slice(0, 10) || null;
+      gameData = await fetchGameResult(v.espn_game_id, v.sport, gameDate);
+      gameCache.set(key, gameData);
+    }
+    if (!gameData) continue;
+    const result = evaluateVote(v.pick_slot, lineForVote(v.pick_slot, v), gameData);
+    if (result === 'pending') continue;
+    db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+      .run(result, v.espn_game_id, v.pick_slot);
+    resolved++;
+  }
+
+  if (resolved > 0) console.log(`[results] Resolved ${resolved} vote results`);
+  return resolved;
+}
+
 // ── Fetch final score for a stale game directly from ESPN API ─────────────────
 const SPORT_PATH = {
   MLB:   'baseball/mlb',
@@ -449,4 +572,4 @@ async function resolveResults() {
   return resolved;
 }
 
-module.exports = { resolveResults };
+module.exports = { resolveResults, resolveVotes };

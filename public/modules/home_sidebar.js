@@ -4,6 +4,7 @@
 
 import { isViewer } from './auth.js';
 import { gameTime } from './utils.js';
+import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
 let _sidebarGames = [];
@@ -34,10 +35,11 @@ async function _renderTopPick() {
     const sport = pick.sport ? ` · ${pick.sport}` : '';
 
     // ── P/L block (only when there's enough resolved history) ─────────────────
+    const betUnit = parseFloat(state.CONFIG?.bet_unit) || 10;
     const best = _bestWindow(_resolvedMvp(mvp && mvp.picks));
     let plHtml = '', plSeries = null;
     if (best) {
-      const s    = plSeries = _series(best.picks, 10);
+      const s    = plSeries = _series(best.picks, betUnit);
       const sign = s.total >= 0 ? 'pos' : 'neg';
       const amt  = (s.total >= 0 ? '+' : '') + '$' + Math.abs(s.total).toFixed(2);
       const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
@@ -47,6 +49,7 @@ async function _renderTopPick() {
           <span class="graph-pl-label ${sign}">${amt}</span>
         </div>
         <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
+        <div class="ca-tp-betsize">Based on a flat $${betUnit} bet size</div>
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>

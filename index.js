@@ -29,7 +29,7 @@ const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tenn
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames, updateWnbaLiveScores }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
-const { resolveResults }   = require('./src/results');
+const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate }                                = require('./src/cycle');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
@@ -157,7 +157,8 @@ app.get('/api/headlines', async (req, res) => {
 // NOTE: channel_points intentionally excluded — exposes Discord channel names + weights
 app.get('/api/config', (req, res) => {
   const displayThreshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
-  res.json({ mvp_threshold: MVP_THRESHOLD, mvp_display_threshold: displayThreshold });
+  const betUnit = parseFloat(getSetting('bet_unit', 10)) || 10;
+  res.json({ mvp_threshold: MVP_THRESHOLD, mvp_display_threshold: displayThreshold, bet_unit: betUnit });
 });
 
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
@@ -476,7 +477,7 @@ app.get('/api/account', (req, res) => {
            COALESCE(gv.ml_away,      tg.ml_away)      AS ml_away,
            COALESCE(gv.ou_over_odds, tg.ou_over_odds) AS ou_over_odds,
            COALESCE(gv.ou_under_odds,tg.ou_under_odds)AS ou_under_odds,
-           p.score, p.mention_count,
+           COALESCE(p.score, gv.score) AS score, p.mention_count,
            COALESCE(p.result, gv.result) AS result,
            p.pick_type, p.team,
            COALESCE(gv.spread, p.spread) AS spread
@@ -635,14 +636,20 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   try {
     db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
       .run(userId, espn_game_id, paired);
-    // Snapshot game metadata at vote time so it persists past the daily wipe
+    // Snapshot game metadata at vote time so it persists past the daily wipe.
+    // `spread` stores the slot-relevant line (spread for spread slots, total for
+    // O/U slots) so the vote can grade itself even after today_games is wiped.
+    const voteLine = slot === 'home_spread' ? game.spread_home
+                   : slot === 'away_spread' ? game.spread_away
+                   : (slot === 'over' || slot === 'under') ? game.over_under
+                   : null;
     db.prepare(`
       INSERT OR IGNORE INTO game_votes
-        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds, spread)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(userId, espn_game_id, slot,
            game.home_team, game.away_team, game.sport,
-           game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds);
+           game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds, voteLine);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -994,6 +1001,7 @@ app.listen(PORT, () => {
 
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
+  await resolveVotes().catch(err => console.error('[startup] resolveVotes error:', err.message));
 
   // Immediately seed public betting % — no API credits, just HTML scrape.
   // Runs unconditionally on startup so data is always fresh after a restart.
@@ -1025,6 +1033,7 @@ if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   console.log('[cron] 4:58am — pre-wipe final resolve');
   stampActualEnds();
   await resolveResults().catch(err => console.error('[cron] pre-wipe resolve error:', err.message));
+  await resolveVotes().catch(err => console.error('[cron] pre-wipe resolveVotes error:', err.message));
   // Last-chance MVP snapshot before today_games + caches are wiped.
   try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] pre-wipe mvp snapshot:', e.message); }
   console.log('[cron] 4:58am — daily reset (per-game prune + operational tables)');
@@ -1139,6 +1148,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // per-game prune's grace tail.
   stampActualEnds();
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
+  await resolveVotes().catch(err => console.error('[cron] resolveVotes error:', err.message));
   // Freeze the detail bundle for any MVP game that just started — the enrichment
   // caches still hold the final pre-game values (market syncs stop at 'pre').
   try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] mvp snapshot:', e.message); }
