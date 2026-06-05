@@ -1985,7 +1985,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
       applyFilters();
 
       // ── Cappers panel ──────────────────────────────────────────────────────────
-      // One-click merge from a Suggested Match row.
+      // One-click merge from a Suggested Match row. Stays in place (no reload)
+      // so the page doesn't jump to the top while working through the list.
       async function quickMerge(btn) {
         const canonical = btn.getAttribute('data-canon');
         const alias     = btn.getAttribute('data-alias');
@@ -1994,7 +1995,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         try {
           const res  = await fetch('/admin/capper-alias', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical, alias }) });
           const data = await res.json();
-          if (data.ok) { location.href = '/admin/dashboard?tab=cappers'; return; }
+          if (data.ok) {
+            const row = btn.closest('tr');
+            if (row) {
+              row.style.transition = 'opacity .2s';
+              row.style.opacity = '0.4';
+              const act = row.lastElementChild;
+              if (act) act.innerHTML = '<span style="color:#16a34a;font-size:12px;font-weight:700;">✓ Merged</span>';
+            }
+            return;
+          }
           btn.disabled = false; btn.textContent = 'Match';
           alert('Error: ' + (data.error || 'Could not merge'));
         } catch (e) {
@@ -2012,7 +2022,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const res  = await fetch('/admin/capper-alias', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical, alias }) });
         const data = await res.json();
         if (data.ok) {
-          location.href = '/admin/dashboard?tab=cappers';
+          msg.textContent = '✓ Merged "' + alias + '" into "' + canonical + '". It updates on the leaderboard next refresh.';
+          msg.style.color = '#16a34a';
+          document.getElementById('alias-canonical').value = '';
+          document.getElementById('alias-alias').value = '';
         } else {
           msg.textContent = 'Error: ' + (data.error || 'Unknown error');
           msg.style.color = '#ef4444';
@@ -2059,8 +2072,31 @@ router.get('/dashboard', requireAuth, (req, res) => {
         modal.style.display = 'flex';
         content.innerHTML = '<div style="color:#8892a4;text-align:center;padding:40px;">Loading...</div>';
         try {
-          const data  = await fetch('/admin/api/capper-detail/' + encodeURIComponent(name)).then(r => r.json());
+          const data = await fetch('/admin/api/capper-detail/' + encodeURIComponent(name)).then(r => r.json());
+          renderCapperDetail(name, data);
+        } catch (_) {
+          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
+        }
+      }
+
+      // Scan button: re-resolve finished games, then re-render with fresh data.
+      async function scanCapper(name, btn) {
+        if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
+        try {
+          const data = await fetch('/admin/api/capper-scan/' + encodeURIComponent(name), { method: 'POST' }).then(r => r.json());
+          renderCapperDetail(name, data);
+        } catch (_) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Scan & Update'; }
+          alert('Scan failed. Try again.');
+        }
+      }
+
+      function renderCapperDetail(name, data) {
+        const content = document.getElementById('capper-modal-content');
+        try {
           const picks = data.picks || [];
+          const MVP   = data.mvpThreshold  || 50;
+          const HIGH  = data.highThreshold || 35;
           const wins    = picks.filter(p => p.result === 'win').length;
           const losses  = picks.filter(p => p.result === 'loss').length;
           const pushes  = picks.filter(p => p.result === 'push').length;
@@ -2086,9 +2122,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
           }
           const money = (v) => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
           const moneyColor = (v) => v > 0.005 ? '#16a34a' : v < -0.005 ? '#ef4444' : '#8892a4';
+          const scoreColor = (s) => s == null ? '#8892a4' : s >= MVP ? '#FFD700' : s >= HIGH ? '#f59e0b' : '#8892a4';
 
           let totalMoney = 0;
           const sportAgg = {}; // sport -> { wins, losses, pushes, money }
+          const mvpList = [];  // picks that became MVPs (50+)
+          const highList = []; // strong picks 35-49 (not MVP)
           let pickRows = '';
           for (const p of picks) {
             const c    = rColor[(p.result || 'pending').toLowerCase()] || '#8892a4';
@@ -2115,6 +2154,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
             else if (rl === 'push') sportAgg[s].pushes++;
             if (settled) sportAgg[s].money += prof;
 
+            const scoreNum = (p.score != null && !isNaN(parseFloat(p.score))) ? Math.round(parseFloat(p.score)) : null;
+            if (p.is_mvp) mvpList.push(p);
+            else if (scoreNum != null && scoreNum >= HIGH) highList.push(p);
+            const star = p.is_mvp ? ' \u2605' : '';
+            const scoreCell = scoreNum != null
+              ? '<span style="color:' + scoreColor(scoreNum) + ';font-weight:700;">' + scoreNum + star + '</span>'
+              : '<span style="color:#3b4560;">\u2014</span>';
+
             pickRows +=
               '<tr>'
               + '<td style="font-size:11px;color:#8892a4;white-space:nowrap;">' + date + '</td>'
@@ -2123,6 +2170,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
               + '<td style="font-size:12px;">' + (pickDesc || '\u2014') + '</td>'
               + '<td style="font-size:11px;color:#8892a4;">' + oddsStr + '</td>'
               + '<td style="font-size:11px;color:#8892a4;">' + (p.channel || '\u2014') + '</td>'
+              + '<td style="text-align:right;font-size:12px;">' + scoreCell + '</td>'
               + '<td><span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">' + (p.result || 'pending').toUpperCase() + '</span></td>'
               + '<td style="font-size:12px;text-align:right;">' + profStr + '</td>'
               + '</tr>';
@@ -2148,21 +2196,62 @@ router.get('/dashboard', requireAuth, (req, res) => {
               + sportRows + '</tbody></table></div>'
             : '';
 
+          // Compact list for the MVP / 35+ sections.
+          function miniList(arr) {
+            return '<div style="overflow-y:auto;max-height:220px;border:1px solid #1e2330;border-radius:8px;">'
+              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th style="text-align:right;">Score</th><th>Result</th></tr></thead><tbody>'
+              + arr.map(p => {
+                  const c    = rColor[(p.result || 'pending').toLowerCase()] || '#8892a4';
+                  const date = p.game_date || (p.saved_at || '').slice(0, 10);
+                  const pt   = p.pick_type || '';
+                  const sp   = (pt === 'over' || pt === 'under') ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '') : (p.spread != null ? p.spread : '');
+                  const pickDesc = pt + (sp !== '' ? ' ' + sp : '');
+                  const sc = (p.score != null) ? Math.round(parseFloat(p.score)) : '—';
+                  return '<tr>'
+                    + '<td style="font-size:11px;color:#8892a4;white-space:nowrap;">' + date + '</td>'
+                    + '<td style="font-weight:600;">' + (p.team || '—') + '</td>'
+                    + '<td style="color:#8892a4;font-size:12px;">' + (p.sport || '—') + '</td>'
+                    + '<td style="font-size:12px;">' + (pickDesc || '—') + '</td>'
+                    + '<td style="text-align:right;font-weight:700;color:' + scoreColor(p.score) + ';">' + sc + '</td>'
+                    + '<td><span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">' + (p.result || 'pending').toUpperCase() + '</span></td>'
+                    + '</tr>';
+                }).join('')
+              + '</tbody></table></div>';
+          }
+          const mvpSectionHtml = mvpList.length
+            ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#FFD700;letter-spacing:0.5px;margin-bottom:8px;">★ MVP Picks (' + MVP + '+ pts) — ' + mvpList.length + '</div>' + miniList(mvpList) + '</div>'
+            : '';
+          const highSectionHtml = highList.length
+            ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#f59e0b;letter-spacing:0.5px;margin-bottom:8px;">Strong Picks (' + HIGH + '–' + (MVP - 1) + ' pts) — ' + highList.length + '</div>' + miniList(highList) + '</div>'
+            : '';
+
           const tableHtml  = picks.length
-            ? '<div style="overflow-y:auto;max-height:420px;">'
-              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th>Odds</th><th>Channel</th><th>Result</th><th style="text-align:right;">Profit</th></tr></thead>'
+            ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">All Picks</div>'
+              + '<div style="overflow-y:auto;max-height:420px;">'
+              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th>Odds</th><th>Channel</th><th style="text-align:right;">Score</th><th>Result</th><th style="text-align:right;">Profit</th></tr></thead>'
               + '<tbody>' + pickRows + '</tbody></table></div>'
             : '<p style="color:#8892a4;padding:16px 0;">No pick history on record yet.</p>';
+
+          const mvpChip  = '<span style="background:#FFD70022;color:#FFD700;border:1px solid #FFD70044;border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;">★ ' + mvpList.length + ' MVP</span>';
+          const highChip = '<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;">' + highList.length + ' @ ' + HIGH + '+</span>';
+
           content.innerHTML =
             '<div style="margin-bottom:20px;">'
-            + '<div style="font-size:20px;font-weight:700;margin-bottom:10px;">' + name + '</div>'
+            + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;">'
+            + '<div style="font-size:20px;font-weight:700;">' + name + '</div>'
+            + '<button class="btn-sm btn-primary" onclick="scanCapper(' + JSON.stringify(name).replace(/"/g, '&quot;') + ', this)">Scan &amp; Update</button>'
+            + '</div>'
             + '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">'
             + '<span style="font-size:18px;"><span style="color:#16a34a;font-weight:700;">' + wins + 'W</span> - <span style="color:#ef4444;font-weight:700;">' + losses + 'L</span>' + pushStr + '</span>'
             + wpStr
             + '<span style="color:' + (units >= 0 ? '#16a34a' : '#ef4444') + ';font-weight:700;">' + unitStr + ' units</span>'
             + '<span style="color:' + moneyColor(totalMoney) + ';font-weight:700;">' + money(totalMoney) + ' <span style="color:#8892a4;font-weight:400;font-size:12px;">($' + unit + '/u)</span></span>'
+            + mvpChip
+            + highChip
             + pendingStr
             + '</div></div>'
+            + mvpSectionHtml
+            + highSectionHtml
             + sportTableHtml
             + tableHtml;
         } catch (_) {
@@ -2766,18 +2855,16 @@ router.post('/patch-mvp', express.json(), (req, res) => {
   res.json({ ok: true, pick: row });
 });
 
-// ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────
-router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
-  const name = decodeURIComponent(req.params.name);
-
-  // Resolve aliases: get all name variants for this canonical name
+// Build the full capper-detail payload (used by the modal GET + the scan POST).
+// Resolves aliases both directions, then flags picks that reached MVP / 35+.
+function buildCapperDetail(name) {
   let allNames = [name];
   try {
     const aliases = db.prepare(`SELECT alias FROM capper_aliases WHERE canonical_name = ?`).all(name);
     allNames = [name, ...aliases.map(a => a.alias)];
   } catch (_) {}
 
-  // Also resolve the other direction: if `name` is itself an alias, find canonical + siblings
+  // Other direction: if `name` is itself an alias, find canonical + siblings
   try {
     const norm = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const canonical = db.prepare(
@@ -2794,8 +2881,39 @@ router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
     `SELECT * FROM capper_history WHERE capper_name IN (${ph}) ORDER BY saved_at DESC LIMIT 300`
   ).all(...allNames);
 
+  // Cross-reference mvp_picks so a pick that became a tracked MVP is flagged even
+  // if its stored score is missing. score >= MVP_THRESHOLD is the primary signal.
+  const mvpKey = (gid, team, pt) => (gid || '') + '|' + (team || '').toLowerCase() + '|' + (pt || '').toLowerCase();
+  const mvpSet = new Set();
+  try {
+    for (const r of db.prepare(`SELECT espn_game_id, team, pick_type FROM mvp_picks`).all()) {
+      mvpSet.add(mvpKey(r.espn_game_id, r.team, r.pick_type));
+    }
+  } catch (_) {}
+  for (const p of picks) {
+    p.is_mvp  = (p.score != null && p.score >= MVP_THRESHOLD) || mvpSet.has(mvpKey(p.espn_game_id, p.team, p.pick_type));
+    p.is_high = p.score != null && p.score >= 35; // includes MVPs (50+)
+  }
+
   const unit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
-  res.json({ name, picks, unit });
+  return { name, picks, unit, mvpThreshold: MVP_THRESHOLD, highThreshold: 35 };
+}
+
+// ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────
+router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
+  res.json(buildCapperDetail(decodeURIComponent(req.params.name)));
+});
+
+// ── POST /admin/api/capper-scan/:name — resolve finished games, return fresh detail ─
+router.post('/api/capper-scan/:name', requireAuth, async (req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  try {
+    const { resolveResults } = require('./results');
+    await resolveResults(); // settles any newly-finished games into capper_history
+  } catch (err) {
+    console.error('[admin] capper-scan resolve error:', err.message);
+  }
+  res.json(buildCapperDetail(name));
 });
 
 // ── POST /admin/ingest-public-betting — relay from Mac (HMAC-signed) ─────────
