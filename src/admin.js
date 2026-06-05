@@ -519,17 +519,19 @@ router.get('/dashboard', requireAuth, (req, res) => {
     .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
 
-  const sportHeaders = allSports.map(s => `<th style="white-space:nowrap;">${escHtml(s)}</th>`).join('');
+  const sportHeaders = allSports.map(s => `<th data-type="num" onclick="sortCapperLB(this)" style="white-space:nowrap;cursor:pointer;user-select:none;">${escHtml(s)}</th>`).join('');
+  const sortable = (label, type, title) =>
+    `<th data-type="${type}"${title ? ` title="${title}"` : ''} onclick="sortCapperLB(this)" style="cursor:pointer;user-select:none;">${label}</th>`;
 
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click any row to see that capper's full pick history.</p>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click a column to sort (click again to reverse). Click any row for full pick history.</p>
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        <th>#</th><th>Capper</th><th>Record</th><th>Win%</th><th>Units</th>
-        <th title="Odds-weighted profit/loss at the unit size below">Money ($${betUnit}/u)</th>
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
-        <th>Pending</th>
+        ${sortable('Pending', 'num')}
       </tr></thead>
       <tbody>${sortedCappers.map((c, i) => {
         const wpColor    = c.winPct === null ? '#8892a4' : c.winPct >= 55 ? '#16a34a' : c.winPct >= 50 ? '#f59e0b' : '#ef4444';
@@ -540,21 +542,21 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const pushStr    = c.pushes > 0 ? `-<span style="color:#8892a4;">${c.pushes}</span>` : '';
         const sportCols  = allSports.map(s => {
           const sr = c.sports[s];
-          if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td style="color:#3b4560;">—</td>`;
+          if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td data-sv="-9999" style="color:#3b4560;">—</td>`;
           const stotal = sr.wins + sr.losses + sr.pushes;
           const swp    = stotal > 0 ? Math.round((sr.wins / stotal) * 100) : null;
           const sc     = swp === null ? '#8892a4' : swp >= 55 ? '#16a34a' : swp >= 50 ? '#f59e0b' : '#ef4444';
-          return `<td style="font-size:12px;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span></td>`;
+          return `<td data-sv="${sr.wins - sr.losses}" style="font-size:12px;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span></td>`;
         }).join('');
         return `<tr class="capper-row" style="cursor:pointer;" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
-          <td style="color:#8892a4;font-size:12px;">${i + 1}</td>
-          <td style="font-weight:600;">${escHtml(c.name)}</td>
-          <td><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
-          <td style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
-          <td style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
-          <td style="color:${moneyColor};font-weight:700;">${c.total > 0 ? moneyStr : '—'}</td>
+          <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
+          <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">${escHtml(c.name)}</td>
+          <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
+          <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
+          <td data-sv="${c.units}" style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
+          <td data-sv="${c.money}" style="color:${moneyColor};font-weight:700;">${c.total > 0 ? moneyStr : '—'}</td>
           ${sportCols}
-          <td style="color:#8892a4;font-size:12px;">${c.pending || 0}</td>
+          <td data-sv="${c.pending || 0}" style="color:#8892a4;font-size:12px;">${c.pending || 0}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>
@@ -1929,6 +1931,35 @@ router.get('/dashboard', requireAuth, (req, res) => {
         if (!confirm('Delete this alias?')) return;
         await fetch('/admin/capper-alias/' + id, { method: 'DELETE' });
         location.reload();
+      }
+
+      // ── Click-to-sort the capper leaderboard ───────────────────────────────────
+      let capperSort = { col: -1, dir: -1 };
+      function sortCapperLB(th) {
+        const table = document.getElementById('capper-leaderboard');
+        if (!table) return;
+        const tbody = table.tBodies[0];
+        const col   = th.cellIndex;
+        const type  = th.getAttribute('data-type') || 'num';
+        // First click: text ascending (A->Z), numbers descending (best first).
+        // Re-clicking the same column reverses direction.
+        const dir = capperSort.col === col ? -capperSort.dir : (type === 'str' ? 1 : -1);
+        capperSort = { col, dir };
+        const rows = Array.from(tbody.rows);
+        rows.sort((a, b) => {
+          const av = a.cells[col] ? a.cells[col].getAttribute('data-sv') || '' : '';
+          const bv = b.cells[col] ? b.cells[col].getAttribute('data-sv') || '' : '';
+          const cmp = type === 'str'
+            ? String(av).localeCompare(String(bv))
+            : (parseFloat(av) || 0) - (parseFloat(bv) || 0);
+          return cmp * dir;
+        });
+        rows.forEach(r => tbody.appendChild(r));
+        // Update arrow indicators on the headers.
+        table.querySelectorAll('thead th').forEach(h => {
+          h.textContent = h.textContent.replace(/\s*[▲▼]$/, '');
+        });
+        th.textContent = th.textContent + (dir < 0 ? ' ▼' : ' ▲');
       }
 
       async function showCapperDetail(name) {
