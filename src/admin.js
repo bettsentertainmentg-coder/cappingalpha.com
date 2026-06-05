@@ -457,13 +457,27 @@ router.get('/dashboard', requireAuth, (req, res) => {
     return aliasMap.get(norm) || name;
   }
 
+  // Profit on one resolved pick at a given stake, using stored American odds.
+  // Missing odds fall back to standard juice so the bet still contributes.
+  function pickProfit(result, odds, pickType, stake) {
+    const r = (result || '').toLowerCase();
+    if (r === 'loss') return -stake;
+    if (r !== 'win')  return 0; // push / pending / void
+    let o = (odds == null || isNaN(parseFloat(odds))) ? null : parseFloat(odds);
+    if (o == null) {
+      const pt = (pickType || '').toLowerCase();
+      o = (pt === 'over' || pt === 'under') ? -115 : -110;
+    }
+    return o > 0 ? stake * (o / 100) : stake * (100 / Math.abs(o));
+  }
+
   // Aggregate per capper from capper_history
   const capperMap = new Map();
   for (const row of allHistoryRows) {
     if (!row.capper_name) continue;
     const display = resolveCapperDisplay(row.capper_name);
     if (!capperMap.has(display)) {
-      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, sports: {} });
+      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, money: 0, sports: {} });
     }
     const c = capperMap.get(display);
     const r = (row.result || '').toLowerCase();
@@ -471,11 +485,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
     else if (r === 'loss') c.losses++;
     else if (r === 'push') c.pushes++;
     else                   c.pending++;
+    const profit = pickProfit(r, row.odds, row.pick_type, betUnit);
+    c.money += profit;
     const s = row.sport || 'Unknown';
-    if (!c.sports[s]) c.sports[s] = { wins: 0, losses: 0, pushes: 0 };
+    if (!c.sports[s]) c.sports[s] = { wins: 0, losses: 0, pushes: 0, money: 0 };
     if (r === 'win')       c.sports[s].wins++;
     else if (r === 'loss') c.sports[s].losses++;
     else if (r === 'push') c.sports[s].pushes++;
+    c.sports[s].money += profit;
   }
 
   // Find top sports by resolved pick volume (for column headers)
@@ -510,6 +527,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <table id="capper-leaderboard">
       <thead><tr>
         <th>#</th><th>Capper</th><th>Record</th><th>Win%</th><th>Units</th>
+        <th title="Odds-weighted profit/loss at the unit size below">Money ($${betUnit}/u)</th>
         ${sportHeaders}
         <th>Pending</th>
       </tr></thead>
@@ -517,6 +535,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const wpColor    = c.winPct === null ? '#8892a4' : c.winPct >= 55 ? '#16a34a' : c.winPct >= 50 ? '#f59e0b' : '#ef4444';
         const unitColor  = c.units > 0 ? '#16a34a' : c.units < 0 ? '#ef4444' : '#8892a4';
         const unitStr    = (c.units > 0 ? '+' : '') + c.units;
+        const moneyColor = c.money > 0.005 ? '#16a34a' : c.money < -0.005 ? '#ef4444' : '#8892a4';
+        const moneyStr   = (c.money >= 0 ? '+$' : '-$') + Math.abs(c.money).toFixed(0);
         const pushStr    = c.pushes > 0 ? `-<span style="color:#8892a4;">${c.pushes}</span>` : '';
         const sportCols  = allSports.map(s => {
           const sr = c.sports[s];
@@ -532,6 +552,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <td><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
           <td style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
+          <td style="color:${moneyColor};font-weight:700;">${c.total > 0 ? moneyStr : '—'}</td>
           ${sportCols}
           <td style="color:#8892a4;font-size:12px;">${c.pending || 0}</td>
         </tr>`;
@@ -1925,8 +1946,27 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const total   = wins + losses + pushes;
           const winPct  = total > 0 ? Math.round((wins / total) * 100) : null;
           const units   = wins - losses;
+          const unit    = parseFloat(data.unit) || 10;
           const wpColor = winPct === null ? '#8892a4' : winPct >= 55 ? '#16a34a' : winPct >= 50 ? '#f59e0b' : '#ef4444';
           const rColor  = { win: '#16a34a', loss: '#ef4444', push: '#8892a4', pending: '#f59e0b' };
+
+          // Profit on one resolved pick at the configured unit, using stored odds.
+          function pickProfit(result, odds, pickType, stake) {
+            const r = (result || '').toLowerCase();
+            if (r === 'loss') return -stake;
+            if (r !== 'win')  return 0;
+            let o = (odds == null || isNaN(parseFloat(odds))) ? null : parseFloat(odds);
+            if (o == null) {
+              const pt = (pickType || '').toLowerCase();
+              o = (pt === 'over' || pt === 'under') ? -115 : -110;
+            }
+            return o > 0 ? stake * (o / 100) : stake * (100 / Math.abs(o));
+          }
+          const money = (v) => (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+          const moneyColor = (v) => v > 0.005 ? '#16a34a' : v < -0.005 ? '#ef4444' : '#8892a4';
+
+          let totalMoney = 0;
+          const sportAgg = {}; // sport -> { wins, losses, pushes, money }
           let pickRows = '';
           for (const p of picks) {
             const c    = rColor[(p.result || 'pending').toLowerCase()] || '#8892a4';
@@ -1936,23 +1976,59 @@ router.get('/dashboard', requireAuth, (req, res) => {
               ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '')
               : (p.spread != null ? p.spread : '');
             const pickDesc = pt + (sp !== '' ? ' ' + sp : '');
+            const rl   = (p.result || 'pending').toLowerCase();
+            const prof = pickProfit(rl, p.odds, pt, unit);
+            const settled = rl === 'win' || rl === 'loss' || rl === 'push';
+            if (settled) totalMoney += prof;
+            const oddsStr = (p.odds != null && !isNaN(parseFloat(p.odds)))
+              ? (parseFloat(p.odds) > 0 ? '+' + p.odds : '' + p.odds) : '\u2014';
+            const profStr = settled
+              ? '<span style="color:' + moneyColor(prof) + ';font-weight:600;">' + money(prof) + '</span>'
+              : '<span style="color:#8892a4;">\u2014</span>';
+
+            const s = p.sport || 'Unknown';
+            if (!sportAgg[s]) sportAgg[s] = { wins: 0, losses: 0, pushes: 0, money: 0 };
+            if (rl === 'win')       sportAgg[s].wins++;
+            else if (rl === 'loss') sportAgg[s].losses++;
+            else if (rl === 'push') sportAgg[s].pushes++;
+            if (settled) sportAgg[s].money += prof;
+
             pickRows +=
               '<tr>'
               + '<td style="font-size:11px;color:#8892a4;white-space:nowrap;">' + date + '</td>'
               + '<td style="font-weight:600;">' + (p.team || '\u2014') + '</td>'
               + '<td style="color:#8892a4;font-size:12px;">' + (p.sport || '\u2014') + '</td>'
               + '<td style="font-size:12px;">' + (pickDesc || '\u2014') + '</td>'
+              + '<td style="font-size:11px;color:#8892a4;">' + oddsStr + '</td>'
               + '<td style="font-size:11px;color:#8892a4;">' + (p.channel || '\u2014') + '</td>'
               + '<td><span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">' + (p.result || 'pending').toUpperCase() + '</span></td>'
+              + '<td style="font-size:12px;text-align:right;">' + profStr + '</td>'
               + '</tr>';
           }
           const unitStr    = (units >= 0 ? '+' : '') + units;
           const pushStr    = pushes > 0 ? ' - ' + pushes + 'P' : '';
           const wpStr      = winPct !== null ? '<span style="color:' + wpColor + ';font-size:16px;font-weight:700;">' + winPct + '%</span>' : '';
           const pendingStr = pending > 0 ? '<span style="color:#f59e0b;font-size:13px;">' + pending + ' pending</span>' : '';
+
+          // Per-sport breakdown (record + money), most active first.
+          const sportRows = Object.entries(sportAgg)
+            .filter(([s]) => s !== 'Unknown')
+            .sort((a, b) => (b[1].wins + b[1].losses + b[1].pushes) - (a[1].wins + a[1].losses + a[1].pushes))
+            .map(([s, a]) =>
+              '<tr>'
+              + '<td style="font-weight:600;">' + s + '</td>'
+              + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
+              + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
+              + '</tr>').join('');
+          const sportTableHtml = sportRows
+            ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
+              + '<table style="width:auto;min-width:280px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th></tr></thead><tbody>'
+              + sportRows + '</tbody></table></div>'
+            : '';
+
           const tableHtml  = picks.length
             ? '<div style="overflow-y:auto;max-height:420px;">'
-              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th>Channel</th><th>Result</th></tr></thead>'
+              + '<table><thead><tr><th>Date</th><th>Team</th><th>Sport</th><th>Pick</th><th>Odds</th><th>Channel</th><th>Result</th><th style="text-align:right;">Profit</th></tr></thead>'
               + '<tbody>' + pickRows + '</tbody></table></div>'
             : '<p style="color:#8892a4;padding:16px 0;">No pick history on record yet.</p>';
           content.innerHTML =
@@ -1962,8 +2038,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
             + '<span style="font-size:18px;"><span style="color:#16a34a;font-weight:700;">' + wins + 'W</span> - <span style="color:#ef4444;font-weight:700;">' + losses + 'L</span>' + pushStr + '</span>'
             + wpStr
             + '<span style="color:' + (units >= 0 ? '#16a34a' : '#ef4444') + ';font-weight:700;">' + unitStr + ' units</span>'
+            + '<span style="color:' + moneyColor(totalMoney) + ';font-weight:700;">' + money(totalMoney) + ' <span style="color:#8892a4;font-weight:400;font-size:12px;">($' + unit + '/u)</span></span>'
             + pendingStr
             + '</div></div>'
+            + sportTableHtml
             + tableHtml;
         } catch (_) {
           content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
@@ -2594,7 +2672,8 @@ router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
     `SELECT * FROM capper_history WHERE capper_name IN (${ph}) ORDER BY saved_at DESC LIMIT 300`
   ).all(...allNames);
 
-  res.json({ name, picks });
+  const unit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
+  res.json({ name, picks, unit });
 });
 
 // ── POST /admin/ingest-public-betting — relay from Mac (HMAC-signed) ─────────

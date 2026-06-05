@@ -559,6 +559,8 @@ try {
 try {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_capper_history_dedup ON capper_history (pick_id, capper_name) WHERE pick_id IS NOT NULL`);
 } catch (_) {}
+// American odds of the bet, captured at result time (for money / P&L tracking).
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN odds REAL`); } catch (_) {}
 
 // ── Settings (key-value store for admin-configurable values) ──────────────────
 try {
@@ -568,6 +570,58 @@ try {
       value TEXT NOT NULL
     )
   `);
+} catch (_) {}
+
+// ── One-time seed: high-confidence capper name merges (casing / spacing / typos) ──
+// Maps messy name variants to a canonical display name via capper_aliases.
+// Gated by a settings flag so admins can later delete/edit aliases without them
+// being re-created on the next restart. Runs on both local + Railway.
+try {
+  const seeded = db.prepare("SELECT value FROM settings WHERE key = 'capper_alias_seed_v1'").get();
+  if (!seeded) {
+    const CAPPER_MERGES = {
+      'Smart Money Sports':    ['SmartMoneySports'],
+      'MidwestMike':           ['Midwest Mike'],
+      'Big Al':                ['Big AL', 'BIG AL'],
+      'Bet Labs':              ['Betlabs', 'Bet-Labs', 'Bwt labs'],
+      'Your Daily Capper':     ['Your daily Capper'],
+      'UnderdogSniper':        ['Underdog Sniper'],
+      'Sports Analytics 24/7': ['Sports Analytics'],
+      'AFSports':              ['Afsports', 'AfSports'],
+      'A11Bets':               ['A11Bet'],
+      'Cesar':                 ['CESAR'],
+      'Tennis Winners Only':   ['TennisWinnersOnly'],
+      'Jacavalier':            ['JACAVALIER', 'Jacavalier Elite'],
+      'LaFormula':             ['Laformula'],
+      'Vernon Croy':           ['Croy'],
+      'Ben Burns':             ['Ben burns'],
+      'Hammering Hank':        ['Hammer Hank'],
+      'Pick Don':              ['The Pick Don'],
+      'Gianni The Greek':      ['Gianni the Greek', 'Gianni'],
+      'Robert Ferringo':       ['Ferringo'],
+      'James Bets':            ['JamesBets', 'James bets'],
+      'Carmine Bianco':        ['Carmone Bianco'],
+      'TK Sports Analytics':   ['TK Sports Analysts'],
+      'TheGuru':               ['Guru'],
+      'Steam Capper':          ['Steam Capper on X'],
+      'TBSportbetting':        ['Tbsportsbetting'],
+      'RbSports':              ['RbSportsPlays'],
+      'BulliesPicks':          ['Bullies Bets'],
+      'OutofLineBets':         ['Out Of Line Bets'],
+      'Q9':                    ['Dats Q9'],
+      'Travy':                 ['Travvy'],
+    };
+    const insAlias = db.prepare(`INSERT OR IGNORE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`);
+    const seedTxn = db.transaction(() => {
+      for (const [canonical, variants] of Object.entries(CAPPER_MERGES)) {
+        // Alias the canonical spelling to itself too, so resolution is total.
+        insAlias.run(canonical, canonical);
+        for (const v of variants) insAlias.run(canonical, v);
+      }
+      db.prepare("INSERT INTO settings (key, value) VALUES ('capper_alias_seed_v1', '1')").run();
+    });
+    seedTxn();
+  }
 } catch (_) {}
 
 // ── One-time migration: restore picks voided by old same-game/opposing-team conflict resolver ──

@@ -402,6 +402,19 @@ function abbrOf(displayName) {
   return last ? last.slice(0, 3).toUpperCase() : null;
 }
 
+// ── American odds of a pick, derived from the joined today_games row ───────────
+// ML uses the moneyline for the picked side; over/under use the total juice.
+// Spread juice is not stored anywhere, so it defaults to -110 downstream.
+// Returns null when no real odds exist (spread, NRFI, etc.) — money math then
+// falls back to a standard juice default so the bet still counts.
+function capperBetOdds(pick) {
+  const pt = (pick.pick_type || '').toLowerCase();
+  if (pt === 'ml')    return pick.is_home_team ? (pick.ml_home ?? null) : (pick.ml_away ?? null);
+  if (pt === 'over')  return pick.ou_over_odds  ?? null;
+  if (pt === 'under') return pick.ou_under_odds ?? null;
+  return null;
+}
+
 // ── Evaluate all picks for finished games ─────────────────────────────────────
 async function resolveResults() {
   let resolved = 0;
@@ -411,6 +424,7 @@ async function resolveResults() {
     SELECT p.*, tg.home_score, tg.away_score, tg.status, tg.sport,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
            tg.away_team, tg.first_inning_runs,
+           tg.ml_home, tg.ml_away, tg.over_under, tg.ou_over_odds, tg.ou_under_odds,
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
@@ -449,11 +463,14 @@ async function resolveResults() {
 
     // ── Write to capper_history (permanent capper tracking, survives daily wipe) ─
     if (pick.capper_name) {
+      // Capture the American odds of this bet so money / P&L can be computed later.
+      // today_games is still present here (game just finished, pre-wipe).
+      const betOdds = capperBetOdds(pick);
       try {
         db.prepare(`
           INSERT OR IGNORE INTO capper_history
-            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           pick.capper_name,
           pick.sport        ?? null,
@@ -465,7 +482,8 @@ async function resolveResults() {
           pick.channel      ?? null,
           pick.score        ?? null,
           result,
-          pick.id
+          pick.id,
+          betOdds
         );
       } catch (_) {}
     }
