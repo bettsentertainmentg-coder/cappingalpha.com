@@ -519,6 +519,72 @@ router.get('/dashboard', requireAuth, (req, res) => {
     .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
 
+  // ── Suggested merges: fuzzy-match similar capper names for one-click aliasing ─
+  function _normCap(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function _lev(a, b) {
+    const m = a.length, n = b.length;
+    if (!m) return n; if (!n) return m;
+    let prev = Array.from({ length: n + 1 }, (_, i) => i), cur = new Array(n + 1);
+    for (let i = 1; i <= m; i++) {
+      cur[0] = i;
+      for (let j = 1; j <= n; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      }
+      const tmp = prev; prev = cur; cur = tmp;
+    }
+    return prev[n];
+  }
+  function _simScore(a, b) {
+    const na = _normCap(a), nb = _normCap(b);
+    if (!na || !nb) return 0;
+    if (na === nb) return 1;
+    const short = Math.min(na.length, nb.length), long = Math.max(na.length, nb.length);
+    let s = 1 - _lev(na, nb) / long;
+    if (short >= 4 && (na.includes(nb) || nb.includes(na))) s = Math.max(s, 0.9);
+    return s;
+  }
+  const _capNames = sortedCappers.map(c => ({ name: c.name, picks: c.total + c.pending }));
+  const _allSuggestions = [];
+  for (let i = 0; i < _capNames.length; i++) {
+    for (let j = i + 1; j < _capNames.length; j++) {
+      const A = _capNames[i], B = _capNames[j];
+      const score = _simScore(A.name, B.name);
+      if (score >= 0.6) {
+        const [al, cn] = A.picks <= B.picks ? [A, B] : [B, A]; // smaller volume → alias
+        _allSuggestions.push({ alias: al.name, aliasPicks: al.picks, canon: cn.name, canonPicks: cn.picks, score });
+      }
+    }
+  }
+  _allSuggestions.sort((a, b) => b.score - a.score);
+  const _seenAlias = new Set();
+  const topSuggestions = _allSuggestions.filter(s => {
+    if (_seenAlias.has(s.alias)) return false;
+    _seenAlias.add(s.alias);
+    return true;
+  }).slice(0, 30);
+
+  const suggestionsHtml = topSuggestions.length ? `
+    <table id="alias-suggestions">
+      <thead><tr><th>Recorded name</th><th>Picks</th><th>Looks like</th><th>Confidence</th><th></th></tr></thead>
+      <tbody>${topSuggestions.map(s => {
+        const pct  = Math.round(s.score * 100);
+        const conf = pct >= 85 ? '#16a34a' : pct >= 70 ? '#f59e0b' : '#8892a4';
+        return `<tr>
+          <td style="font-weight:600;">${escHtml(s.alias)}</td>
+          <td style="color:#8892a4;font-size:12px;">${s.aliasPicks}</td>
+          <td>${escHtml(s.canon)} <span style="color:#8892a4;font-size:12px;">(${s.canonPicks} picks)</span></td>
+          <td style="color:${conf};font-weight:700;">${pct}%</td>
+          <td style="white-space:nowrap;">
+            <button class="btn-sm btn-primary" data-canon="${escHtml(s.canon)}" data-alias="${escHtml(s.alias)}" onclick="quickMerge(this)">Match</button>
+            <button class="btn-sm" onclick="this.closest('tr').remove()">Not a match</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>` : `<p class="empty" style="font-size:13px;">No likely duplicates left to review.</p>`;
+
+  const capperNameOptions = sortedCappers.map(c => `<option value="${escHtml(c.name)}"></option>`).join('');
+
   const sportHeaders = allSports.map(s => `<th data-type="num" onclick="sortCapperLB(this)" style="white-space:nowrap;cursor:pointer;user-select:none;">${escHtml(s)}</th>`).join('');
   const sortable = (label, type, title) =>
     `<th data-type="${type}"${title ? ` title="${title}"` : ''} onclick="sortCapperLB(this)" style="cursor:pointer;user-select:none;">${label}</th>`;
@@ -825,21 +891,30 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Picks where 2+ different cappers called the exact same slot today.</p>
       ${dupAlertsHtml}
 
-      <h2 style="margin-top:28px;">Alias Manager</h2>
-      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Link variant capper handles to a canonical name for unified tracking.</p>
-      ${aliasTableHtml}
-      <div style="margin-top:16px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <h2 style="margin-top:28px;">Suggested Matches</h2>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Names that look like duplicates. Hit <strong>Match</strong> to merge the recorded name into the larger one, or <strong>Not a match</strong> to dismiss it.</p>
+      ${suggestionsHtml}
+
+      <h2 style="margin-top:28px;">Merge Two Names</h2>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Pick the variant you saw recorded and the main name it should roll into. Start typing to autocomplete from real recorded names.</p>
+      <datalist id="capper-names">${capperNameOptions}</datalist>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Canonical Name</label>
-          <input type="text" id="alias-canonical" placeholder="e.g. PorterPicks" style="width:200px;" />
+          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Recorded / variant name</label>
+          <input type="text" id="alias-alias" list="capper-names" placeholder="e.g. Doc Sports" style="width:220px;" />
         </div>
+        <span style="color:#8892a4;padding-bottom:8px;">&rarr; merges into &rarr;</span>
         <div>
-          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Alias (variant spelling)</label>
-          <input type="text" id="alias-alias" placeholder="e.g. Porter Picks" style="width:200px;" />
+          <label style="display:block;margin-bottom:4px;font-size:12px;color:#8892a4;">Main (canonical) name</label>
+          <input type="text" id="alias-canonical" list="capper-names" placeholder="e.g. Docs Sports" style="width:220px;" />
         </div>
-        <button class="btn btn-primary" onclick="addAlias()">Add Alias</button>
+        <button class="btn btn-primary" onclick="addAlias()">Merge</button>
       </div>
       <p id="alias-msg" style="font-size:13px;color:#8892a4;margin-top:8px;"></p>
+
+      <h2 style="margin-top:28px;">Current Aliases</h2>
+      <p style="color:#8892a4;font-size:13px;margin-bottom:12px;">Every variant currently linked to a main name. Delete to unlink.</p>
+      ${aliasTableHtml}
     </div>
 
     <!-- MESSAGES PANEL -->
@@ -1910,18 +1985,34 @@ router.get('/dashboard', requireAuth, (req, res) => {
       applyFilters();
 
       // ── Cappers panel ──────────────────────────────────────────────────────────
+      // One-click merge from a Suggested Match row.
+      async function quickMerge(btn) {
+        const canonical = btn.getAttribute('data-canon');
+        const alias     = btn.getAttribute('data-alias');
+        if (!canonical || !alias) return;
+        btn.disabled = true; btn.textContent = 'Merging...';
+        try {
+          const res  = await fetch('/admin/capper-alias', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical, alias }) });
+          const data = await res.json();
+          if (data.ok) { location.href = '/admin/dashboard?tab=cappers'; return; }
+          btn.disabled = false; btn.textContent = 'Match';
+          alert('Error: ' + (data.error || 'Could not merge'));
+        } catch (e) {
+          btn.disabled = false; btn.textContent = 'Match';
+          alert('Network error while merging.');
+        }
+      }
+
       async function addAlias() {
         const canonical = document.getElementById('alias-canonical').value.trim();
         const alias     = document.getElementById('alias-alias').value.trim();
         const msg       = document.getElementById('alias-msg');
-        if (!canonical || !alias) { msg.textContent = 'Both fields are required.'; msg.style.color = '#ef4444'; return; }
+        if (!canonical || !alias) { msg.textContent = 'Fill in both names.'; msg.style.color = '#ef4444'; return; }
+        if (canonical.toLowerCase() === alias.toLowerCase()) { msg.textContent = 'The two names are the same.'; msg.style.color = '#ef4444'; return; }
         const res  = await fetch('/admin/capper-alias', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ canonical, alias }) });
         const data = await res.json();
         if (data.ok) {
-          msg.textContent = 'Alias added. Reload the page to see updated leaderboard.';
-          msg.style.color = '#16a34a';
-          document.getElementById('alias-canonical').value = '';
-          document.getElementById('alias-alias').value = '';
+          location.href = '/admin/dashboard?tab=cappers';
         } else {
           msg.textContent = 'Error: ' + (data.error || 'Unknown error');
           msg.style.color = '#ef4444';
