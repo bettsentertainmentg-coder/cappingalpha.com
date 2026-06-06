@@ -10,3 +10,6 @@ CLAUDE.md
 .mcp.json
 .swarm/
 .claude-flow/
+
+# Local security audit reports (may reference file paths / findings)
+security-audits/

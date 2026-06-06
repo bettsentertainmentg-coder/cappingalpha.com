@@ -22,6 +22,10 @@ const { fetchForwardGames } = require('./src/forward_games');
 const { refreshOdds } = require('./src/odds_api');
 const { getRecentMvpPicks, getAllTimeRecord, resolveConflictingMvpPicks } = require('./src/mvp');
 const { getSetting } = require('./src/db');
+// Paywall boundary: free users see rank #1 plus the public tail (rank > PAID_RANK_MAX);
+// ranks 2..PAID_RANK_MAX are paid-only. Settings-backed so it's admin-tunable without a
+// deploy. Single source of truth — the client reads it via /api/config (paid_rank_max).
+const PAID_RANK_MAX = () => parseInt(getSetting('paid_rank_max', 50), 10) || 50;
 const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
@@ -158,7 +162,12 @@ app.get('/api/headlines', async (req, res) => {
 app.get('/api/config', (req, res) => {
   const displayThreshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   const betUnit = parseFloat(getSetting('bet_unit', 10)) || 10;
-  res.json({ mvp_threshold: MVP_THRESHOLD, mvp_display_threshold: displayThreshold, bet_unit: betUnit });
+  res.json({
+    mvp_threshold: MVP_THRESHOLD,
+    mvp_display_threshold: displayThreshold,
+    bet_unit: betUnit,
+    paid_rank_max: PAID_RANK_MAX(),
+  });
 });
 
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
@@ -185,6 +194,30 @@ app.get('/api/picks', (req, res) => {
     ORDER BY p.score DESC
   `;
   const picks = db.prepare(PICKS_QUERY).all();
+
+  // Canonical rank over non-push picks (score desc). Pushes are settled/void and
+  // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
+  // on rank instead of each deriving it from array position.
+  let r = 0;
+  for (const p of picks) p.rank = (p.result === 'push') ? null : (++r);
+
+  // Server-side paywall enforcement. Free/logged-out users never receive the
+  // actual pick for ranks 2..PAID_RANK_MAX — previously the data was sent in full
+  // and only blurred in the browser (readable in the Network tab). Rank #1 and the
+  // public tail (rank > PAID_RANK_MAX) stay full; pushes stay full.
+  if (!auth.isPaid(req)) {
+    const max = PAID_RANK_MAX();
+    for (let i = 0; i < picks.length; i++) {
+      const p = picks[i];
+      if (p.rank && p.rank >= 2 && p.rank <= max) {
+        // Keep only what the UI needs to render a locked row + paywall nudge.
+        // sport is retained so the Sports tab can still show "a locked pick here";
+        // team/side/score/game are all withheld.
+        picks[i] = { id: p.id, rank: p.rank, sport: p.sport, result: null, locked: true };
+      }
+    }
+  }
+
   res.json(picks);
 });
 
@@ -204,8 +237,10 @@ app.get('/api/picks/top', (req, res) => {
   res.json(pick || null);
 });
 
-// GET /api/mvp — recent MVP picks + all-time record (paid users)
-app.get('/api/mvp', (req, res) => {
+// GET /api/mvp — recent MVP picks + all-time record (paid users only).
+// Free users get /api/mvp/public instead. requirePaid returns 403 otherwise so
+// the full pick list is never sent to non-paying clients.
+app.get('/api/mvp', auth.requirePaid, (req, res) => {
   const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   res.json({
     picks:  getRecentMvpPicks(threshold),
@@ -606,10 +641,20 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   const globalRank = new Map();
   allRanked.forEach((r, i) => globalRank.set(r.id, i + 1));
 
-  // Attach global rank + score-over-time timeline to each pick for the popup chart
+  // Attach global rank + score-over-time timeline to each pick for the popup chart.
+  // Paywall: hide the CappingAlpha score + conviction curve for locked picks
+  // (globalRank 2..paid_rank_max) from non-paying users — same rule as /api/picks,
+  // so the popup can't be used to read a locked pick's score from the Network tab.
+  // The overall #1 and the public tail (rank > max) stay full.
+  const paid    = auth.isPaid(req);
+  const maxRank = PAID_RANK_MAX();
   for (const p of picks) {
     p.globalRank = globalRank.get(p.id) || null;
     p.timeline = getPickTimeline(p.id);
+    if (!paid && p.globalRank && p.globalRank >= 2 && p.globalRank <= maxRank) {
+      p.score = null;
+      p.timeline = null;
+    }
   }
 
   const lines = getLinesForGame(espn_game_id);
@@ -717,17 +762,25 @@ async function runScan() {
   await scanner.scanAll().catch(err => console.error('[cron] scan error:', err.message));
 }
 
+// Admin-only guard for control endpoints that live on the main app (the /admin
+// router has its own requireAuth). Without this, anyone could trigger Discord
+// scans or read scanner state. Matches the admin session set in src/admin.js.
+function requireAdmin(req, res, next) {
+  if (req.session?.admin) return next();
+  res.status(403).json({ error: 'Forbidden' });
+}
+
 // GET /admin/scan-status
-app.get('/admin/scan-status', (req, res) => res.json(scanner.getScanState()));
+app.get('/admin/scan-status', requireAdmin, (req, res) => res.json(scanner.getScanState()));
 
 // POST /admin/scan-now
-app.post('/admin/scan-now', (req, res) => {
+app.post('/admin/scan-now', requireAdmin, (req, res) => {
   runScan(); // fire and forget
   res.json({ ok: true });
 });
 
-// POST /api/scan — manual scan trigger
-app.post('/api/scan', async (req, res) => {
+// POST /api/scan — manual scan trigger (admin only)
+app.post('/api/scan', requireAdmin, async (req, res) => {
   try {
     const saved = await scanner.scanAll();
     res.json({ ok: true, saved });

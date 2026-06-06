@@ -38,6 +38,37 @@ function requireAuth(req, res, next) {
   res.redirect('/admin/login');
 }
 
+// Constant-time password compare. Hash both sides to a fixed length first so
+// timingSafeEqual never throws on length mismatch and no length is leaked.
+function safeEqual(a, b) {
+  const ah = crypto.createHash('sha256').update(String(a)).digest();
+  const bh = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ah, bh);
+}
+
+// Rate limit admin login: 10 attempts per IP per 15 min (user login has the same).
+const _adminLoginAttempts = new Map();
+function adminLoginRateLimit(req, res, next) {
+  const ip  = req.ip || req.connection?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const WINDOW = 15 * 60 * 1000;
+  const MAX = 10;
+  const recent = (_adminLoginAttempts.get(ip) || []).filter(t => now - t < WINDOW);
+  if (recent.length >= MAX) {
+    return res.status(429).send('Too many attempts. Try again in 15 minutes.');
+  }
+  recent.push(now);
+  _adminLoginAttempts.set(ip, recent);
+  next();
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, arr] of _adminLoginAttempts) {
+    const keep = arr.filter(t => now - t < 15 * 60 * 1000);
+    if (keep.length) _adminLoginAttempts.set(ip, keep); else _adminLoginAttempts.delete(ip);
+  }
+}, 60 * 60 * 1000).unref?.();
+
 // ── Shared HTML shell ─────────────────────────────────────────────────────────
 function page(title, body) {
   return `<!DOCTYPE html>
@@ -120,10 +151,10 @@ router.get('/login', (req, res) => {
 });
 
 // ── POST /admin/login ─────────────────────────────────────────────────────────
-router.post('/login', express.urlencoded({ extended: false }), (req, res) => {
+router.post('/login', adminLoginRateLimit, express.urlencoded({ extended: false }), (req, res) => {
   const correct = process.env.ADMIN_PASSWORD;
   if (!correct) return res.status(500).send('ADMIN_PASSWORD not set in env.');
-  if (req.body.password === correct) {
+  if (req.body.password && safeEqual(req.body.password, correct)) {
     req.session.admin = true;
     return res.redirect('/admin');
   }
@@ -2816,7 +2847,9 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
 router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
   const pw = req.headers['x-admin-password'];
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
   const picks = req.body;
   if (!Array.isArray(picks)) return res.status(400).send('Expected JSON array');
   const insert = db.prepare(`
@@ -2835,7 +2868,9 @@ router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
 // ── PATCH /admin/patch-mvp — update specific fields on an MVP pick by id ─────
 router.post('/patch-mvp', express.json(), (req, res) => {
   const pw = req.headers['x-admin-password'];
-  if (pw !== process.env.ADMIN_PASSWORD) return res.status(401).send('Unauthorized');
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
   const { id, spread, result, home_score, away_score, ml_odds, ou_odds } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id required' });
   const VALID_RESULTS = ['win', 'loss', 'push', 'pending'];

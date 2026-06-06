@@ -29,6 +29,10 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const el = document.getElementById(targetId);
   if (!el) return;
 
+  // Paywall boundary (server is source of truth via /api/config). Free users see
+  // rank #1 + the public tail (rank > MAX); ranks 2..MAX are paid-only.
+  const MAX = state.CONFIG?.paid_rank_max || 50;
+
   if (!picks || picks.length === 0) {
     const emptyHtml = `
       <div class="empty">
@@ -68,7 +72,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const clickAttr = clickable ? ` onclick="window.location.href='${destUrl}'"` : '';
     const cursorStyle = clickable ? ' cursor:pointer;' : '';
 
-    const scoreHidden  = !isPaying() && rank > 1 && rank <= 30;
+    const scoreHidden  = !isPaying() && rank > 1 && rank <= MAX;
     const scoreContent = scoreHidden ? LOCK_SVG : (p.score ?? '—');
 
     const starColor = isMvp ? 'var(--gold)' : 'inherit';
@@ -129,8 +133,8 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const gr = p => globalRanks.get(p.id) ?? 999;
     const rank1 = activePicks.find(p => gr(p) === 1);
     const rank2 = activePicks.find(p => gr(p) === 2);
-    const publicPicks = activePicks.filter(p => gr(p) > 30);
-    const hasLocked   = activePicks.some(p => gr(p) >= 2 && gr(p) <= 30);
+    const publicPicks = activePicks.filter(p => gr(p) > MAX);
+    const hasLocked   = activePicks.some(p => gr(p) >= 2 && gr(p) <= MAX);
 
     const topRows = [
       rank1 ? makeRow(rank1, 1, false) : '',
@@ -165,8 +169,8 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const row1 = activePicks[0] ? makeRow(activePicks[0], 1, false) : '';
   const row2 = activePicks[1] ? makeRow(activePicks[1], 2, true)  : '';
 
-  const publicPicks   = activePicks.slice(30);
-  const publicRows    = publicPicks.map((p, i) => makeRow(p, 31 + i, false));
+  const publicPicks   = activePicks.slice(MAX);
+  const publicRows    = publicPicks.map((p, i) => makeRow(p, MAX + 1 + i, false));
   const publicSection = (publicRows.length || pushPicks.length)
     ? pubTableOpen
       + publicRows.join('') + pushPicks.map(p => makePushRow(p)).join('')

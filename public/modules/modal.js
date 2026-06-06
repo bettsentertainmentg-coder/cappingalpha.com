@@ -255,7 +255,8 @@ export function renderGameModal(data, clickedType, clickedTeam) {
     const pairedKey  = TICKER_PAIRS[slot.key];
     const pairedP    = pairedKey ? pickBySlot[pairedKey] : null;
     const pairedRank = (data.pickRanks && pairedP?.id) ? (data.pickRanks[pairedP.id] || 0) : 0;
-    const betTypeTop30 = (slotRank > 0 && slotRank <= 30) || (pairedRank > 0 && pairedRank <= 30);
+    const _maxRank     = state.CONFIG?.paid_rank_max || 50;
+    const betTypeTop30 = (slotRank > 0 && slotRank <= _maxRank) || (pairedRank > 0 && pairedRank <= _maxRank);
     // The overall #1 pick's score is always visible (free users included).
     const scoreHidden  = !isPaying() && betTypeTop30 && p?.globalRank !== 1;
 
@@ -457,13 +458,14 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     </div>${insightChip}`;
 
   if (!p) {
-    // Check if the paired slot (other ML, spread side, or O/U partner) is top 30 —
+    // Check if the paired slot (other ML, spread side, or O/U partner) is in the
+    // paid range (rank <= paid_rank_max) —
     // if so, this slot should appear locked rather than greyed/empty.
     const SLOT_PAIRS    = { home_ml:'away_ml', away_ml:'home_ml', home_spread:'away_spread', away_spread:'home_spread', over:'under', under:'over' };
     const pairedSlotKey = SLOT_PAIRS[slotKey];
     const pairedPick    = pairedSlotKey ? pickBySlot[pairedSlotKey] : null;
     const pairedRank    = (data.pickRanks && pairedPick?.id) ? (data.pickRanks[pairedPick.id] || 0) : 0;
-    const pairIsTop30   = pairedRank > 0 && pairedRank <= 30;
+    const pairIsTop30   = pairedRank > 0 && pairedRank <= (state.CONFIG?.paid_rank_max || 50);
 
     if (!isPaying() && pairIsTop30) {
       // The adjacent bet type has a top-30 pick — show as locked, not empty
@@ -494,7 +496,8 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   const pairedSlotKey  = SLOT_PAIRS[slotKey];
   const pairedPick     = pairedSlotKey ? pickBySlot[pairedSlotKey] : null;
   const pairedRank     = (data.pickRanks && pairedPick?.id) ? (data.pickRanks[pairedPick.id] || 0) : 0;
-  const betTypeIsTop30 = (pickRank > 0 && pickRank <= 30) || (pairedRank > 0 && pairedRank <= 30);
+  const _maxRank2      = state.CONFIG?.paid_rank_max || 50;
+  const betTypeIsTop30 = (pickRank > 0 && pickRank <= _maxRank2) || (pairedRank > 0 && pairedRank <= _maxRank2);
   // Free users see the CappingAlpha score for the overall #1 pick only.
   const isOverallTop1  = p.globalRank === 1;
   const showScore      = isPaying() || isOverallTop1 || (isAccount() && !betTypeIsTop30);

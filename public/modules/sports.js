@@ -40,7 +40,10 @@ export function renderSportPicks(sport) {
   }
   const labels = sport === 'Tennis' ? ['ATP', 'WTA'] : [sport.toUpperCase()];
   const filtered = state.allPicks.filter(p => labels.includes((p.sport || '').toUpperCase()));
-  const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, i + 1]));
+  // Use the server-provided canonical rank (non-push, score desc) so the Sports tab
+  // agrees with the picks table and the server-side paywall boundary. Fall back to
+  // array position for older payloads without p.rank.
+  const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, p.rank ?? (i + 1)]));
   renderPicks(filtered, 'sport-picks-body', globalRankMap);
 }
 
@@ -151,7 +154,10 @@ function renderTennisView(filter) {
   const liveCount = atpLive.length + wtaLive.length;
 
   // ── Update picks column ───────────────────────────────────────────────────
-  const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, i + 1]));
+  // Use the server-provided canonical rank (non-push, score desc) so the Sports tab
+  // agrees with the picks table and the server-side paywall boundary. Fall back to
+  // array position for older payloads without p.rank.
+  const globalRankMap = new Map(state.allPicks.map((p, i) => [p.id, p.rank ?? (i + 1)]));
   if (filter === 'live') {
     const liveIds = new Set([...atpLive, ...wtaLive].map(g => g.espn_game_id).filter(Boolean));
     renderPicks(state.allPicks.filter(p => liveIds.has(p.espn_game_id)), 'sport-picks-body', globalRankMap);

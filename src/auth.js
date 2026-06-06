@@ -366,15 +366,23 @@ router.post('/reset-password', express.json(), async (req, res) => {
   res.json({ success: true });
 });
 
+// ── Paid-tier check ───────────────────────────────────────────────────────────
+// Single source of truth for "is this request from a paying user". A logged-in
+// user counts as paid when their tier is anything other than 'free' (paid / code).
+function isPaid(req) {
+  const u = req?.session?.user;
+  return !!u && u.tier !== 'free';
+}
+
 // ── Middleware: require paid tier ─────────────────────────────────────────────
 function requirePaid(req, res, next) {
-  const u = req.session?.user;
-  if (!u || u.tier === 'free') {
+  if (!isPaid(req)) {
     return res.status(403).json({ error: 'Paid subscription required.' });
   }
   next();
 }
 
 module.exports = router;
+module.exports.isPaid        = isPaid;
 module.exports.requirePaid   = requirePaid;
 module.exports.stripeWebhook = stripeWebhook;
