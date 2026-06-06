@@ -287,8 +287,8 @@ ${buildNav()}
     <h2 class="ca-section-h2">Lines · all bet types</h2>
     <div class="ca-lines-toggle" id="ca-lines-toggle">
       <button class="ca-lt-btn active" data-type="spread" onclick="setLinesType('spread')">SPREAD</button>
-      <button class="ca-lt-btn" data-type="total" onclick="setLinesType('total')">TOTAL</button>
       <button class="ca-lt-btn" data-type="ml" onclick="setLinesType('ml')">WIN</button>
+      <button class="ca-lt-btn" data-type="total" onclick="setLinesType('total')">TOTAL</button>
     </div>
   </div>
   <div id="ca-lines-table">

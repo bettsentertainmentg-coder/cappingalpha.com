@@ -852,7 +852,7 @@ async function doVoteRequest(gameId, slot, isRemoving) {
 // getting stuck) — a CSS transform per slide, animated by a transition. The
 // active bet type stays in sync with the Lines tab, pick-slot grid, and both
 // gauge rows.
-const BET_ORDER = ['ml', 'spread', 'total'];
+const BET_ORDER = ['spread', 'ml', 'total'];
 
 function _isPhone() {
   return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 720px)').matches;
@@ -1257,16 +1257,6 @@ function _buildBetTypes() {
 
   return [
     {
-      label:     'WIN',
-      betLabelColor: '#22d3ee',  // bright cyan
-      linesType: 'ml',
-      leftKey:   'away_ml',     rightKey:   'home_ml',
-      leftName:  awayName,      rightName:  homeName,
-      leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
-      leftColorSecondary:  awayColors.secondary, rightColorSecondary:  homeColors.secondary,
-      centerLine: null,
-    },
-    {
       label:     'SPREAD',
       betLabelColor: '#a78bfa',  // bright violet
       linesType: 'spread',
@@ -1277,6 +1267,16 @@ function _buildBetTypes() {
       // Show the home-side line in the center (e.g. -1.5) — matches the line
       // value users actually see on the lines table.
       centerLine: homeSpread,
+    },
+    {
+      label:     'WIN',
+      betLabelColor: '#22d3ee',  // bright cyan
+      linesType: 'ml',
+      leftKey:   'away_ml',     rightKey:   'home_ml',
+      leftName:  awayName,      rightName:  homeName,
+      leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
+      leftColorSecondary:  awayColors.secondary, rightColorSecondary:  homeColors.secondary,
+      centerLine: null,
     },
     {
       label:     'TOTAL',
