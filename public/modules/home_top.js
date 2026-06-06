@@ -11,6 +11,30 @@ import { sportBadge, gameTime, pickLabel, LOCK_SVG } from './utils.js';
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
 
+// ── Team colors (for the abbreviation chips) ────────────────────────────────────
+// Same source + lookup the detail page uses (/team_colors.json, keyed sport→abbr).
+let _teamColors = null;
+let _teamColorsPromise = null;
+function _ensureTeamColors() {
+  if (_teamColors) return Promise.resolve();
+  if (!_teamColorsPromise) {
+    _teamColorsPromise = fetch('/team_colors.json')
+      .then(r => (r.ok ? r.json() : {}))
+      .catch(() => ({}))
+      .then(j => { _teamColors = j; });
+  }
+  return _teamColorsPromise;
+}
+const _ABBR_ALIAS = { NBA: { NY: 'NYK', SA: 'SAS', GS: 'GSW', NO: 'NOP', UTAH: 'UTA' } };
+function _teamColor(sport, abbr) {
+  if (!_teamColors || !abbr) return null;
+  const sp = (sport || '').toUpperCase();
+  const a  = String(abbr).toUpperCase();
+  const bucket = _teamColors[sp] || {};
+  const alias  = (_ABBR_ALIAS[sp] || {})[a] || a;
+  return bucket[a] || bucket[alias] || null;
+}
+
 // ── Shared tile rendering (used by both rows) ───────────────────────────────────
 function _shortName(full, short) {
   if (short) return short;
@@ -92,7 +116,14 @@ function _teamRow(g, isHome) {
   const opp   = (isHome ? g.away_score : g.home_score) ?? 0;
   const cls   = 'ca-tg-team' + (post && my > opp ? ' ca-tg-team-win' : '') + (post && my < opp ? ' ca-tg-team-lose' : '');
   const score = pre ? '' : `<span class="ca-tg-tscore">${my}</span>`;
-  return `<div class="${cls}"><span class="ca-tg-abbr">${_abbr(full, short, abbr)}</span><span class="ca-tg-tname">${_shortName(full, short)}</span>${score}</div>`;
+  // Soft team-coloured abbreviation chip: primary background (darkened a touch so
+  // bright primaries stay easy on the eyes) + secondary text. Falls back to the
+  // neutral grey chip when no colour is known (e.g. tennis players).
+  const tc = _teamColor(g.sport, abbr || short);
+  const abbrStyle = (tc && tc.primary)
+    ? ` style="background:linear-gradient(rgba(0,0,0,.16),rgba(0,0,0,.16)),${tc.primary};color:${tc.secondary || '#ffffff'};"`
+    : '';
+  return `<div class="${cls}"><span class="ca-tg-abbr"${abbrStyle}>${_abbr(full, short, abbr)}</span><span class="ca-tg-tname">${_shortName(full, short)}</span>${score}</div>`;
 }
 
 // ESPN-style scoreboard tile: gradient sport badge + CA chip, two stacked teams
@@ -123,6 +154,7 @@ export async function loadTopGames() {
   const el = document.getElementById('ca-top-games-row');
   if (!el) return;
 
+  await _ensureTeamColors();
   try {
     const res = await fetch('/api/games/top');
     if (!res.ok) throw new Error('fetch failed');
@@ -246,6 +278,7 @@ async function _renderMyStrips() {
     const row = document.getElementById(`ca-ms-row-${s}`);
     if (!row) return;
     try {
+      await _ensureTeamColors();
       const games = await fetch(`/api/games/top?sport=${encodeURIComponent(s)}&limit=12`)
         .then(r => r.ok ? r.json() : []);
       row.innerHTML = (games && games.length)
