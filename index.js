@@ -175,12 +175,26 @@ app.get('/api/config', (req, res) => {
 });
 
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
+// "Today's board" rolls over at the daily wipe (~5am ET), not the 12:30am scanner
+// cycle. Shared by /api/picks, /api/picks/top, and /api/games/top so the #1 pick,
+// the picks list, and the Top Games strip all agree on which slate is "today".
+function currentBoardDate() {
+  const nowET = new Date(Date.now() - ET_OFFSET_MS);
+  let boardDate = nowET.toISOString().slice(0, 10);
+  if (nowET.getUTCHours() < 5) boardDate = addDays(boardDate, -1);
+  return boardDate;
+}
+function isOnBoard(startTime, boardDate) {
+  return !!startTime && cycleDateForInstant(startTime) === boardDate;
+}
+
 app.get('/api/picks', (req, res) => {
-  // Active slate = picks whose game still exists in today_games. The hourly prune
-  // is the retention source of truth: it keeps upcoming/forward games, live games,
-  // and finished games until their cycle clear (+ grace tail), and removes the rest.
-  // So "still joined to a today_games row" == "within the visible window" — no
-  // game_date filter needed, which is what lets tomorrow's forward picks show.
+  // Active slate = picks whose game is on TODAY'S BOARD (rolls at the ~5am wipe).
+  // The prune keeps finished games (and their picks) until the cycle clear + grace
+  // tail, so a join to today_games alone isn't enough — without the board-day
+  // filter, yesterday's finished, already-graded picks linger and outrank today's
+  // (a stale graded loss was showing up as the #1 pick). Scope to the board day.
+  const boardDate = currentBoardDate();
   const PICKS_QUERY = `
     SELECT p.*,
            tg.home_team  AS home_team,
@@ -197,7 +211,7 @@ app.get('/api/picks', (req, res) => {
     GROUP BY p.id
     ORDER BY p.score DESC
   `;
-  const picks = db.prepare(PICKS_QUERY).all();
+  const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
 
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
@@ -227,18 +241,22 @@ app.get('/api/picks', (req, res) => {
 
 // GET /api/picks/top — #1 pick today
 app.get('/api/picks/top', (req, res) => {
-  // #1 pick across the active slate (same retention rule as /api/picks).
-  const TOP_QUERY = `
+  // #1 pick on TODAY'S BOARD only (rolls at the ~5am wipe). Without the board-day
+  // filter, yesterday's finished picks linger in the table (the prune keeps them
+  // for final scores) and a stale graded loss could win as "Today's #1 Pick".
+  const boardDate = currentBoardDate();
+  const rows = db.prepare(`
     SELECT p.*,
-           tg.home_team AS matchup_home,
-           tg.away_team AS matchup_away
+           tg.home_team  AS matchup_home,
+           tg.away_team  AS matchup_away,
+           tg.start_time AS start_time
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
-    ORDER BY p.score DESC LIMIT 1
-  `;
-  const pick = db.prepare(TOP_QUERY).get();
-  res.json(pick || null);
+    ORDER BY p.score DESC
+  `).all();
+  const pick = rows.find(p => isOnBoard(p.start_time, boardDate)) || null;
+  res.json(pick);
 });
 
 // GET /api/mvp — recent MVP picks + all-time record (paid users only).
@@ -331,13 +349,9 @@ app.get('/api/games/top', (req, res) => {
 
   // "Today's board" rolls over at the daily wipe (~5am ET), NOT at the 12:30am
   // scanner-cycle boundary: a finished game keeps riding the board with its final
-  // score until the morning wipe. Before ~5am ET we still feature the slate that
-  // just played; after morning setup, the new day. This is what stops tomorrow's
-  // forward-loaded games (today_games holds several days) from showing up as
-  // "not started / no score" in place of today's live + finished games.
-  const nowET   = new Date(Date.now() - ET_OFFSET_MS);
-  let boardDate = nowET.toISOString().slice(0, 10);
-  if (nowET.getUTCHours() < 5) boardDate = addDays(boardDate, -1);
+  // score until the morning wipe. Shared with /api/picks + /api/picks/top so the
+  // strip, the picks list, and the #1 pick all agree on "today".
+  const boardDate = currentBoardDate();
 
   // Candidate games = everything on today's board (pre / in / post), with whatever
   // cached market volume exists. Finished games are INCLUDED so the tile shows the
