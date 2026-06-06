@@ -25,7 +25,7 @@ const { getSetting } = require('./src/db');
 const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
-const { fetchTodaysTennisMatches, updateTennisLiveScores } = require('./src/tennis_espn');
+const { fetchTodaysTennisMatches, updateTennisLiveScores, refreshTennisStartTimes } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames, updateWnbaLiveScores }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
@@ -1097,6 +1097,9 @@ if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   if (!isActiveHours()) return;
   console.log('[cron] 15-min scan');
   await runScan();
+  // Keep tennis start times accurate — they shift all day as the order of play
+  // firms up, and the 5am fetch only captures a placeholder. Free (ESPN).
+  refreshTennisStartTimes().catch(e => console.error('[cron] refreshTennisStartTimes:', e.message));
   // Free line data syncs — no API credits
   const preGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
   syncLineHistory(preGames).catch(e => console.error('[cron] syncLineHistory:', e.message));

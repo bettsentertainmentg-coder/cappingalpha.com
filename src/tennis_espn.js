@@ -126,6 +126,10 @@ function upsertTennisMatch(comp, sportLabel) {
       status               = excluded.status,
       period               = excluded.period,
       clock                = excluded.clock,
+      -- Tennis start times shift all day (matches are "not before" / follow the
+      -- previous match on court). ESPN firms them up over time, so always take the
+      -- freshest value. COALESCE guards against a rare null wiping a good time.
+      start_time           = COALESCE(excluded.start_time, today_games.start_time),
       home_team            = excluded.home_team,
       home_short           = excluded.home_short,
       home_name            = excluded.home_name,
@@ -222,6 +226,41 @@ async function fetchTodaysTennisMatches() {
   return total;
 }
 
+// ── Refresh start times for ALL of today's tennis matches ────────────────────
+// Tennis start times are the least stable field we store: matches are scheduled
+// "not before X" or "follows previous match on court", so the time captured at
+// 5am (often a 00:00 placeholder that renders as 12:00 AM) goes stale fast.
+// updateTennisLiveScores() only touches matches that already have a pick, so the
+// rest of the schedule never gets corrected. This re-pulls the ATP + WTA
+// scoreboards and upserts every today/uncompleted singles match, refreshing
+// start_time (plus status/clock/scores) for the whole schedule, picked or not.
+// Free (ESPN), no Odds API credits. Run on a short cron so times stay accurate.
+async function refreshTennisStartTimes() {
+  const todayET = getCycleDate();
+  const dateStr = todayET.replace(/-/g, '');
+
+  let refreshed = 0;
+  for (const { path, label } of TENNIS_SPORTS) {
+    try {
+      const events = await fetchScoreboardForDate(path, dateStr);
+      for (const tournament of events) {
+        for (const comp of extractMatches(tournament)) {
+          const compDate  = (comp.date || '').slice(0, 10);
+          const completed = comp.status?.type?.completed === true;
+          // Skip matches already finished on a prior day — nothing to refresh.
+          if (completed && compDate && compDate < todayET) continue;
+          upsertTennisMatch(comp, label);
+          refreshed++;
+        }
+      }
+    } catch (err) {
+      console.warn(`[tennis_espn] refreshTennisStartTimes(${label}) error:`, err.message);
+    }
+  }
+  if (refreshed > 0) console.log(`[tennis_espn] refreshTennisStartTimes: ${refreshed} matches refreshed`);
+  return refreshed;
+}
+
 // ── Update live scores for in-progress tennis matches ────────────────────────
 // Called every 5 min alongside espn_live.updateLiveScores().
 // Only refreshes games that have picks today — same pattern as espn_live.
@@ -258,4 +297,4 @@ async function updateTennisLiveScores() {
   }
 }
 
-module.exports = { fetchTodaysTennisMatches, updateTennisLiveScores };
+module.exports = { fetchTodaysTennisMatches, updateTennisLiveScores, refreshTennisStartTimes };
