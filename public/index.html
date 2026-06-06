@@ -907,7 +907,14 @@
     }
 
     /* ── Home main column sections ── */
-    .ca-home-section { margin-bottom: 24px; }
+    .ca-home-section { margin-bottom: 0; }
+    /* Thin separator between the stacked main-column sections (desktop) — reads as
+       an intentional divider instead of dead space. */
+    .ca-home-main > .ca-home-section + .ca-home-section {
+      border-top: 1px solid var(--border);
+      margin-top: 14px;
+      padding-top: 14px;
+    }
     .ca-home-section-header {
       display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
     }
@@ -947,8 +954,9 @@
     /* Locked CA chip (non-paying users): gray/silver, blurred placeholder + lock */
     .ca-tg-ca-locked { color: #9aa4b2; border-color: rgba(192,192,192,0.35); }
     .ca-tg-ca-lockwrap { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; }
-    .ca-tg-ca-blur { filter: blur(4px); opacity: 0.55; font-weight: 800; letter-spacing: 1px; user-select: none; }
-    .ca-tg-ca-lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .ca-tg-ca-blur { filter: blur(3px); opacity: 0.6; font-weight: 800; letter-spacing: 1px; user-select: none; pointer-events: none; }
+    /* golden lock over the blurred number — mirrors the detail-page locked score */
+    .ca-tg-ca-lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--gold); font-size: 11px; text-shadow: 0 1px 3px rgba(0,0,0,0.65); pointer-events: none; }
     .ca-tg-score-locked { display: inline-flex; align-items: center; justify-content: center; padding: 2px 7px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); }
     .ca-tg-multi { flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1; background: var(--accent); color: #fff; border-radius: 9px; padding: 2px 5px; min-width: 17px; text-align: center; }
     /* Stacked teams: abbr + name + score (ESPN style) */
@@ -1133,10 +1141,14 @@
         display: flex;
         flex-direction: column;
         padding: 16px 12px 48px;
-        gap: 16px;
+        gap: 12px;
       }
       .ca-home-sidebar,
       .ca-home-main { display: contents; position: static; }
+      /* The flex gap handles section spacing on mobile. Drop the desktop divider
+         (sections get reordered here, so a DOM-order line lands in the wrong place)
+         and lean on the gap alone so there's no dead space between rows. */
+      .ca-home-main > .ca-home-section + .ca-home-section { border-top: none; margin-top: 0; padding-top: 0; }
 
       /* CRITICAL: flex children must be allowed to shrink, or the horizontally
          scrolling rows (Top Games / My Sports) blow the page width out and the
@@ -1161,7 +1173,7 @@
       .ca-sidebar-games-card { order: 7; }
 
       /* The Top Games strip + My Sports strips scroll sideways within the page. */
-      .ca-top-games-row, .ca-ms-strip-row { max-width: 100%; }
+      .ca-top-games-row, .ca-ms-strip-row { max-width: 100%; padding-bottom: 4px; }
 
       /* Make the #1 pick read as a headline card on phones, centered full-width. */
       #ca-top-pick-slot .ca-tp-title { font-size: 23px; }

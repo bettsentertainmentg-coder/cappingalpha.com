@@ -436,9 +436,17 @@ app.get('/api/games/top', (req, res) => {
     WHERE espn_game_id = ? AND mention_count > 0 AND score > 0
   `);
 
+  // Paywall: the corner CA score is paid content. Free/logged-out users only get
+  // the real score for the overall #1 game; every other game's score is withheld
+  // server-side (not just blurred in the browser) and flagged locked so the tile
+  // can render a lock. pick_count is non-sensitive and always sent.
+  const paid = auth.isPaid(req);
+
   const out = top.map(g => {
     const tp = topPickStmt.get(g.espn_game_id);
     const pickCount = pickCountStmt.get(g.espn_game_id).c;
+    const isG1 = g.espn_game_id === globalTopGameId;
+    const unlocked = paid || isG1;
     return {
       espn_game_id: g.espn_game_id,
       sport:        g.sport,
@@ -457,13 +465,12 @@ app.get('/api/games/top', (req, res) => {
       pm_vol:       g.pm_vol,
       k_vol:        g.k_vol,
       pick_count:   pickCount,
-      top_pick: tp ? {
-        score:       tp.score,
-        team:        tp.team,
-        pick_type:   tp.pick_type,
-        spread:      tp.spread,
-        is_global_1: g.espn_game_id === globalTopGameId,
-      } : null,
+      top_pick: tp
+        ? (unlocked
+            ? { score: tp.score, team: tp.team, pick_type: tp.pick_type, spread: tp.spread, is_global_1: isG1, locked: false }
+            // Locked: withhold score/team/side entirely, keep only the flag.
+            : { score: null, team: null, pick_type: null, spread: null, is_global_1: false, locked: true })
+        : null,
     };
   });
 

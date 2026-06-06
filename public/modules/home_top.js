@@ -6,7 +6,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, LOCK_SVG } from './utils.js';
+import { sportBadge, gameTime, pickLabel } from './utils.js';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
@@ -78,6 +78,15 @@ function _caColor(score) {
   return '#cd7f32';
 }
 
+// Stable blurred placeholder (1–99) for the locked chip, hashed off the game id
+// so it stays put across refreshes. The real score is never sent to non-subs.
+function _lockedPlaceholder(g) {
+  const key = String(g.espn_game_id || (g.top_pick && g.top_pick.id) || '');
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) | 0;
+  return (Math.abs(h) % 99) + 1;
+}
+
 // 3-letter team abbreviation: prefer the ESPN abbr, else derive from short/full name.
 function _abbr(full, short, abbr) {
   if (abbr) return String(abbr).toUpperCase();
@@ -98,12 +107,14 @@ function _cornerCluster(g) {
   const multi = (g.pick_count > 1)
     ? `<span class="ca-tg-multi" title="${g.pick_count} rated picks on this game">${g.pick_count}</span>`
     : '';
-  // Non-paying users: the server withholds the score, so render a gray/silver CA
-  // chip with the badge, a blurred placeholder, and a lock — same shape as a real
-  // chip so the row reads consistently. The real number is never sent to them.
+  // Non-paying users: the server withholds the score, so render the exact same CA
+  // chip as subscribers — logo, badge, the works — but with a blurred number and a
+  // golden lock over it (the detail-page locked style). The real number is never
+  // sent to them; the blurred digits are a stable placeholder, not the score.
   if (tp.locked || !_isUnlocked(tp)) {
+    const blur = _lockedPlaceholder(g);
     return `<span class="ca-tg-corner">
-      <span class="ca-tg-ca ca-tg-ca-locked" title="Unlock with full access"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'"><span class="ca-tg-ca-lockwrap"><span class="ca-tg-ca-blur">00</span><span class="ca-tg-ca-lock">${LOCK_SVG}</span></span></span>${multi}</span>`;
+      <span class="ca-tg-ca ca-tg-ca-locked" title="Unlock with full access"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'"><span class="ca-tg-ca-lockwrap"><span class="ca-tg-ca-blur">${blur}</span><span class="ca-tg-ca-lock"><i class="fa-solid fa-lock"></i></span></span></span>${multi}</span>`;
   }
   if (tp.score == null) return '';
   const col = _caColor(tp.score);
