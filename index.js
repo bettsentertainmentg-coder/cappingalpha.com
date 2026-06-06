@@ -34,7 +34,7 @@ const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
-const { getCycleDate }                                = require('./src/cycle');
+const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getLinesForGame }                             = require('./src/lines_scraper');
@@ -326,7 +326,19 @@ app.get('/api/games/top', (req, res) => {
       : [sportParam.toUpperCase()];
   }
 
-  // Candidate games = upcoming or live, with whatever cached market volume exists.
+  // "Today's board" rolls over at the daily wipe (~5am ET), NOT at the 12:30am
+  // scanner-cycle boundary: a finished game keeps riding the board with its final
+  // score until the morning wipe. Before ~5am ET we still feature the slate that
+  // just played; after morning setup, the new day. This is what stops tomorrow's
+  // forward-loaded games (today_games holds several days) from showing up as
+  // "not started / no score" in place of today's live + finished games.
+  const nowET   = new Date(Date.now() - ET_OFFSET_MS);
+  let boardDate = nowET.toISOString().slice(0, 10);
+  if (nowET.getUTCHours() < 5) boardDate = addDays(boardDate, -1);
+
+  // Candidate games = everything on today's board (pre / in / post), with whatever
+  // cached market volume exists. Finished games are INCLUDED so the tile shows the
+  // final score instead of falling through to a future duplicate of the matchup.
   let candidates = db.prepare(`
     SELECT tg.espn_game_id, tg.sport, tg.home_team, tg.away_team,
            tg.home_short, tg.away_short, tg.home_abbr, tg.away_abbr,
@@ -337,8 +349,12 @@ app.get('/api/games/top', (req, res) => {
     FROM today_games tg
     LEFT JOIN polymarket_cache pm ON pm.espn_game_id = tg.espn_game_id
     LEFT JOIN kalshi_cache     k  ON k.espn_game_id  = tg.espn_game_id
-    WHERE tg.status IN ('pre', 'in')
   `).all();
+
+  // Scope to the current board day so a matchup's future-dated rows don't replace
+  // today's. Each game's ET cycle date (start_time → cycleDateForInstant) must
+  // equal the board day.
+  candidates = candidates.filter(g => cycleDateForInstant(g.start_time) === boardDate);
 
   if (sportFilter) {
     const want = sportFilter.map(s => s.toUpperCase());
