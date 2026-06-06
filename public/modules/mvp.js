@@ -377,7 +377,9 @@ export function drawPlGraph(picks) {
   }
 
   const lineColor = windowPL >= 0 ? '#4ade80' : '#f87171';
-  const useDetailedTooltip = ['1D','5D','7D','21D','1M'].includes(_currentRange);
+  // Show the per-day pick breakdown in the tooltip for every range, including
+  // 3M and ALL (each chart point is one day, so the day's picks are available).
+  const useDetailedTooltip = true;
 
   _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, {
     labels,
