@@ -957,7 +957,10 @@ nav {
   background: var(--surface2); color: var(--text-secondary);
   border-radius: 10px; padding: 1px 8px;
 }
-.ca-chat-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+.ca-chat-list {
+  display: flex; flex-direction: column; gap: 14px;
+  margin-top: 16px; max-height: 360px; overflow-y: auto; padding-right: 4px;
+}
 .ca-chat-empty { font-size: 13px; color: var(--text-tertiary); padding: 8px 0; }
 
 /* Each message: a transparent name tag (username + vote chips + time) above the

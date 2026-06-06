@@ -1546,7 +1546,9 @@ function _chatShell(messages, loading) {
     </div>`;
   }
 
-  return header + `<div class="ca-chat-list">${list}</div>` + composer;
+  // Composer on top (always sits above the thread), messages below in a
+  // scrollable list. Header stays as the section title.
+  return header + composer + `<div class="ca-chat-list">${list}</div>`;
 }
 
 async function postChat() {
