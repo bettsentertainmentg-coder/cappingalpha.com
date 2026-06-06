@@ -139,6 +139,8 @@ async function init() {
 
   // Sticky nav scroll-spy
   initScrollSpy();
+  // Mobile section-tab bar: expand/brighten once it pins to the top.
+  initStickyTabs();
 
   // Countdown for pre-game
   if (_data.game.status === 'pre') startCountdown();
@@ -2221,6 +2223,38 @@ function startCountdown() {
 }
 
 // ── Scroll-spy for sidebar + mobile tabs ──────────────────────────────────────
+// Sum the heights of the layers actually pinned to the top right now: the nav
+// always, the game header only where it stays sticky (desktop), and the mobile
+// tab bar when shown. Keeps scroll-spy + click-to-section from hiding content
+// behind the sticky layers on both desktop and mobile (header scrolls away).
+function _stickyTop() {
+  const nav  = document.querySelector('nav');
+  const hdr  = document.querySelector('.ca-sticky-top');
+  const tabs = document.querySelector('.ca-mobile-tabs');
+  let h = nav ? nav.offsetHeight : 56;
+  if (hdr && getComputedStyle(hdr).position === 'sticky') h += hdr.offsetHeight;
+  if (tabs && getComputedStyle(tabs).display !== 'none') h += tabs.offsetHeight;
+  return h;
+}
+
+// Toggle the "stuck" state on the mobile tab bar once it pins under the nav, so
+// it expands + brightens into a table of contents as you scroll.
+function initStickyTabs() {
+  const tabs = document.querySelector('.ca-mobile-tabs');
+  if (!tabs) return;
+  let ticking = false;
+  const update = () => {
+    ticking = false;
+    const navH = document.querySelector('nav')?.offsetHeight || 56;
+    tabs.classList.toggle('is-stuck', tabs.getBoundingClientRect().top <= navH + 0.5);
+  };
+  window.addEventListener('scroll', () => {
+    if (!ticking) { ticking = true; requestAnimationFrame(update); }
+  }, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+}
+
 function initScrollSpy() {
   const allNavLinks = document.querySelectorAll(
     '.ca-sidebar-link[data-sec], .ca-mtab[data-sec]'
@@ -2228,12 +2262,17 @@ function initScrollSpy() {
   const sections = document.querySelectorAll('.ca-section[id]');
   if (!sections.length || !('IntersectionObserver' in window)) return;
 
-  const navHeight = (document.querySelector('nav')?.offsetHeight || 56) +
-                    (document.querySelector('.ca-sticky-top')?.offsetHeight || 0) +
-                    (document.querySelector('.ca-mobile-tabs')?.offsetHeight || 0);
+  const navHeight = _stickyTop();
 
   const setActive = (id) => {
     allNavLinks.forEach(t => t.classList.toggle('active', t.dataset.sec === id));
+    // Keep the active mobile tab centered so the TOC visibly cycles as you scroll.
+    const bar = document.querySelector('.ca-mobile-tabs');
+    const activeM = bar && bar.querySelector('.ca-mtab.active');
+    if (bar && activeM && getComputedStyle(bar).display !== 'none') {
+      const target = activeM.offsetLeft - (bar.clientWidth - activeM.offsetWidth) / 2;
+      bar.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+    }
   };
 
   // Suppress observer while smooth-scroll is in flight to prevent flicker
@@ -2262,10 +2301,7 @@ function initScrollSpy() {
       clearTimeout(_suppressTimer);
       _suppressTimer = setTimeout(() => { _suppress = false; }, 700);
       // Offset for all sticky layers: nav + sticky game header + mobile tabs
-      const stickyOffset = (document.querySelector('nav')?.offsetHeight || 56)
-                         + (document.querySelector('.ca-sticky-top')?.offsetHeight || 0)
-                         + (document.querySelector('.ca-mobile-tabs')?.offsetHeight || 0)
-                         + 20; // breathing room
+      const stickyOffset = _stickyTop() + 20; // breathing room
       const top = sec.getBoundingClientRect().top + window.scrollY - stickyOffset;
       window.scrollTo({ top, behavior: 'smooth' });
     });

@@ -11,7 +11,8 @@ const SEARCH_URL = 'https://site.web.api.espn.com/apis/search/v2';
 const CORE = 'https://sports.core.api.espn.com/v2/sports/tennis/leagues';
 const UA = { 'User-Agent': 'Mozilla/5.0' };
 
-const MATCH_N = 8; // matches to detail (each costs a few $ref fetches)
+const FETCH_N = 12;   // eventlog items to detail (it is not strictly date-ordered)
+const DISPLAY_N = 8;  // matches shown after sorting by date
 
 // Player-id + history caches (recent matches change only when a player plays).
 const _idCache = new Map();   // name → athleteId
@@ -20,10 +21,19 @@ const TTL_MS = 30 * 60 * 1000;
 
 // Major-tournament → surface (falls back to indoor/outdoor hint).
 const SURFACE = {
-  'roland garros': 'Clay', 'french open': 'Clay',
-  'wimbledon': 'Grass',
+  // Grand Slams
+  'roland garros': 'Clay', 'french open': 'Clay', 'wimbledon': 'Grass',
   'australian open': 'Hard', 'us open': 'Hard',
+  // Clay
   'monte carlo': 'Clay', 'madrid': 'Clay', 'rome': 'Clay', 'italian open': 'Clay',
+  'barcelona': 'Clay', 'hamburg': 'Clay', 'munich': 'Clay', 'stuttgart': 'Grass',
+  // Grass
+  'halle': 'Grass', "queen's": 'Grass', 'eastbourne': 'Grass', "'s-hertogenbosch": 'Grass',
+  // Hard (incl. indoor)
+  'indian wells': 'Hard', 'miami': 'Hard', 'qatar': 'Hard', 'doha': 'Hard', 'dubai': 'Hard',
+  'cincinnati': 'Hard', 'canadian': 'Hard', 'toronto': 'Hard', 'montreal': 'Hard',
+  'shanghai': 'Hard', 'beijing': 'Hard', 'tokyo': 'Hard', 'paris': 'Indoor hard',
+  'atp finals': 'Indoor hard', 'wta finals': 'Indoor hard', 'united cup': 'Hard',
 };
 function surfaceFor(name, indoor) {
   const n = (name || '').toLowerCase();
@@ -172,11 +182,14 @@ async function getTennisHistory(playerName, sport, gameDate) {
   } catch (_) { return null; }
   if (!items.length) return null;
 
-  // eventlog is oldest→newest; take the most recent MATCH_N, newest first.
-  const recent = items.slice(-MATCH_N).reverse();
+  // The eventlog is not reliably date-ordered, so detail a wider window then
+  // sort by date and keep the most recent.
+  const recent = items.slice(-FETCH_N);
   const eventCache = new Map();
   const matches = (await Promise.all(recent.map(it => parseMatch(it, athleteId, eventCache).catch(() => null))))
-    .filter(Boolean);
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+    .slice(0, DISPLAY_N);
   if (!matches.length) return null;
 
   const data = { sport: (sport || '').toUpperCase(), player: playerName, athleteId, matches, form: buildForm(matches) };
