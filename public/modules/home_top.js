@@ -93,14 +93,20 @@ function _abbr(full, short, abbr) {
 // shows how many rated picks are on the game.
 function _cornerCluster(g) {
   const tp = g.top_pick;
-  if (!tp || tp.score == null) return '';
-  if (!_isUnlocked(tp)) {
-    return `<span class="ca-tg-corner"><span class="ca-tg-score-locked" title="Unlock with full access">${LOCK_SVG}</span></span>`;
-  }
-  const col   = _caColor(tp.score);
+  if (!tp) return '';
+  // Pick-count badge shows for everyone (it's not paid content) when >1.
   const multi = (g.pick_count > 1)
     ? `<span class="ca-tg-multi" title="${g.pick_count} rated picks on this game">${g.pick_count}</span>`
     : '';
+  // Non-paying users: the server withholds the score, so render a gray/silver CA
+  // chip with the badge, a blurred placeholder, and a lock — same shape as a real
+  // chip so the row reads consistently. The real number is never sent to them.
+  if (tp.locked || !_isUnlocked(tp)) {
+    return `<span class="ca-tg-corner">
+      <span class="ca-tg-ca ca-tg-ca-locked" title="Unlock with full access"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'"><span class="ca-tg-ca-lockwrap"><span class="ca-tg-ca-blur">00</span><span class="ca-tg-ca-lock">${LOCK_SVG}</span></span></span>${multi}</span>`;
+  }
+  if (tp.score == null) return '';
+  const col = _caColor(tp.score);
   return `<span class="ca-tg-corner">
     <span class="ca-tg-ca" style="color:${col};border-color:${col}66" title="${pickLabel(tp)}"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'">${tp.score}</span>${multi}</span>`;
 }
