@@ -8,7 +8,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
 import { state } from '/modules/state.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js';
 import { cappingGauge } from '/modules/gauge.js';
-import { drawPickTimeline, destroyPickTimeline } from '/modules/score_timeline.js';
+import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 
 function formatActualStart(actualIso, scheduledIso) {
   if (!actualIso) return '';
@@ -57,6 +57,7 @@ Object.assign(window, {
   openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
   doLogout, showForgotPassword, showLoginForm, doForgotPassword,
   setLinesType, selectSlot, doBack,
+  selectHistoryTeam, openHistGame, closeHistGame,
 });
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -77,6 +78,9 @@ let _activeSlot  = null;
 let _teamColors  = null;
 let _linesType   = 'spread';
 let _countdownId = null;
+let _historyTeam  = 'away';   // 'away' | 'home' — local History toggle
+const _historyCache = {};     // `${sport}:${teamId}` → team-history payload
+const _playersCache = {};     // `${sport}:${teamId}:${eventId}` → game-players payload
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -123,7 +127,11 @@ async function init() {
   renderSentiment();
   renderInjuries();
   renderContext();
+  renderHistory();
   renderCommunity();
+
+  // Close the player drill-down popup on Escape
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHistGame(); });
 
   // Update sidebar/mobile-tabs top offset to clear the sticky header
   updateStickyOffset();
@@ -783,11 +791,18 @@ function renderDetailPanel() {
   </div>`;
 
   // Render the chart after innerHTML has settled. Always draw, even when
-  // locked or empty, so the chart frame is visible with the overlay.
+  // locked or empty, so the chart frame is visible with the overlay. Locked
+  // users get a synthetic teaser (no real data on the canvas), not the real
+  // curve blurred — that used to be legible through the blur.
   if (typeof Chart !== 'undefined') {
-    requestAnimationFrame(() =>
-      drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart')
-    );
+    requestAnimationFrame(() => {
+      if (timelineVisible) {
+        drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart');
+      } else {
+        const seed = String(gameId || '').split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+        drawLockedTeaser('ca-dp-timeline-chart', MVP_THRESHOLD, seed);
+      }
+    });
   }
 
   // Paywall banner
@@ -1814,6 +1829,369 @@ function renderContext() {
       ${c.sub ? `<div class="ca-ctx-sub">${c.sub}</div>` : ''}
     </div>`;
   }).join('');
+}
+
+// ── History section ───────────────────────────────────────────────────────────
+const HIST_SPORTS = new Set(['NBA', 'WNBA', 'NHL', 'MLB', 'NFL', 'NCAAF', 'CBB']);
+// Per-sport team-scoring range for the off/def meters (points/goals/runs for & against).
+const HIST_PTS_RANGE = {
+  NBA: [95, 130], WNBA: [70, 95], CBB: [55, 90],
+  NHL: [1, 6], MLB: [1, 9], NFL: [10, 38], NCAAF: [10, 45],
+};
+const FRESH_BAND_COLOR = { fresh: '#22c55e', moderate: '#eab308', heavy: '#f97316', overworked: '#ef4444' };
+
+function clampPct(x) { return Math.max(0, Math.min(1, x)); }
+function histDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+  } catch (_) { return ''; }
+}
+function histIsTennis() {
+  const sport = (_data.game.sport || '').toUpperCase();
+  return sport === 'ATP' || sport === 'WTA';
+}
+function histSportSupported() {
+  const sport = (_data.game.sport || '').toUpperCase();
+  if (histIsTennis()) return !!(_data.game.home_team && _data.game.away_team);
+  if (!HIST_SPORTS.has(sport)) return false;
+  return !!(_data.stats && (_data.stats.homeTeamId || _data.stats.awayTeamId));
+}
+function histTeamId(team) {
+  return team === 'home' ? _data.stats?.homeTeamId : _data.stats?.awayTeamId;
+}
+
+async function renderHistory() {
+  const section = document.getElementById('history');
+  if (!section) return;
+  if (!histSportSupported()) { section.style.display = 'none'; return; }
+
+  section.style.display = '';
+  const navS = document.getElementById('ca-nav-history');
+  const navM = document.getElementById('ca-mtab-history');
+  if (navS) navS.style.display = '';
+  if (navM) navM.style.display = '';
+
+  const { game } = _data;
+  const setAbbr = (team, txt) => {
+    const el = document.querySelector(`#ca-hist-toggle .ca-hist-tab[data-team="${team}"] .ca-hist-tab-abbr`);
+    if (el) el.textContent = txt;
+  };
+  setAbbr('away', (game.away_abbr || game.away_short || teamNick(game.away_team) || 'AWAY').toUpperCase());
+  setAbbr('home', (game.home_abbr || game.home_short || teamNick(game.home_team) || 'HOME').toUpperCase());
+
+  const toggle = document.getElementById('ca-hist-toggle');
+  if (toggle && !toggle.dataset.wired) {
+    toggle.dataset.wired = '1';
+    toggle.querySelectorAll('.ca-hist-tab').forEach(btn =>
+      btn.addEventListener('click', () => selectHistoryTeam(btn.dataset.team)));
+  }
+  await loadAndPaintHistory();
+}
+
+async function loadAndPaintHistory() {
+  const body = document.getElementById('ca-history-body');
+  if (!body) return;
+  const sport = (_data.game.sport || '').toUpperCase();
+
+  // Tennis: player-keyed recent matches (ESPN eventlog), not team schedule.
+  if (histIsTennis()) {
+    const player = _historyTeam === 'home' ? _data.game.home_team : _data.game.away_team;
+    if (!player) { body.innerHTML = `<div class="ca-hist-empty">No recent matches on record.</div>`; return; }
+    const cacheKey = `T:${sport}:${player}`;
+    if (_historyCache[cacheKey]) { paintTennisHistory(_historyCache[cacheKey]); return; }
+    body.innerHTML = `<div class="ca-hist-loading">Loading recent matches…</div>`;
+    try {
+      const url = `/api/tennis-history?player=${encodeURIComponent(player)}&sport=${sport}&date=${encodeURIComponent(_data.game.start_time || '')}`;
+      const data = await (await fetch(url)).json();
+      if (!data || data.unsupported || data.unavailable || !(data.matches && data.matches.length)) {
+        body.innerHTML = `<div class="ca-hist-empty">No recent matches on record.</div>`;
+        return;
+      }
+      _historyCache[cacheKey] = data;
+      const stillActive = (_historyTeam === 'home' ? _data.game.home_team : _data.game.away_team) === player;
+      if (stillActive) paintTennisHistory(data);
+    } catch (_) {
+      body.innerHTML = `<div class="ca-hist-empty">Could not load matches.</div>`;
+    }
+    return;
+  }
+
+  const teamId = histTeamId(_historyTeam);
+  if (!teamId) { body.innerHTML = `<div class="ca-hist-empty">No recent games on record.</div>`; return; }
+
+  const cacheKey = `${sport}:${teamId}`;
+  if (_historyCache[cacheKey]) { paintHistory(_historyCache[cacheKey]); return; }
+
+  body.innerHTML = `<div class="ca-hist-loading">Loading recent games…</div>`;
+  try {
+    const r = await fetch(`/api/team-history?teamId=${encodeURIComponent(teamId)}&sport=${encodeURIComponent(sport)}`);
+    const data = await r.json();
+    if (!data || data.unsupported || data.unavailable || !(data.last20 && data.last20.length)) {
+      body.innerHTML = `<div class="ca-hist-empty">No recent games on record.</div>`;
+      return;
+    }
+    _historyCache[cacheKey] = data;
+    if (histTeamId(_historyTeam) === teamId) paintHistory(data); // user may have toggled mid-fetch
+  } catch (_) {
+    body.innerHTML = `<div class="ca-hist-empty">Could not load history.</div>`;
+  }
+}
+
+function selectHistoryTeam(team) {
+  if (team !== 'away' && team !== 'home') return;
+  if (team === _historyTeam) return;
+  _historyTeam = team;
+  const toggle = document.getElementById('ca-hist-toggle');
+  if (toggle) {
+    toggle.querySelectorAll('.ca-hist-tab').forEach(b => b.classList.toggle('active', b.dataset.team === team));
+    toggle.classList.toggle('ca-hist-toggle--home', team === 'home');
+  }
+  const body = document.getElementById('ca-history-body');
+  if (body) body.classList.add('ca-hist-fading');
+  setTimeout(() => {
+    loadAndPaintHistory().finally(() => {
+      document.getElementById('ca-history-body')?.classList.remove('ca-hist-fading');
+    });
+  }, 140);
+}
+
+function paintHistory(data) {
+  const body = document.getElementById('ca-history-body');
+  if (!body) return;
+  const sport = (_data.game.sport || '').toUpperCase();
+  const col   = teamColors(_data.game, _historyTeam === 'home');
+  body.innerHTML =
+    histSummaryHtml(data.summary, col, sport) +
+    histLast5Html(data.last5, sport) +
+    histLast20Html(data.last20) +
+    `<div class="ca-hist-caption">Offense and defense shown as points scored and allowed, scaled to a league range. Not possession-adjusted.</div>`;
+  _data._histActive = { sport, teamId: histTeamId(_historyTeam), last5: data.last5 };
+}
+
+function histSummaryHtml(s, col, sport) {
+  if (!s) return '';
+  const tile = (val, label) =>
+    `<div class="ca-hist-stat"><div class="ca-hist-stat-val ca-num">${val}</div><div class="ca-hist-stat-label">${label}</div></div>`;
+  const mColor = s.avgMargin > 0 ? 'var(--accent-win)' : s.avgMargin < 0 ? 'var(--accent-live)' : 'var(--text)';
+  const mStr   = s.avgMargin == null ? '—' : (s.avgMargin > 0 ? '+' : '') + s.avgMargin;
+  const form   = (s.lastFiveForm || []).map(r =>
+    `<span class="ca-hist-formdot ca-hist-formdot--${r === 'W' ? 'w' : 'l'}">${r}</span>`).join('') || '—';
+  const forL = sport === 'NHL' ? 'Goals/gm' : sport === 'MLB' ? 'Runs/gm' : 'PPG';
+  const oppL = sport === 'NHL' ? 'Opp G/gm' : sport === 'MLB' ? 'Opp R/gm' : 'Opp PPG';
+  const totL = sport === 'NHL' ? 'Total goals' : sport === 'MLB' ? 'Total runs' : 'Total pts';
+  return `<div class="ca-hist-summary" style="--hist-accent:${esc(col.primary)};">
+    ${tile(s.record, `Last ${s.gamesPlayed}`)}
+    ${tile(s.ppg ?? '—', forL)}
+    ${tile(s.oppPpg ?? '—', oppL)}
+    ${tile(`<span style="color:${mColor};">${mStr}</span>`, 'Avg margin')}
+    ${tile(s.totalPoints ?? '—', totL)}
+    <div class="ca-hist-stat"><div class="ca-hist-formrow">${form}</div><div class="ca-hist-stat-label">Last 5</div></div>
+  </div>`;
+}
+
+// Whole bar reads green (good) or red (bad) by percentile, matching the MVP
+// history win/loss color language. Width carries the magnitude.
+function histMeter(tag, pct, raw) {
+  const color = pct >= 50 ? '#4ade80' : '#f87171';
+  return `<span class="ca-hist-meter"><span class="ca-hist-meter-tag">${tag}</span>` +
+    `<span class="ca-hist-meter-track"><span class="ca-hist-meter-fill" style="width:${Math.max(8, pct)}%;background:${color};"></span></span>` +
+    `<span class="ca-hist-meter-num ca-num" style="color:${color};">${raw}</span></span>`;
+}
+
+function histLast5Html(games, sport) {
+  if (!games || !games.length) return `<div class="ca-hist-empty">No recent games.</div>`;
+  const [lo, hi] = HIST_PTS_RANGE[sport] || [0, 1];
+  const rows = games.map(g => {
+    const res  = g.result || '—';
+    const vs   = (g.homeAway === 'home' ? 'vs ' : '@ ') + (g.oppAbbr || g.oppName || '');
+    const offP = Math.round(clampPct((g.pf - lo) / (hi - lo)) * 100);
+    const defP = Math.round(clampPct((hi - g.pa) / (hi - lo)) * 100);
+    const lead = (g.leaders || []).slice(0, 1).map(l =>
+      `${esc(l.athlete || '')} ${esc(String(l.value))} ${esc((l.cat || '').slice(0, 3).toUpperCase())}`).join('');
+    return `<div class="ca-hist-row" onclick="openHistGame('${esc(g.eventId)}')" role="button" tabindex="0">
+      <span class="ca-hist-res ca-hist-res--${res === 'W' ? 'w' : 'l'}">${res}</span>
+      <span class="ca-hist-date ca-num">${histDate(g.date)}</span>
+      <span class="ca-hist-opp">${esc(vs)}</span>
+      <span class="ca-hist-score ca-num">${g.pf}-${g.pa}</span>
+      <span class="ca-hist-lead">${lead}</span>
+      <span class="ca-hist-meters">
+        ${histMeter('OFF', offP, g.pf)}
+        ${histMeter('DEF', defP, g.pa)}
+      </span>
+    </div>`;
+  }).join('');
+  return `<div class="ca-hist-rows-label">Last 5 games (tap a game for the player box score)</div>` +
+         `<div class="ca-hist-rows">${rows}</div>`;
+}
+
+function histLast20Html(games) {
+  if (!games || !games.length) return '';
+  const cells = games.map(g => {
+    const w = g.result === 'W';
+    const m = g.margin == null ? '' : (g.margin > 0 ? '+' + g.margin : g.margin);
+    const t = `${g.homeAway === 'home' ? 'vs' : '@'} ${g.oppAbbr || ''} ${g.pf}-${g.pa} (${histDate(g.date)})`;
+    return `<span class="ca-hist-mini ca-hist-mini--${w ? 'w' : 'l'}" title="${esc(t)}">${m}</span>`;
+  }).join('');
+  return `<div class="ca-hist-last20"><div class="ca-hist-last20-label">Last ${games.length} · most recent first</div>` +
+         `<div class="ca-hist-minirow">${cells}</div></div>`;
+}
+
+// ── Tennis variant (player recent matches, not a team schedule) ───────────────
+function lastNameOf(name) { return (name || '').trim().split(' ').pop(); }
+
+function paintTennisHistory(data) {
+  const body = document.getElementById('ca-history-body');
+  if (!body) return;
+  const col = teamColors(_data.game, _historyTeam === 'home');
+  body.innerHTML =
+    tennisSummaryHtml(data, col) +
+    tennisMatchesHtml(data.matches) +
+    `<div class="ca-hist-caption">Recent matches via ESPN. Form is recent results; load is sets played plus days rest, not injury risk.</div>`;
+}
+
+function tennisSummaryHtml(data, col) {
+  const f = data.form || {};
+  const tile = (val, label) =>
+    `<div class="ca-hist-stat"><div class="ca-hist-stat-val ca-num">${val}</div><div class="ca-hist-stat-label">${label}</div></div>`;
+  const form = (f.lastFive || []).map(r =>
+    `<span class="ca-hist-formdot ca-hist-formdot--${r === 'W' ? 'w' : 'l'}">${r}</span>`).join('') || '—';
+  const fr = data.freshness;
+  const freshTile = fr && fr.score != null
+    ? `<div class="ca-hist-stat"><div>${histLoadCell(fr)}</div><div class="ca-hist-stat-label">Freshness</div></div>`
+    : '';
+  return `<div class="ca-hist-summary" style="--hist-accent:${esc(col.primary)};">
+    ${tile(f.record ?? '—', `Last ${(f.wins || 0) + (f.losses || 0)}`)}
+    ${tile(f.winPct != null ? f.winPct + '%' : '—', 'Win rate')}
+    <div class="ca-hist-stat"><div class="ca-hist-formrow">${form}</div><div class="ca-hist-stat-label">Last 5</div></div>
+    ${freshTile}
+  </div>`;
+}
+
+function tennisMatchesHtml(matches) {
+  if (!matches || !matches.length) return `<div class="ca-hist-empty">No recent matches.</div>`;
+  const rows = matches.map(m => {
+    const res = m.result || '—';
+    const surf = m.surface ? `<span class="ca-hist-surface">${esc(m.surface)}</span>` : '';
+    const tr = [m.tournament, m.round].filter(Boolean).map(esc).join(' · ');
+    return `<div class="ca-hist-row ca-hist-row--tennis">
+      <span class="ca-hist-res ca-hist-res--${res === 'W' ? 'w' : 'l'}">${res}</span>
+      <span class="ca-hist-date ca-num">${histDate(m.date)}</span>
+      <span class="ca-hist-opp">vs ${esc(lastNameOf(m.opp))}</span>
+      <span class="ca-hist-score ca-num">${esc(m.setScore || '—')}</span>
+      <span class="ca-hist-tourn">${tr}</span>
+      ${surf}
+    </div>`;
+  }).join('');
+  return `<div class="ca-hist-rows-label">Recent matches</div><div class="ca-hist-rows">${rows}</div>`;
+}
+
+// ── Player drill-down popup ─────────────────────────────────────────────────────
+async function openHistGame(eventId) {
+  const active = _data._histActive;
+  const modal  = document.getElementById('ca-hist-modal');
+  const head   = document.getElementById('ca-hist-modal-head');
+  const body   = document.getElementById('ca-hist-modal-body');
+  if (!active || !modal || !head || !body) return;
+
+  const g = (active.last5 || []).find(x => String(x.eventId) === String(eventId));
+  const teamName = _historyTeam === 'home'
+    ? (_data.game.home_short || _data.game.home_team)
+    : (_data.game.away_short || _data.game.away_team);
+  const title = g
+    ? `${esc(teamName)} ${g.homeAway === 'home' ? 'vs' : '@'} ${esc(g.oppName || g.oppAbbr || '')}`
+    : 'Player box score';
+  head.innerHTML = `<div class="ca-hist-modal-title">${title}</div>` +
+    (g ? `<div class="ca-hist-modal-sub ca-num">${g.pf}-${g.pa} · ${histDate(g.date)}</div>` : '');
+  body.innerHTML = `<div class="ca-hist-loading">Loading player stats…</div>`;
+  modal.classList.remove('hidden');
+
+  const key = `${active.sport}:${active.teamId}:${eventId}`;
+  let data = _playersCache[key];
+  if (!data) {
+    try {
+      const r = await fetch(`/api/game-players?event=${encodeURIComponent(eventId)}&teamId=${encodeURIComponent(active.teamId)}&sport=${encodeURIComponent(active.sport)}`);
+      data = await r.json();
+      _playersCache[key] = data;
+    } catch (_) { data = { unavailable: true }; }
+  }
+  if (modal.classList.contains('hidden')) return; // closed during fetch
+  if (!data || data.unsupported || data.unavailable || !(data.blocks && data.blocks.length)) {
+    body.innerHTML = `<div class="ca-hist-empty">Box score unavailable.</div>`;
+    return;
+  }
+  body.innerHTML = data.blocks.map(blk => histBlockHtml(blk)).join('');
+}
+
+function closeHistGame() {
+  document.getElementById('ca-hist-modal')?.classList.add('hidden');
+}
+
+const HIST_LABEL_TIPS = {
+  'H-AB': 'Hits / At-bats', '#P': 'Pitches seen', '+/-': 'Plus / minus', 'TO': 'Turnovers',
+  'OREB': 'Offensive rebounds', 'DREB': 'Defensive rebounds', 'PF': 'Personal fouls',
+  'SOG': 'Shots on goal', 'TOI': 'Time on ice', 'IP': 'Innings pitched', 'ER': 'Earned runs',
+  'BB': 'Walks', 'K': 'Strikeouts', 'RBI': 'Runs batted in', 'PC-ST': 'Pitches / strikes',
+  'AB': 'At-bats', 'FG': 'Field goals', 'FT': 'Free throws', '3PT': '3-pointers',
+};
+function histBlockHtml(blk) {
+  const labels = blk.labels || [];
+  const title  = blk.type ? blk.type.charAt(0).toUpperCase() + blk.type.slice(1) : '';
+  const head = `<tr><th class="ca-hp-th-name"></th>` +
+    labels.map(l => {
+      const tip = HIST_LABEL_TIPS[l];
+      return `<th class="ca-num"${tip ? ` title="${esc(tip)}"` : ''}>${esc(l)}</th>`;
+    }).join('') +
+    `<th class="ca-hp-th-sep">Form</th><th>Load</th></tr>`;
+  const rows = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0))
+    .map(r => histPlayerRow(r, labels)).join('');
+  return `<div class="ca-hp-blockwrap">` +
+    (title ? `<div class="ca-hp-blocktitle">${esc(title)}</div>` : '') +
+    `<div class="ca-hp-scroll"><table class="ca-hp-table"><thead>${head}</thead><tbody>${rows}</tbody></table></div></div>`;
+}
+
+function histPlayerRow(r, labels) {
+  const f = r.form || {};
+  const cells = labels.map((l, i) => `<td class="ca-num">${esc(r.statsArr[i] ?? '—')}</td>`).join('');
+  return `<tr class="ca-hp-row${r.dnp ? ' ca-hp-dnp' : ''}">` +
+    `<td class="ca-hp-name">${histNameCell(r, f)}</td>${cells}` +
+    `<td class="ca-hp-formcell">${histFormCell(f.hotCold)}</td>` +
+    `<td class="ca-hp-loadcell">${histLoadCell(f.freshness)}</td></tr>`;
+}
+
+function histNameCell(r, f) {
+  const star = r.starter ? `<span class="ca-hp-starter" title="Starter">★</span>` : '';
+  const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
+  let scale = '';
+  const p = f.primary;
+  if (p && p.val != null) {
+    const dCls = p.delta == null ? '' : p.delta < 0 ? ' ca-hp-delta--below' : p.delta > 0 ? ' ca-hp-delta--above' : '';
+    const dStr = p.delta == null ? '' : `<span class="ca-hp-delta${dCls}">${p.delta > 0 ? '+' : ''}${p.delta} vs avg</span>`;
+    scale = `<div class="ca-hp-scale"><span class="ca-hp-scale-lbl">${esc(p.label)}</span>` +
+      `<span class="ca-hp-scale-track"><span class="ca-hp-scale-fill" style="width:${p.scalePct}%;"></span></span>` +
+      `<span class="ca-hp-scale-val ca-num">${p.val}</span>${dStr}</div>`;
+  }
+  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${scale}`;
+}
+
+function histFormCell(hc) {
+  if (!hc || !hc.bucket || hc.bucket === 'na') return `<span class="ca-hp-muted">—</span>`;
+  const map = { hot: ['HOT', 'hot'], warm: ['Warm', 'warm'], neutral: ['Even', 'neutral'], cool: ['Cool', 'cool'], cold: ['COLD', 'cold'] };
+  const [lbl, cls] = map[hc.bucket] || ['—', 'neutral'];
+  const arrow = (hc.bucket === 'hot' || hc.bucket === 'warm') ? '▲'
+              : (hc.bucket === 'cold' || hc.bucket === 'cool') ? '▼' : '·';
+  const tip = `${hc.primaryName} form: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}`;
+  return `<span class="ca-hist-badge ca-hist-badge--${cls}" title="${esc(tip)}">${arrow} ${lbl}</span>`;
+}
+
+function histLoadCell(fr) {
+  if (!fr || fr.score == null) return `<span class="ca-hp-muted">${fr && fr.note ? esc(fr.note) : '—'}</span>`;
+  const color = FRESH_BAND_COLOR[fr.band] || '#eab308';
+  const tip = `Player load ${fr.score}/100${fr.note ? ' · ' + fr.note : ''} (workload and rest, not injury risk)`;
+  return `<span class="ca-fresh" title="${esc(tip)}">` +
+    `<span class="ca-fresh-track"><span class="ca-fresh-pointer" style="left:${fr.score}%;background:${color};"></span></span>` +
+    `<span class="ca-fresh-lbl" style="color:${color};">${fr.score}</span></span>`;
 }
 
 // ── Countdown timer ───────────────────────────────────────────────────────────

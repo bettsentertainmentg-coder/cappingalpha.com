@@ -179,6 +179,66 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
   });
 }
 
+// Locked teaser: a synthetic "climbing to MVP" curve drawn for non-paying users
+// in place of the real conviction curve. No real data ever reaches the canvas, so
+// nothing leaks through the blur — and an up-and-to-the-right gold line reads as a
+// strong, high-conviction pick worth unlocking. A small seed-driven jitter keeps
+// different locked charts from looking identical.
+export function drawLockedTeaser(canvasId = 'pick-timeline-chart', mvpThreshold = 50, seed = 0) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+
+  // Deterministic PRNG so the teaser is stable for a given seed (no flicker).
+  let s = (seed | 0) || 7;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+
+  // A confident climb that crosses the MVP line and finishes high.
+  const shape = [10, 16, 22, 30, 38, 47, 55, 62, 68];
+  const data  = shape.map(v => Math.max(4, Math.round(v + (rnd() - 0.5) * 6)));
+
+  const G = [250, 204, 21]; // MVP gold
+  const goldStr = `rgb(${G[0]},${G[1]},${G[2]})`;
+  const fillColor = (ctx) => {
+    const area = ctx.chart.chartArea;
+    if (!area) return `rgba(${G[0]},${G[1]},${G[2]},0.18)`;
+    const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    g.addColorStop(0, `rgba(${G[0]},${G[1]},${G[2]},0.30)`);
+    g.addColorStop(1, `rgba(${G[0]},${G[1]},${G[2]},0.01)`);
+    return g;
+  };
+
+  const glowPlugin = {
+    id: 'teaserGlow',
+    beforeDatasetDraw(chart) { const { ctx } = chart; ctx.save(); ctx.shadowColor = 'rgba(250,204,21,0.5)'; ctx.shadowBlur = 16; },
+    afterDatasetDraw(chart)  { chart.ctx.restore(); },
+  };
+
+  timelineChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: data.map(() => ''),
+      datasets: [{
+        data, borderColor: goldStr, backgroundColor: fillColor,
+        borderWidth: 2.5, pointRadius: 0, fill: true, tension: 0.4,
+      }],
+    },
+    plugins: [glowPlugin],
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 0 },
+      events: [],                          // fully inert — no hover, no tooltip
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { display: false }, border: { display: false } },
+        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { display: false },
+             border: { display: false }, suggestedMax: mvpThreshold + 22 },
+      },
+    },
+  });
+}
+
 export function destroyPickTimeline() {
   if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
 }

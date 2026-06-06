@@ -37,6 +37,9 @@ const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
+const { getTeamHistory, getEventTeamPlayers, TEAM_SPORTS } = require('./src/team_history');
+const { getPlayerGamelog, buildPlayerForm }           = require('./src/player_form');
+const { getTennisHistory }                            = require('./src/tennis_player_form');
 const { getLinesForGame }                             = require('./src/lines_scraper');
 const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_betting');
 const { syncLineHistory, syncLineHistorySoon, getLineHistoryForGame } = require('./src/line_history');
@@ -710,6 +713,53 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting, lineHistory, polymarket, kalshi, insights });
 });
 
+// ── History tab: per-team recent games (lazy, public ESPN data, cached) ───────
+app.get('/api/team-history', async (req, res) => {
+  const teamId = (req.query.teamId || '').toString().trim();
+  const sport  = (req.query.sport  || '').toString().trim().toUpperCase();
+  if (!teamId) return res.status(400).json({ error: 'teamId required' });
+  if (!TEAM_SPORTS.has(sport)) return res.json({ unsupported: true });
+  const data = await getTeamHistory(teamId, sport).catch(() => null);
+  res.json(data || { unavailable: true });
+});
+
+// ── History tab: player drill-down for one past game (box score + form/load) ──
+app.get('/api/game-players', async (req, res) => {
+  const event  = (req.query.event  || '').toString().trim();
+  const teamId = (req.query.teamId || '').toString().trim();
+  const sport  = (req.query.sport  || '').toString().trim().toUpperCase();
+  if (!event || !teamId) return res.status(400).json({ error: 'event and teamId required' });
+  if (!TEAM_SPORTS.has(sport)) return res.json({ unsupported: true });
+
+  const data = await getEventTeamPlayers(event, sport, teamId).catch(() => null);
+  if (!data || !data.blocks?.length) return res.json({ unavailable: true });
+
+  // Enrich each block's meaningful players (skip DNP; cap gamelog fan-out).
+  for (const blk of data.blocks) {
+    const meaningful = blk.rows.filter(r => !r.dnp && r.athleteId).slice(0, 14);
+    await Promise.all(meaningful.map(async r => {
+      const gl  = await getPlayerGamelog(r.athleteId, sport).catch(() => null);
+      const ctx = { role: blk.role, position: r.pos };
+      r.form = buildPlayerForm(gl, sport, ctx, event, r.stats);
+    }));
+    // Drop the label-keyed object from the payload; statsArr drives the table.
+    blk.rows.forEach(r => { delete r.stats; });
+  }
+
+  res.json({ sport, ...data });
+});
+
+// ── History tab: tennis player recent matches (ESPN eventlog, lazy, cached) ───
+app.get('/api/tennis-history', async (req, res) => {
+  const player = (req.query.player || '').toString().trim();
+  const sport  = (req.query.sport  || '').toString().trim().toUpperCase();
+  const date   = (req.query.date   || '').toString().trim() || null;
+  if (!player) return res.status(400).json({ error: 'player required' });
+  if (sport !== 'ATP' && sport !== 'WTA') return res.json({ unsupported: true });
+  const data = await getTennisHistory(player, sport, date).catch(() => null);
+  res.json(data || { unavailable: true });
+});
+
 // POST /api/game/:espn_game_id/vote — cast a vote on a pick slot
 app.post('/api/game/:espn_game_id/vote', (req, res) => {
   if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
@@ -947,6 +997,18 @@ async function renderGameDetail(req, res, game, opts = {}) {
         WHERE p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
       `).all();
       allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
+    }
+
+    // Paywall parity with /api/game: never ship a locked pick's real score or
+    // conviction curve to non-paying users — otherwise they sit in the page source
+    // (__GAME_DATA__) even though the UI blurs them. The overall #1 and the public
+    // tail (rank > max) stay full; historical archive pages are public, so skip them.
+    if (!opts.historical && !auth.isPaid(req)) {
+      const maxRank = PAID_RANK_MAX();
+      for (const p of picks) {
+        const r = pickRanks[p.id];
+        if (r && r >= 2 && r <= maxRank) { p.score = null; p.timeline = null; }
+      }
     }
 
     // Votes + the viewer's votes — always live (game_votes survives the wipe).

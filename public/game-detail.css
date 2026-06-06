@@ -39,9 +39,11 @@
 
 html, body {
   /* Lock the page horizontally so only the inner carousels/tables scroll
-     sideways — the page itself stays centered, no drifting edges. */
+     sideways — the page itself stays centered, no drifting edges.
+     `clip` (not `hidden`) so it doesn't create a scroll container that breaks
+     position:sticky on iOS Safari (the sticky nav + section tabs depend on it). */
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 body {
   font-family: 'Source Sans Pro', system-ui, sans-serif;
@@ -664,7 +666,9 @@ nav {
 }
 .ca-dp-timeline-wrap canvas { width: 100% !important; height: 100% !important; }
 .ca-dp-timeline-wrap.is-empty canvas { opacity: 0.4; }
-.ca-dp-timeline-wrap.is-locked canvas { filter: blur(6px); opacity: 0.55; }
+/* Locked draws a synthetic teaser (no real data), so a light blur is enough to
+   signal "preview" while the gold uptrend stays enticing behind the lock. */
+.ca-dp-timeline-wrap.is-locked canvas { filter: blur(2px); opacity: 0.85; }
 .ca-dp-timeline-empty-overlay {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1219,21 +1223,33 @@ nav {
   top: calc(56px + var(--sticky-body-h, 0px)); z-index: 90;
   background: var(--bg); border-bottom: 1px solid var(--border);
   overflow-x: auto; scrollbar-width: none;
-  padding: 0 16px;
+  padding: 0 16px; scroll-behavior: smooth;
+  transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .ca-mobile-tabs::-webkit-scrollbar { display: none; }
+/* When pinned to the top (scrolled past the game header) the bar reads as a
+   compact table of contents — a touch taller, brighter, with a shadow + accent
+   underline so you can tell where you are. */
+.ca-mobile-tabs.is-stuck {
+  background: var(--surface);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+  border-bottom-color: rgba(59,130,246,0.5);
+}
 .ca-mtab {
   display: inline-flex; align-items: center;
   padding: 0 14px; height: 40px;
   font-size: 11px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
   color: var(--text-tertiary); text-decoration: none; white-space: nowrap;
   border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, height 0.2s ease, font-size 0.2s ease;
   cursor: pointer; flex-shrink: 0;
 }
 .ca-mtab:hover { color: var(--text); }
 .ca-mtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 .ca-mtab.disabled { color: var(--text-disabled); cursor: default; pointer-events: none; }
+/* Expand the tabs slightly once the bar is stuck. */
+.ca-mobile-tabs.is-stuck .ca-mtab { height: 46px; font-size: 12px; }
+.ca-mobile-tabs.is-stuck .ca-mtab.active { border-bottom-width: 3px; }
 
 /* ── Section overrides inside content grid ────────────────────────────────────── */
 .ca-content .ca-section {
@@ -1275,6 +1291,10 @@ nav {
   .ca-main-grid { grid-template-columns: 1fr; }
   .ca-sidebar { display: none; }
   .ca-mobile-tabs { display: flex; }
+  /* On phones the tall team header scrolls away and the compact tab bar takes
+     over the top of the screen (pins right under the nav) as a TOC. */
+  .ca-sticky-top { position: static; box-shadow: none; }
+  .ca-mobile-tabs { top: 56px; }
 }
 
 @media (max-width: 768px) {
@@ -1370,4 +1390,217 @@ nav {
 @media (max-width: 768px) {
   .ca-hamburger { display: flex; }
   nav .nav-tabs { display: none; }
+}
+
+/* ── History section ──────────────────────────────────────────────────────── */
+.ca-hist-header { align-items: center; }
+.ca-history-section .ca-section-h2 {
+  font-size: 18px; color: var(--text); letter-spacing: 0.4px;
+  display: inline-flex; align-items: center; gap: 9px;
+}
+.ca-history-section .ca-section-h2::before {
+  content: ''; width: 4px; height: 18px; border-radius: 2px; background: var(--accent);
+}
+
+/* Segmented away/home toggle with a sliding pill */
+.ca-hist-toggle {
+  position: relative; display: inline-flex; gap: 2px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 9px; padding: 3px;
+}
+.ca-hist-tab {
+  position: relative; z-index: 1; min-width: 64px;
+  padding: 6px 16px; background: none; border: none; cursor: pointer;
+  color: var(--text-tertiary); font-weight: 700; font-size: 12px;
+  letter-spacing: 0.5px; transition: color 0.2s; font-family: inherit;
+}
+.ca-hist-tab.active { color: var(--text); }
+.ca-hist-toggle-slider {
+  position: absolute; top: 3px; left: 3px; bottom: 3px; z-index: 0;
+  width: calc(50% - 3px); border-radius: 7px;
+  background: var(--surface); border: 1px solid var(--border);
+  transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+}
+.ca-hist-toggle--home .ca-hist-toggle-slider { transform: translateX(100%); }
+
+.ca-hist-body { transition: opacity 0.14s ease; min-height: 260px; }
+.ca-hist-fading { opacity: 0; }
+.ca-hist-loading, .ca-hist-empty {
+  padding: 28px 0; text-align: center; color: var(--text-tertiary); font-size: 13px;
+}
+
+/* Summary strip */
+.ca-hist-summary {
+  display: flex; flex-wrap: wrap; gap: 10px 22px;
+  padding: 15px 18px; margin-bottom: 18px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; border-left: 3px solid var(--hist-accent, var(--accent));
+}
+.ca-hist-stat { display: flex; flex-direction: column; gap: 3px; min-width: 72px; }
+.ca-hist-stat-val { font-size: 19px; font-weight: 700; color: var(--text); line-height: 1; }
+.ca-hist-stat-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-tertiary);
+}
+.ca-hist-formrow { display: flex; gap: 3px; }
+.ca-hist-formdot {
+  width: 17px; height: 17px; border-radius: 4px; color: #fff;
+  font-size: 9px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.ca-hist-formdot--w { background: var(--accent-win); }
+.ca-hist-formdot--l { background: var(--accent-live); }
+
+/* Last-5 rows */
+.ca-hist-rows-label, .ca-hist-last20-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-tertiary); margin-bottom: 9px;
+}
+.ca-hist-rows { display: flex; flex-direction: column; }
+.ca-hist-row {
+  display: grid; grid-template-columns: 30px 52px minmax(58px,1fr) 58px minmax(0,1.3fr) 168px;
+  align-items: center; gap: 12px; padding: 11px 6px; cursor: pointer;
+  border-bottom: 1px solid var(--border-tertiary); font-size: 13px; border-radius: 6px;
+  transition: background 0.12s;
+}
+.ca-hist-row:hover { background: var(--surface2); }
+.ca-hist-row:last-child { border-bottom: none; }
+/* Tennis rows: no off/def meters; show set score, tournament/round, surface. */
+.ca-hist-row--tennis {
+  grid-template-columns: 30px 52px minmax(70px,0.8fr) minmax(90px,1fr) minmax(0,1.3fr) auto;
+  cursor: default;
+}
+.ca-hist-tourn { color: var(--text-tertiary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-hist-surface {
+  justify-self: end; font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+  color: var(--text-secondary); background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 20px; padding: 3px 9px; white-space: nowrap;
+}
+.ca-hist-res {
+  width: 26px; height: 26px; border-radius: 6px; color: #fff;
+  font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: center;
+}
+.ca-hist-res--w { background: var(--accent-win); }
+.ca-hist-res--l { background: var(--accent-live); }
+.ca-hist-date  { color: var(--text-tertiary); font-size: 12px; }
+.ca-hist-opp   { color: var(--text-secondary); font-weight: 600; }
+.ca-hist-score { color: var(--text); font-weight: 700; }
+.ca-hist-lead  { color: var(--text-tertiary); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-hist-meters { display: flex; flex-direction: column; gap: 5px; }
+.ca-hist-meter { display: flex; align-items: center; gap: 6px; }
+.ca-hist-meter-tag { font-size: 9px; font-weight: 800; letter-spacing: 0.5px; color: var(--text-tertiary); width: 22px; }
+.ca-hist-meter-track { flex: 1; height: 7px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
+.ca-hist-meter-fill  { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.ca-hist-meter-num   { font-size: 11px; width: 22px; text-align: right; font-weight: 700; }
+
+/* Last-20 condensed */
+.ca-hist-last20 { margin-top: 24px; }
+.ca-hist-last20-label { color: var(--text-secondary); font-weight: 700; margin-bottom: 10px; }
+.ca-hist-minirow { display: flex; flex-wrap: wrap; gap: 5px; }
+.ca-hist-mini {
+  min-width: 36px; height: 34px; border-radius: 7px;
+  font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums; cursor: default;
+  box-shadow: inset 0 -2px 0 rgba(0,0,0,0.16);
+  transition: transform 0.12s ease;
+}
+.ca-hist-mini:hover { transform: translateY(-2px); }
+.ca-hist-mini--w { background: linear-gradient(180deg, #4ade80, #22c55e); color: #08260f; }
+.ca-hist-mini--l { background: linear-gradient(180deg, #f87171, #ef4444); color: #2b0707; }
+.ca-hist-caption { font-size: 11px; color: var(--text-disabled); margin-top: 14px; font-style: italic; }
+
+/* Hot/Cold badge */
+.ca-hist-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 8px; border-radius: 20px; font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.3px; white-space: nowrap;
+}
+.ca-hist-badge--hot     { background: rgba(239,68,68,0.16);  color: #f87171; }
+.ca-hist-badge--warm    { background: rgba(249,115,22,0.15); color: #fb923c; }
+.ca-hist-badge--neutral { background: var(--surface2);       color: var(--text-tertiary); }
+.ca-hist-badge--cool    { background: rgba(59,130,246,0.15); color: #60a5fa; }
+.ca-hist-badge--cold    { background: rgba(56,189,248,0.16); color: #38bdf8; }
+
+/* Player drill-down popup */
+.ca-hist-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center; z-index: 320; padding: 20px;
+}
+.ca-hist-modal.hidden { display: none; }
+.ca-hist-modal-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  width: 100%; max-width: 940px; max-height: 86vh; overflow: hidden;
+  display: flex; flex-direction: column; position: relative;
+  box-shadow: 0 18px 44px -12px rgba(0,0,0,0.7);
+}
+.ca-hist-modal-close {
+  position: absolute; top: 12px; right: 14px; background: none; border: none;
+  color: var(--text-tertiary); font-size: 20px; cursor: pointer; z-index: 2;
+}
+.ca-hist-modal-close:hover { color: var(--text); }
+.ca-hist-modal-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--border); }
+.ca-hist-modal-title { font-size: 16px; font-weight: 700; color: var(--text); }
+.ca-hist-modal-sub { font-size: 12px; color: var(--text-tertiary); margin-top: 3px; }
+.ca-hist-modal-body { padding: 8px 18px 18px; overflow-y: auto; }
+
+.ca-hp-blockwrap { margin-top: 12px; }
+.ca-hp-blocktitle {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text); font-weight: 800; padding: 6px 8px 6px 11px; margin-bottom: 2px;
+  border-left: 3px solid var(--accent);
+}
+.ca-hp-scroll { overflow-x: auto; }
+.ca-hp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ca-hp-table th {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--text); font-weight: 700; padding: 7px 8px; text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.ca-hp-th-name { text-align: left !important; }
+.ca-hp-table td { padding: 8px 8px; text-align: right; white-space: nowrap; border-top: 1px solid var(--border-tertiary); }
+/* Breathing room + a separator so the computed Form/Load columns don't crowd the box stats */
+.ca-hp-th-sep, .ca-hp-formcell { border-left: 1px solid var(--border); padding-left: 14px !important; }
+.ca-hp-table th:last-child, .ca-hp-table td:last-child { padding-right: 16px; }
+.ca-hp-row:hover { background: var(--surface2); }
+.ca-hp-dnp { opacity: 0.45; }
+.ca-hp-name { text-align: left !important; min-width: 190px; }
+.ca-hp-namerow { display: flex; align-items: center; gap: 5px; }
+.ca-hp-starter { color: var(--accent-mvp); font-size: 9px; }
+.ca-hp-pname { font-weight: 600; color: var(--text); }
+.ca-hp-pos { font-size: 10px; color: var(--text-disabled); }
+.ca-hp-scale { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.ca-hp-scale-lbl { font-size: 9px; font-weight: 800; color: var(--text-tertiary); width: 26px; }
+.ca-hp-scale-track { width: 70px; height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+.ca-hp-scale-fill { height: 100%; border-radius: 3px; background: var(--accent); }
+.ca-hp-scale-val { font-size: 11px; color: var(--text-secondary); font-weight: 700; }
+.ca-hp-delta { font-size: 10px; color: var(--text-tertiary); }
+.ca-hp-delta--below { color: var(--accent-live); }
+.ca-hp-delta--above { color: var(--accent-win); }
+.ca-hp-muted { color: var(--text-disabled); font-size: 11px; }
+.ca-hp-formcell, .ca-hp-loadcell { text-align: center !important; min-width: 98px; }
+
+/* Freshness mini-meter (fresh → overworked) */
+.ca-fresh { display: inline-flex; align-items: center; gap: 6px; }
+.ca-fresh-track {
+  position: relative; width: 56px; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, #22c55e 0%, #eab308 45%, #f97316 70%, #ef4444 100%);
+}
+.ca-fresh-pointer {
+  position: absolute; top: 50%; width: 9px; height: 9px; border-radius: 50%;
+  border: 2px solid var(--surface); transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+}
+.ca-fresh-lbl { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .ca-hist-row {
+    grid-template-columns: 28px 1fr auto; grid-row-gap: 8px;
+    grid-template-areas: "res opp score" "meters meters meters";
+  }
+  .ca-hist-row .ca-hist-res { grid-area: res; }
+  .ca-hist-row .ca-hist-opp { grid-area: opp; }
+  .ca-hist-row .ca-hist-score { grid-area: score; }
+  .ca-hist-row .ca-hist-date, .ca-hist-row .ca-hist-lead { display: none; }
+  .ca-hist-row .ca-hist-meters { grid-area: meters; flex-direction: row; gap: 14px; }
+  .ca-hist-summary { gap: 10px 16px; }
+  .ca-hist-stat { min-width: 60px; }
+  .ca-hist-stat-val { font-size: 16px; }
 }
