@@ -1,5 +1,7 @@
 // modules/esports.js — Esports tab
 
+import { sportBadge } from './utils.js';
+
 const ESPORTS_GAMES = [
   { rank: 1,  name: 'Rainbow Six Siege',   short: 'R6S',  genre: 'Tactical FPS',  grad: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',   icon: 'fa-solid fa-crosshairs',      color: '#38bdf8' },
   { rank: 2,  name: 'Counter-Strike 2',    short: 'CS2',  genre: 'Tactical FPS',  grad: 'linear-gradient(135deg,#1c1c1c 0%,#2d2d2d 40%,#f5a623 100%)',   icon: 'fa-solid fa-bomb',            color: '#f5a623' },
@@ -40,6 +42,7 @@ function wireHelmetUnlock() {
 
 export function renderEsports() {
   wireHelmetUnlock();
+  loadTopGames();
   const grid = document.getElementById('esports-grid');
   if (!grid) return;
 
@@ -51,4 +54,92 @@ export function renderEsports() {
       <div class="esports-card-sub">${g.genre} &middot; ${g.short}</div>
       <span class="esports-card-badge">Coming Soon</span>
     </div>`).join('');
+}
+
+// ── Top Games row (scraped from Kalshi + Polymarket via /api/esports/top) ──────
+// Renders the SAME tile shell as the home page "Today's Top Games" strip
+// (.ca-top-games-row / .ca-tg-*) so restyling that component restyles this too.
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// Trim common org suffixes so brand names fit the shared 186px tile.
+function shortTeam(name) {
+  return String(name || '').trim().replace(/\s+(esports?|gaming|team|club|academy|fc|gg)$/i, '');
+}
+
+function fmtMoney(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1e3) return '$' + Math.round(n / 1e3) + 'K';
+  return '$' + Math.round(n);
+}
+function fmtCount(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+  return String(Math.round(n));
+}
+function fmtVol(r) {
+  if (!r.volume) return '—';
+  return r.source === 'polymarket' ? fmtMoney(r.volume) : fmtCount(r.volume);
+}
+
+// Esports matches span multiple days, so include the date (ET) — gameTime() is time-only.
+function fmtWhen(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  if (d.getTime() <= Date.now()) return 'Live';
+  const date = d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${date}, ${time}`;
+}
+
+// One match tile, structurally identical to home_top.js _gameTile (shared CSS).
+function matchTile(r) {
+  const probA   = Math.round((r.prob_a || 0) * 100);
+  const probB   = Math.round((r.prob_b || 0) * 100);
+  const aFav    = probA >= probB;
+  const src     = r.source === 'polymarket' ? 'Polymarket' : 'Kalshi';
+  const when    = fmtWhen(r.start_time);
+  const left    = when ? `${fmtVol(r)} vol · ${when}` : `${fmtVol(r)} vol`;
+  const row = (team, prob, fav) => `<div class="ca-tg-team${fav ? ' ca-tg-team-win' : ''}">
+      <span class="ca-tg-abbr">${esc((shortTeam(team) || '?').slice(0, 3).toUpperCase())}</span>
+      <span class="ca-tg-tname">${esc(shortTeam(team))}</span>
+      <span class="ca-tg-tscore">${prob}%</span>
+    </div>`;
+  return `<div class="ca-tg-tile" style="cursor:default;" title="${esc(r.team_a)} vs ${esc(r.team_b)}">
+    <div class="ca-tg-head">
+      ${sportBadge(r.game || 'Esports')}
+      <span class="ca-tg-corner"><span class="ca-tg-src">${src}</span></span>
+    </div>
+    <div class="ca-tg-teams">
+      ${row(r.team_a, probA, aFav)}
+      ${row(r.team_b, probB, !aFav)}
+    </div>
+    <div class="ca-tg-foot">
+      <span class="ca-tg-time">${left}</span>
+    </div>
+  </div>`;
+}
+
+export async function loadTopGames() {
+  const el = document.getElementById('esports-top-row');
+  if (!el) return;
+  el.innerHTML = `<div class="ca-top-games-empty">Loading top games...</div>`;
+  try {
+    const res  = await fetch('/api/esports/top');
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      el.innerHTML = `<div class="ca-top-games-empty">No esports matches live right now. Check back soon.</div>`;
+      return;
+    }
+    el.innerHTML = rows.map(matchTile).join('');
+  } catch (_) {
+    el.innerHTML = `<div class="ca-top-games-empty">Couldn't load esports matches.</div>`;
+  }
 }

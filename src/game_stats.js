@@ -277,6 +277,113 @@ async function getGameStats(espn_game_id, sport) {
     away: { abbr: awayMeta.abbr, shortName: awayMeta.shortName, players: awayPlayers },
   };
 
+  // ── Extra free ESPN context (all from this same summary call, no extra cost) ──
+  // Everything below is best-effort: ESPN populates sections inconsistently by
+  // sport and game state, so each block reads defensively and only attaches a
+  // field when there's something real to show.
+
+  const isTennis = sport === 'ATP' || sport === 'WTA';
+
+  // Season series — head-to-head meetings this season ("Series tied 1-1").
+  if (!isTennis) {
+    const ss = (summary?.seasonseries || []).find(s => s?.summary) || summary?.seasonseries?.[0];
+    if (ss && (ss.totalCompetitions > 0) && (ss.summary || ss.shortSummary)) {
+      result.seasonSeries = {
+        summary:      ss.summary || ss.shortSummary || null,
+        shortSummary: ss.shortSummary || null,
+        score:        ss.seriesScore || null,
+        title:        ss.title || null,
+      };
+    }
+  }
+
+  // Statistical leaders — top performer per category, mapped home/away by team id.
+  // (Season leaders pre-game, game leaders live/post.) MLB ships these empty; that's fine.
+  const mapLeaders = (entry) => {
+    const out = [];
+    for (const cat of entry?.leaders || []) {
+      const top = cat?.leaders?.[0];
+      const ath = top?.athlete;
+      if (!ath || top?.displayValue == null) continue;
+      out.push({
+        cat:      cat.displayName || cat.shortDisplayName || cat.name || '',
+        value:    top.displayValue,
+        name:     ath.shortName || ath.displayName || ath.fullName || null,
+        pos:      ath.position?.abbreviation || null,
+        headshot: ath.headshot?.href || null,
+      });
+    }
+    return out;
+  };
+  if (Array.isArray(summary?.leaders) && summary.leaders.length) {
+    const homeL = [], awayL = [];
+    for (const entry of summary.leaders) {
+      const tid = String(entry?.team?.id || '');
+      if (homeMeta.id && tid === String(homeMeta.id))      homeL.push(...mapLeaders(entry));
+      else if (awayMeta.id && tid === String(awayMeta.id)) awayL.push(...mapLeaders(entry));
+    }
+    if (homeL.length || awayL.length) result.leaders = { home: homeL, away: awayL };
+  }
+
+  // Officials — referees / umpires.
+  const officials = (summary?.gameInfo?.officials || [])
+    .map(o => ({ name: o.fullName || o.displayName || null, role: o.position?.displayName || o.position?.name || null }))
+    .filter(o => o.name);
+  if (officials.length) result.officials = officials;
+
+  // Attendance.
+  const att = summary?.gameInfo?.attendance;
+  if (att != null && att > 0) result.attendance = att;
+
+  // Recap / preview headline — ESPN's own write-up for the game.
+  const headline = summary?.article?.headline || summary?.article?.shortLinkText || null;
+  if (headline) {
+    result.recap = {
+      headline,
+      type: summary?.article?.type === 'Recap' ? 'Recap' : 'Preview',
+    };
+  }
+
+  // ESPN matchup predictor — win probability per side (present for some sports/games).
+  const pred = summary?.predictor;
+  const homeProj = pred?.homeTeam?.gameProjection ?? pred?.homeTeam?.teamChanceLoss;
+  const awayProj = pred?.awayTeam?.gameProjection;
+  if (homeProj != null || awayProj != null) {
+    const h = parseFloat(pred?.homeTeam?.gameProjection);
+    const a = parseFloat(pred?.awayTeam?.gameProjection);
+    if (!Number.isNaN(h) || !Number.isNaN(a)) {
+      result.predictor = {
+        homePct: !Number.isNaN(h) ? Math.round(h) : null,
+        awayPct: !Number.isNaN(a) ? Math.round(a) : null,
+      };
+    }
+  }
+
+  // NHL starting goalies — parallel to MLB probable pitchers. Best-effort: the
+  // `goalies` section is sometimes empty pre-game, so attach only when populated.
+  if (sport === 'NHL' && Array.isArray(summary?.goalies)) {
+    const goalies = [];
+    for (const entry of summary.goalies) {
+      const tid = String(entry?.team?.id || '');
+      const homeAway = (homeMeta.id && tid === String(homeMeta.id)) ? 'home'
+                     : (awayMeta.id && tid === String(awayMeta.id)) ? 'away' : null;
+      const g = entry?.goalies?.[0] || entry?.athletes?.[0] || entry;
+      const ath = g?.athlete || g;
+      const name = ath?.displayName || ath?.fullName || null;
+      if (!name || !homeAway) continue;
+      const cats = g?.statistics?.splits?.categories || g?.statistics || [];
+      const findStat = (n) => (Array.isArray(cats) ? cats.flatMap(c => c.stats || c).find(s => s?.name === n)?.displayValue : null);
+      goalies.push({
+        homeAway,
+        name,
+        team:   entry?.team?.displayName || null,
+        record: findStat('wins') != null && findStat('losses') != null ? `${findStat('wins')}-${findStat('losses')}` : null,
+        savePct: findStat('savePct') || findStat('savePctg') || null,
+      });
+    }
+    if (goalies.length) result.goalies = goalies;
+  }
+
   return result;
 }
 

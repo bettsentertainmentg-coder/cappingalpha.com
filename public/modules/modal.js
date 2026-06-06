@@ -575,6 +575,66 @@ function renderGameData(data) {
     </div>`);
   }
 
+  // NHL starting goalies — parallel to MLB pitcher matchup
+  if (sport === 'NHL' && stats?.goalies?.length) {
+    const away = stats.goalies.find(g => g.homeAway === 'away');
+    const home = stats.goalies.find(g => g.homeAway === 'home');
+    const card = (g, side) => {
+      if (!g) return `<div class="pitcher-card ${side}"><div class="pitcher-name" style="color:var(--muted);">TBD</div></div>`;
+      const sub = [g.record, g.savePct ? `SV% ${g.savePct}` : null].filter(Boolean).join(' · ');
+      return `<div class="pitcher-card ${side}">
+        <div class="pitcher-name">${g.name}</div>
+        <div class="pitcher-stats">${sub || '—'}</div>
+        <div class="pitcher-team">${g.team || ''}</div>
+      </div>`;
+    };
+    sections.push(`<div>
+      <div class="game-data-heading">Starting Goalies</div>
+      <div class="pitcher-matchup">
+        ${card(away, 'away')}
+        <div class="pitcher-vs">vs</div>
+        ${card(home, 'home')}
+      </div>
+    </div>`);
+  }
+
+  // ESPN matchup predictor — win probability per side
+  if (stats?.predictor && (stats.predictor.homePct != null || stats.predictor.awayPct != null)) {
+    const awayShort = game.away_team?.split(' ').pop() || 'Away';
+    const homeShort = game.home_team?.split(' ').pop() || 'Home';
+    sections.push(`<div>
+      <div class="game-data-heading">ESPN Win Probability</div>
+      <div class="game-data-row">${awayShort} <span>${stats.predictor.awayPct != null ? stats.predictor.awayPct + '%' : '—'}</span></div>
+      <div class="game-data-row">${homeShort} <span>${stats.predictor.homePct != null ? stats.predictor.homePct + '%' : '—'}</span></div>
+    </div>`);
+  }
+
+  // Head-to-head season series
+  if (stats?.seasonSeries?.summary) {
+    sections.push(`<div>
+      <div class="game-data-heading">Season Series</div>
+      <div class="game-data-row" style="font-size:15px;">${stats.seasonSeries.summary}</div>
+    </div>`);
+  }
+
+  // Statistical leaders (home + away top performers)
+  if (stats?.leaders && (stats.leaders.home?.length || stats.leaders.away?.length)) {
+    const leaderRows = (list, label) => {
+      if (!list || !list.length) return '';
+      const rows = list.slice(0, 3).map(l =>
+        `<div class="game-data-row">${l.cat} <span>${l.name}${l.pos ? ` (${l.pos})` : ''} · ${l.value}</span></div>`
+      ).join('');
+      return `<div class="game-data-row" style="font-weight:600;margin-top:4px;">${label}</div>${rows}`;
+    };
+    const awayShort = game.away_team?.split(' ').pop() || 'Away';
+    const homeShort = game.home_team?.split(' ').pop() || 'Home';
+    sections.push(`<div>
+      <div class="game-data-heading">Team Leaders</div>
+      ${leaderRows(stats.leaders.away, awayShort)}
+      ${leaderRows(stats.leaders.home, homeShort)}
+    </div>`);
+  }
+
   if (weather) {
     sections.push(`<div>
       <div class="game-data-heading">Weather</div>
@@ -583,13 +643,48 @@ function renderGameData(data) {
     </div>`);
   }
 
-  if (stats?.injuries?.length) {
-    const rows = stats.injuries.slice(0, 8).map(inj =>
-      `<div class="game-data-row">${inj.player} <span>${inj.team ? inj.team.split(' ').pop() : ''} · ${inj.status || ''}</span></div>`
-    ).join('');
+  // Injuries — stats.injuries is { home, away }, each with a players[] list
+  const injHome = stats?.injuries?.home?.players || [];
+  const injAway = stats?.injuries?.away?.players || [];
+  if (injHome.length || injAway.length) {
+    const injRows = (list, label) => {
+      if (!list || !list.length) return '';
+      const rows = list.slice(0, 6).map(p =>
+        `<div class="game-data-row">${p.player} <span>${[p.status, p.detail].filter(Boolean).join(' · ')}</span></div>`
+      ).join('');
+      return `<div class="game-data-row" style="font-weight:600;margin-top:4px;">${label}</div>${rows}`;
+    };
+    const awayLbl = stats?.injuries?.away?.shortName || game.away_team?.split(' ').pop() || 'Away';
+    const homeLbl = stats?.injuries?.home?.shortName || game.home_team?.split(' ').pop() || 'Home';
     sections.push(`<div>
       <div class="game-data-heading">Injuries</div>
-      ${rows}
+      ${injRows(injAway, awayLbl)}
+      ${injRows(injHome, homeLbl)}
+    </div>`);
+  }
+
+  // Officials + attendance
+  const metaRows = [];
+  if (stats?.officials?.length) {
+    metaRows.push(`<div class="game-data-row" style="font-weight:600;margin-top:4px;">Officials</div>`);
+    stats.officials.slice(0, 5).forEach(o =>
+      metaRows.push(`<div class="game-data-row">${o.name} <span>${o.role || ''}</span></div>`));
+  }
+  if (stats?.attendance) {
+    metaRows.push(`<div class="game-data-row">Attendance <span>${Number(stats.attendance).toLocaleString()}</span></div>`);
+  }
+  if (metaRows.length) {
+    sections.push(`<div>
+      <div class="game-data-heading">Game Info</div>
+      ${metaRows.join('')}
+    </div>`);
+  }
+
+  // ESPN recap / preview headline
+  if (stats?.recap?.headline) {
+    sections.push(`<div>
+      <div class="game-data-heading">${stats.recap.type === 'Recap' ? 'Recap' : 'Preview'}</div>
+      <div class="game-data-row" style="line-height:1.4;">${stats.recap.headline}</div>
     </div>`);
   }
 

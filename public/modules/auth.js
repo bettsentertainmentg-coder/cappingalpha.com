@@ -32,27 +32,37 @@ export function updateNavAuth() {
   const btnLogout  = document.getElementById('btn-logout');
   const userInfo   = document.getElementById('nav-user-info');
   const tabAccount = document.getElementById('tab-account');
+  // Mobile drawer mirrors the same auth state. It previously never updated, so the
+  // phone always showed "Log In / Get Access" (and the upgrade prompt) even when
+  // signed in and subscribed.
+  const dLogin   = document.getElementById('drawer-btn-login');
+  const dSignup  = document.getElementById('drawer-btn-signup');
+  const dLogout  = document.getElementById('drawer-btn-logout');
+  const dUpgrade = document.getElementById('drawer-upgrade');
 
-  if (state.currentUser) {
-    btnLogin.style.display  = 'none';
-    btnSignup.style.display = 'none';
-    btnLogout.style.display = '';
-    userInfo.style.display  = '';
-    userInfo.textContent    = state.currentUser.username || state.currentUser.email;
-    if (tabAccount) tabAccount.style.display = '';
-    // Identify user in PostHog so sessions are linked to accounts
-    if (window.posthog) {
-      posthog.identify(String(state.currentUser.id), {
-        email: state.currentUser.email,
-        tier:  state.currentUser.tier,
-      });
-    }
-  } else {
-    btnLogin.style.display  = '';
-    btnSignup.style.display = '';
-    btnLogout.style.display = 'none';
-    userInfo.style.display  = 'none';
-    if (tabAccount) tabAccount.style.display = 'none';
+  const loggedIn = !!state.currentUser;
+  const paying   = loggedIn && state.currentUser.tier !== 'free';
+  const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+
+  show(btnLogin,  !loggedIn);
+  show(btnSignup, !loggedIn);
+  show(btnLogout, loggedIn);
+  show(tabAccount, loggedIn);
+  show(userInfo, loggedIn);
+  if (loggedIn && userInfo) userInfo.textContent = state.currentUser.username || state.currentUser.email;
+
+  show(dLogin,  !loggedIn);
+  show(dSignup, !loggedIn);
+  show(dLogout, loggedIn);
+  // Drop the "Premium Access" upgrade shortcut once they already pay.
+  show(dUpgrade, !paying);
+
+  // Identify user in PostHog so sessions are linked to accounts.
+  if (loggedIn && window.posthog) {
+    posthog.identify(String(state.currentUser.id), {
+      email: state.currentUser.email,
+      tier:  state.currentUser.tier,
+    });
   }
 }
 

@@ -11,8 +11,15 @@ const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
 const { normalizeCapper } = require('./storage');
 const crypto  = require('crypto');
+const fs      = require('fs');
+const path    = require('path');
 
 const router = express.Router();
+
+// Standalone UI-redesign sandbox. Lives in src/ (NOT public/) so it is never
+// statically served — only reachable through the auth-gated route below. Read
+// per request so HTML tweaks show up without a server restart.
+const PREVIEW_FILE = path.join(__dirname, 'admin_preview.html');
 
 // Generates a random 7-8 character alphanumeric code (uppercase, no ambiguous chars)
 function generateCode() {
@@ -164,6 +171,15 @@ router.post('/login', adminLoginRateLimit, express.urlencoded({ extended: false 
 // ── GET /admin/logout ─────────────────────────────────────────────────────────
 router.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin/login'));
+});
+
+// ── GET /admin/preview — private UI redesign sandbox ──────────────────────────
+router.get('/preview', requireAuth, (_req, res) => {
+  try {
+    res.type('html').send(fs.readFileSync(PREVIEW_FILE, 'utf8'));
+  } catch (err) {
+    res.status(500).send('Preview unavailable: ' + err.message);
+  }
 });
 
 // ── GET /admin → dashboard ────────────────────────────────────────────────────
@@ -768,6 +784,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
+      <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
 

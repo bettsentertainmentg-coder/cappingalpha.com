@@ -65,7 +65,12 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 }
 
 // ── Nav HTML (matches main app nav; tab-btn links instead of switchTab calls) ──
-function buildNav() {
+// Server-renders the correct logged-in/out state from the session so a subscribed
+// user never sees Login/Get Access (or a flash of them) before client JS runs.
+function buildNav(user) {
+  const on  = !!user;
+  const acct = on ? esc(user.username || user.email || '') : '';
+  const hide = 'display:none;';
   return `<nav>
     <div class="nav-left">
       <button class="ca-hamburger" aria-label="Menu" onclick="document.getElementById('ca-detail-menu').classList.toggle('open')">
@@ -80,11 +85,11 @@ function buildNav() {
       </div>
     </div>
     <div class="nav-actions">
-      <span id="nav-user-info" style="display:none;"></span>
-      <button class="btn btn-ghost" id="btn-login" onclick="openLogin()">Login</button>
-      <button class="btn btn-primary" id="btn-signup" onclick="openSignup()">Get Access</button>
-      <a href="/?tab=account" class="tab-btn" id="tab-account" style="display:none;text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
-      <button class="btn btn-danger" id="btn-logout" style="display:none" onclick="doLogout()">Logout</button>
+      <span id="nav-user-info" style="${on ? '' : hide}">${acct}</span>
+      <button class="btn btn-ghost" id="btn-login" onclick="openLogin()" style="${on ? hide : ''}">Login</button>
+      <button class="btn btn-primary" id="btn-signup" onclick="openSignup()" style="${on ? hide : ''}">Get Access</button>
+      <a href="/?tab=account" class="tab-btn" id="tab-account" style="${on ? '' : hide}text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
+      <button class="btn btn-danger" id="btn-logout" style="${on ? '' : hide}" onclick="doLogout()">Logout</button>
     </div>
   </nav>
   <!-- Mobile dropdown menu (matches the home hamburger) -->
@@ -150,9 +155,14 @@ function buildAuthModals() {
 }
 
 // ── Main builder ──────────────────────────────────────────────────────────────
-function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug }) {
+function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }) {
   const sport    = game.sport || '';
   const sportBg  = sportBgColor(sport);
+  // Server-rendered team-circle colours (resolved from team_colors.json in
+  // index.js). Fall back to the sport colour when unknown (e.g. tennis players),
+  // where the client fills the real colour after hydration.
+  const awayBg   = awayColor || sportBg;
+  const homeBg   = homeColor || sportBg;
   const sportLbl = sportSlugDisplay(sport);
   const timeStr  = gameTimeStr(game.start_time);
   const shortDate = shortDateStr(game.start_time);
@@ -192,7 +202,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
 </head>
 <body>
 
-${buildNav()}
+${buildNav(payload.user)}
 
 <div class="ca-page-outer">
 
@@ -215,7 +225,7 @@ ${buildNav()}
   <!-- Teams -->
   <div class="ca-gh-matchup">
     <div class="ca-gh-team ca-gh-away">
-      <div class="ca-team-logo-circle" id="ca-logo-away" style="background:${sportBg};">
+      <div class="ca-team-logo-circle" id="ca-logo-away" style="background:${awayBg};">
         ${game.away_flag
           ? `<img class="ca-flag-img" src="${esc(game.away_flag)}" alt="${esc(game.away_country || '')}" loading="lazy">`
           : `<span>${esc((game.away_abbr || game.away_short || away || '?').slice(0,3).toUpperCase())}</span>`}
@@ -227,7 +237,7 @@ ${buildNav()}
     </div>
     <div class="ca-gh-at">@</div>
     <div class="ca-gh-team ca-gh-home">
-      <div class="ca-team-logo-circle" id="ca-logo-home" style="background:${sportBg};">
+      <div class="ca-team-logo-circle" id="ca-logo-home" style="background:${homeBg};">
         ${game.home_flag
           ? `<img class="ca-flag-img" src="${esc(game.home_flag)}" alt="${esc(game.home_country || '')}" loading="lazy">`
           : `<span>${esc((game.home_abbr || game.home_short || home || '?').slice(0,3).toUpperCase())}</span>`}

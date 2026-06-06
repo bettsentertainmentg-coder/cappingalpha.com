@@ -784,6 +784,31 @@ try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN morning_markets_json TEXT`); 
 try { db.exec(`ALTER TABLE kalshi_cache ADD COLUMN updated_at TEXT`); } catch (_) {}
 // Clear stale rows from old flat-column schema so they get re-synced cleanly
 try { db.exec(`DELETE FROM kalshi_cache WHERE markets_json IS NULL`); } catch (_) {}
+
+// ── Esports prediction-market cache ──────────────────────────────────────────
+// Standalone (no espn_game_id) — esports has no ESPN coverage. Scraped from
+// Kalshi + Polymarket by src/esports_markets.js, powers the Esports "Top Games" row.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS esports_markets (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source       TEXT,
+      match_key    TEXT NOT NULL UNIQUE,
+      game         TEXT,
+      team_a       TEXT,
+      team_b       TEXT,
+      prob_a       REAL,
+      prob_b       REAL,
+      volume       REAL,
+      tournament   TEXT,
+      start_time   TEXT,
+      status       TEXT,
+      markets_json TEXT,
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 // Tennis: per-set game counts and score detail for accurate spread/O-U grading and display
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_home_games INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN tennis_away_games INTEGER`); } catch (_) {}

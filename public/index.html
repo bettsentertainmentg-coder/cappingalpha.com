@@ -636,6 +636,12 @@
       letter-spacing: 0.8px; color: var(--muted); margin: 28px 0 12px;
     }
 
+    /* Esports Top Games reuses the home page "Today's Top Games" tile styles
+       (.ca-top-games-row / .ca-tg-*) so restyling those updates esports too.
+       Esports-only touch: the win-probability pill in the tile corner. */
+    .ca-tg-prob { color: var(--green); border-color: rgba(34,197,94,0.33) !important; }
+    .ca-tg-src  { color: var(--muted); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; flex-shrink: 0; }
+
     /* ── My Account tab ── */
     .account-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
     @media (max-width: 860px) { .account-layout { grid-template-columns: 1fr; } }
@@ -888,54 +894,47 @@
     }
     .ca-home-section-link:hover { text-decoration: underline; }
 
-    /* ── Today's Top Games strip ── */
+    /* ── Today's Top Games strip (ESPN scoreboard cards) ── */
     .ca-top-games-row {
-      display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px;
-      scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+      display: flex; gap: 12px; overflow-x: auto; padding-bottom: 12px;
+      cursor: grab; -webkit-overflow-scrolling: touch;
+      scrollbar-color: var(--accent) var(--surface2); scrollbar-width: thin;
     }
-    .ca-top-games-row::-webkit-scrollbar { height: 5px; }
-    .ca-top-games-row::-webkit-scrollbar-track { background: var(--surface2); border-radius: 3px; }
-    .ca-top-games-row::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .ca-top-games-row.ca-dragging { cursor: grabbing; }
+    .ca-top-games-row::-webkit-scrollbar { height: 8px; }
+    .ca-top-games-row::-webkit-scrollbar-track { background: var(--surface2); border-radius: 4px; }
+    .ca-top-games-row::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+    .ca-top-games-row::-webkit-scrollbar-thumb:hover { background: #60a5fa; }
     .ca-top-games-empty { padding: 16px; color: var(--muted); font-size: 13px; }
+
     .ca-tg-tile {
-      flex: 0 0 186px; scroll-snap-align: start;
+      flex: 0 0 220px;
       display: flex; flex-direction: column;
-      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-      padding: 12px; cursor: pointer; transition: border-color .12s, transform .12s;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      overflow: hidden; cursor: pointer; transition: border-color .14s, transform .14s, box-shadow .14s;
     }
-    .ca-tg-tile:hover { border-color: var(--accent); transform: translateY(-2px); }
-    .ca-tg-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-    /* Corner cluster: abbreviated pick + score + multi-pick badge */
-    .ca-tg-corner { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; min-width: 0; }
-    .ca-tg-pick {
-      font-size: 11px; font-weight: 700; color: var(--accent);
-      max-width: 78px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .ca-tg-score {
-      flex-shrink: 0; min-width: 28px; text-align: center;
-      padding: 2px 7px; border-radius: 8px; font-size: 14px; font-weight: 800;
-      border: 1px solid transparent; background: var(--surface2);
-    }
-    .ca-tg-score-none { color: var(--muted); }
-    .ca-tg-score-locked { display: inline-flex; align-items: center; justify-content: center; }
-    .ca-tg-multi {
-      flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1;
-      background: var(--accent); color: #fff; border-radius: 8px;
-      padding: 2px 5px; min-width: 16px; text-align: center;
-    }
-    .ca-tg-matchup { font-size: 15px; font-weight: 800; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    /* Bottom row pinned to the base so every tile lines up, no dead space */
-    .ca-tg-bottom { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
+    .ca-tg-tile:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.35); }
+    .ca-tg-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 11px; border-bottom: 1px solid var(--border); min-height: 34px; }
+    /* CA score chip: marquee badge logo + score, coloured by tier. Only shown when a pick exists. */
+    .ca-tg-corner { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .ca-tg-ca { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 800; padding: 1px 7px 1px 4px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); }
+    .ca-tg-ca-logo { height: 15px; width: auto; border-radius: 3px; display: inline-block; vertical-align: middle; flex-shrink: 0; }
+    .ca-tg-score-locked { display: inline-flex; align-items: center; justify-content: center; padding: 2px 7px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); }
+    .ca-tg-multi { flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1; background: var(--accent); color: #fff; border-radius: 9px; padding: 2px 5px; min-width: 17px; text-align: center; }
+    /* Stacked teams: abbr + name + score (ESPN style) */
+    .ca-tg-teams { padding: 8px 11px; }
+    .ca-tg-team { display: flex; align-items: center; gap: 9px; padding: 4px 0; }
+    .ca-tg-abbr { width: 38px; flex-shrink: 0; text-align: center; font-weight: 800; font-size: 10px; letter-spacing: .3px; padding: 4px 0; border-radius: 4px; background: var(--surface2); color: var(--text); }
+    .ca-tg-tname { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ca-tg-tscore { font-size: 16px; font-weight: 800; letter-spacing: .2px; min-width: 22px; text-align: right; flex-shrink: 0; }
+    .ca-tg-team-lose .ca-tg-tname, .ca-tg-team-lose .ca-tg-abbr, .ca-tg-team-lose .ca-tg-tscore { opacity: .5; }
+    .ca-tg-team-win .ca-tg-tname { color: #fff; }
+    .ca-tg-team-win .ca-tg-tscore { color: var(--green); }
+    /* Foot: status + More, pinned to the base */
+    .ca-tg-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 11px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); font-weight: 600; }
     .ca-tg-time { color: var(--muted); }
-    /* Game score, enlarged for at-a-glance reading */
-    .ca-tg-score-num { font-size: 17px; font-weight: 800; letter-spacing: .2px; }
-    .ca-tg-meta { display: inline-flex; flex-direction: column; line-height: 1.15; }
-    .ca-tg-period { color: var(--muted); font-weight: 600; font-size: 11px; }
-    .ca-tg-start { color: var(--muted); font-weight: 500; font-size: 10px; opacity: 0.85; }
-    .ca-tg-final { color: var(--muted); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-    .ca-tg-final .ca-tg-score-num { color: var(--text); }
-    .ca-tg-live { color: #38bdf8; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+    .ca-tg-final { color: var(--muted); font-weight: 600; }
+    .ca-tg-live { color: #38bdf8; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; }
     .ca-tg-live-dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: linear-gradient(135deg,#4ade80,#38bdf8); display: inline-block;
@@ -1449,6 +1448,8 @@
       <p>Top esports titles tracked for picks, match results, and community signals. Data integration coming soon.</p>
     </div>
     <div class="container">
+      <div class="esports-section-label">Top Games</div>
+      <div class="ca-top-games-row" id="esports-top-row"></div>
       <div class="esports-section-label">Featured Games</div>
       <div class="esports-grid" id="esports-grid"></div>
     </div>
@@ -1561,7 +1562,7 @@
       <span id="ca-drawer-account-arrow" class="ca-drawer-nav-chevron">›</span>
     </div>
     <div id="ca-drawer-account-sub" class="ca-drawer-sub">
-      <a class="ca-drawer-sub-item" onclick="startCheckout('week');closeDrawer();">
+      <a class="ca-drawer-sub-item" id="drawer-upgrade" onclick="startCheckout('week');closeDrawer();">
         Premium Access <span>›</span>
       </a>
       <a class="ca-drawer-sub-item" onclick="switchTab('account');closeDrawer();">

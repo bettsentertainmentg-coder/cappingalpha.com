@@ -2,9 +2,10 @@
 // Reads window.__GAME_DATA__ and renders all dynamic content.
 // Companion to src/detail_page.js + public/game-detail.css
 
-import { checkAuth, isPaying, isViewer,
+import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
+import { state } from '/modules/state.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, destroyPickTimeline } from '/modules/score_timeline.js';
@@ -92,7 +93,10 @@ async function init() {
     _teamColors = await r.json();
   } catch (_) { _teamColors = {}; }
 
-  // Auth state
+  // Auth state. Seed from the server-rendered session first so a logged-in /
+  // subscribed user is recognized on first paint (no flash of Login/Get Access,
+  // no bogus "upgrade to see picks" prompts), then reconcile against /auth/me.
+  if (_data.user) { state.currentUser = _data.user; updateNavAuth(); }
   await checkAuth();
 
   // Determine initial slot from ?slot= query param, else top-scored
@@ -1722,6 +1726,78 @@ function renderContext() {
       ${row('TV', bc.tv)}
       ${row('Stream', bc.streaming)}
       ${row('Live TV', bc.bundles)}`, span: true });
+  }
+
+  // NHL: starting goalies — side-by-side card (parallel to MLB pitchers)
+  if (sport === 'NHL' && stats?.goalies?.length) {
+    const awayG = stats.goalies.find(g => g.homeAway === 'away');
+    const homeG = stats.goalies.find(g => g.homeAway === 'home');
+    const mk = (g, side) => {
+      if (!g) return `<div class="ca-ctx-pitcher"><div class="ca-ctx-pitcher-name">TBD</div></div>`;
+      const sub = [g.record, g.savePct ? `SV% ${g.savePct}` : null].filter(Boolean).join(' · ');
+      return `<div class="ca-ctx-pitcher${side === 'home' ? ' ca-ctx-pitcher--right' : ''}">
+        <div class="ca-ctx-pitcher-team">${esc(side.toUpperCase())}</div>
+        <div class="ca-ctx-pitcher-name">${esc(g.name || '?')}</div>
+        ${sub ? `<div class="ca-ctx-pitcher-stats ca-num">${esc(sub)}</div>` : ''}
+      </div>`;
+    };
+    cards.push({ raw: `
+      <div class="ca-ctx-title">Goalie Matchup</div>
+      <div class="ca-ctx-pitching">
+        ${mk(awayG, 'away')}
+        <div class="ca-ctx-pitcher-vs">vs</div>
+        ${mk(homeG, 'home')}
+      </div>`, span: true });
+  }
+
+  // ESPN win probability (matchup predictor)
+  if (stats?.predictor && (stats.predictor.homePct != null || stats.predictor.awayPct != null)) {
+    const awayShort = esc(game.away_short || game.away_team?.split(' ').pop() || 'Away');
+    const homeShort = esc(game.home_short || game.home_team?.split(' ').pop() || 'Home');
+    cards.push({ raw: `
+      <div class="ca-ctx-title">ESPN Win Probability</div>
+      <div class="ca-ctx-sub" style="margin-top:6px;">${awayShort} <span class="ca-num" style="float:right;">${stats.predictor.awayPct != null ? stats.predictor.awayPct + '%' : '—'}</span></div>
+      <div class="ca-ctx-sub" style="margin-top:4px;">${homeShort} <span class="ca-num" style="float:right;">${stats.predictor.homePct != null ? stats.predictor.homePct + '%' : '—'}</span></div>` });
+  }
+
+  // Head-to-head season series
+  if (stats?.seasonSeries?.summary) {
+    cards.push({ title: stats.seasonSeries.title || 'Season Series', val: esc(stats.seasonSeries.summary), sub: '' });
+  }
+
+  // Statistical leaders — top performers per team
+  if (stats?.leaders && (stats.leaders.home?.length || stats.leaders.away?.length)) {
+    const col = (list, label) => {
+      if (!list || !list.length) return '';
+      const rows = list.slice(0, 3).map(l =>
+        `<div class="ca-ctx-sub" style="margin-top:3px;">${esc(l.cat)}: <span style="color:var(--text);">${esc(l.name)}${l.pos ? ` (${esc(l.pos)})` : ''}</span> <span class="ca-num" style="float:right;">${esc(String(l.value))}</span></div>`
+      ).join('');
+      return `<div style="margin-top:6px;"><div class="ca-ctx-sub" style="font-weight:700;color:var(--text);">${esc(label)}</div>${rows}</div>`;
+    };
+    const awayLbl = game.away_short || game.away_team?.split(' ').pop() || 'Away';
+    const homeLbl = game.home_short || game.home_team?.split(' ').pop() || 'Home';
+    cards.push({ raw: `
+      <div class="ca-ctx-title">Team Leaders</div>
+      ${col(stats.leaders.away, awayLbl)}
+      ${col(stats.leaders.home, homeLbl)}`, span: true });
+  }
+
+  // Officials
+  if (stats?.officials?.length) {
+    const names = stats.officials.slice(0, 5).map(o => esc(o.name)).join(', ');
+    cards.push({ title: 'Officials', val: `<span style="font-size:13px;font-weight:500;line-height:1.4;">${names}</span>`, sub: '' });
+  }
+
+  // Attendance
+  if (stats?.attendance) {
+    cards.push({ title: 'Attendance', val: Number(stats.attendance).toLocaleString(), sub: '' });
+  }
+
+  // ESPN recap / preview headline
+  if (stats?.recap?.headline) {
+    cards.push({ raw: `
+      <div class="ca-ctx-title">${stats.recap.type === 'Recap' ? 'Recap' : 'Preview'}</div>
+      <div class="ca-ctx-sub" style="margin-top:6px;line-height:1.45;color:var(--text);">${esc(stats.recap.headline)}</div>`, span: true });
   }
 
   // Render

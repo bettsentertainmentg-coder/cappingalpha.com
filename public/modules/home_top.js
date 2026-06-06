@@ -6,7 +6,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, PICK_HEAT_COLOR, pickLabel, teamNickname, LOCK_SVG } from './utils.js';
+import { sportBadge, gameTime, pickLabel, LOCK_SVG } from './utils.js';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
@@ -35,75 +35,83 @@ function _livePeriod(g) {
   return [q, g.clock && g.clock !== '0:00' ? g.clock : ''].filter(Boolean).join(' ') || 'Live';
 }
 
+// Foot status: live period (score lives in the team rows now), Final, or start time.
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
-  if (g.status === 'in') {
-    return `<span class="ca-tg-live">
-      <span class="ca-tg-live-dot"></span>
-      <span class="ca-tg-score-num">${g.away_score ?? 0}–${g.home_score ?? 0}</span>
-      <span class="ca-tg-meta"><span class="ca-tg-period">${_livePeriod(g)}</span><span class="ca-tg-start">${start}</span></span>
-    </span>`;
-  }
-  if (g.status === 'post') {
-    return `<span class="ca-tg-final">
-      <span class="ca-tg-score-num">${g.away_score ?? 0}–${g.home_score ?? 0}</span>
-      <span class="ca-tg-meta"><span class="ca-tg-period">Final</span><span class="ca-tg-start">${start}</span></span>
-    </span>`;
-  }
+  if (g.status === 'in')   return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${_livePeriod(g)}</span>`;
+  if (g.status === 'post') return `<span class="ca-tg-final">Final</span>`;
   return `<span class="ca-tg-time">${start}</span>`;
-}
-
-// Very short pick descriptor for the tile, e.g. "Dodgers ML", "Over 8.5", "Rays -1.5".
-function _abbrevPick(tp) {
-  const type = (tp.pick_type || '').toLowerCase();
-  const line = tp.spread != null ? Math.abs(parseFloat(tp.spread)) : null;
-  if (type === 'over')  return line != null ? `Over ${line}`  : 'Over';
-  if (type === 'under') return line != null ? `Under ${line}` : 'Under';
-  const nick = teamNickname(tp.team) || tp.team || '';
-  if (type === 'ml') return `${nick} ML`;
-  if (type === 'spread') {
-    const s = tp.spread != null ? (tp.spread > 0 ? `+${tp.spread}` : `${tp.spread}`) : '';
-    return s ? `${nick} ${s}` : `${nick} Spread`;
-  }
-  return pickLabel(tp);
 }
 
 function _isUnlocked(tp) {
   return !!tp && tp.score != null && (isPaying() || tp.is_global_1);
 }
 
-// Top-right cluster: abbreviated pick (when unlocked) + CappingAlpha score, with
-// a small badge when more than one pick on the game scored.
+// CA score chip colour: bronze under 35, silver 35–49, gold 50+ (MVP).
+function _caColor(score) {
+  if (score >= 50) return '#FFD700';
+  if (score >= 35) return '#C0C0C0';
+  return '#cd7f32';
+}
+
+// 3-letter team abbreviation: prefer the ESPN abbr, else derive from short/full name.
+function _abbr(full, short, abbr) {
+  if (abbr) return String(abbr).toUpperCase();
+  const base = (short || full || '').trim();
+  if (!base) return '?';
+  const w = base.split(/\s+/);
+  if (w.length >= 2) return (w[0][0] + w[1][0] + (w[1][1] || '')).toUpperCase();
+  return base.slice(0, 3).toUpperCase();
+}
+
+// Top-right CA score chip: marquee badge + score, only when there's a rated pick
+// (no dashes). Locked for free users beyond the global #1. A small blue badge
+// shows how many rated picks are on the game.
 function _cornerCluster(g) {
   const tp = g.top_pick;
-  if (!tp || tp.score == null) {
-    return `<span class="ca-tg-score ca-tg-score-none">—</span>`;
-  }
+  if (!tp || tp.score == null) return '';
   if (!_isUnlocked(tp)) {
-    return `<span class="ca-tg-score ca-tg-score-locked" title="Unlock with full access">${LOCK_SVG}</span>`;
+    return `<span class="ca-tg-corner"><span class="ca-tg-score-locked" title="Unlock with full access">${LOCK_SVG}</span></span>`;
   }
-  const heat  = PICK_HEAT_COLOR(tp.score);
-  const fire  = heat.fire ? ' 🔥' : '';
+  const col   = _caColor(tp.score);
   const multi = (g.pick_count > 1)
     ? `<span class="ca-tg-multi" title="${g.pick_count} rated picks on this game">${g.pick_count}</span>`
     : '';
-  return `<span class="ca-tg-pick" title="${pickLabel(tp)}">${_abbrevPick(tp)}</span>
-    <span class="ca-tg-score" style="color:${heat.color};border-color:${heat.color}55;">${tp.score}${fire}</span>${multi}`;
+  return `<span class="ca-tg-corner">
+    <span class="ca-tg-ca" style="color:${col};border-color:${col}66" title="${pickLabel(tp)}"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'">${tp.score}</span>${multi}</span>`;
 }
 
+// One stacked team row: abbr + short name + score (score appears once the game starts).
+function _teamRow(g, isHome) {
+  const full  = isHome ? g.home_team  : g.away_team;
+  const short = isHome ? g.home_short : g.away_short;
+  const abbr  = isHome ? g.home_abbr  : g.away_abbr;
+  const post  = g.status === 'post';
+  const pre   = g.status !== 'in' && !post;
+  const my    = (isHome ? g.home_score : g.away_score) ?? 0;
+  const opp   = (isHome ? g.away_score : g.home_score) ?? 0;
+  const cls   = 'ca-tg-team' + (post && my > opp ? ' ca-tg-team-win' : '') + (post && my < opp ? ' ca-tg-team-lose' : '');
+  const score = pre ? '' : `<span class="ca-tg-tscore">${my}</span>`;
+  return `<div class="${cls}"><span class="ca-tg-abbr">${_abbr(full, short, abbr)}</span><span class="ca-tg-tname">${_shortName(full, short)}</span>${score}</div>`;
+}
+
+// ESPN-style scoreboard tile: gradient sport badge + CA chip, two stacked teams
+// with scores, status + More in the foot.
 function _gameTile(g) {
+  const tp = g.top_pick;
+  const pickTitle = _isUnlocked(tp) ? ` · Top pick: ${pickLabel(tp)}` : '';
   const away = _shortName(g.away_team, g.away_short);
   const home = _shortName(g.home_team, g.home_short);
-  const tp   = g.top_pick;
-  // Reveal the pick text on hover only when unlocked — keep paid content gated.
-  const pickTitle = _isUnlocked(tp) ? ` · Top pick: ${pickLabel(tp)}` : '';
   return `<div class="ca-tg-tile" onclick="location.href='/game/${g.espn_game_id}'" title="${away} @ ${home}${pickTitle}">
-    <div class="ca-tg-top">
+    <div class="ca-tg-head">
       ${sportBadge(g.sport)}
-      <span class="ca-tg-corner">${_cornerCluster(g)}</span>
+      ${_cornerCluster(g)}
     </div>
-    <div class="ca-tg-matchup">${away} @ ${home}</div>
-    <div class="ca-tg-bottom">
+    <div class="ca-tg-teams">
+      ${_teamRow(g, false)}
+      ${_teamRow(g, true)}
+    </div>
+    <div class="ca-tg-foot">
       ${_statusHtml(g)}
       <span class="ca-tg-more">More ›</span>
     </div>
@@ -251,3 +259,31 @@ async function _renderMyStrips() {
 
 window.toggleMySport = toggleMySport;
 window.saveMySports  = saveMySports;
+
+// ── Drag-to-scroll for the horizontal game rows (Top Games + My Sports strips) ──
+// Mouse only — touch devices already get native swipe, so we don't fight it. A
+// document-level handler covers strips that render in asynchronously.
+function _initDragScroll() {
+  let row = null, startX = 0, startLeft = 0, moved = 0;
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const r = e.target.closest('.ca-top-games-row');
+    if (!r) return;
+    row = r; startX = e.clientX; startLeft = r.scrollLeft; moved = 0;
+    r.classList.add('ca-dragging');
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!row) return;
+    const dx = e.clientX - startX;
+    moved += Math.abs(dx);
+    row.scrollLeft = startLeft - dx;
+  });
+  const end = () => { if (row) row.classList.remove('ca-dragging'); row = null; };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  // Swallow the click that follows a real drag so a tile doesn't navigate mid-drag.
+  document.addEventListener('click', (e) => {
+    if (moved > 6 && e.target.closest('.ca-top-games-row')) { e.preventDefault(); e.stopPropagation(); moved = 0; }
+  }, true);
+}
+_initDragScroll();

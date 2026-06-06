@@ -27,6 +27,18 @@ export const SPORT_THEMES = {
   WCBB:  { grad: 'linear-gradient(135deg,#701a75 0%,#a21caf 50%,#e879f9 100%)',             fa: 'fa-solid fa-basketball' },
   ATP:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
   WTA:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
+  // Esports titles — keys match the labels produced by esports_markets.js normGame()
+  'CS2':           { grad: 'linear-gradient(135deg,#1c1c1c 0%,#2d2d2d 40%,#f5a623 100%)', fa: 'fa-solid fa-bomb' },
+  'LoL':           { grad: 'linear-gradient(135deg,#0a1628 0%,#091428 50%,#c8aa6e 100%)', fa: 'fa-solid fa-shield-halved' },
+  'Valorant':      { grad: 'linear-gradient(135deg,#1a0a0a 0%,#3d0b0b 50%,#ff4655 100%)', fa: 'fa-solid fa-gun' },
+  'Dota 2':        { grad: 'linear-gradient(135deg,#0d0d0d 0%,#1a1a1a 50%,#c23c2a 100%)', fa: 'fa-solid fa-dragon' },
+  'Call of Duty':  { grad: 'linear-gradient(135deg,#0d1117 0%,#1c2431 50%,#4a5568 100%)', fa: 'fa-solid fa-skull' },
+  'R6':            { grad: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)', fa: 'fa-solid fa-crosshairs' },
+  'Overwatch':     { grad: 'linear-gradient(135deg,#0a1f3d 0%,#0d2951 50%,#f99e1a 100%)', fa: 'fa-solid fa-user-astronaut' },
+  'Rocket League': { grad: 'linear-gradient(135deg,#0a1628 0%,#1a3d6e 50%,#5b9bd5 100%)', fa: 'fa-solid fa-car' },
+  'Apex':          { grad: 'linear-gradient(135deg,#0d1117 0%,#1a1a2e 50%,#cd4400 100%)', fa: 'fa-solid fa-fire' },
+  'PUBG':          { grad: 'linear-gradient(135deg,#0a1628 0%,#1c3a5e 50%,#f5c518 100%)', fa: 'fa-solid fa-circle-dot' },
+  'Esports':       { grad: 'linear-gradient(135deg,#6d28d9,#7c3aed,#4f46e5)',              fa: 'fa-solid fa-gamepad' },
 };
 
 export function sportBadge(sport) {

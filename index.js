@@ -26,12 +26,12 @@ const { getSetting } = require('./src/db');
 // ranks 2..PAID_RANK_MAX are paid-only. Settings-backed so it's admin-tunable without a
 // deploy. Single source of truth — the client reads it via /api/config (paid_rank_max).
 const PAID_RANK_MAX = () => parseInt(getSetting('paid_rank_max', 50), 10) || 50;
-const { updateLiveScores, fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
+const { fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
-const { fetchTodaysTennisMatches, updateTennisLiveScores, refreshTennisStartTimes } = require('./src/tennis_espn');
+const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
-const { fetchTodaysWnbaGames, updateWnbaLiveScores }      = require('./src/wnba_espn');
+const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate }                                = require('./src/cycle');
@@ -42,6 +42,7 @@ const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_be
 const { syncLineHistory, syncLineHistorySoon, getLineHistoryForGame } = require('./src/line_history');
 const { syncPolymarketData, syncPolymarketSoon, getPolymarketForGame } = require('./src/polymarket');
 const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kalshi');
+const { syncEsportsMarkets, getTopEsportsGames } = require('./src/esports_markets');
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
@@ -328,7 +329,8 @@ app.get('/api/games/top', (req, res) => {
   // Candidate games = upcoming or live, with whatever cached market volume exists.
   let candidates = db.prepare(`
     SELECT tg.espn_game_id, tg.sport, tg.home_team, tg.away_team,
-           tg.home_short, tg.away_short, tg.home_score, tg.away_score,
+           tg.home_short, tg.away_short, tg.home_abbr, tg.away_abbr,
+           tg.home_score, tg.away_score,
            tg.status, tg.period, tg.clock, tg.start_time,
            pm.volume_usd AS pm_vol,
            k.volume_yes  AS k_vol
@@ -428,6 +430,8 @@ app.get('/api/games/top', (req, res) => {
       away_team:    g.away_team,
       home_short:   g.home_short,
       away_short:   g.away_short,
+      home_abbr:    g.home_abbr,
+      away_abbr:    g.away_abbr,
       home_score:   g.home_score,
       away_score:   g.away_score,
       status:       g.status,
@@ -500,6 +504,16 @@ app.get('/api/golf/picks/all', (req, res) => {
       ORDER BY gp.score DESC
     `).all();
     res.json(picks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/esports/top — top esports matches across all titles, ranked by volume
+// (scraped from Kalshi + Polymarket, no ESPN coverage). Powers the Esports tab row.
+app.get('/api/esports/top', (req, res) => {
+  try {
+    res.json(getTopEsportsGames());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -863,6 +877,27 @@ function resolveHistoricalGame(espnGameId) {
 // Shared detail-page renderer. For live games it queries the live tables; for
 // historical games the caller passes the reconstructed game/picks and the
 // snapshot enrichment via opts (any opt left undefined falls back to live).
+// Cached team-colors map (public/team_colors.json) for server-rendering the detail
+// page's team circles in the correct colour on first paint (kills the FOUC where
+// circles flashed the sport colour before client JS applied team colours).
+let _teamColorsCache = null;
+function _teamColorsMap() {
+  if (_teamColorsCache) return _teamColorsCache;
+  try { _teamColorsCache = JSON.parse(require('fs').readFileSync(path.join(__dirname, 'public', 'team_colors.json'), 'utf8')); }
+  catch (_) { _teamColorsCache = {}; }
+  return _teamColorsCache;
+}
+const _ABBR_ALIAS = { NBA: { NY: 'NYK', SA: 'SAS', GS: 'GSW', NO: 'NOP', UTAH: 'UTA' } };
+function _resolveTeamColor(game, isHome) {
+  const sport = (game.sport || '').toUpperCase();
+  const abbr  = (isHome ? (game.home_abbr || game.home_short || '') : (game.away_abbr || game.away_short || '')).toUpperCase();
+  if (!abbr) return null;
+  const bucket = _teamColorsMap()[sport] || {};
+  const alias  = (_ABBR_ALIAS[sport] || {})[abbr] || abbr;
+  const c = bucket[abbr] || bucket[alias];
+  return (c && c.primary) ? c.primary : null;
+}
+
 async function renderGameDetail(req, res, game, opts = {}) {
   try {
     let picks = opts.picks;
@@ -932,7 +967,9 @@ async function renderGameDetail(req, res, game, opts = {}) {
     const canonical = `https://cappingalpha.com${makeDetailUrl(game)}`;
     const sportSlug = _sportSlug(game.sport);
 
-    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug }));
+    const awayColor = _resolveTeamColor(game, false);
+    const homeColor = _resolveTeamColor(game, true);
+    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }));
   } catch (err) {
     console.error('[detail-page] error:', err.message);
     res.status(500).send('Error loading game detail');
@@ -1083,6 +1120,8 @@ app.listen(PORT, () => {
   syncLineHistory(preGamesOnStart).catch(e => console.error('[startup] syncLineHistory:', e.message));
   syncPolymarketData(preGamesOnStart).catch(e => console.error('[startup] syncPolymarket:', e.message));
   syncKalshiData(preGamesOnStart).catch(e => console.error('[startup] syncKalshi:', e.message));
+  // Esports markets are global + self-contained (no today_games dependency). Free APIs.
+  syncEsportsMarkets().catch(e => console.error('[startup] syncEsports:', e.message));
 })();
 
 // ── Discord scanner + cron jobs (disabled in UI-only mode) ───────────────────
@@ -1140,6 +1179,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   syncLineHistory(morningGames).catch(e => console.error('[cron] 5am syncLineHistory:', e.message));
   syncPolymarketData(morningGames).catch(e => console.error('[cron] 5am syncPolymarket:', e.message));
   syncKalshiData(morningGames).catch(e => console.error('[cron] 5am syncKalshi:', e.message));
+  syncEsportsMarkets().catch(e => console.error('[cron] 5am syncEsports:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
   // Recover yesterday's no_game skips now that forward games are fetched + seeded.
@@ -1158,6 +1198,7 @@ if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   syncLineHistory(preGames).catch(e => console.error('[cron] syncLineHistory:', e.message));
   syncPolymarketData(preGames).catch(e => console.error('[cron] syncPolymarket:', e.message));
   syncKalshiData(preGames).catch(e => console.error('[cron] syncKalshi:', e.message));
+  syncEsportsMarkets().catch(e => console.error('[cron] syncEsports:', e.message));
   fetchTennisLines().catch(e => console.error('[cron] fetchTennisLines:', e.message));
 });
 
@@ -1209,9 +1250,17 @@ cron.schedule('*/5 * * * *', () => {
 
 if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   if (!isActiveHours()) return;
-  await updateLiveScores().catch(err => console.error('[cron] updateLiveScores error:', err.message));
-  await updateTennisLiveScores().catch(err => console.error('[cron] updateTennisLiveScores error:', err.message));
-  await updateWnbaLiveScores().catch(err => console.error('[cron] updateWnbaLiveScores error:', err.message));
+  // Refresh live/final scores for EVERY game on the board, not just games that
+  // have a pick. The full-schedule fetchers below are supersets of the old
+  // pick-only updaters (updateLiveScores / updateWnbaLiveScores /
+  // updateTennisLiveScores): same upsert path, no `mention_count > 0` filter, so
+  // un-picked games stop freezing at their 5am score. Free (ESPN), and
+  // upsertTodayGame's COALESCE keeps the locked Odds API lines intact; the DK
+  // book_lines write is an upsert (no row bloat, prev_ only shifts on real moves).
+  // Golf already refreshes all active leaderboards below.
+  await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
+  await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
+  await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   // Stamp actual_start_at the first time any game flips to 'in'. Powers the
   // 5-min-past-actual-start scoring cutoff in storage.js.

@@ -5,9 +5,26 @@
 
 const db = require('./db');
 
-const GAME_SERIES   = { NBA: 'KXNBAGAME',   MLB: 'KXMLBGAME',   NHL: 'KXNHLGAME',   NFL: 'KXNFLGAME'   };
-const SPREAD_SERIES = { NBA: 'KXNBASPREAD', MLB: 'KXMLBSPREAD', NHL: 'KXNHLSPREAD', NFL: 'KXNFLSPREAD' };
-const TOTAL_SERIES  = { NBA: 'KXNBATOTAL',  MLB: 'KXMLBTOTAL',  NHL: 'KXNHLTOTAL',  NFL: 'KXNFLTOTAL'  };
+// Per-game moneyline series. Team sports use KX<LEAGUE>GAME; tennis uses
+// KXATPMATCH / KXWTAMATCH (the KXATPGAME/KXWTAGAME slugs exist but return no open
+// events). College hoops (CBB) and tennis only publish a winner market, no
+// spread/total series — those are simply absent from SPREAD_SERIES/TOTAL_SERIES.
+const GAME_SERIES   = {
+  NBA:  'KXNBAGAME',  MLB:   'KXMLBGAME',   NHL: 'KXNHLGAME',   NFL: 'KXNFLGAME',
+  WNBA: 'KXWNBAGAME', NCAAF: 'KXNCAAFGAME', CBB: 'KXNCAABGAME',
+  ATP:  'KXATPMATCH', WTA:   'KXWTAMATCH',
+};
+const SPREAD_SERIES = {
+  NBA:  'KXNBASPREAD',  MLB:   'KXMLBSPREAD',   NHL: 'KXNHLSPREAD', NFL: 'KXNFLSPREAD',
+  WNBA: 'KXWNBASPREAD', NCAAF: 'KXNCAAFSPREAD',
+};
+const TOTAL_SERIES  = {
+  NBA:  'KXNBATOTAL',  MLB:   'KXMLBTOTAL',   NHL: 'KXNHLTOTAL', NFL: 'KXNFLTOTAL',
+  WNBA: 'KXWNBATOTAL', NCAAF: 'KXNCAAFTOTAL',
+};
+
+// Sports where home_team/away_team hold player names, not city + nickname.
+const TENNIS_SPORTS = new Set(['ATP', 'WTA']);
 
 const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 
@@ -41,10 +58,13 @@ async function _syncGames(games) {
     const [sport, sportGames] = sports[si];
     if (si > 0) await _sleep(800); // pause between sports to avoid rate limiting
     try {
-      // Fetch 3 series sequentially with gaps — Kalshi rate-limits parallel bursts
-      const gameEvts   = await fetchSeries(GAME_SERIES[sport]);   await _sleep(300);
-      const spreadEvts = await fetchSeries(SPREAD_SERIES[sport]); await _sleep(300);
-      const totalEvts  = await fetchSeries(TOTAL_SERIES[sport]);
+      // Fetch the series sequentially with gaps — Kalshi rate-limits parallel
+      // bursts. Spread/total are skipped for leagues that don't publish them
+      // (tennis, college hoops) so we don't waste calls on nonexistent series.
+      const gameEvts = await fetchSeries(GAME_SERIES[sport]);
+      let spreadEvts = [], totalEvts = [];
+      if (SPREAD_SERIES[sport]) { await _sleep(300); spreadEvts = await fetchSeries(SPREAD_SERIES[sport]); }
+      if (TOTAL_SERIES[sport])  { await _sleep(300); totalEvts  = await fetchSeries(TOTAL_SERIES[sport]); }
 
       const marketMap = {}; // espn_game_id → { moneyline, spread, total }
       const volumeMap = {};
@@ -155,8 +175,14 @@ function extractMoneyline(ev, game) {
   const mktList = ev.markets || [];
   if (mktList.length < 2) return null;
 
-  const homeCity = cityOf(game.home_team), awayCity = cityOf(game.away_team);
-  const homeNick = nickOf(game.home_team),  awayNick = nickOf(game.away_team);
+  const tennis = TENNIS_SPORTS.has(game.sport);
+  // Tennis: match on last name only. cityOf() would return a player's FIRST name,
+  // which collides when two players share one (e.g. Matteo Arnaldi vs Matteo
+  // Berrettini), so never use it for tennis.
+  const homeKeys = tennis ? [nickOf(game.home_team)]
+                          : [cityOf(game.home_team), nickOf(game.home_team)].filter(Boolean);
+  const awayKeys = tennis ? [nickOf(game.away_team)]
+                          : [cityOf(game.away_team), nickOf(game.away_team)].filter(Boolean);
 
   let homeProb = null, awayProb = null, totalVolume = 0;
 
@@ -169,10 +195,10 @@ function extractMoneyline(ev, game) {
     const vol = parseFloat(m.volume_fp || 0);
     if (!isNaN(vol)) totalVolume += vol;
 
-    const isHome = (homeCity && sub.includes(homeCity)) || (homeNick && sub.includes(homeNick));
-    const isAway = (awayCity && sub.includes(awayCity)) || (awayNick && sub.includes(awayNick));
-    if (isHome) homeProb = mid;
-    else if (isAway) awayProb = mid;
+    const isHome = homeKeys.some(k => k && sub.includes(k));
+    const isAway = awayKeys.some(k => k && sub.includes(k));
+    if (isHome && !isAway) homeProb = mid;
+    else if (isAway && !isHome) awayProb = mid;
   }
 
   // Fallback: market[0]=away, market[1]=home by ticker convention
@@ -253,6 +279,12 @@ function matchEventToGame(ev, games) {
   const tickerTeamPart = (ev.event_ticker || '').replace(/^[A-Z0-9]+-\d{2}[A-Z]{3}\d{2}\d{4}/, '').toUpperCase();
 
   return games.find(g => {
+    // Tennis events are titled "Lastname vs Lastname" — match purely on last names.
+    if (TENNIS_SPORTS.has(g.sport)) {
+      const homeLast = nickOf(g.home_team), awayLast = nickOf(g.away_team);
+      return !!(homeLast && awayLast && title.includes(homeLast) && title.includes(awayLast));
+    }
+
     const homeCity = cityOf(g.home_team), awayCity = cityOf(g.away_team);
     const homeNick = nickOf(g.home_team),  awayNick = nickOf(g.away_team);
     const homeAbbr = (g.home_abbr || '').toLowerCase();
