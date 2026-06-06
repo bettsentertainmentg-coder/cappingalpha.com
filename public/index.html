@@ -814,9 +814,34 @@
       box-shadow: 0 5px 18px rgba(0,0,0,0.4);
     }
     /* team + points */
-    .ca-tp-team { font-size: 21px; font-weight: 800; line-height: 1.15; margin-bottom: 3px; }
+    .ca-tp-team-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+    .ca-tp-team { font-size: 21px; font-weight: 800; line-height: 1.15; }
     .ca-tp-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
     .ca-tp-pts { color: var(--gold); font-weight: 700; }
+    /* graded #1 pick — result badge to the right of the team + card colouring */
+    .ca-tp-result-badge {
+      flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
+      font-size: 12px; font-weight: 800; letter-spacing: .04em;
+      padding: 4px 9px 4px 7px; border-radius: 999px; white-space: nowrap;
+    }
+    .ca-tp-result-badge svg { width: 13px; height: 13px; }
+    .ca-tp-result-badge.win  { color: var(--green); background: rgba(34,197,94,0.14);  border: 1px solid rgba(34,197,94,0.40); }
+    .ca-tp-result-badge.loss { color: var(--red);   background: rgba(239,68,68,0.14);  border: 1px solid rgba(239,68,68,0.40); }
+    .ca-tp-result-badge.push { color: var(--muted); background: rgba(136,146,164,0.14); border: 1px solid rgba(136,146,164,0.35); }
+    .ca-top-pick-card.ca-tp-won {
+      border-color: rgba(34,197,94,0.55);
+      background: linear-gradient(180deg, rgba(34,197,94,0.16) 0%, var(--surface) 60%);
+      box-shadow: 0 2px 16px rgba(34,197,94,0.22);
+    }
+    .ca-top-pick-card.ca-tp-won.ca-tp-clickable:hover {
+      border-color: rgba(34,197,94,0.85);
+      box-shadow: 0 5px 20px rgba(34,197,94,0.30);
+    }
+    .ca-top-pick-card.ca-tp-won .ca-tp-team { color: var(--green); }
+    .ca-top-pick-card.ca-tp-lost {
+      border-color: rgba(239,68,68,0.40);
+      background: linear-gradient(180deg, rgba(239,68,68,0.10) 0%, var(--surface) 60%);
+    }
     /* P/L block */
     .ca-tp-pl-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
     .ca-tp-pl-title { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

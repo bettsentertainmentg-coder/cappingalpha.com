@@ -34,6 +34,16 @@ async function _renderTopPick() {
     const score = pick.score || 0;
     const sport = pick.sport ? ` · ${pick.sport}` : '';
 
+    // Once the game finishes, results.js writes pick.result (win/loss/push).
+    // A win turns the whole card green with a checkmark; loss/push stay honest.
+    const result = (pick.result || '').toLowerCase();
+    const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+    const X_SVG     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+    let resultBadge = '', cardState = '';
+    if (result === 'win')       { resultBadge = `<span class="ca-tp-result-badge win">${CHECK_SVG}WON</span>`;  cardState = ' ca-tp-won'; }
+    else if (result === 'loss') { resultBadge = `<span class="ca-tp-result-badge loss">${X_SVG}LOST</span>`;    cardState = ' ca-tp-lost'; }
+    else if (result === 'push') { resultBadge = `<span class="ca-tp-result-badge push">PUSH</span>`;            cardState = ' ca-tp-push'; }
+
     // ── P/L block (only when there's enough resolved history) ─────────────────
     const betUnit = parseFloat(state.CONFIG?.bet_unit) || 10;
     const best = _bestWindow(_resolvedMvp(mvp && mvp.picks));
@@ -73,14 +83,14 @@ async function _renderTopPick() {
       : `<div class="ca-top-pick-cta-label" style="text-align:center;">Click to view all picks ›</div>`;
 
     el.innerHTML = `
-      <div class="ca-top-pick-card ca-tp-clickable" onclick="switchTab('mvp')" title="View MVP picks ›">
+      <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View MVP picks ›">
         <div class="ca-tp-brand">
           <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <span class="ca-tp-logo-fallback">CA</span>
           <div class="ca-tp-title"><span class="ca-tp-title-today">Today's</span> <span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
-        <div class="ca-tp-team">${pick.team}</div>
+        <div class="ca-tp-team-row"><span class="ca-tp-team">${pick.team}</span>${resultBadge}</div>
         <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
         ${plHtml}
         ${ctaHtml}
