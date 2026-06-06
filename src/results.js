@@ -419,6 +419,54 @@ function capperBetOdds(pick) {
 async function resolveResults() {
   let resolved = 0;
 
+  // ── Pass 0: reconcile stuck games ─────────────────────────────────────────
+  // A game still in today_games whose live updater stalled (frozen at 'pre'/'in'
+  // long after tip-off — e.g. a WNBA game polling stopped on after the date
+  // rolled over) never reaches 'post'. Every pass below only grades status='post',
+  // so that game's picks, capper history, and MVP result would never settle and
+  // the row would eventually age out of today_games ungraded. Verify the real
+  // outcome from ESPN (free) and promote the row to final so the normal passes
+  // settle it. Sport-agnostic: also unsticks frozen MLB/NBA/NHL/tennis rows and
+  // self-heals the live board display.
+  const STUCK_AFTER_MS = 5 * 60 * 60 * 1000; // 5h after start a game is over; a postponement just won't come back final, so it's skipped
+  const stuckGames = db.prepare(`
+    SELECT espn_game_id, sport, start_time
+    FROM today_games
+    WHERE status IN ('pre', 'in')
+      AND espn_game_id IS NOT NULL
+      AND start_time IS NOT NULL
+  `).all().filter(g => {
+    const iso = g.start_time.includes('T') ? g.start_time : g.start_time.replace(' ', 'T') + 'Z';
+    const t = new Date(iso).getTime();
+    return Number.isFinite(t) && (Date.now() - t) > STUCK_AFTER_MS;
+  });
+
+  for (const g of stuckGames) {
+    let final;
+    try {
+      final = await fetchGameResult(g.espn_game_id, g.sport, (g.start_time || '').slice(0, 10));
+    } catch (_) { continue; }
+    if (!final || final.status !== 'post') continue; // not actually final yet (or postponed) — leave it
+    db.prepare(`
+      UPDATE today_games
+      SET status = 'post',
+          home_score = ?, away_score = ?,
+          tennis_home_games   = COALESCE(?, tennis_home_games),
+          tennis_away_games   = COALESCE(?, tennis_away_games),
+          tennis_score_detail = COALESCE(?, tennis_score_detail),
+          actual_end_at = COALESCE(actual_end_at, datetime('now'))
+      WHERE espn_game_id = ?
+    `).run(
+      final.home_score ?? null,
+      final.away_score ?? null,
+      final.tennis_home_games ?? null,
+      final.tennis_away_games ?? null,
+      final.tennis_score_detail ?? null,
+      g.espn_game_id
+    );
+    console.log(`[results] reconciled stuck ${g.sport} game ${g.espn_game_id} -> final ${final.away_score}-${final.home_score}`);
+  }
+
   // ── Pass 1: picks still in today's picks table ────────────────────────────
   const picks = db.prepare(`
     SELECT p.*, tg.home_score, tg.away_score, tg.status, tg.sport,
