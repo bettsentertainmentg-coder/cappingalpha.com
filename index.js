@@ -307,7 +307,14 @@ app.get('/api/pick-history', (req, res) => {
 
   let sql = `SELECT * FROM pick_history WHERE 1=1`;
   const params = [];
-  if (sport)  { sql += ` AND UPPER(sport)  = UPPER(?)`; params.push(sport); }
+  if (sport) {
+    // "Tennis" is a virtual filter that blends both tours (ATP + WTA).
+    if (sport.toLowerCase() === 'tennis') {
+      sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
+    } else {
+      sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport);
+    }
+  }
   if (result) { sql += ` AND LOWER(result) = LOWER(?)`; params.push(result); }
   sql += ` ORDER BY archived_at DESC LIMIT ?`;
   params.push(limit);
@@ -1295,8 +1302,12 @@ if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
   // Free line data syncs — no API credits
   const preGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
   syncLineHistory(preGames).catch(e => console.error('[cron] syncLineHistory:', e.message));
-  syncPolymarketData(preGames).catch(e => console.error('[cron] syncPolymarket:', e.message));
-  syncKalshiData(preGames).catch(e => console.error('[cron] syncKalshi:', e.message));
+  // Market volume feeds the Top Games ranking, so sync ALL of today's games
+  // (pre/in/post) — finished games carry the day's biggest volume and must keep
+  // their rank. Both syncs group calls by sport/tag, so more games != more requests.
+  const allBoardGames = db.prepare(`SELECT * FROM today_games`).all();
+  syncPolymarketData(allBoardGames).catch(e => console.error('[cron] syncPolymarket:', e.message));
+  syncKalshiData(allBoardGames).catch(e => console.error('[cron] syncKalshi:', e.message));
   syncEsportsMarkets().catch(e => console.error('[cron] syncEsports:', e.message));
   fetchTennisLines().catch(e => console.error('[cron] fetchTennisLines:', e.message));
 });

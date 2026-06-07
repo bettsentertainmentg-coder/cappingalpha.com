@@ -1121,10 +1121,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <option value="">All Sports</option>
           <option value="MLB">MLB</option>
           <option value="NBA">NBA</option>
+          <option value="WNBA">WNBA</option>
           <option value="NHL">NHL</option>
           <option value="NFL">NFL</option>
           <option value="NCAAF">NCAAF</option>
           <option value="CBB">CBB</option>
+          <option value="Tennis">Tennis (ATP + WTA)</option>
           <option value="ATP">ATP</option>
           <option value="WTA">WTA</option>
         </select>
