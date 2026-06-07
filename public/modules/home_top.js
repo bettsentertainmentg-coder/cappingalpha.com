@@ -42,6 +42,17 @@ function _shortName(full, short) {
   return full.split(' ').pop();
 }
 
+function _isTennis(g) {
+  const s = (g.sport || '').toUpperCase();
+  return s === 'ATP' || s === 'WTA';
+}
+
+// Per-set games for a tennis match: [{set,home,away}, ...]. Empty if not started
+// or detail not yet synced.
+function _tennisSets(g) {
+  try { return JSON.parse(g.tennis_score_detail || '[]') || []; } catch (_) { return []; }
+}
+
 // Period/inning label for a live game (mirrors utils.scoreDisplay): baseball
 // shows the inning, hockey/basketball show the period/quarter, never a raw clock
 // of "0:00".
@@ -49,6 +60,7 @@ function _livePeriod(g) {
   const sport = (g.sport || '').toUpperCase();
   const n = g.period;
   const ord = (x) => x === 1 ? '1st' : x === 2 ? '2nd' : x === 3 ? '3rd' : `${x}th`;
+  if (sport === 'ATP' || sport === 'WTA') return n ? `Set ${n}` : 'Live';
   if (sport === 'MLB') return n ? `${ord(n)} Inn` : 'Live';
   if (sport === 'NHL' || sport === 'CBB' || sport === 'WCBB') {
     const p = n ? `P${n}` : '';
@@ -122,25 +134,54 @@ function _cornerCluster(g) {
     <span class="ca-tg-ca" style="color:${col};border-color:${col}66" title="${pickLabel(tp)}"><img src="/ca-logo.png" class="ca-tg-ca-logo" alt="CA" onerror="this.style.display='none'">${tp.score}</span>${multi}</span>`;
 }
 
-// One stacked team row: abbr + short name + score (score appears once the game starts).
+// One stacked team row: chip + short name + score, plus a winner marker on finals.
+// Team sports show a single score; tennis shows ESPN-style per-set columns with the
+// set winner's number emphasized (e.g. 6 4 6 vs 4 6 4) instead of a flat "2–1".
 function _teamRow(g, isHome) {
   const full  = isHome ? g.home_team  : g.away_team;
   const short = isHome ? g.home_short : g.away_short;
   const abbr  = isHome ? g.home_abbr  : g.away_abbr;
+  const flag  = isHome ? g.home_flag  : g.away_flag;
   const post  = g.status === 'post';
   const pre   = g.status !== 'in' && !post;
   const my    = (isHome ? g.home_score : g.away_score) ?? 0;
   const opp   = (isHome ? g.away_score : g.home_score) ?? 0;
-  const cls   = 'ca-tg-team' + (post && my > opp ? ' ca-tg-team-win' : '') + (post && my < opp ? ' ca-tg-team-lose' : '');
-  const score = pre ? '' : `<span class="ca-tg-tscore">${my}</span>`;
-  // Soft team-coloured abbreviation chip: primary background (darkened a touch so
-  // bright primaries stay easy on the eyes) + secondary text. Falls back to the
-  // neutral grey chip when no colour is known (e.g. tennis players).
-  const tc = _teamColor(g.sport, abbr || short);
-  const abbrStyle = (tc && tc.primary)
-    ? ` style="background:linear-gradient(rgba(0,0,0,.16),rgba(0,0,0,.16)),${tc.primary};color:${tc.secondary || '#ffffff'};"`
-    : '';
-  return `<div class="${cls}"><span class="ca-tg-abbr"${abbrStyle}>${_abbr(full, short, abbr)}</span><span class="ca-tg-tname">${_shortName(full, short)}</span>${score}</div>`;
+  const won   = post && my > opp;
+  const cls   = 'ca-tg-team' + (won ? ' ca-tg-team-win' : '') + (post && my < opp ? ' ca-tg-team-lose' : '');
+
+  // Leading chip: tennis players get their country flag (ESPN style), team sports
+  // keep the soft team-coloured abbreviation chip. Flag falls back to the abbr chip
+  // if the image is missing/broken.
+  let chip;
+  if (_isTennis(g) && flag) {
+    chip = `<span class="ca-tg-flag"><img src="${flag}" alt="" loading="lazy" onerror="this.style.display='none'">${_abbr(full, short, abbr)}</span>`;
+  } else {
+    const tc = _teamColor(g.sport, abbr || short);
+    const abbrStyle = (tc && tc.primary)
+      ? ` style="background:linear-gradient(rgba(0,0,0,.16),rgba(0,0,0,.16)),${tc.primary};color:${tc.secondary || '#ffffff'};"`
+      : '';
+    chip = `<span class="ca-tg-abbr"${abbrStyle}>${_abbr(full, short, abbr)}</span>`;
+  }
+
+  // Score area.
+  let scoreArea = '';
+  const sets = _isTennis(g) ? _tennisSets(g) : [];
+  if (_isTennis(g) && sets.length && !pre) {
+    const cells = sets.map(s => {
+      const v   = isHome ? s.home : s.away;
+      const oppV = isHome ? s.away : s.home;
+      return `<span class="ca-tg-set${v > oppV ? ' ca-tg-set-won' : ''}">${v}</span>`;
+    }).join('');
+    scoreArea = `<span class="ca-tg-sets">${cells}</span>`;
+  } else if (!pre) {
+    scoreArea = `<span class="ca-tg-tscore">${my}</span>`;
+  }
+
+  // Winner triangle on finals (kept as a hidden placeholder on the other row so the
+  // score columns stay right-aligned across both rows).
+  const mark = `<span class="ca-tg-win-mark${won ? '' : ' ca-tg-win-mark-empty'}">◀</span>`;
+
+  return `<div class="${cls}">${chip}<span class="ca-tg-tname">${_shortName(full, short)}</span>${scoreArea}${mark}</div>`;
 }
 
 // ESPN-style scoreboard tile: gradient sport badge + CA chip, two stacked teams

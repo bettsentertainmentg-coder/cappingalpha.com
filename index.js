@@ -336,7 +336,7 @@ app.get('/api/games', (req, res) => {
 // Each game carries its top-scored pick for the "CappingAlpha score" corner; the
 // game holding the overall #1 pick is flagged so the frontend can show it free.
 app.get('/api/games/top', (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit, 10) || 8, 30);
+  const limit = Math.min(parseInt(req.query.limit, 10) || 13, 30);
 
   // Optional sport filter (used by the home "My Sports" strips). Tennis = ATP+WTA.
   const sportParam = (req.query.sport || '').trim();
@@ -360,6 +360,7 @@ app.get('/api/games/top', (req, res) => {
     SELECT tg.espn_game_id, tg.sport, tg.home_team, tg.away_team,
            tg.home_short, tg.away_short, tg.home_abbr, tg.away_abbr,
            tg.home_score, tg.away_score,
+           tg.tennis_score_detail, tg.home_flag, tg.away_flag,
            tg.status, tg.period, tg.clock, tg.start_time,
            pm.volume_usd AS pm_vol,
            k.volume_yes  AS k_vol
@@ -475,6 +476,9 @@ app.get('/api/games/top', (req, res) => {
       away_abbr:    g.away_abbr,
       home_score:   g.home_score,
       away_score:   g.away_score,
+      tennis_score_detail: g.tennis_score_detail,
+      home_flag:    g.home_flag,
+      away_flag:    g.away_flag,
       status:       g.status,
       period:       g.period,
       clock:        g.clock,

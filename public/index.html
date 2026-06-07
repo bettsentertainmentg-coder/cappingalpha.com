@@ -963,9 +963,19 @@
     .ca-tg-teams { padding: 4px 11px; }
     .ca-tg-team { display: flex; align-items: center; gap: 9px; padding: 2px 0; }
     .ca-tg-abbr { width: 38px; flex-shrink: 0; text-align: center; font-weight: 800; font-size: 10px; letter-spacing: .3px; padding: 3px 0; border-radius: 4px; background: var(--surface2); color: var(--text); }
+    /* Tennis: country flag in place of the team-colour abbr chip (ESPN style). */
+    .ca-tg-flag { width: 38px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: var(--muted); gap: 0; }
+    .ca-tg-flag img { width: 24px; height: auto; border-radius: 3px; display: block; }
     .ca-tg-tname { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ca-tg-tscore { font-size: 16px; font-weight: 800; letter-spacing: .2px; min-width: 22px; text-align: right; flex-shrink: 0; }
-    .ca-tg-team-lose .ca-tg-tname, .ca-tg-team-lose .ca-tg-abbr, .ca-tg-team-lose .ca-tg-tscore { opacity: .5; }
+    /* Tennis per-set columns: muted by default, the set winner's number emphasized. */
+    .ca-tg-sets { display: inline-flex; gap: 7px; flex-shrink: 0; align-items: center; }
+    .ca-tg-set { min-width: 9px; text-align: center; font-size: 14px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .ca-tg-set-won { color: var(--text); font-weight: 800; }
+    /* Winner triangle (finals). Hidden placeholder on the losing row keeps columns aligned. */
+    .ca-tg-win-mark { flex-shrink: 0; width: 9px; text-align: center; font-size: 8px; line-height: 1; color: var(--green); }
+    .ca-tg-win-mark-empty { visibility: hidden; }
+    .ca-tg-team-lose .ca-tg-tname, .ca-tg-team-lose .ca-tg-abbr, .ca-tg-team-lose .ca-tg-flag, .ca-tg-team-lose .ca-tg-tscore { opacity: .5; }
     .ca-tg-team-win .ca-tg-tname { color: #fff; }
     .ca-tg-team-win .ca-tg-tscore { color: var(--green); }
     /* Foot: status + More, pinned to the base */

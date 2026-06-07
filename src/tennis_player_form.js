@@ -27,12 +27,14 @@ const SURFACE = {
   // Clay
   'monte carlo': 'Clay', 'madrid': 'Clay', 'rome': 'Clay', 'italian open': 'Clay',
   'barcelona': 'Clay', 'hamburg': 'Clay', 'munich': 'Clay', 'stuttgart': 'Grass',
+  'porsche': 'Clay', 'internazionali': 'Clay', 'mutua': 'Clay', 'estoril': 'Clay', 'geneva': 'Clay',
   // Grass
   'halle': 'Grass', "queen's": 'Grass', 'eastbourne': 'Grass', "'s-hertogenbosch": 'Grass',
   // Hard (incl. indoor)
   'indian wells': 'Hard', 'miami': 'Hard', 'qatar': 'Hard', 'doha': 'Hard', 'dubai': 'Hard',
   'cincinnati': 'Hard', 'canadian': 'Hard', 'toronto': 'Hard', 'montreal': 'Hard',
   'shanghai': 'Hard', 'beijing': 'Hard', 'tokyo': 'Hard', 'paris': 'Indoor hard',
+  'bnp paribas open': 'Hard', 'western & southern': 'Hard', 'national bank open': 'Hard',
   'atp finals': 'Indoor hard', 'wta finals': 'Indoor hard', 'united cup': 'Hard',
 };
 function surfaceFor(name, indoor) {
@@ -119,11 +121,14 @@ async function parseMatch(item, athleteId, eventCache) {
     evP,
   ]);
 
+  const oppName = (oppAth && (oppAth.displayName || oppAth.shortName)) || null;
+  if (!oppName || /^bye$/i.test(oppName)) return null; // skip byes / walkovers w/o opponent
+
   const setScore = buildSetScore(myLs, opLs);
   const tournament = (ev && (ev.name || ev.shortName)) || null;
   return {
     date: comp.date || null,
-    opp: (oppAth && (oppAth.displayName || oppAth.shortName)) || null,
+    opp: oppName,
     result,
     setScore,
     tournament,
