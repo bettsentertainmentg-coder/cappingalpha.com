@@ -371,11 +371,11 @@ function renderAccount(data) {
       }).join('');
 
   el.innerHTML = `
-    <div style="display:grid;grid-template-columns:300px 1fr;gap:24px;align-items:start;">
+    <div class="account-layout">
 
       <!-- Left column: account info + sport prefs -->
       <div>
-        <div class="card" style="margin-bottom:20px;">
+        <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Account</span></div>
           <div style="padding:4px 20px 12px;">
             <div class="account-info-row">
@@ -402,7 +402,7 @@ function renderAccount(data) {
           </div>
         </div>
 
-        <div class="card" style="margin-bottom:20px;">
+        <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header">
             <span class="card-title">${user.subscription_tier === 'free' ? 'Access Code' : 'Access Status'}</span>
           </div>
@@ -411,7 +411,7 @@ function renderAccount(data) {
           </div>
         </div>
 
-        <div class="card">
+        <div class="card account-reveal">
           <div class="card-header"><span class="card-title">Favorite Sports</span></div>
           <div style="padding:16px 20px 18px;">
             <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick your sports to filter your personal feed.</div>
@@ -432,7 +432,7 @@ function renderAccount(data) {
 
       <!-- Right column: P/L graph + voted picks -->
       <div>
-        <div class="graph-card" style="margin-bottom:20px;">
+        <div class="graph-card account-reveal" style="margin-bottom:20px;">
           <div class="graph-header">
             <span class="graph-title">My Voted Picks P/L</span>
             <div style="display:flex;align-items:center;gap:16px;">
@@ -459,26 +459,55 @@ function renderAccount(data) {
           </div>
         </div>
 
-        <div class="card">
+        <div class="card account-reveal">
           <div class="card-header">
             <span class="card-title">My Votes</span>
             <span style="font-size:12px;color:var(--muted);">Pre-game votes can be removed</span>
           </div>
           ${votes.length > 0 ? `
-          <div style="display:flex;align-items:center;padding:8px 20px 6px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--border);">
-            <span style="flex:1;">Game</span>
-            <span style="flex:0 0 130px;">My Vote</span>
-            <span style="flex:0 0 56px;text-align:right;">Score</span>
-            <span style="flex:0 0 56px;text-align:right;">Result</span>
-          </div>` : ''}
-          <div id="voted-picks-list">${votesHtml}</div>
+          <div class="voted-picks-scroll">
+            <div class="voted-pick-head">
+              <span class="voted-pick-matchup">Game</span>
+              <span class="voted-pick-slot">My Vote</span>
+              <span class="voted-pick-score">Score</span>
+              <span class="voted-pick-result">Result</span>
+            </div>
+            <div id="voted-picks-list">${votesHtml}</div>
+          </div>`
+          : `<div id="voted-picks-list">${votesHtml}</div>`}
         </div>
       </div>
 
     </div>`;
 
   window._accountVotes = votes;
-  requestAnimationFrame(() => drawVotedPlGraph(votes, unit));
+  requestAnimationFrame(() => {
+    drawVotedPlGraph(votes, unit);
+    initAccountReveal();
+  });
+}
+
+// Fade + rise each account card into view as it scrolls in. Cards already on
+// screen at load reveal immediately with a light stagger.
+function initAccountReveal() {
+  const cards = document.querySelectorAll('#account-content .account-reveal');
+  if (!cards.length) return;
+  if (!('IntersectionObserver' in window)) {
+    cards.forEach(c => c.classList.add('in'));
+    return;
+  }
+  const obs = new IntersectionObserver((entries, o) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        o.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+  cards.forEach((c, i) => {
+    c.style.transitionDelay = `${Math.min(i, 6) * 60}ms`;
+    obs.observe(c);
+  });
 }
 
 Object.assign(window, { deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername });

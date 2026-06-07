@@ -689,6 +689,42 @@
     .voted-pick-score   { flex: 0 0 56px; text-align: right; font-weight: 700; }
     .voted-pick-result  { flex: 0 0 56px; text-align: right; font-size: 13px; font-weight: 700; }
 
+    /* Column header for the My Votes list — reuses the row column classes so the
+       header lines up with the rows exactly (and shrinks with them on mobile). */
+    .voted-pick-head {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 20px 6px; background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+      position: sticky; top: 0; z-index: 1;
+    }
+    .voted-pick-head span { font-size: 11px; color: var(--muted); }
+
+    /* My Votes is its own scrollable widget so the games scroll inside the card
+       instead of stretching the page (mirrors .mvp-history-wrap). */
+    .voted-picks-scroll { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .voted-picks-scroll::-webkit-scrollbar { width: 6px; }
+    .voted-picks-scroll::-webkit-scrollbar-track { background: var(--surface2); }
+    .voted-picks-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Account cards fade + rise into view as you scroll (set up in account.js). */
+    .account-reveal { opacity: 0; transform: translateY(16px); transition: opacity .55s cubic-bezier(.16,1,.3,1), transform .55s cubic-bezier(.16,1,.3,1); }
+    .account-reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .account-reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+    }
+
+    /* Phones: tighten the My Votes columns so nothing clips, lock to vertical scroll. */
+    @media (max-width: 640px) {
+      .account-layout { gap: 14px; }
+      .voted-pick-row { gap: 8px; padding: 11px 14px; }
+      .voted-pick-head { padding: 8px 14px 6px; gap: 8px; }
+      .voted-pick-slot   { flex: 0 0 88px; font-size: 12px; }
+      .voted-pick-score  { flex: 0 0 38px; }
+      .voted-pick-result { flex: 0 0 30px; }
+      .voted-picks-scroll { max-height: 300px; }
+    }
+
     /* ── MVP tab hero heading ── */
     .mvp-tab-hero { padding: 0 0 28px; }
     .mvp-tab-badge {
