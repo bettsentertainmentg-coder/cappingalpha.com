@@ -1864,6 +1864,49 @@ function histTeamId(team) {
   return team === 'home' ? _data.stats?.homeTeamId : _data.stats?.awayTeamId;
 }
 
+// Keep a coloured label readable on its pill: stay the team's own colour when it
+// has enough contrast, otherwise flip to white / near-black so the active name
+// never washes out on the coloured slider.
+function _ensureReadable(fg, bg) {
+  try {
+    if (Math.abs(_luminance(fg) - _luminance(bg)) >= 0.32) return fg;
+    return _luminance(bg) > 0.5 ? '#0b0f14' : '#ffffff';
+  } catch (_) { return fg; }
+}
+// Lift a near-black brand colour so it stays legible as a name on the dark toggle.
+function _legibleOnDark(hex) {
+  try { return _luminance(hex) < 0.42 ? _lighten(hex, 0.42) : hex; } catch (_) { return hex; }
+}
+// Lift a very dark colour just enough to read as a bold pill fill on the card.
+function _vividFill(hex) {
+  try { return _luminance(hex) < 0.16 ? _lighten(hex, 0.30) : hex; } catch (_) { return hex; }
+}
+
+// Paint the away/home brand colours onto the toggle. Each name takes its own
+// side's primary colour; the sliding pill takes the active side's SECONDARY colour
+// for team sports, or the player's country colour for tennis (no secondary).
+function _histPaintToggle() {
+  const toggle = document.getElementById('ca-hist-toggle');
+  if (!toggle) return;
+  const away = teamColors(_data.game, false);
+  const home = teamColors(_data.game, true);
+  toggle.style.setProperty('--hist-away-color', _legibleOnDark(away.primary));
+  toggle.style.setProperty('--hist-home-color', _legibleOnDark(home.primary));
+  _histApplyActivePill();
+}
+
+// Set the slider's colour for whichever side is active. Re-run on every switch so
+// the pill colour cross-fades as it slides across.
+function _histApplyActivePill() {
+  const toggle = document.getElementById('ca-hist-toggle');
+  if (!toggle) return;
+  const col  = teamColors(_data.game, _historyTeam === 'home');
+  // Team sports: secondary colour fills the pill. Tennis: the country colour does.
+  const pill = col.secondary ? col.secondary : _vividFill(col.primary);
+  toggle.style.setProperty('--hist-slider-bg', pill);
+  toggle.style.setProperty('--hist-active-text', _ensureReadable(col.primary, pill));
+}
+
 async function renderHistory() {
   const section = document.getElementById('history');
   if (!section) return;
@@ -1876,12 +1919,19 @@ async function renderHistory() {
   if (navM) navM.style.display = '';
 
   const { game } = _data;
+
+  // Players, not teams, for tennis.
+  const title = section.querySelector('.ca-section-h2');
+  if (title) title.textContent = histIsTennis() ? 'Player history' : 'Team history';
+
   const setAbbr = (team, txt) => {
     const el = document.querySelector(`#ca-hist-toggle .ca-hist-tab[data-team="${team}"] .ca-hist-tab-abbr`);
     if (el) el.textContent = txt;
   };
   setAbbr('away', (game.away_abbr || game.away_short || teamNick(game.away_team) || 'AWAY').toUpperCase());
   setAbbr('home', (game.home_abbr || game.home_short || teamNick(game.home_team) || 'HOME').toUpperCase());
+
+  _histPaintToggle();
 
   const toggle = document.getElementById('ca-hist-toggle');
   if (toggle && !toggle.dataset.wired) {
@@ -1949,6 +1999,10 @@ function selectHistoryTeam(team) {
   if (toggle) {
     toggle.querySelectorAll('.ca-hist-tab').forEach(b => b.classList.toggle('active', b.dataset.team === team));
     toggle.classList.toggle('ca-hist-toggle--home', team === 'home');
+    _histApplyActivePill();
+    // Brief brightness pop on the pill as it slides + recolours.
+    const slider = toggle.querySelector('.ca-hist-toggle-slider');
+    if (slider) { slider.classList.remove('ca-hist-pop'); void slider.offsetWidth; slider.classList.add('ca-hist-pop'); }
   }
   const body = document.getElementById('ca-history-body');
   if (body) body.classList.add('ca-hist-fading');
