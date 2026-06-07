@@ -405,20 +405,16 @@ app.get('/api/games/top', (req, res) => {
 
   if (!candidates.length) return res.json([]);
 
-  // Polymarket (USD) and Kalshi (contracts) live on different scales — normalize
-  // each to 0–1 against today's slate, then AVERAGE only the sources that actually
-  // matched this game. Averaging present sources (instead of summing with a missing
-  // source counted as 0) stops a marquee game that dominates one market but is
-  // absent from the other from losing to a minor game that merely tops the smaller
-  // market. e.g. an NBA Finals game with $22M Polymarket volume and no Kalshi match
-  // should still outrank a regular MLB game that happens to lead the Kalshi column.
-  const maxPm = Math.max(0, ...candidates.map(g => g.pm_vol || 0));
-  const maxK  = Math.max(0, ...candidates.map(g => g.k_vol  || 0));
+  // Hotness = ABSOLUTE combined market volume (Polymarket USD + Kalshi), missing
+  // source counted as 0. We used to normalize each market to 0–1 against the slate
+  // then average the present sources, but a single Polymarket whale (e.g. a $5M+
+  // tennis match) inflated the Polymarket max and crushed every other
+  // Polymarket-only game — so a Kalshi-only tennis match with ~$800k outranked an
+  // NHL game carrying $1M+ on Polymarket. Summing real dollars tracks how much
+  // action a game is actually getting, which is what "hottest" should mean, and a
+  // game present in BOTH markets correctly ranks above one present in only one.
   for (const g of candidates) {
-    const parts = [];
-    if (g.pm_vol != null && maxPm > 0) parts.push(g.pm_vol / maxPm);
-    if (g.k_vol  != null && maxK  > 0) parts.push(g.k_vol  / maxK);
-    g._hotness = parts.length ? parts.reduce((a, b) => a + b, 0) / parts.length : 0;
+    g._hotness = (g.pm_vol || 0) + (g.k_vol || 0);
   }
 
   // Fallback before market data syncs in the morning: order by start time so the
@@ -1379,7 +1375,11 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // High-frequency line + market sync for games within 60 min
   const soonGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
   syncLineHistorySoon(soonGames).catch(e => console.error('[cron] syncLineHistorySoon:', e.message));
-  syncPolymarketSoon(soonGames).catch(e => console.error('[cron] syncPolymarketSoon:', e.message));
+  // Polymarket is free with a generous rate limit (4k req/10s), so refresh ALL
+  // pre-game volume every 5 min (not just games starting within the hour) — keeps
+  // the Top Games ranking moving through the day. Kalshi is rate-limited, so it
+  // stays on the lighter "starting soon" cadence here plus the 15-min full sync.
+  syncPolymarketData(soonGames).catch(e => console.error('[cron] syncPolymarket 5min:', e.message));
   syncKalshiSoon(soonGames).catch(e => console.error('[cron] syncKalshiSoon:', e.message));
 });
 

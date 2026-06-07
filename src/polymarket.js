@@ -8,6 +8,7 @@ const db = require('./db');
 // Polymarket tag slugs per sport
 const TAG_MAP = {
   NBA:   'nba',
+  WNBA:  'wnba',
   MLB:   'mlb',
   NHL:   'nhl',
   NFL:   'nfl',
