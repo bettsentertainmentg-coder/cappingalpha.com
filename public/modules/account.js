@@ -314,7 +314,8 @@ function renderAccount(data) {
           <div style="color:${resultColor};font-weight:700;width:24px;text-align:right;">${resultLabel}</div>
         </div>`;
       }).join('');
-      favPicksHtml = rows;
+      // Cap to ~3 rows tall, then scroll inside the card (mirrors My Votes).
+      favPicksHtml = `<div class="fav-picks-scroll">${rows}</div>`;
     }
   }
 
