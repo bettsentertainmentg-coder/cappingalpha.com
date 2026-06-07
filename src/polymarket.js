@@ -21,10 +21,12 @@ const TAG_MAP = {
   WTA:   'tennis',
 };
 
-// Sync all pre-game games
+// Sync every game with a Polymarket tag, any status — live and just-finished games
+// keep accumulating volume, which the Top Games ranking is built on. (Polymarket
+// matches purely by team/player name, so there's no date filter to trip over.)
 async function syncPolymarketData(games) {
-  const preGames = games.filter(g => g.status === 'pre' && TAG_MAP[g.sport]);
-  await _syncGames(preGames);
+  const wanted = games.filter(g => TAG_MAP[g.sport]);
+  await _syncGames(wanted);
 }
 
 // Sync only games within 60 min (for the 5-min cron)

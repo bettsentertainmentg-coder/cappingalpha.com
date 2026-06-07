@@ -4,6 +4,7 @@
 // Consensus line = market closest to 50% probability (most balanced).
 
 const db = require('./db');
+const { ET_OFFSET_MS } = require('./cycle');
 
 // Per-game moneyline series. Team sports use KX<LEAGUE>GAME; tennis uses
 // KXATPMATCH / KXWTAMATCH (the KXATPGAME/KXWTAGAME slugs exist but return no open
@@ -29,8 +30,11 @@ const TENNIS_SPORTS = new Set(['ATP', 'WTA']);
 const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2';
 
 async function syncKalshiData(games) {
-  const preGames = games.filter(g => g.status === 'pre' && GAME_SERIES[g.sport]);
-  await _syncGames(preGames);
+  // Any status with a Kalshi series — finished games carry the day's biggest
+  // volume and must keep their place in the Top Games ranking (settled markets
+  // are fetched alongside open ones below).
+  const wanted = games.filter(g => GAME_SERIES[g.sport]);
+  await _syncGames(wanted);
 }
 
 async function syncKalshiSoon(games) {
@@ -61,7 +65,12 @@ async function _syncGames(games) {
       // Fetch the series sequentially with gaps — Kalshi rate-limits parallel
       // bursts. Spread/total are skipped for leagues that don't publish them
       // (tennis, college hoops) so we don't waste calls on nonexistent series.
-      const gameEvts = await fetchSeries(GAME_SERIES[sport]);
+      // Also pull SETTLED game events so finished games keep their (often largest)
+      // volume in the ranking — their market drops out of the `open` feed.
+      const gameEvtsOpen = await fetchSeries(GAME_SERIES[sport], 'open');
+      await _sleep(300);
+      const gameEvtsSettled = await fetchSeries(GAME_SERIES[sport], 'settled');
+      const gameEvts = [...gameEvtsOpen, ...gameEvtsSettled];
       let spreadEvts = [], totalEvts = [];
       if (SPREAD_SERIES[sport]) { await _sleep(300); spreadEvts = await fetchSeries(SPREAD_SERIES[sport]); }
       if (TOTAL_SERIES[sport])  { await _sleep(300); totalEvts  = await fetchSeries(TOTAL_SERIES[sport]); }
@@ -74,11 +83,17 @@ async function _syncGames(games) {
         const game = matchEventToGame(ev, sportGames);
         if (!game) continue;
         if (!eventMatchesGameDate(ev, game)) continue;
+        // Volume drives the Top Games ranking, so capture it straight off the event
+        // even when the moneyline can't be resolved (settled markets have no live
+        // bid/ask). Keep the largest seen across the open + settled passes.
+        let evVol = 0;
+        for (const m of (ev.markets || [])) evVol += parseFloat(m.volume_fp || m.volume || 0) || 0;
+        if (evVol > 0) volumeMap[game.espn_game_id] = Math.max(volumeMap[game.espn_game_id] || 0, evVol);
         const ml = extractMoneyline(ev, game);
         if (!ml) continue;
         if (!marketMap[game.espn_game_id]) marketMap[game.espn_game_id] = {};
         marketMap[game.espn_game_id].moneyline = ml.moneyline;
-        volumeMap[game.espn_game_id] = ml.volume;
+        if (ml.volume) volumeMap[game.espn_game_id] = Math.max(volumeMap[game.espn_game_id] || 0, ml.volume);
       }
 
       // Spread
@@ -103,8 +118,12 @@ async function _syncGames(games) {
         marketMap[game.espn_game_id].total = total;
       }
 
-      for (const [id, markets] of Object.entries(marketMap)) {
-        storeMarkets(id, markets, volumeMap[id] || null);
+      // Games with resolved markets get a full upsert; games with only volume
+      // (settled / finished) get a volume-only update so we don't wipe any odds
+      // snapshot already on file.
+      for (const id of new Set([...Object.keys(marketMap), ...Object.keys(volumeMap)])) {
+        if (marketMap[id]) storeMarkets(id, marketMap[id], volumeMap[id] || null);
+        else if (volumeMap[id] != null) storeVolumeOnly(id, volumeMap[id]);
       }
     } catch (_) {}
   }
@@ -112,8 +131,8 @@ async function _syncGames(games) {
 
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-async function fetchSeries(seriesTicker) {
-  const url = `${BASE_URL}/events?series_ticker=${seriesTicker}&with_nested_markets=true&limit=100&status=open`;
+async function fetchSeries(seriesTicker, status = 'open') {
+  const url = `${BASE_URL}/events?series_ticker=${seriesTicker}&with_nested_markets=true&limit=100&status=${status}`;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       if (attempt > 0) await _sleep(1500 * attempt);
@@ -144,14 +163,20 @@ function tickerDate(ticker) {
   return new Date(2000 + parseInt(m[1]), mo - 1, parseInt(m[3]));
 }
 
-// Returns false only when BOTH dates are parseable AND they don't match (fails open)
+// Returns false only when BOTH dates are parseable AND they don't match (fails open).
+// Compare in ET: the Kalshi ticker date is the game's ET calendar date, but our
+// start_time can be stored as midnight UTC (e.g. 2026-06-07T00:00Z = 8pm ET Jun 6).
+// Comparing in the server's local time mis-dated these on the UTC production box —
+// an NHL playoff game read as "Jun 7" there and never matched its "JUN06" ticker,
+// so it silently lost all Kalshi volume. Always normalize the game to its ET date.
 function eventMatchesGameDate(ev, game) {
   const evDate = tickerDate(ev.event_ticker || ev.ticker || '');
   if (!evDate || !game.start_time) return true;
-  const gd = new Date(game.start_time);
-  return evDate.getFullYear() === gd.getFullYear()
-      && evDate.getMonth()    === gd.getMonth()
-      && evDate.getDate()     === gd.getDate();
+  const gt = new Date(game.start_time).getTime();
+  if (isNaN(gt)) return true;
+  const etYmd = new Date(gt - ET_OFFSET_MS).toISOString().slice(0, 10);
+  const evYmd = `${evDate.getFullYear()}-${String(evDate.getMonth() + 1).padStart(2, '0')}-${String(evDate.getDate()).padStart(2, '0')}`;
+  return etYmd === evYmd;
 }
 
 function closestTo50(markets) {
@@ -323,6 +348,19 @@ function storeMarkets(espn_game_id, markets, volume) {
       volume_yes           = excluded.volume_yes,
       updated_at           = excluded.updated_at
   `).run(espn_game_id, marketsJson, marketsJson, volume);
+}
+
+// Update only the volume for ranking, preserving any markets_json already stored
+// (used for settled/finished games whose live odds can't be resolved). Inserts a
+// bare row when none exists so the game still ranks.
+function storeVolumeOnly(espn_game_id, volume) {
+  db.prepare(`
+    INSERT INTO kalshi_cache (espn_game_id, markets_json, morning_markets_json, volume_yes, updated_at)
+    VALUES (?, '{}', '{}', ?, datetime('now'))
+    ON CONFLICT(espn_game_id) DO UPDATE SET
+      volume_yes = excluded.volume_yes,
+      updated_at = excluded.updated_at
+  `).run(espn_game_id, volume);
 }
 
 function getKalshiForGame(espn_game_id) {
