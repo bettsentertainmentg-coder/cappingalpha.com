@@ -65,6 +65,7 @@ async function _syncGames(games) {
       // Accumulate markets across events — first match per type wins
       const gameMarkets = {}; // espn_game_id → merged markets
       const gameVolume  = {}; // espn_game_id → max volume seen
+      const gameStarted = {}; // espn_game_id → true once the game is live/final
 
       for (const ev of events) {
         // Skip series-level, season-level, and award events
@@ -85,10 +86,11 @@ async function _syncGames(games) {
         }
         const vol = parseFloat(ev.volume) || 0;
         gameVolume[id] = Math.max(gameVolume[id] || 0, vol);
+        gameStarted[id] = !!(matched.status && matched.status !== 'pre');
       }
 
       for (const [id, markets] of Object.entries(gameMarkets)) {
-        storeMarkets(id, markets, gameVolume[id] || null);
+        storeMarkets(id, markets, gameVolume[id] || null, gameStarted[id]);
       }
     } catch (e) {
       // Silently ignore network errors
@@ -212,8 +214,24 @@ function extractAllMarkets(ev, game) {
   return result;
 }
 
-function storeMarkets(espn_game_id, markets, volume) {
+// `started` freezes the probability snapshot once a game tips off. Live markets
+// race toward 100/0 as the game plays out, which is misleading on a "pre-game odds"
+// popup — so once the game is live/final we keep the last pre-game markets_json and
+// only let volume_usd flow (the Top Games ranking is built on it). The 5-min
+// pre-game sync guarantees a fresh snapshot within ~5 min of tip. On a brand-new
+// row (game first seen after it started) we still seed markets_json so it isn't blank.
+function storeMarkets(espn_game_id, markets, volume, started = false) {
   const marketsJson = JSON.stringify(markets);
+  if (started) {
+    db.prepare(`
+      INSERT INTO polymarket_cache (espn_game_id, markets_json, morning_markets_json, volume_usd, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(espn_game_id) DO UPDATE SET
+        volume_usd = excluded.volume_usd,
+        updated_at = excluded.updated_at
+    `).run(espn_game_id, marketsJson, marketsJson, volume);
+    return;
+  }
   db.prepare(`
     INSERT INTO polymarket_cache (espn_game_id, markets_json, morning_markets_json, volume_usd, updated_at)
     VALUES (?, ?, ?, ?, datetime('now'))

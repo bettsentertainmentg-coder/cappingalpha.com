@@ -77,6 +77,9 @@ async function _syncGames(games) {
 
       const marketMap = {}; // espn_game_id → { moneyline, spread, total }
       const volumeMap = {};
+      // Freeze probabilities once a game tips off (volume keeps flowing for ranking).
+      const startedMap = {};
+      for (const g of sportGames) startedMap[g.espn_game_id] = !!(g.status && g.status !== 'pre');
 
       // Moneyline from game events (filter to today's date — series returns multiple days)
       for (const ev of gameEvts) {
@@ -122,7 +125,7 @@ async function _syncGames(games) {
       // (settled / finished) get a volume-only update so we don't wipe any odds
       // snapshot already on file.
       for (const id of new Set([...Object.keys(marketMap), ...Object.keys(volumeMap)])) {
-        if (marketMap[id]) storeMarkets(id, marketMap[id], volumeMap[id] || null);
+        if (marketMap[id]) storeMarkets(id, marketMap[id], volumeMap[id] || null, startedMap[id]);
         else if (volumeMap[id] != null) storeVolumeOnly(id, volumeMap[id]);
       }
     } catch (_) {}
@@ -337,8 +340,23 @@ function matchEventToGame(ev, games) {
   }) || null;
 }
 
-function storeMarkets(espn_game_id, markets, volume) {
+// `started` freezes the probability snapshot once a game tips off — live markets
+// race toward 100/0 as the game plays out, which is misleading on a pre-game odds
+// popup. Once live/final we keep the last pre-game markets_json and only let
+// volume_yes flow (the Top Games ranking is built on it). On a brand-new row (game
+// first seen after start) we still seed markets_json so it isn't blank.
+function storeMarkets(espn_game_id, markets, volume, started = false) {
   const marketsJson = JSON.stringify(markets);
+  if (started) {
+    db.prepare(`
+      INSERT INTO kalshi_cache (espn_game_id, markets_json, morning_markets_json, volume_yes, updated_at)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(espn_game_id) DO UPDATE SET
+        volume_yes = excluded.volume_yes,
+        updated_at = excluded.updated_at
+    `).run(espn_game_id, marketsJson, marketsJson, volume);
+    return;
+  }
   db.prepare(`
     INSERT INTO kalshi_cache (espn_game_id, markets_json, morning_markets_json, volume_yes, updated_at)
     VALUES (?, ?, ?, ?, datetime('now'))
