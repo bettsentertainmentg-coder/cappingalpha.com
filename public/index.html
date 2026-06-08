@@ -3,7 +3,55 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CappingAlpha | Top Rated Plays</title>
+  <title>CappingAlpha | Daily Ranked Sports Betting Picks</title>
+
+  <!-- ── SEO ── -->
+  <meta name="description" content="CappingAlpha ranks and scores daily sports betting picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. Top-rated plays are tracked over time for transparency. The Seeking Alpha for sports gambling." />
+  <link rel="canonical" href="https://cappingalpha.com/" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <meta name="theme-color" content="#0f1117" />
+  <meta name="author" content="CappingAlpha" />
+
+  <!-- ── Open Graph (Facebook, iMessage, Discord, LinkedIn) ── -->
+  <meta property="og:site_name" content="CappingAlpha" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="CappingAlpha | Daily Ranked Sports Betting Picks" />
+  <meta property="og:description" content="Ranked, scored, and tracked sports betting picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. See the top-rated play free." />
+  <meta property="og:url" content="https://cappingalpha.com/" />
+  <meta property="og:image" content="https://cappingalpha.com/ca-logo.png" />
+  <meta property="og:image:alt" content="CappingAlpha" />
+
+  <!-- ── Twitter / X card ── -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="CappingAlpha | Daily Ranked Sports Betting Picks" />
+  <meta name="twitter:description" content="Ranked, scored, and tracked sports betting picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. See the top-rated play free." />
+  <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
+
+  <!-- ── Structured data (Google rich results + AI search engines) ── -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://cappingalpha.com/#org",
+        "name": "CappingAlpha",
+        "url": "https://cappingalpha.com/",
+        "logo": "https://cappingalpha.com/ca-logo.png",
+        "description": "CappingAlpha ranks, scores, and tracks daily sports betting picks for transparency across MLB, NBA, WNBA, NHL, Tennis, and Golf."
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://cappingalpha.com/#website",
+        "url": "https://cappingalpha.com/",
+        "name": "CappingAlpha",
+        "publisher": { "@id": "https://cappingalpha.com/#org" },
+        "description": "Daily ranked sports betting picks, scored and tracked over time."
+      }
+    ]
+  }
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -16,7 +64,24 @@
     posthog.init('phc_qs7k9jHpEzyAwcHTpDgL2b9RGNujdGK7wZ5u6BpsJQKc', {
       api_host: 'https://us.i.posthog.com',
       person_profiles: 'identified_only',
+      capture_pageview: true,      // page loads
+      capture_pageleave: true,     // time-on-page / bounce
+      autocapture: true,           // all clicks, taps, form interactions
+      capture_heatmaps: true,      // click/scroll heatmaps
+      session_recording: {
+        // Privacy: never record what people type (emails, anything in a field).
+        // Card data lives only on Stripe's hosted checkout, never on our page.
+        maskAllInputs: true,
+        maskTextSelector: '[data-ph-mask]',
+      },
     });
+    // Disclosure-banner model: analytics run by default, but honor a prior
+    // opt-out chosen from the Privacy Policy.
+    try {
+      if (localStorage.getItem('ca_analytics_optout') === '1' && window.posthog) {
+        posthog.opt_out_capturing();
+      }
+    } catch (e) {}
   </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -185,6 +250,27 @@
     .record-bar { display: flex; gap: 24px; padding: 16px 20px 20px; flex-wrap: wrap; }
     .record-item { text-align: center; }
     .record-val { font-size: 22px; font-weight: 700; }
+    /* ── Cookie disclosure banner ── */
+    .ca-cookie-banner {
+      position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 9998;
+      max-width: 720px; margin: 0 auto;
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+      font-size: 13px; color: var(--muted);
+    }
+    .ca-cookie-banner span { flex: 1 1 240px; line-height: 1.5; }
+    .ca-cookie-banner a { color: var(--accent); text-decoration: underline; }
+    .ca-cookie-banner button {
+      flex-shrink: 0; background: var(--accent); color: #fff; border: none;
+      border-radius: 7px; padding: 9px 18px; font-size: 13px; font-weight: 600;
+      cursor: pointer;
+    }
+    .ca-cookie-banner button:hover { opacity: 0.9; }
+    footer .footer-links a { color: var(--muted); text-decoration: none; }
+    footer .footer-links a:hover { color: var(--accent); }
+
     .record-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .record-val.green { color: var(--green); }
     .record-val.red   { color: var(--red); }
@@ -1562,9 +1648,35 @@
   </div>
 
   <footer>
-    <span></span>
+    <span class="footer-links">
+      <a href="/terms" target="_blank">Terms</a> &nbsp;·&nbsp;
+      <a href="/privacy" target="_blank">Privacy</a> &nbsp;·&nbsp;
+      <a href="#about" onclick="switchTab('about'); setTimeout(function(){document.getElementById('support')?.scrollIntoView({behavior:'smooth'});}, 60); return false;">Contact</a>
+    </span>
     <span class="footer-version">v3.1.0</span>
   </footer>
+
+  <!-- Cookie disclosure (we use a notice, not a hard gate — analytics keep US-friendly compliance) -->
+  <div id="ca-cookie-banner" class="ca-cookie-banner" style="display:none;">
+    <span>We use cookies to keep you logged in and to understand how the site is used. See our <a href="/privacy" target="_blank">Privacy Policy</a>.</span>
+    <button onclick="caAckCookies()">Got it</button>
+  </div>
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('ca_cookie_ack') !== '1') {
+          var b = document.getElementById('ca-cookie-banner');
+          if (b) b.style.display = 'flex';
+        }
+      } catch (e) {}
+    })();
+    function caAckCookies() {
+      try { localStorage.setItem('ca_cookie_ack', '1'); } catch (e) {}
+      var b = document.getElementById('ca-cookie-banner');
+      if (b) b.style.display = 'none';
+    }
+    window.caAckCookies = caAckCookies;
+  </script>
 
   <!-- Login modal -->
   <div id="login-modal" class="modal-overlay hidden">
@@ -1607,7 +1719,7 @@
       <div class="form-group tos-row">
         <input type="checkbox" id="signup-tos" />
         <label for="signup-tos">
-          I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent);">Terms of Service</a>
+          I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent);">Terms of Service</a> and <a href="/privacy" target="_blank" style="color:var(--accent);">Privacy Policy</a>
         </label>
       </div>
       <button class="btn btn-primary btn-block" onclick="doSignup()">Create Account</button>

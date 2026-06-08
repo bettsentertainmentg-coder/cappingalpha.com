@@ -23,6 +23,9 @@ export async function loadSports(sport) {
 }
 
 export function setSport(sport) {
+  if (window.posthog) {
+    try { posthog.capture('sport_viewed', { sport }); } catch (e) {}
+  }
   state.activeSport = sport;
   document.querySelectorAll('.sport-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.sport === sport));
   document.getElementById('sport-picks-title').textContent    = sport + ' Picks';

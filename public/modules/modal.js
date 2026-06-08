@@ -174,6 +174,9 @@ function buildPickBySlot(picks) {
 }
 
 export function openGameModal(espn_game_id, clickedType = null, clickedTeam = null) {
+  if (window.posthog) {
+    try { posthog.capture('game_opened', { espn_game_id, slot: clickedType || null }); } catch (e) {}
+  }
   const modal   = document.getElementById('game-modal');
   const content = document.getElementById('game-modal-content');
   modal.classList.remove('hidden');

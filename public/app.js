@@ -14,6 +14,12 @@ import { loadTopGames, loadMySports } from './modules/home_top.js';
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {
+  // Analytics: this SPA never changes the URL on a tab switch, so PostHog's
+  // automatic pageview can't see which tab people land on. Emit it explicitly.
+  if (window.posthog) {
+    try { posthog.capture('tab_viewed', { tab: tabName }); } catch (e) {}
+  }
+
   const logo = document.querySelector('.logo');
   if (logo) logo.classList.toggle('active', tabName === 'home');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));

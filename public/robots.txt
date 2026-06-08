@@ -1,0 +1,45 @@
+# CappingAlpha — https://cappingalpha.com
+# We want to be found by search engines AND AI answer engines.
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /auth
+Disallow: /api
+
+# AI search / answer engines — explicitly welcome (visibility in Claude, ChatGPT,
+# Perplexity, Google AI, etc.). Remove a block here if you ever want to opt one out.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+Sitemap: https://cappingalpha.com/sitemap.xml
