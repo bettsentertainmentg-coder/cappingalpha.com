@@ -35,6 +35,8 @@ const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
+const { buildResultsPageHtml } = require('./src/results_page');
+const { pingIndexNow, corePages } = require('./src/indexnow');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getTeamHistory, getEventTeamPlayers, TEAM_SPORTS } = require('./src/team_history');
@@ -148,12 +150,57 @@ app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
 
+// FAQ page (static, carries FAQPage structured data)
+app.get('/faq', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'faq.html'));
+});
+
+// Track-record page — server-rendered, crawlable. Renders the public MVP record
+// as plain HTML so search + AI engines can read it without running JS. Mirrors
+// the /api/mvp/public query.
+app.get('/results', (req, res) => {
+  try {
+    const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+    const picks = db.prepare(`
+      SELECT m.*,
+             COALESCE(m.home_team, tg.home_team) AS home_team,
+             COALESCE(m.away_team, tg.away_team) AS away_team
+      FROM mvp_picks m
+      LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
+      WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
+        AND (m.annotation IS NULL OR m.annotation NOT LIKE '%not counted%')
+      ORDER BY m.saved_at DESC
+    `).all(threshold);
+
+    const rows = db.prepare(`
+      SELECT result, COUNT(*) as count FROM mvp_picks
+      WHERE result IN ('win', 'loss', 'push') AND score >= ?
+        AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      GROUP BY result
+    `).all(threshold);
+    const counts = { win: 0, loss: 0, push: 0 };
+    for (const r of rows) counts[r.result] = r.count;
+    const decided  = counts.win + counts.loss;
+    const win_rate = decided > 0 ? Math.round((counts.win / decided) * 100) + '%' : '0%';
+
+    res.send(buildResultsPageHtml({
+      picks,
+      record: { wins: counts.win, losses: counts.loss, pushes: counts.push, win_rate },
+    }));
+  } catch (e) {
+    console.error('[results] render failed:', e.message);
+    res.status(500).send('Track record temporarily unavailable.');
+  }
+});
+
 // Sitemap — submitted to Google Search Console
 app.get('/sitemap.xml', (req, res) => {
   res.type('application/xml');
   res.send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://cappingalpha.com/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>https://cappingalpha.com/results</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://cappingalpha.com/faq</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://cappingalpha.com/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
   <url><loc>https://cappingalpha.com/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
 </urlset>`);
@@ -1163,6 +1210,12 @@ app.listen(PORT, () => {
   console.log('[CappperBoss] Active hours: 5:00AM–1:00AM ET');
   console.log(`[CappperBoss] Next wipe: 4:58AM ET`);
   console.log('[CappperBoss] ─────────────────────────────────');
+
+  // IndexNow: tell Bing/Yandex the core pages are fresh after each deploy.
+  // Prod-only (SESSION_SECURE=1) so local dev never pings the live URLs.
+  if (process.env.SESSION_SECURE === '1') {
+    setTimeout(() => pingIndexNow(corePages()), 8000);
+  }
 });
 
 // ── Startup: restore today's games if empty (handles restarts mid-day) ────────

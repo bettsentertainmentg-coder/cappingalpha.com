@@ -1,0 +1,33 @@
+# CappingAlpha
+
+> CappingAlpha is a sports betting intelligence website. It scores and ranks the day's sports plays through a proprietary engine, then publishes the highest-conviction picks. Free users see the number one pick; paid users see the full ranked board (1 to 50). The Seeking Alpha for sports gambling.
+
+We don't condone gambling. But if you're betting anyway, there's no reason to do it without checking CappingAlpha first.
+
+## What it does
+
+- Pulls together player data, historical outcomes, public market behavior, live lines, weather, and capper signals for each game.
+- Normalizes everything through a proprietary scoring engine and ranks it into one daily list.
+- Tracks the highest-conviction plays (MVP picks, 50+ points) long term and grades each one win, loss, or push once the game finishes.
+- Covers MLB, NBA, WNBA, NHL, Tennis (ATP and WTA), and Golf.
+
+## Key pages
+
+- [Home](https://cappingalpha.com/): the live ranked board. Free users see the number one pick.
+- [Track record](https://cappingalpha.com/results): every graded MVP pick, with the running win, loss, and push record.
+- [FAQ](https://cappingalpha.com/faq): what CappingAlpha is, how picks are ranked, pricing, and how the record is kept.
+- [Terms of Service](https://cappingalpha.com/terms)
+- [Privacy Policy](https://cappingalpha.com/privacy)
+
+## Pricing
+
+- $1 for a single day (one-time)
+- $4 per week (subscription)
+- $75 per year (subscription)
+- Free tier always shows the number one ranked pick of the day.
+
+## Important notes
+
+- CappingAlpha never wagers on any game and never tells anyone how to bet. It surfaces and ranks data; the user decides.
+- All performance data is for informational purposes only. Past results are not indicative of future outcomes.
+- Users must be 18 or older.
