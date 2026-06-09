@@ -338,12 +338,31 @@ function mlbPitcherFreshness(gamelog, ctx, gameDate) {
   return { score: Math.round(score), band: bandFor(score), restDays, note: restDays <= 3 ? 'Short rest' : null };
 }
 
+// Position players don't carry a pitch count, so their "load" is a rest +
+// schedule-density read, not a workload-intensity one. MLB plays nearly daily,
+// so normal cadence reads light; a multi-day layoff reads fresh, and a doubleheader
+// / congested week nudges up. Honest and low-drama — it's rest, not injury risk.
+function mlbBatterFreshness(gamelog, gameDate) {
+  const prior = gamelog.series.filter(g => g.date && new Date(g.date) < new Date(gameDate));
+  if (!prior.length) return { score: 8, band: 'fresh', note: 'Season start' };
+  const restDays = Math.max(0, daysBetween(gameDate, prior[0].date) - 1);
+  const dates    = prior.map(g => g.date).filter(Boolean);
+  const within7  = dates.filter(d => daysBetween(gameDate, d) <= 7).length;
+  const fRest    = restDays >= 3 ? 0 : restDays === 2 ? 0.2 : restDays === 1 ? 0.45 : 0.6;
+  const fDensity = clamp((within7 - 5) / (8 - 5), 0, 1); // 5/wk normal → 0, 8/wk congested → 1
+  const score    = clamp(100 * (0.55 * fRest + 0.35 * fDensity), 0, 100);
+  let note = null;
+  if (restDays >= 3) note = 'Well rested';
+  else if (within7 >= 7) note = 'Daily duty';
+  return { score: Math.round(score), band: bandFor(score), restDays, note };
+}
+
 function computeFreshness(gamelog, sport, ctx = {}, gameDate = null) {
   if (!gamelog || !gamelog.series || !gameDate) return null;
 
   if (sport === 'MLB') {
-    if (ctx.role !== 'pitcher') return { score: null, band: 'na', note: 'Low-load role' };
-    return mlbPitcherFreshness(gamelog, ctx, gameDate);
+    if (ctx.role === 'pitcher') return mlbPitcherFreshness(gamelog, ctx, gameDate);
+    return mlbBatterFreshness(gamelog, gameDate);
   }
 
   const cfg = LOAD[sport];

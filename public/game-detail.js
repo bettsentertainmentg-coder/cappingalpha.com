@@ -2024,6 +2024,7 @@ function paintHistory(data) {
     histLast20Html(data.last20) +
     `<div class="ca-hist-caption">Offense and defense shown as points scored and allowed, scaled to a league range. Not possession-adjusted.</div>`;
   _data._histActive = { sport, teamId: histTeamId(_historyTeam), last5: data.last5 };
+  wireHistTips();
 }
 
 function histSummaryHtml(s, col, sport) {
@@ -2061,13 +2062,16 @@ function histLast5Html(games, sport) {
   const [lo, hi] = HIST_PTS_RANGE[sport] || [0, 1];
   const rows = games.map(g => {
     const res  = g.result || '—';
+    const wl   = res === 'W' ? 'w' : res === 'L' ? 'l' : 'n';
     const vs   = (g.homeAway === 'home' ? 'vs ' : '@ ') + (g.oppAbbr || g.oppName || '');
     const offP = Math.round(clampPct((g.pf - lo) / (hi - lo)) * 100);
     const defP = Math.round(clampPct((hi - g.pa) / (hi - lo)) * 100);
     const lead = (g.leaders || []).slice(0, 1).map(l =>
       `${esc(l.athlete || '')} ${esc(String(l.value))} ${esc((l.cat || '').slice(0, 3).toUpperCase())}`).join('');
-    return `<div class="ca-hist-row" onclick="openHistGame('${esc(g.eventId)}')" role="button" tabindex="0">
-      <span class="ca-hist-res ca-hist-res--${res === 'W' ? 'w' : 'l'}">${res}</span>
+    // No W/L chip — the row itself lights up green (win) or red (loss), like the
+    // MVP-history rows: the result word + score carry the color.
+    return `<div class="ca-hist-row ca-hist-row--${wl}" onclick="openHistGame('${esc(g.eventId)}')" role="button" tabindex="0">
+      <span class="ca-hist-res ca-num">${res}</span>
       <span class="ca-hist-date ca-num">${histDate(g.date)}</span>
       <span class="ca-hist-opp">${esc(vs)}</span>
       <span class="ca-hist-score ca-num">${g.pf}-${g.pa}</span>
@@ -2087,11 +2091,46 @@ function histLast20Html(games) {
   const cells = games.map(g => {
     const w = g.result === 'W';
     const m = g.margin == null ? '' : (g.margin > 0 ? '+' + g.margin : g.margin);
-    const t = `${g.homeAway === 'home' ? 'vs' : '@'} ${g.oppAbbr || ''} ${g.pf}-${g.pa} (${histDate(g.date)})`;
-    return `<span class="ca-hist-mini ca-hist-mini--${w ? 'w' : 'l'}" title="${esc(t)}">${m}</span>`;
+    const opp = `${g.homeAway === 'home' ? 'vs ' : '@ '}${g.oppAbbr || g.oppName || ''}`;
+    // Data attributes feed the instant custom hover banner (wireHistTips) — faster
+    // and richer than a native title tooltip.
+    return `<span class="ca-hist-mini ca-hist-mini--${w ? 'w' : 'l'}"` +
+      ` data-res="${w ? 'W' : 'L'}" data-opp="${esc(opp)}" data-score="${esc(g.pf + '-' + g.pa)}" data-date="${esc(histDate(g.date))}">${m}</span>`;
   }).join('');
   return `<div class="ca-hist-last20"><div class="ca-hist-last20-label">Last ${games.length} · most recent first</div>` +
          `<div class="ca-hist-minirow">${cells}</div></div>`;
+}
+
+// Instant hover banner for the Last-20 chips: date, full score, opponent, result.
+// Delegated on the chip row so it survives re-paints; one shared floating element.
+function wireHistTips() {
+  let tip = document.getElementById('ca-hist-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'ca-hist-tip';
+    tip.className = 'ca-hist-tip hidden';
+    document.body.appendChild(tip);
+  }
+  document.querySelectorAll('.ca-hist-minirow').forEach(row => {
+    if (row.dataset.tipWired) return;
+    row.dataset.tipWired = '1';
+    const show = chip => {
+      const win = chip.dataset.res === 'W';
+      tip.innerHTML =
+        `<span class="ca-hist-tip-res ca-hist-tip-res--${win ? 'w' : 'l'}">${win ? 'Win' : 'Loss'}</span>` +
+        `<span class="ca-hist-tip-main">${esc(chip.dataset.opp)} <b>${esc(chip.dataset.score)}</b></span>` +
+        `<span class="ca-hist-tip-date">${esc(chip.dataset.date)}</span>`;
+      const r = chip.getBoundingClientRect();
+      tip.style.left = (r.left + r.width / 2) + 'px';
+      tip.style.top  = (r.top - 10) + 'px';
+      tip.classList.remove('hidden');
+    };
+    row.addEventListener('mouseover', e => { const c = e.target.closest('.ca-hist-mini'); if (c) show(c); });
+    row.addEventListener('mouseout',  e => {
+      const to = e.relatedTarget;
+      if (!to || !to.closest || !to.closest('.ca-hist-mini')) tip.classList.add('hidden');
+    });
+  });
 }
 
 // ── Tennis variant (player recent matches, not a team schedule) ───────────────
@@ -2129,10 +2168,11 @@ function tennisMatchesHtml(matches) {
   if (!matches || !matches.length) return `<div class="ca-hist-empty">No recent matches.</div>`;
   const rows = matches.map(m => {
     const res = m.result || '—';
+    const wl  = res === 'W' ? 'w' : res === 'L' ? 'l' : 'n';
     const surf = m.surface ? `<span class="ca-hist-surface">${esc(m.surface)}</span>` : '';
     const tr = [m.tournament, m.round].filter(Boolean).map(esc).join(' · ');
-    return `<div class="ca-hist-row ca-hist-row--tennis">
-      <span class="ca-hist-res ca-hist-res--${res === 'W' ? 'w' : 'l'}">${res}</span>
+    return `<div class="ca-hist-row ca-hist-row--tennis ca-hist-row--${wl}">
+      <span class="ca-hist-res ca-num">${res}</span>
       <span class="ca-hist-date ca-num">${histDate(m.date)}</span>
       <span class="ca-hist-opp">vs ${esc(lastNameOf(m.opp))}</span>
       <span class="ca-hist-score ca-num">${esc(m.setScore || '—')}</span>
@@ -2194,12 +2234,15 @@ const HIST_LABEL_TIPS = {
 function histBlockHtml(blk) {
   const labels = blk.labels || [];
   const title  = blk.type ? blk.type.charAt(0).toUpperCase() + blk.type.slice(1) : '';
+  // Our own calculations (Form + Load) lead, right after the player name; the raw
+  // box-score stats follow. A separator marks where ESPN's stats begin.
   const head = `<tr><th class="ca-hp-th-name"></th>` +
-    labels.map(l => {
+    `<th class="ca-hp-th-ours">Form</th><th class="ca-hp-th-ours">Load</th>` +
+    labels.map((l, i) => {
       const tip = HIST_LABEL_TIPS[l];
-      return `<th class="ca-num"${tip ? ` title="${esc(tip)}"` : ''}>${esc(l)}</th>`;
+      return `<th class="ca-num${i === 0 ? ' ca-hp-th-statstart' : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(l)}</th>`;
     }).join('') +
-    `<th class="ca-hp-th-sep">Form</th><th>Load</th></tr>`;
+    `</tr>`;
   const rows = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0))
     .map(r => histPlayerRow(r, labels)).join('');
   return `<div class="ca-hp-blockwrap">` +
@@ -2209,11 +2252,46 @@ function histBlockHtml(blk) {
 
 function histPlayerRow(r, labels) {
   const f = r.form || {};
-  const cells = labels.map((l, i) => `<td class="ca-num">${esc(r.statsArr[i] ?? '—')}</td>`).join('');
+  const cells = labels.map((l, i) =>
+    `<td class="ca-num${i === 0 ? ' ca-hp-statstart' : ''}">${esc(r.statsArr[i] ?? '—')}</td>`).join('');
   return `<tr class="ca-hp-row${r.dnp ? ' ca-hp-dnp' : ''}">` +
-    `<td class="ca-hp-name">${histNameCell(r, f)}</td>${cells}` +
+    `<td class="ca-hp-name">${histNameCell(r, f)}</td>` +
     `<td class="ca-hp-formcell">${histFormCell(f.hotCold)}</td>` +
-    `<td class="ca-hp-loadcell">${histLoadCell(f.freshness)}</td></tr>`;
+    `<td class="ca-hp-loadcell">${histLoadCell(f.freshness)}</td>` +
+    cells + `</tr>`;
+}
+
+// ── Mini "heat" gauge: the site's signature half-dome dial, shrunk to a table
+// cell. `pct` (0–100) aims the needle. kind='form' runs cold→hot (ice → faded
+// fire); kind='load' runs fresh→tired (green → red). A short colored label sits
+// under the dial. Null pct renders an empty (greyed) dial.
+let _mgUid = 0;
+const MG_STOPS = {
+  form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['100%', '#fb923c']],
+  load: [['0%', '#22c55e'], ['45%', '#eab308'], ['72%', '#f97316'], ['100%', '#ef4444']],
+};
+function miniHeatGauge({ pct, kind, label, labelColor, tip }) {
+  const has = pct != null && Number.isFinite(pct);
+  const p   = has ? Math.max(0, Math.min(100, pct)) : 50;
+  const deg = Math.max(-90, Math.min(90, (p - 50) * 1.8));
+  const uid = `mg${++_mgUid}`;
+  const cx = 50, cy = 50, r = 44;
+  const disc   = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy} Z`;
+  const nLen = 33, hw = 2.2, tipHalf = hw + 4, tipY = cy - nLen, tip2 = cy - nLen + 8;
+  const needle = `M ${cx} ${tipY} L ${cx + tipHalf} ${tip2} L ${cx + hw} ${tip2} ` +
+                 `L ${cx + hw} ${cy - 3} L ${cx - hw} ${cy - 3} L ${cx - hw} ${tip2} L ${cx - tipHalf} ${tip2} Z`;
+  const stops = (MG_STOPS[kind] || MG_STOPS.load).map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('');
+  const lbl = label ? `<span class="ca-mg-lbl" style="${labelColor ? `color:${labelColor};` : ''}">${esc(label)}</span>` : '';
+  return `<span class="ca-mg${has ? '' : ' ca-mg--empty'}"${tip ? ` title="${esc(tip)}"` : ''}>` +
+    `<svg class="ca-mg-svg" viewBox="0 0 100 56" aria-hidden="true">` +
+      `<defs><linearGradient id="${uid}" x1="0%" x2="100%" y1="50%" y2="50%">${stops}</linearGradient></defs>` +
+      `<path d="${disc}" fill="${has ? `url(#${uid})` : '#1e2330'}"/>` +
+      `<path d="M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="1"/>` +
+      (has ? `<g transform="rotate(${deg.toFixed(1)} ${cx} ${cy})">` +
+        `<path d="${needle}" fill="#0b0e14" stroke="#ffffff" stroke-width="1" stroke-linejoin="round"/>` +
+        `<circle cx="${cx}" cy="${cy}" r="3.4" fill="#0b0e14" stroke="#ffffff" stroke-width="1"/>` +
+        `</g>` : '') +
+    `</svg>${lbl}</span>`;
 }
 
 function histNameCell(r, f) {
@@ -2231,23 +2309,34 @@ function histNameCell(r, f) {
   return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${scale}`;
 }
 
+// Form dial: you're hot or you're cold. The needle leans toward fire (playing
+// well vs the player's baseline) or ice (slumping). Label reads HOT / EVEN / COLD.
 function histFormCell(hc) {
-  if (!hc || !hc.bucket || hc.bucket === 'na') return `<span class="ca-hp-muted">—</span>`;
-  const map = { hot: ['HOT', 'hot'], warm: ['Warm', 'warm'], neutral: ['Even', 'neutral'], cool: ['Cool', 'cool'], cold: ['COLD', 'cold'] };
-  const [lbl, cls] = map[hc.bucket] || ['—', 'neutral'];
-  const arrow = (hc.bucket === 'hot' || hc.bucket === 'warm') ? '▲'
-              : (hc.bucket === 'cold' || hc.bucket === 'cool') ? '▼' : '·';
+  if (!hc || !hc.bucket || hc.bucket === 'na') {
+    return miniHeatGauge({ pct: null, kind: 'form', label: '—', tip: 'Not enough games yet' });
+  }
+  const pct = hc.z != null
+    ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
+    : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
+  let label, color;
+  if (hc.bucket === 'hot' || hc.bucket === 'warm')      { label = 'HOT';  color = '#fb923c'; }
+  else if (hc.bucket === 'cold' || hc.bucket === 'cool') { label = 'COLD'; color = '#38bdf8'; }
+  else                                                   { label = 'EVEN'; color = 'var(--text-tertiary)'; }
   const tip = `${hc.primaryName} form: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}`;
-  return `<span class="ca-hist-badge ca-hist-badge--${cls}" title="${esc(tip)}">${arrow} ${lbl}</span>`;
+  return miniHeatGauge({ pct, kind: 'form', label, labelColor: color, tip });
 }
 
+// Load dial: fresh and clean on the left, tired and taxed on the right. Label
+// reads the workload band (rest + schedule density, not injury risk).
+const LOAD_WORD = { fresh: 'Fresh', moderate: 'Moderate', heavy: 'Heavy', overworked: 'Tired' };
 function histLoadCell(fr) {
-  if (!fr || fr.score == null) return `<span class="ca-hp-muted">${fr && fr.note ? esc(fr.note) : '—'}</span>`;
+  if (!fr || fr.score == null) {
+    return miniHeatGauge({ pct: null, kind: 'load', label: '—', tip: fr && fr.note ? fr.note : 'No load data' });
+  }
   const color = FRESH_BAND_COLOR[fr.band] || '#eab308';
+  const word  = LOAD_WORD[fr.band] || '';
   const tip = `Player load ${fr.score}/100${fr.note ? ' · ' + fr.note : ''} (workload and rest, not injury risk)`;
-  return `<span class="ca-fresh" title="${esc(tip)}">` +
-    `<span class="ca-fresh-track"><span class="ca-fresh-pointer" style="left:${fr.score}%;background:${color};"></span></span>` +
-    `<span class="ca-fresh-lbl" style="color:${color};">${fr.score}</span></span>`;
+  return miniHeatGauge({ pct: fr.score, kind: 'load', label: word, labelColor: color, tip });
 }
 
 // ── Countdown timer ───────────────────────────────────────────────────────────
