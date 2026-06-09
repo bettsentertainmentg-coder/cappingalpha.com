@@ -228,6 +228,98 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// ── POST /api/support — contact / suggestion form (About page) ────────────────
+// Send-only via Resend: emails the ticket to SUPPORT_EMAIL (default
+// support@cappingalpha.com) FROM noreply@cappingalpha.com, with reply_to set to
+// the submitter so a reply goes straight back to them. No inbound mailbox needed
+// on the domain for this to work — only that SUPPORT_EMAIL can receive mail.
+const _supportAttempts = new Map();
+function supportRateLimit(req, res, next) {
+  const ip     = req.ip || req.connection.remoteAddress || 'unknown';
+  const now    = Date.now();
+  const WINDOW = 15 * 60 * 1000; // 15 minutes
+  const MAX    = 5;              // messages per window per IP
+  const hits = (_supportAttempts.get(ip) || []).filter(t => now - t < WINDOW);
+  if (hits.length >= MAX) {
+    return res.status(429).json({ error: 'Too many messages. Please try again in a little while.' });
+  }
+  hits.push(now);
+  _supportAttempts.set(ip, hits);
+  next();
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, times] of _supportAttempts) {
+    const fresh = times.filter(t => now - t < 15 * 60 * 1000);
+    if (fresh.length === 0) _supportAttempts.delete(ip);
+    else _supportAttempts.set(ip, fresh);
+  }
+}, 60 * 60 * 1000).unref();
+
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+app.post('/api/support', supportRateLimit, async (req, res) => {
+  const { email, message, topic, website } = req.body || {};
+
+  // Honeypot — bots fill hidden fields. Pretend success, drop silently.
+  if (website) return res.json({ success: true });
+
+  const msg  = (message || '').toString().trim();
+  const from = (email || '').toString().trim();
+  if (msg.length < 5)    return res.status(400).json({ error: 'Please include a short message.' });
+  if (msg.length > 5000) return res.status(400).json({ error: 'That message is a bit too long.' });
+  if (from && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(from)) {
+    return res.status(400).json({ error: 'That email address does not look right.' });
+  }
+
+  const dest      = process.env.SUPPORT_EMAIL || 'support@cappingalpha.com';
+  const safeTopic = (topic || 'General').toString().slice(0, 40);
+  const acct      = req.session?.user
+    ? `${req.session.user.email || req.session.user.username} (#${req.session.user.id})`
+    : 'not logged in';
+
+  if (!process.env.RESEND_API_KEY) {
+    console.error('[support] RESEND_API_KEY not set — ticket not emailed');
+    return res.status(503).json({ error: 'Support is temporarily unavailable. Please email support@cappingalpha.com directly.' });
+  }
+
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        from:     'CappingAlpha Support <noreply@cappingalpha.com>',
+        to:       [dest],
+        reply_to: from || undefined,
+        subject:  `[Support] ${safeTopic}`,
+        html: `
+          <p><strong>Topic:</strong> ${escHtml(safeTopic)}</p>
+          <p><strong>From:</strong> ${escHtml(from || 'no email provided')}</p>
+          <p><strong>Account:</strong> ${escHtml(acct)}</p>
+          <hr>
+          <p style="white-space:pre-wrap;">${escHtml(msg)}</p>
+        `,
+      }),
+    });
+    if (!r.ok) {
+      const detail = await r.text().catch(() => '');
+      console.error('[support] Resend non-OK:', r.status, detail);
+      return res.status(502).json({ error: 'Could not send right now. Please try again, or email support@cappingalpha.com.' });
+    }
+  } catch (err) {
+    console.error('[support] Resend error:', err.message);
+    return res.status(502).json({ error: 'Could not send right now. Please try again, or email support@cappingalpha.com.' });
+  }
+
+  res.json({ success: true });
+});
+
 // GET /api/picks — today's picks ordered by score desc, enriched with matchup
 // "Today's board" rolls over at the daily wipe (~5am ET), not the 12:30am scanner
 // cycle. Shared by /api/picks, /api/picks/top, and /api/games/top so the #1 pick,

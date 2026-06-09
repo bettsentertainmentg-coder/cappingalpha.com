@@ -657,6 +657,24 @@
     .about-pricing-card .price-label { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
     .about-pricing-card .price-feature { font-size: 13px; color: var(--muted); line-height: 1.7; }
 
+    /* ── Support / contact box ── */
+    .support-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; max-width: 640px; margin-top: 20px; }
+    .support-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .support-row .support-field { flex: 1; min-width: 180px; }
+    .support-field { margin-bottom: 16px; }
+    .support-field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--text); }
+    .support-field input, .support-field select, .support-field textarea {
+      width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit; }
+    .support-field textarea { resize: vertical; min-height: 90px; }
+    .support-field input:focus, .support-field select:focus, .support-field textarea:focus {
+      outline: none; border-color: var(--accent); }
+    .support-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+    .support-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 4px; }
+    .support-status { font-size: 13px; color: var(--muted); flex: 1; }
+    .support-status.ok  { color: var(--green); }
+    .support-status.err { color: var(--accent-loss, #f87171); }
+
     /* ── Esports tab ── */
     #panel-esports { position: relative; }
     .esports-construction-overlay {
@@ -1609,6 +1627,41 @@
       </div>
 
       <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit against the morning opening line. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
+
+      <hr class="about-divider" />
+
+      <h2 class="about-h2" id="support">Contact and Support</h2>
+      <p class="about-p">Have a question, run into a problem, or have a suggestion? Send it over and we'll get back to you. You can also email <a href="mailto:support@cappingalpha.com" style="color:var(--accent);">support@cappingalpha.com</a> directly.</p>
+
+      <div class="support-box">
+        <div class="support-row">
+          <div class="support-field">
+            <label for="support-topic">Topic</label>
+            <select id="support-topic">
+              <option>General question</option>
+              <option>Account or login</option>
+              <option>Billing or subscription</option>
+              <option>Bug report</option>
+              <option>Suggestion</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div class="support-field">
+            <label for="support-email">Your email</label>
+            <input type="email" id="support-email" autocomplete="email" placeholder="you@example.com" />
+          </div>
+        </div>
+        <div class="support-field">
+          <label for="support-message">Message</label>
+          <textarea id="support-message" rows="5" placeholder="How can we help?"></textarea>
+        </div>
+        <!-- Honeypot: hidden from people, catches bots -->
+        <input type="text" id="support-website" class="support-hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <div class="support-actions">
+          <span class="support-status" id="support-status"></span>
+          <button class="btn btn-primary" id="support-send" onclick="sendSupport()">Send message</button>
+        </div>
+      </div>
 
     </div>
   </div>

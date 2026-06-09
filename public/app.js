@@ -54,6 +54,53 @@ export function switchTab(tabName) {
 
 window.switchTab = switchTab;
 
+// ── Support / contact form (About page) ───────────────────────────────────────
+async function sendSupport() {
+  const btn    = document.getElementById('support-send');
+  const status = document.getElementById('support-status');
+  const email  = document.getElementById('support-email');
+  const msg    = document.getElementById('support-message');
+  const topic  = document.getElementById('support-topic');
+  const hp      = document.getElementById('support-website');
+  if (!btn || !status || !msg) return;
+
+  const setStatus = (text, kind) => {
+    status.textContent = text;
+    status.className = 'support-status' + (kind ? ' ' + kind : '');
+  };
+
+  const message = (msg.value || '').trim();
+  if (message.length < 5) { setStatus('Please add a short message first.', 'err'); msg.focus(); return; }
+
+  btn.disabled = true;
+  setStatus('Sending...', '');
+  try {
+    const r = await fetch('/api/support', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email:   (email?.value || '').trim(),
+        message,
+        topic:   topic?.value || 'General',
+        website: hp?.value || '',
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.success) {
+      setStatus('Thanks. Your message is on its way.', 'ok');
+      msg.value = '';
+      if (email) email.value = '';
+    } else {
+      setStatus(data.error || 'Could not send right now. Please try again.', 'err');
+    }
+  } catch (_) {
+    setStatus('Could not send right now. Please try again.', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+window.sendSupport = sendSupport;
+
 // Honor a hash like #about / #mvp / #sports on initial load and on subsequent
 // hashchange events (e.g. someone clicks "Learn how" on the standalone game
 // detail page, which links back to /#about).
