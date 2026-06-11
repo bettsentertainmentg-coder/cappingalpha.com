@@ -88,7 +88,7 @@ async function _renderTopPick() {
           <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <span class="ca-tp-logo-fallback">CA</span>
-          <div class="ca-tp-title"><span class="ca-tp-title-today">Today's</span> <span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
+          <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
         <div class="ca-tp-team-row"><span class="ca-tp-team">${pick.team}</span>${resultBadge}</div>
         <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
