@@ -1293,7 +1293,7 @@
 
       /* Single-column, but flatten the sidebar/main wrappers so every section
          is a direct flex child and we can interleave them with `order`:
-         Top Games → My Sports → #1 Pick → Today's Picks → MVP → Headlines → Games. */
+         Top Games → #1 Pick → My Sports → Today's Picks → MVP → Headlines → Games. */
       .ca-home-grid {
         display: flex;
         flex-direction: column;
@@ -1319,8 +1319,8 @@
       }
 
       #ca-top-games-section    { order: 1; }
-      #ca-my-sports-section    { order: 2; }
-      #ca-top-pick-slot        { order: 3; }
+      #ca-top-pick-slot        { order: 2; }
+      #ca-my-sports-section    { order: 3; }
       #ca-todays-picks-section { order: 4; }
       #ca-mvp-home-section     { order: 5; }
       #ca-headlines-section    { order: 6; }
@@ -1332,15 +1332,21 @@
       /* The Top Games strip + My Sports strips scroll sideways within the page. */
       .ca-top-games-row, .ca-ms-strip-row { max-width: 100%; padding-bottom: 4px; }
 
-      /* Make the #1 pick read as a headline card on phones, centered full-width. */
-      #ca-top-pick-slot .ca-tp-title { font-size: 23px; }
-      #ca-top-pick-slot .ca-tp-team  { font-size: 34px; }
-      #ca-top-pick-slot .ca-tp-sub   { font-size: 17px; }
-      /* Bigger P/L + record numbers so the card fills the screen comfortably. */
-      #ca-top-pick-slot .ca-tp-pl-title  { font-size: 13px; }
-      #ca-top-pick-slot .graph-pl-label  { font-size: 26px; }
-      #ca-top-pick-slot .ca-tp-record b  { font-size: 28px; }
-      #ca-top-pick-slot .ca-tp-record span { font-size: 12px; }
+      /* #1 pick card: condensed on phones. Keep the logo prominent (no override),
+         but trim the oversized headline type, the graph height, and the vertical
+         padding/margins so the card reads tight with no dead space top or bottom. */
+      #ca-top-pick-slot .ca-top-pick-card { padding: 12px 14px; }
+      #ca-top-pick-slot .ca-tp-brand     { margin-bottom: 8px; }
+      #ca-top-pick-slot .ca-tp-title { font-size: 19px; }
+      #ca-top-pick-slot .ca-tp-team  { font-size: 27px; }
+      #ca-top-pick-slot .ca-tp-sub   { font-size: 14px; margin-bottom: 10px; }
+      #ca-top-pick-slot .ca-tp-graph-wrap { height: 72px; }
+      #ca-top-pick-slot .ca-tp-betsize    { margin-bottom: 7px; }
+      #ca-top-pick-slot .ca-tp-pl-title  { font-size: 12px; }
+      #ca-top-pick-slot .graph-pl-label  { font-size: 22px; }
+      #ca-top-pick-slot .ca-tp-record    { padding: 8px 2px; margin-bottom: 10px; }
+      #ca-top-pick-slot .ca-tp-record b  { font-size: 23px; }
+      #ca-top-pick-slot .ca-tp-record span { font-size: 11px; }
 
       /* My Sports chips: one swipeable row instead of wrapping, page still
          scrolls vertically; chips stay put and scroll sideways. */
