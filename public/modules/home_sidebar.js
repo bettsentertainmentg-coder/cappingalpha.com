@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime } from './utils.js';
+import { gameTime, pickLabel, teamNickname } from './utils.js';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -33,6 +33,14 @@ async function _renderTopPick() {
 
     const score = pick.score || 0;
     const sport = pick.sport ? ` · ${pick.sport}` : '';
+
+    // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
+    // than a bare team name — "Minnesota Twins" tells you nothing when the pick is
+    // an over/under. The matchup rides above it as context.
+    const betText = pickLabel(pick) || pick.team || '—';
+    const away = pick.away_team ? teamNickname(pick.away_team) : '';
+    const home = pick.home_team ? teamNickname(pick.home_team) : '';
+    const matchupText = (away && home) ? `${away} @ ${home}` : '';
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).
     // A win turns the whole card green with a checkmark; loss/push stay honest.
@@ -90,7 +98,8 @@ async function _renderTopPick() {
           <span class="ca-tp-logo-fallback">CA</span>
           <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
-        <div class="ca-tp-team-row"><span class="ca-tp-team">${pick.team}</span>${resultBadge}</div>
+        ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
+        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
         <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
         ${plHtml}
         ${ctaHtml}

@@ -60,13 +60,17 @@ function setMvpResult(id, result) {
   db.prepare(`UPDATE mvp_picks SET result = ? WHERE id = ?`).run(result, id);
 }
 
-// Resolve conflicting MVP picks for the same game, per mutually-exclusive market.
-// Markets: ML (sides = the two teams), spread (sides = the two teams),
-// total (sides = over vs under). Within a side, multiple cappers posting the same
-// call are duplicates → keep the highest-scored, void the rest. Across opposing
-// sides of a market (e.g. Knicks Win vs Cavaliers Win), only one can hit → keep
-// the higher-scored side, void the lower. Equal top scores on opposing sides →
-// void all ("rare push"). Picks in different markets (e.g. ML vs Over) never conflict.
+// Resolve conflicting MVP picks for the same game, per betting DIMENSION.
+// Two dimensions decide a game: the final MARGIN (moneyline + spread share this)
+// and the final TOTAL (over vs under). Picks in different dimensions never
+// conflict — a side bet and a total can both hit. Within a dimension two picks
+// conflict only when NO final score lets both win:
+//   • Knicks Win vs Spurs -5.5 → conflict (Knicks can't win while Spurs win by 6+)
+//   • Yankees Win vs Blue Jays +1.5 → NO conflict (Yankees by 1 cashes both)
+//   • Over 5.5 vs Under 7.5 → NO conflict (a 6 or 7 total is a legit middle)
+// On a real conflict: keep the highest-scored pick, void the lower. Equal scores →
+// void both ("rare push"). Same-call duplicates (two cappers, same side) collapse
+// to the highest-scored first.
 //
 // Operates on resolved picks too (not just pending) so already-final games are
 // corrected retroactively. The kept pick keeps its result; voided picks get
@@ -75,18 +79,53 @@ function setMvpResult(id, result) {
 const NOTE_LESS = '*had less points — not counted';
 const NOTE_TIE  = '*rare push — both picks scored equal (so wild)';
 
-const CONFLICT_MARKETS = {
-  ml:     p => (p.pick_type || '').toLowerCase() === 'ml',
-  spread: p => (p.pick_type || '').toLowerCase() === 'spread',
-  total:  p => ['over', 'under'].includes((p.pick_type || '').toLowerCase()),
-};
+const _type = p => (p.pick_type || '').toLowerCase();
+const _line = p => Number(p.spread ?? 0) || 0;
 
-// A pick's side within a market: team for ML/spread, over/under for totals.
-function _sideOf(pick, market) {
-  return market === 'total'
-    ? (pick.pick_type || '').toLowerCase()
-    : (pick.team || '').toLowerCase();
+// Is there an achievable integer strictly inside the open interval (lo, hi)?
+// This answers "does any final score let both picks win?" — if not, they conflict.
+function _hasIntegerBetween(lo, hi) {
+  return (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
 }
+
+// Margin-dimension conflict (ML + spread). Let m = picked-team-A's margin.
+// A wins when m > -lineA; the OTHER team B wins when m < lineB. ML line = 0; a
+// favorite spread is negative (-5.5), an underdog positive (+1.5). Two picks on
+// the SAME team never conflict (both ride that team). The check is symmetric.
+function _marginConflict(a, b) {
+  const ta = (a.team || '').toLowerCase(), tb = (b.team || '').toLowerCase();
+  if (ta && tb && ta === tb) return false;
+  const lineA = _type(a) === 'ml' ? 0 : _line(a);
+  const lineB = _type(b) === 'ml' ? 0 : _line(b);
+  return !_hasIntegerBetween(-lineA, lineB);
+}
+
+// Total-dimension conflict (over vs under). over X wins when T > X; under Y wins
+// when T < Y. Same side (over+over) never conflicts. Over 5.5 / Under 7.5 is a
+// legit middle, so it does NOT conflict.
+function _totalConflict(a, b) {
+  if (_type(a) === _type(b)) return false;
+  const over  = _type(a) === 'over'  ? a : b;
+  const under = _type(a) === 'under' ? a : b;
+  return !_hasIntegerBetween(_line(over), _line(under));
+}
+
+const DIMENSIONS = [
+  {
+    name: 'margin',
+    match: p => _type(p) === 'ml' || _type(p) === 'spread',
+    // Same team within the same market (two "Knicks -3" posts, or Knicks -3 and
+    // Knicks -5) is the same opinion — collapse to the highest-scored.
+    dedupKey: p => `${_type(p) === 'ml' ? 'ml' : 'spread'}|${(p.team || '').toLowerCase()}`,
+    conflict: _marginConflict,
+  },
+  {
+    name: 'total',
+    match: p => _type(p) === 'over' || _type(p) === 'under',
+    dedupKey: p => _type(p),
+    conflict: _totalConflict,
+  },
+];
 
 function resolveConflictingMvpPicks() {
   // Games with more than one non-void MVP pick — necessary condition for a conflict.
@@ -100,6 +139,7 @@ function resolveConflictingMvpPicks() {
 
   const voidStmt = db.prepare(`UPDATE mvp_picks SET result = 'void', annotation = ? WHERE id = ?`);
   let resolved = 0;
+  const _void = (note, p) => { voidStmt.run(note, p.id); p.result = 'void'; resolved++; };
 
   for (const { espn_game_id } of games) {
     const game = db.prepare(`
@@ -115,42 +155,47 @@ function resolveConflictingMvpPicks() {
     }
 
     const allPicks = db.prepare(`
-      SELECT id, score, team, pick_type, result FROM mvp_picks
+      SELECT id, score, team, pick_type, spread, result FROM mvp_picks
       WHERE espn_game_id = ? AND result != 'void'
     `).all(espn_game_id);
 
-    for (const [market, matchFn] of Object.entries(CONFLICT_MARKETS)) {
-      const picks = allPicks.filter(matchFn);
+    for (const dim of DIMENSIONS) {
+      const picks = allPicks.filter(dim.match);
       if (picks.length < 2) continue;
 
-      // Phase A — collapse each side to its highest-scored survivor; void same-side dupes.
-      const bySide = new Map();
+      // Phase A — collapse same-call duplicates to the highest-scored survivor.
+      const byKey = new Map();
       for (const p of picks) {
-        const side = _sideOf(p, market);
-        if (!bySide.has(side)) bySide.set(side, []);
-        bySide.get(side).push(p);
+        const k = dim.dedupKey(p);
+        if (!byKey.has(k)) byKey.set(k, []);
+        byKey.get(k).push(p);
       }
       const survivors = [];
-      for (const group of bySide.values()) {
-        group.sort((a, b) => b.score - a.score);
+      for (const group of byKey.values()) {
+        group.sort((a, b) => b.score - a.score || a.id - b.id);
         survivors.push(group[0]);
-        for (const dup of group.slice(1)) { voidStmt.run(NOTE_LESS, dup.id); resolved++; }
+        for (const dup of group.slice(1)) _void(NOTE_LESS, dup);
       }
-
-      // Phase B — resolve across opposing sides (a market has at most two sides).
       if (survivors.length < 2) continue;
-      survivors.sort((a, b) => b.score - a.score);
-      const top      = survivors[0].score;
-      const topCount = survivors.filter(s => s.score === top).length;
 
-      if (topCount > 1) {
-        // Equal top scores on opposing sides — no winner, void all survivors.
-        for (const s of survivors) { voidStmt.run(NOTE_TIE, s.id); resolved++; }
-        console.log(`[mvp] Opposing tie game ${espn_game_id} (${market}): voided ${survivors.length}`);
-      } else {
-        // Unique higher side wins; void the opposing lower side(s).
-        for (const s of survivors.slice(1)) { voidStmt.run(NOTE_LESS, s.id); resolved++; }
-        console.log(`[mvp] Opposing conflict game ${espn_game_id} (${market}): kept ${survivors[0].id} (${top}pts), voided ${survivors.length - 1}`);
+      // Phase B — resolve mutual exclusivity. Highest score is the anchor; any pick
+      // that can't co-win with a higher kept pick is voided. Equal-score conflicts
+      // have no winner — void both ("rare push").
+      survivors.sort((a, b) => b.score - a.score || a.id - b.id);
+      const kept = [];
+      for (const p of survivors) {
+        if (p.result === 'void') continue;
+        const clash = kept.find(k => k.result !== 'void' && dim.conflict(k, p));
+        if (!clash) { kept.push(p); continue; }
+        if (clash.score === p.score) {
+          _void(NOTE_TIE, clash);
+          _void(NOTE_TIE, p);
+          const i = kept.indexOf(clash); if (i >= 0) kept.splice(i, 1);
+          console.log(`[mvp] Opposing tie game ${espn_game_id} (${dim.name}): voided ${clash.id} + ${p.id}`);
+        } else {
+          _void(NOTE_LESS, p);
+          console.log(`[mvp] Conflict game ${espn_game_id} (${dim.name}): kept ${clash.id} (${clash.score}pts), voided ${p.id} (${p.score}pts)`);
+        }
       }
     }
   }

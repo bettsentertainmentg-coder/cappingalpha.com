@@ -355,7 +355,7 @@ app.get('/api/picks', (req, res) => {
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
     GROUP BY p.id
-    ORDER BY p.score DESC
+    ORDER BY p.score DESC, p.id ASC
   `;
   const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
 
@@ -393,13 +393,13 @@ app.get('/api/picks/top', (req, res) => {
   const boardDate = currentBoardDate();
   const rows = db.prepare(`
     SELECT p.*,
-           tg.home_team  AS matchup_home,
-           tg.away_team  AS matchup_away,
+           tg.home_team  AS home_team,
+           tg.away_team  AS away_team,
            tg.start_time AS start_time
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
-    ORDER BY p.score DESC
+    ORDER BY p.score DESC, p.id ASC
   `).all();
   const pick = rows.find(p => isOnBoard(p.start_time, boardDate)) || null;
   res.json(pick);
@@ -585,7 +585,7 @@ app.get('/api/games/top', (req, res) => {
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
-    ORDER BY p.score DESC LIMIT 1
+    ORDER BY p.score DESC, p.id ASC LIMIT 1
   `).get();
   const globalTopGameId = globalTop ? globalTop.espn_game_id : null;
 
@@ -593,7 +593,7 @@ app.get('/api/games/top', (req, res) => {
     SELECT id, score, team, pick_type, spread
     FROM picks
     WHERE espn_game_id = ? AND mention_count > 0
-    ORDER BY score DESC LIMIT 1
+    ORDER BY score DESC, id ASC LIMIT 1
   `);
 
   // How many picks on this game actually scored — drives the "multiple picks"
@@ -815,7 +815,7 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
   const picks = db.prepare(`
-    SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC
+    SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC
   `).all(espn_game_id);
 
   // Vote tallies
@@ -1143,7 +1143,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
     let picks = opts.picks;
     if (!picks) {
       picks = db.prepare(`
-        SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC
+        SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC
       `).all(game.espn_game_id);
       for (const p of picks) p.timeline = getPickTimeline(p.id);
     }
@@ -1366,6 +1366,12 @@ app.listen(PORT, () => {
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
   await resolveVotes().catch(err => console.error('[startup] resolveVotes error:', err.message));
+  // Void mutually-exclusive same-game MVP picks immediately on load (also runs on
+  // the */5 cron) so conflicts like Knicks Win vs Spurs -5.5 settle without waiting.
+  try {
+    const n = resolveConflictingMvpPicks();
+    if (n > 0) console.log(`[startup] Resolved ${n} MVP pick conflicts`);
+  } catch (err) { console.error('[startup] resolveConflictingMvpPicks error:', err.message); }
 
   // Immediately seed public betting % — no API credits, just HTML scrape.
   // Runs unconditionally on startup so data is always fresh after a restart.

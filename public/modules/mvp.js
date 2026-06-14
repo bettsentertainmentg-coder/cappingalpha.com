@@ -177,9 +177,11 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     renderMvpRows(liveMvpPicks, 'mvp-live-body', { useLiveScore: true });
   }
 
+  // Ties break by pick id (ascending) so the #1 MVP star lands on the same pick
+  // the board and the home "#1 Pick" card show — all three sort score desc, id asc.
   const todayMvps = state.allPicks
     .filter(p => (p.score || 0) >= state.CONFIG.mvp_threshold)
-    .sort((a, b) => (b.score || 0) - (a.score || 0));
+    .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
   if (todayMvps.length === 0) {
     const el = document.getElementById('mvp-today-body');
     if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No MVP picks today yet.</p></div>`;
