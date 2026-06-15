@@ -185,4 +185,6 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   loadHeadlines();
   setInterval(loadPicks, REFRESH_MS);
   setInterval(loadTopGames, REFRESH_MS);
+  // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.
+  setInterval(loadHomeSidebar, REFRESH_MS);
 })();

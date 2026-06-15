@@ -52,6 +52,25 @@ async function _renderTopPick() {
     else if (result === 'loss') { resultBadge = `<span class="ca-tp-result-badge loss">${X_SVG}LOST</span>`;    cardState = ' ca-tp-lost'; }
     else if (result === 'push') { resultBadge = `<span class="ca-tp-result-badge push">PUSH</span>`;            cardState = ' ca-tp-push'; }
 
+    // Live game: blue pulse-dot pill with the current score (+ period) on the right,
+    // mutually exclusive with the result badge (result is only set once final).
+    const isLive = (pick.game_status || '') === 'in' && !result;
+    let liveBadge = '';
+    if (isLive) {
+      const aScore = pick.game_away_score ?? 0;
+      const hScore = pick.game_home_score ?? 0;
+      const sp = (pick.sport || '').toUpperCase();
+      let per = '';
+      if (pick.game_period) {
+        const n = pick.game_period;
+        if (sp === 'MLB') per = ` ${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th'}`;
+        else if (sp === 'NHL' || sp === 'CBB' || sp === 'WCBB') per = ` P${n}`;
+        else per = ` Q${n}`;
+      }
+      liveBadge = `<span class="ca-tp-result-badge live"><span class="ca-tp-live-dot"></span>${aScore}-${hScore}${per}</span>`;
+      cardState = ' ca-tp-live';
+    }
+
     // ── P/L block (only when there's enough resolved history) ─────────────────
     const betUnit = parseFloat(state.CONFIG?.bet_unit) || 10;
     const best = _bestWindow(_resolvedMvp(mvp && mvp.picks));
@@ -88,7 +107,7 @@ async function _renderTopPick() {
              <button class="ca-top-pick-price-btn" onclick="event.stopPropagation();startCheckout('year')">$75 / yr</button>
            </div>
          </div>`
-      : `<div class="ca-top-pick-cta-label" style="text-align:center;">Click to view all picks ›</div>`;
+      : `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all picks ›</div>`;
 
     el.innerHTML = `
       <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View MVP picks ›">
@@ -99,7 +118,7 @@ async function _renderTopPick() {
           <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
         ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
-        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
+        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${liveBadge || resultBadge}</div>
         <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
         ${plHtml}
         ${ctaHtml}

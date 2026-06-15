@@ -395,7 +395,12 @@ app.get('/api/picks/top', (req, res) => {
     SELECT p.*,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
-           tg.start_time AS start_time
+           tg.start_time AS start_time,
+           tg.status     AS game_status,
+           tg.period     AS game_period,
+           tg.clock      AS game_clock,
+           tg.home_score AS game_home_score,
+           tg.away_score AS game_away_score
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0

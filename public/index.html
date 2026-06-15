@@ -929,7 +929,7 @@
     .ca-top-pick-card {
       background: linear-gradient(180deg, #1a2030 0%, var(--surface) 55%);
       border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px; padding: 16px; margin-bottom: 4px;
+      border-radius: 12px; padding: 16px 16px 12px; margin-bottom: 4px;
       box-shadow: 0 2px 12px rgba(0,0,0,0.3);
     }
     /* brand row: logo + "#1 Pick" (logo is the CappingAlpha wordmark) */
@@ -974,6 +974,11 @@
     .ca-tp-result-badge.win  { color: var(--green); background: rgba(34,197,94,0.14);  border: 1px solid rgba(34,197,94,0.40); }
     .ca-tp-result-badge.loss { color: var(--red);   background: rgba(239,68,68,0.14);  border: 1px solid rgba(239,68,68,0.40); }
     .ca-tp-result-badge.push { color: var(--muted); background: rgba(136,146,164,0.14); border: 1px solid rgba(136,146,164,0.35); }
+    /* live #1 pick — blue pill (pulse dot + score) on the right; subtle blue card edge */
+    .ca-tp-result-badge.live { color: #38bdf8; background: rgba(56,189,248,0.14); border: 1px solid rgba(56,189,248,0.40); }
+    .ca-tp-live-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; background: linear-gradient(135deg,#4ade80,#38bdf8); animation: pulse 1s infinite; }
+    .ca-top-pick-card.ca-tp-live { border-color: rgba(56,189,248,0.45); }
+    .ca-top-pick-card.ca-tp-live.ca-tp-clickable:hover { border-color: rgba(56,189,248,0.75); }
     .ca-top-pick-card.ca-tp-won {
       border-color: rgba(34,197,94,0.55);
       background: linear-gradient(180deg, rgba(34,197,94,0.16) 0%, var(--surface) 60%);
@@ -1007,7 +1012,7 @@
     .ca-tp-record b.green { color: var(--green); }
     .ca-tp-record b.red { color: var(--red); }
     .ca-tp-record b.gold { color: var(--gold); }
-    .ca-top-pick-cta-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 8px; }
+    .ca-top-pick-cta-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 6px; }
     .ca-top-pick-pricing-row { display: flex; gap: 6px; margin-top: 6px; }
     .ca-top-pick-price-btn {
       flex: 1; padding: 8px 4px; border-radius: 7px;
@@ -1336,7 +1341,7 @@
       /* #1 pick card: condensed on phones. Keep the logo prominent (no override),
          but trim the oversized headline type, the graph height, and the vertical
          padding/margins so the card reads tight with no dead space top or bottom. */
-      #ca-top-pick-slot .ca-top-pick-card { padding: 12px 14px; }
+      #ca-top-pick-slot .ca-top-pick-card { padding: 12px 14px 9px; }
       #ca-top-pick-slot .ca-tp-brand     { margin-bottom: 8px; }
       #ca-top-pick-slot .ca-tp-title { font-size: 24px; }
       #ca-top-pick-slot .ca-tp-matchup { font-size: 15px; }
