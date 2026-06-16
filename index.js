@@ -1702,11 +1702,13 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
 // Near-real-time live tick — every 30s while at least one game is in progress.
 // ESPN-only (free): refreshes live scores + condensed game state (baseball
 // bases/outs/half-inning) so the board, #1 card, and Top Games tiles track close
-// to live. No-ops outside active hours or when nothing is live. The in-flight
-// guard prevents overlap if a fetch runs long.
+// to live, AND flips finished games to Final + grades them. Deliberately NOT gated
+// by active hours — it's self-bounded by the live check, so a late West-coast game
+// that ends after the active window still resolves instead of stranding on a live
+// inning. Idles (one cheap query) when nothing is live. In-flight guard prevents overlap.
 let _liveTickRunning = false;
 if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
-  if (_liveTickRunning || !isActiveHours()) return;
+  if (_liveTickRunning) return;
   const hasLive = db.prepare("SELECT 1 FROM today_games WHERE status = 'in' LIMIT 1").get();
   if (!hasLive) return;
   _liveTickRunning = true;
@@ -1714,6 +1716,10 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
     await fetchTodaysGames();
     await fetchTodaysWnbaGames();
     await syncLiveSituations();
+    // A game that just flipped to Final needs to settle, not sit on its last inning.
+    stampActualEnds();
+    await resolveResults();
+    await resolveVotes();
   } catch (err) {
     console.error('[cron] live30 error:', err.message);
   } finally {
