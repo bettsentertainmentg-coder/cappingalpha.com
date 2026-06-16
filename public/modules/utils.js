@@ -172,12 +172,16 @@ export function fmtSpread(n) {
 
 // ── Live in-game state (condensed per-sport scoreboards) ──────────────────────
 // Baseball bases diamond from a bitmask (1 = on first, 2 = on second, 4 = on
-// third). Tiny inline SVG: 2B top, 1B right, 3B left. Filled = runner on.
+// third). Inline SVG: 2B top, 1B right, 3B left. Occupied bases light up gold.
+// NOTE: the fill MUST be a literal colour — `fill="var(--green)"` does not resolve
+// as an SVG presentation attribute, so runners rendered invisible (the bug where
+// "2 on base" never showed).
 export function basesDiamond(bases = 0) {
-  const fill = b => (bases & b) ? 'var(--green)' : 'transparent';
+  const fill = b => (bases & b) ? '#facc15' : 'transparent';   // lit gold = runner on
+  const s = 4;
   const base = (cx, cy, b) =>
-    `<polygon points="${cx},${cy - 3.3} ${cx + 3.3},${cy} ${cx},${cy + 3.3} ${cx - 3.3},${cy}" fill="${fill(b)}" stroke="#64748b" stroke-width="1"/>`;
-  return `<svg class="bb-diamond" width="22" height="16" viewBox="0 0 22 16" aria-hidden="true">${base(11, 4.6, 2)}${base(16.4, 9, 1)}${base(5.6, 9, 4)}</svg>`;
+    `<polygon points="${cx},${cy - s} ${cx + s},${cy} ${cx},${cy + s} ${cx - s},${cy}" fill="${fill(b)}" stroke="#64748b" stroke-width="1.1"/>`;
+  return `<svg class="bb-diamond" width="26" height="18" viewBox="0 0 26 18" aria-hidden="true">${base(13, 5.5, 2)}${base(19.5, 10.5, 1)}${base(6.5, 10.5, 4)}</svg>`;
 }
 
 // Outs as two dots (0..2 during live play). Empty between innings (outs == null).

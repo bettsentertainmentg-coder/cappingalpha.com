@@ -1134,9 +1134,9 @@
     .ca-tg-multi { flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1; background: var(--accent); color: #fff; border-radius: 9px; padding: 2px 5px; min-width: 17px; text-align: center; }
     /* Stacked teams: abbr + name + score (ESPN style) */
     .ca-tg-teams { padding: 4px 11px; position: relative; }
-    /* live baseball bases diamond + outs, parked in the gap between names and scores */
-    .ca-tg-bases { position: absolute; top: 50%; right: 50px; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: none; }
-    .ca-tg-teams.tg-has-bases .ca-tg-tname { padding-right: 30px; }
+    /* live baseball bases diamond, parked in the gap between names and scores */
+    .ca-tg-bases { position: absolute; top: 50%; right: 48px; transform: translateY(-50%); pointer-events: none; line-height: 0; }
+    .ca-tg-teams.tg-has-bases .ca-tg-tname { padding-right: 32px; }
     .ca-tg-team { display: flex; align-items: center; gap: 9px; padding: 2px 0; }
     .ca-tg-abbr { width: 38px; flex-shrink: 0; text-align: center; font-weight: 800; font-size: 10px; letter-spacing: .3px; padding: 3px 0; border-radius: 4px; background: var(--surface2); color: var(--text); }
     /* Tennis: country flag in place of the team-colour abbr chip (ESPN style). */

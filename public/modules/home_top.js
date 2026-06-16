@@ -81,8 +81,12 @@ function _hasBases(g) {
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
   if (g.status === 'in') {
-    const label = _hasBases(g) ? g.live_detail : _livePeriod(g);
-    return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${label}</span>`;
+    // Baseball: outs sit just left of the half-inning ("•• Top 9th"); the diamond
+    // lives up in the team area. Other sports: plain period/clock.
+    if (_hasBases(g)) {
+      return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${outsDots(g.live_outs)}${g.live_detail}</span>`;
+    }
+    return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${_livePeriod(g)}</span>`;
   }
   if (g.status === 'post') return `<span class="ca-tg-final">Final</span>`;
   return `<span class="ca-tg-time">${start}</span>`;
@@ -203,7 +207,7 @@ function _gameTile(g) {
   // Live baseball: a bases diamond + outs sits in the open space between the team
   // names and their scores (vertically centred across both rows).
   const basesHtml = _hasBases(g)
-    ? `<div class="ca-tg-bases">${basesDiamond(g.live_bases)}${outsDots(g.live_outs)}</div>`
+    ? `<div class="ca-tg-bases">${basesDiamond(g.live_bases)}</div>`
     : '';
   return `<div class="ca-tg-tile" onclick="location.href='/game/${g.espn_game_id}'" title="${away} @ ${home}${pickTitle}">
     <div class="ca-tg-head">
