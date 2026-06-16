@@ -53,8 +53,9 @@ async function _renderTopPick() {
     else if (result === 'push') { resultBadge = `<span class="ca-tp-result-badge push">PUSH</span>`;            cardState = ' ca-tp-push'; }
 
     // Live game: blue pulse-dot pill with the current score (+ period) on the right,
-    // mutually exclusive with the result badge (result is only set once final).
-    const isLive = (pick.game_status || '') === 'in' && !result;
+    // mutually exclusive with the result badge. Gate on resultBadge (set only for
+    // win/loss/push) — pick.result is 'pending' while live, which is truthy.
+    const isLive = (pick.game_status || '') === 'in' && !resultBadge;
     let liveBadge = '';
     if (isLive) {
       const aScore = pick.game_away_score ?? 0;
