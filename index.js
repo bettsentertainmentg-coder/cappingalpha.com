@@ -54,6 +54,7 @@ const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
+const { seedDummyAccounts, runDummyVotes } = require('./src/dummy_accounts');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -1486,6 +1487,10 @@ app.listen(PORT, () => {
   // yet. Idempotent + self-healing, so a missed cron run is recovered on boot.
   try { finalizeLeaderboardAwards(); } catch (err) { console.error('[startup] finalizeLeaderboardAwards error:', err.message); }
 
+  // Seed dummy member accounts (idempotent) and place their votes on today's 35+
+  // picks so the public leaderboard isn't empty. Cron keeps them voting daily.
+  try { await seedDummyAccounts(); runDummyVotes(); } catch (err) { console.error('[startup] dummy accounts error:', err.message); }
+
   // Recover any previously-skipped (no_game) messages whose forward game now exists.
   // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
   if (!process.env.UI_ONLY) {
@@ -1565,6 +1570,14 @@ cron.schedule('30 5 * * *', () => {
 cron.schedule('10 5 * * *', () => {
   try { finalizeLeaderboardAwards(); }
   catch (err) { console.error('[cron] finalizeLeaderboardAwards error:', err.message); }
+}, { timezone: 'America/New_York' });
+
+// Dummy accounts vote on the day's 35+ picks for not-yet-started games. Runs a few
+// times a day (idempotent) to catch picks that come in after the morning setup,
+// while their games are still pre-game. Free, DB-only.
+cron.schedule('20 6,10,14,18 * * *', () => {
+  try { runDummyVotes(); }
+  catch (err) { console.error('[cron] runDummyVotes error:', err.message); }
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {

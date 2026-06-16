@@ -407,6 +407,9 @@ try { db.exec(`ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT`); } cat
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
 // Optional uploaded avatar (stored under the data volume; null = generated initials).
 try { db.exec(`ALTER TABLE users ADD COLUMN avatar_path TEXT`); } catch (_) {}
+// Seed/dummy member accounts (look like real members; auto-vote 35+ picks to seed
+// the public leaderboard). 1 = dummy, managed from the admin Dummy Accounts tab.
+try { db.exec(`ALTER TABLE users ADD COLUMN is_dummy INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 // Speeds up per-window leaderboard aggregates (filter by result + voted_at, group by user).
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_result_voted ON game_votes (user_id, result, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_votes (result, voted_at)`); } catch (_) {}

@@ -10,6 +10,7 @@ const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
 const { normalizeCapper } = require('./storage');
+const dummyAccounts = require('./dummy_accounts');
 const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
@@ -208,6 +209,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
     GROUP BY p.id
     ORDER BY p.score DESC
   `).all(today);
+
+  const dummyAccountsList = (() => { try { return dummyAccounts.listDummyAccounts(); } catch (_) { return []; } })();
 
   const rawMessages = db.prepare(`SELECT * FROM raw_messages ORDER BY pick_id, saved_at`).all();
   const rawByPick = {};
@@ -784,6 +787,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
+      <button class="atab${ta('dummy')}" data-tab="dummy" onclick="adminTab('dummy')">Dummy Accounts</button>
       <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
       <a href="/admin/logout" class="atab-logout">Log out</a>
     </div>
@@ -865,6 +869,33 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <button class="btn btn-primary" onclick="searchUsers()">Search</button>
       </div>
       <div id="user-results"><p style="color:#8892a4;">Enter a username or email to search.</p></div>
+    </div>
+
+    <!-- DUMMY ACCOUNTS PANEL -->
+    <div class="apanel${ta('dummy')}" id="panel-dummy">
+      <h1>Dummy Accounts</h1>
+      <p style="color:#8892a4;max-width:760px;">Seed members that auto-vote the day's <strong>35+ point</strong> picks (pre-game only) to keep the public leaderboard populated. They look like real accounts and build a record as those games resolve — no backfill, they start from now. Rename them or hide them from the board below.</p>
+      <table style="margin-top:14px;">
+        <thead><tr>
+          <th>Username</th><th>Votes</th><th>Record</th><th>Pending</th><th>On board</th><th>Rename</th>
+        </tr></thead>
+        <tbody>
+          ${dummyAccountsList.length === 0
+            ? '<tr><td colspan="6" style="color:#8892a4;">No dummy accounts yet — they seed on the next server start.</td></tr>'
+            : dummyAccountsList.map(d => `<tr>
+              <td><strong>@${escHtml(d.username)}</strong></td>
+              <td>${d.total_votes}</td>
+              <td>${d.wins}-${d.losses}${d.pushes ? '-' + d.pushes : ''}</td>
+              <td>${d.pending}</td>
+              <td><button class="btn-sm" id="dpub-${d.id}" onclick="toggleDummyPublic(${d.id}, ${d.is_public ? 0 : 1})">${d.is_public ? 'Public' : 'Hidden'}</button></td>
+              <td>
+                <input id="dn-${d.id}" value="${escHtml(d.username)}" maxlength="20" style="padding:5px 8px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;width:160px;" />
+                <button class="btn-sm btn-primary" onclick="renameDummy(${d.id})">Save</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <p id="dummy-msg" style="color:#8892a4;font-size:13px;margin-top:10px;"></p>
     </div>
 
     <!-- MVP PANEL -->
@@ -1352,6 +1383,29 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+      }
+
+      // ── Dummy accounts ──────────────────────────────────────────────────────────
+      async function renameDummy(id) {
+        const v = (document.getElementById('dn-' + id).value || '').trim();
+        const msg = document.getElementById('dummy-msg');
+        try {
+          const r = await fetch('/admin/api/dummy/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id, username: v }) });
+          const d = await r.json();
+          msg.textContent = d.ok ? ('Renamed to @' + d.username) : (d.error || 'Rename failed');
+          msg.style.color = d.ok ? '#22c55e' : '#f87171';
+        } catch (_) { msg.textContent = 'Network error'; msg.style.color = '#f87171'; }
+      }
+      async function toggleDummyPublic(id, makePublic) {
+        const btn = document.getElementById('dpub-' + id);
+        try {
+          const r = await fetch('/admin/api/dummy/public', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id, is_public: !!makePublic }) });
+          const d = await r.json();
+          if (d.ok) {
+            btn.textContent = d.is_public ? 'Public' : 'Hidden';
+            btn.setAttribute('onclick', 'toggleDummyPublic(' + id + ',' + (d.is_public ? 0 : 1) + ')');
+          }
+        } catch (_) {}
       }
 
       // ── Correct (= set capper) on a recorded row ────────────────────────────
@@ -2815,6 +2869,16 @@ router.get('/api/users', requireAuth, (req, res) => {
     ORDER BY created_at DESC LIMIT 50
   `).all(`%${q}%`, `%${q}%`);
   res.json({ users, q });
+});
+
+// ── Dummy accounts — rename / show-hide ──────────────────────────────────────
+router.post('/api/dummy/rename', requireAuth, express.json(), (req, res) => {
+  const { id, username } = req.body || {};
+  res.json(dummyAccounts.renameDummyAccount(parseInt(id, 10), username));
+});
+router.post('/api/dummy/public', requireAuth, express.json(), (req, res) => {
+  const { id, is_public } = req.body || {};
+  res.json(dummyAccounts.setDummyPublic(parseInt(id, 10), !!is_public));
 });
 
 // ── POST /admin/api/grant — JSON endpoint ────────────────────────────────────
