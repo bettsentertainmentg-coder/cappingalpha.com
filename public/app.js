@@ -187,4 +187,16 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   setInterval(loadTopGames, REFRESH_MS);
   // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.
   setInterval(loadHomeSidebar, REFRESH_MS);
+
+  // Near-real-time refresh while a game is live: every 30s re-pull the live
+  // surfaces (board scores, #1 card, Top Games tiles). Gated on a live game being
+  // present so we don't poll all day; the 5-min baseline above covers everything
+  // else and catches a game turning live.
+  setInterval(() => {
+    const live = (state.allPicks || []).some(p => p.game_status === 'in');
+    if (!live) return;
+    loadPicks();
+    loadTopGames();
+    loadHomeSidebar();
+  }, 30000);
 })();

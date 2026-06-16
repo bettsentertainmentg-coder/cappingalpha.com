@@ -81,10 +81,10 @@ function _hasBases(g) {
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
   if (g.status === 'in') {
-    // Baseball: outs sit just left of the half-inning ("•• Top 9th"); the diamond
+    // Baseball: half-inning then outs to its right ("Top 9th ••"); the diamond
     // lives up in the team area. Other sports: plain period/clock.
     if (_hasBases(g)) {
-      return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${outsDots(g.live_outs)}${g.live_detail}</span>`;
+      return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${g.live_detail}${outsDots(g.live_outs)}</span>`;
     }
     return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${_livePeriod(g)}</span>`;
   }

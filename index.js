@@ -1574,6 +1574,28 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   syncKalshiSoon(soonGames).catch(e => console.error('[cron] syncKalshiSoon:', e.message));
 });
 
+// Near-real-time live tick — every 30s while at least one game is in progress.
+// ESPN-only (free): refreshes live scores + condensed game state (baseball
+// bases/outs/half-inning) so the board, #1 card, and Top Games tiles track close
+// to live. No-ops outside active hours or when nothing is live. The in-flight
+// guard prevents overlap if a fetch runs long.
+let _liveTickRunning = false;
+if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
+  if (_liveTickRunning || !isActiveHours()) return;
+  const hasLive = db.prepare("SELECT 1 FROM today_games WHERE status = 'in' LIMIT 1").get();
+  if (!hasLive) return;
+  _liveTickRunning = true;
+  try {
+    await fetchTodaysGames();
+    await fetchTodaysWnbaGames();
+    await syncLiveSituations();
+  } catch (err) {
+    console.error('[cron] live30 error:', err.message);
+  } finally {
+    _liveTickRunning = false;
+  }
+}, { timezone: 'America/New_York' });
+
 // Hourly — per-game prune (retire finished games past their cycle clear + grace
 // tail) and refresh the forward-game window so games added to ESPN's schedule
 // mid-day for tomorrow get picked up. Prune runs always (pure DB hygiene); the

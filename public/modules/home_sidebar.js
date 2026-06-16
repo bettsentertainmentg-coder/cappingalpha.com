@@ -249,6 +249,7 @@ function _drawTpChart({ labels, values, total }) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: false,   // redraws on the 30s live refresh must not re-animate (flicker)
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
