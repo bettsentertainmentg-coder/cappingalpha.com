@@ -170,6 +170,63 @@ export function fmtSpread(n) {
   return n > 0 ? `+${n}` : String(n);
 }
 
+// ── Vote payout math — single source of truth ─────────────────────────────────
+// Shared by account.js (P/L graph) and the leaderboard (units/ROI). American odds:
+// negative → unit*(100/|odds|), positive → unit*(odds/100). Loss = -unit; push /
+// pending / unresolved = 0. Spreads default to -115 (no spread juice is stored).
+export function voteOdds(v) {
+  const slot = v.pick_slot;
+  if (slot === 'home_ml') return v.ml_home || null;
+  if (slot === 'away_ml') return v.ml_away || null;
+  if (slot === 'over')    return v.ou_over_odds  || -115;
+  if (slot === 'under')   return v.ou_under_odds || -115;
+  return -115;
+}
+
+export function calcVoteReturn(v, unit) {
+  const r = (v.result || '').toLowerCase();
+  if (r === 'push' || r === 'pending' || !r) return 0;
+  if (r === 'loss') return -unit;
+  const odds = voteOdds(v) || -115;
+  if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);
+  return +(unit * (odds / 100)).toFixed(2);
+}
+
+// ── Generated avatar ──────────────────────────────────────────────────────────
+// Deterministic initials avatar from a username (used when no photo is uploaded).
+// Returns an <img>/<div> markup string sized to `size` px.
+const AVATAR_COLORS = [
+  '#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#d97706',
+  '#16a34a', '#0891b2', '#0d9488', '#4f46e5', '#9333ea', '#c026d3',
+];
+
+function avatarHue(name) {
+  const s = String(name || 'user');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function avatarInitials(name) {
+  const s = String(name || '').trim();
+  if (!s) return '?';
+  const parts = s.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return s.slice(0, 2).toUpperCase();
+}
+
+// avatarFor(username, size, avatarUrl) → markup. If avatarUrl is set, renders the
+// uploaded photo; otherwise a colored initials circle. Always renders something.
+export function avatarFor(username, size = 40, avatarUrl = null) {
+  const px = `${size}px`;
+  if (avatarUrl) {
+    return `<img src="${avatarUrl}" alt="" style="width:${px};height:${px};border-radius:50%;object-fit:cover;flex-shrink:0;background:#1a2030;" />`;
+  }
+  const bg = avatarHue(username);
+  const fs = Math.round(size * 0.42);
+  return `<div style="width:${px};height:${px};border-radius:50%;background:${bg};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:${fs}px;flex-shrink:0;letter-spacing:.01em;">${avatarInitials(username)}</div>`;
+}
+
 // ── Live in-game state (condensed per-sport scoreboards) ──────────────────────
 // Baseball bases diamond from a bitmask (1 = on first, 2 = on second, 4 = on
 // third). Inline SVG: 2B top, 1B right, 3B left. Occupied bases light up gold.
@@ -203,19 +260,4 @@ export function liveStateHtml(g) {
     return `<span class="bb-state">${basesDiamond(bases)}${outsDots(outs)}<span class="bb-half">${detail}</span></span>`;
   }
   return '';
-}
-
-// Avatar for a username: the uploaded image if a URL is given, otherwise a colored
-// initial circle (deterministic color from the name). Used by the leaderboard,
-// account, and member-profile views.
-export function avatarFor(username, size = 40, url = null) {
-  const s = Number(size) || 40;
-  if (url) {
-    return `<img src="${url}" alt="" class="ca-avatar" style="width:${s}px;height:${s}px;border-radius:50%;object-fit:cover;display:inline-block;vertical-align:middle;flex-shrink:0;">`;
-  }
-  const name = (username == null ? '?' : String(username));
-  const initial = (name.replace(/[^a-zA-Z0-9]/g, '').charAt(0) || '?').toUpperCase();
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return `<span class="ca-avatar" style="width:${s}px;height:${s}px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:hsl(${h},42%,34%);color:#fff;font-weight:700;font-size:${Math.round(s * 0.42)}px;flex-shrink:0;vertical-align:middle;">${initial}</span>`;
 }

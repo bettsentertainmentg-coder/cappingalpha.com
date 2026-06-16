@@ -125,30 +125,22 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     return;
   }
 
-  const pubTableOpen = `<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Matchup</th><th>Sport</th><th>Pick</th><th class="score-col">Score</th></tr></thead><tbody>`;
-  const pubTableClose = `</tbody></table></div>`;
-
-  // Free user — sports tab passes globalRanks so only the true #1 overall pick is unlocked
+  // Free user — only the #1 pick is shown; everything else (rank 2..end) is locked
+  // behind the paywall. No public tail. A single blurred teaser row hints there's
+  // more under the wall.
+  // Sports tab passes globalRanks so only the true #1 overall pick is unlocked.
   if (globalRanks) {
     const gr = p => globalRanks.get(p.id) ?? 999;
     const rank1 = activePicks.find(p => gr(p) === 1);
     const rank2 = activePicks.find(p => gr(p) === 2);
-    const publicPicks = activePicks.filter(p => gr(p) > MAX);
-    const hasLocked   = activePicks.some(p => gr(p) >= 2 && gr(p) <= MAX);
+    const hasLocked = activePicks.some(p => gr(p) >= 2);
 
     const topRows = [
       rank1 ? makeRow(rank1, 1, false) : '',
       rank2 ? makeRow(rank2, 2, true)  : '',
     ].join('');
 
-    const publicSection = (publicPicks.length || pushPicks.length)
-      ? pubTableOpen
-        + publicPicks.map(p => makeRow(p, gr(p), false)).join('')
-        + pushPicks.map(p => makePushRow(p)).join('')
-        + pubTableClose
-      : '';
-
-    if (!topRows && !publicSection) {
+    if (!topRows && !hasLocked) {
       el.innerHTML = `
         <div class="empty">
           <div class="empty-icon">🕐</div>
@@ -160,25 +152,16 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
 
     el.innerHTML =
       (topRows ? thead + topRows + `</tbody></table></div>` : '') +
-      ((topRows || hasLocked) ? inlinePaywallHtml() : '') +
-      publicSection;
+      ((topRows || hasLocked) ? inlinePaywallHtml() : '');
     return;
   }
 
-  // Free user — main picks tab (no globalRanks, local ranking)
+  // Free user — main picks tab (no globalRanks, local ranking). #1 + one blurred
+  // teaser, then the paywall. Everything past #1 is locked.
   const row1 = activePicks[0] ? makeRow(activePicks[0], 1, false) : '';
   const row2 = activePicks[1] ? makeRow(activePicks[1], 2, true)  : '';
 
-  const publicPicks   = activePicks.slice(MAX);
-  const publicRows    = publicPicks.map((p, i) => makeRow(p, MAX + 1 + i, false));
-  const publicSection = (publicRows.length || pushPicks.length)
-    ? pubTableOpen
-      + publicRows.join('') + pushPicks.map(p => makePushRow(p)).join('')
-      + pubTableClose
-    : '';
-
   el.innerHTML =
     thead + row1 + row2 + `</tbody></table></div>` +
-    inlinePaywallHtml() +
-    publicSection;
+    inlinePaywallHtml();
 }

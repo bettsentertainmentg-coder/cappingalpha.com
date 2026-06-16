@@ -11,6 +11,9 @@ export const state = {
   mvpLoaded:     false,
   sportsLoaded:  false,
   esportsLoaded: false,
+  leaderboardLoaded: false,
+  leaderboardWindow: 'week',
+  leaderboardView:   'board', // 'board' | 'friends'
   activeSport:   'MLB',
   graphDays:     Infinity,
 };

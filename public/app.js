@@ -6,11 +6,15 @@ import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
-import { loadAccount } from './modules/account.js';
+import { loadLeaderboard } from './modules/leaderboard.js?v=6';
+import { loadAccount } from './modules/account.js?v=3';
 import './modules/modal.js';
+import './modules/member_profile.js?v=4';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
+import { renderUnlock } from './modules/unlock.js';
+import { mountAds } from './modules/ads.js';
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {
@@ -43,6 +47,11 @@ export function switchTab(tabName) {
     state.esportsLoaded = true;
     renderEsports();
   }
+  if (tabName === 'leaderboard' && !state.leaderboardLoaded) {
+    state.leaderboardLoaded = true;
+    loadLeaderboard(state.leaderboardWindow);
+  }
+  if (tabName === 'unlock') renderUnlock();
   if (tabName === 'account') {
     if (!state.currentUser) { switchTab('home'); window.openLogin(); return; }
     loadAccount();
@@ -104,7 +113,7 @@ window.sendSupport = sendSupport;
 // Honor a hash like #about / #mvp / #sports on initial load and on subsequent
 // hashchange events (e.g. someone clicks "Learn how" on the standalone game
 // detail page, which links back to /#about).
-const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'about', 'account']);
+const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'unlock']);
 function applyHashTab() {
   const h = (location.hash || '').replace('#', '').trim().toLowerCase();
   if (HASH_TABS.has(h)) switchTab(h);
@@ -183,6 +192,8 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   loadHomeMvp();
   loadHomeSidebar();
   loadHeadlines();
+  // Display ad slots (home page) — gated to non-paying users, dormant until GAM.
+  mountAds();
   setInterval(loadPicks, REFRESH_MS);
   setInterval(loadTopGames, REFRESH_MS);
   // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.

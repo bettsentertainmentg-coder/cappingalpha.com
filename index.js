@@ -53,6 +53,7 @@ const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
+const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -140,6 +141,8 @@ app.use(express.static(path.join(__dirname, 'public'), {
     res.setHeader('Expires', '0');
   },
 }));
+// Uploaded member avatars live on the data volume (survive redeploys). Cached a day.
+app.use('/avatars', express.static(path.join(__dirname, 'data', 'avatars'), { maxAge: 24 * 60 * 60 * 1000 }));
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -370,15 +373,13 @@ app.get('/api/picks', (req, res) => {
   let r = 0;
   for (const p of picks) p.rank = (p.result === 'push') ? null : (++r);
 
-  // Server-side paywall enforcement. Free/logged-out users never receive the
-  // actual pick for ranks 2..PAID_RANK_MAX — previously the data was sent in full
-  // and only blurred in the browser (readable in the Network tab). Rank #1 and the
-  // public tail (rank > PAID_RANK_MAX) stay full; pushes stay full.
+  // Server-side paywall enforcement. Free/logged-out users only ever receive the
+  // actual #1 pick — EVERY other ranked pick (2..end) is withheld server-side and
+  // flagged locked (no more public tail). Pushes (rank null) stay full.
   if (!auth.isPaid(req)) {
-    const max = PAID_RANK_MAX();
     for (let i = 0; i < picks.length; i++) {
       const p = picks[i];
-      if (p.rank && p.rank >= 2 && p.rank <= max) {
+      if (p.rank && p.rank >= 2) {
         // Keep only what the UI needs to render a locked row + paywall nudge.
         // sport is retained so the Sports tab can still show "a locked pick here";
         // team/side/score/game are all withheld.
@@ -730,16 +731,86 @@ app.get('/api/esports/top', (req, res) => {
   }
 });
 
+// GET /api/leaderboard?window=week|month|all — public board (private members hidden)
+// plus the logged-in user's own row/rank (shown even when private/unqualified).
+// Public read; "me" only resolves when logged in.
+app.get('/api/leaderboard', (req, res) => {
+  const window = (req.query.window || 'week').toLowerCase();
+  const meId   = req.session?.user?.id ?? null;
+  try {
+    res.json(getLeaderboard(window, meId));
+  } catch (err) {
+    console.error('[leaderboard]', err.message);
+    res.status(500).json({ error: 'Failed to load leaderboard' });
+  }
+});
+
+// GET /api/friends — the members the logged-in user follows (directory for the
+// Friends page). Each entry carries all-time stats + a mutual flag, clickable
+// through to the full profile popup.
+app.get('/api/friends', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  try {
+    res.json(getFriendsList(req.session.user.id));
+  } catch (err) {
+    console.error('[friends]', err.message);
+    res.status(500).json({ error: 'Failed to load friends' });
+  }
+});
+
+// POST/DELETE /api/follow/:userId — follow or unfollow a member (one-way, Twitter
+// style). Returns the target's updated follower count + your new follow state.
+app.post('/api/follow/:userId', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const me = req.session.user.id;
+  const target = parseInt(req.params.userId, 10);
+  if (!Number.isInteger(target)) return res.status(400).json({ error: 'Bad user id' });
+  if (target === me) return res.status(400).json({ error: 'You cannot follow yourself' });
+  const exists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(target);
+  if (!exists) return res.status(404).json({ error: 'Member not found' });
+  db.prepare(`INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`).run(me, target);
+  res.json({ ok: true, is_following: true, ...followCounts(target) });
+});
+
+app.delete('/api/follow/:userId', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const me = req.session.user.id;
+  const target = parseInt(req.params.userId, 10);
+  if (!Number.isInteger(target)) return res.status(400).json({ error: 'Bad user id' });
+  db.prepare(`DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`).run(me, target);
+  res.json({ ok: true, is_following: false, ...followCounts(target) });
+});
+
+// GET /api/member/:userId — public profile popup data (stats, badges, recent picks).
+// 403 for a private member requested by anyone but themselves (no enumeration).
+app.get('/api/member/:userId', (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Bad user id' });
+  const meId = req.session?.user?.id ?? null;
+  const window = (req.query.window || 'all').toLowerCase();
+  try {
+    const profile = getMemberProfile(userId, meId, window);
+    if (!profile) return res.status(404).json({ error: 'Member not found' });
+    if (profile.error === 'private') return res.status(403).json({ error: 'This member is private' });
+    res.json(profile);
+  } catch (err) {
+    console.error('[member]', err.message);
+    res.status(500).json({ error: 'Failed to load member' });
+  }
+});
+
 // GET /api/account — current user's profile + preferences + today's voted picks
 app.get('/api/account', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
 
-  const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at FROM users WHERE id = ?`).get(userId);
+  const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
+  const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
+  const avatarUrl = user.avatar_path ? `/avatars/${user.avatar_path}` : null;
 
   // Votes joined to today_games + picks. Snapshot columns (gv.*) take priority —
   // they survive the daily wipe; today_games and picks are fallback for today's live data.
@@ -772,7 +843,7 @@ app.get('/api/account', (req, res) => {
     ORDER BY gv.voted_at ASC
   `).all(userId);
 
-  res.json({ user, favoriteSports, votes });
+  res.json({ user, favoriteSports, isPublic, avatarUrl, votes });
 });
 
 // DELETE /api/game/:espn_game_id/vote — remove a vote while game is still pre-game
@@ -796,26 +867,68 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
   res.json({ ok: true });
 });
 
-// PUT /api/account/preferences — save favorite sports list
+// PUT /api/account/preferences — save favorite sports and/or leaderboard privacy.
+// Accepts a partial body: only the fields present are changed; the rest are kept.
 app.put('/api/account/preferences', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
-  const { favorite_sports } = req.body || {};
+  const { favorite_sports, is_public } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
-  const sports = Array.isArray(favorite_sports)
-    ? favorite_sports.filter(s => valid.includes(s))
-    : [];
+
+  // Read the current row so a partial update preserves the untouched field.
+  const cur = db.prepare(`SELECT favorite_sports, is_public FROM user_preferences WHERE user_id = ?`).get(userId);
+
+  const sports = favorite_sports !== undefined
+    ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
+    : (cur ? JSON.parse(cur.favorite_sports || '[]') : []);
+
+  const pub = is_public !== undefined
+    ? (is_public ? 1 : 0)
+    : (cur ? (cur.is_public == null ? 1 : cur.is_public) : 1);
 
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, updated_at)
-    VALUES (?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       favorite_sports = excluded.favorite_sports,
+      is_public       = excluded.is_public,
       updated_at      = datetime('now')
-  `).run(userId, JSON.stringify(sports));
+  `).run(userId, JSON.stringify(sports), pub);
 
-  res.json({ ok: true, favoriteSports: sports });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub });
+});
+
+// POST /api/account/avatar — upload a profile photo as a base64 data URL.
+// Dependency-free (no multer): { image: 'data:image/png;base64,...' }. Stored on
+// the data volume at data/avatars/<userId>.<ext>; users.avatar_path keeps the name.
+app.post('/api/account/avatar', express.json({ limit: '4mb' }), (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const userId = req.session.user.id;
+  const { image } = req.body || {};
+
+  const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=]+)$/.exec(image || '');
+  if (!m) return res.status(400).json({ error: 'Send a PNG, JPG, or WebP image.' });
+  const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 2 * 1024 * 1024) return res.status(413).json({ error: 'Image too large (max 2MB).' });
+
+  const fs = require('fs');
+  const dir = path.join(__dirname, 'data', 'avatars');
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    // Remove any prior avatar with a different extension so we don't orphan files.
+    for (const e of ['png', 'jpg', 'webp']) {
+      if (e !== ext) { try { fs.unlinkSync(path.join(dir, `${userId}.${e}`)); } catch (_) {} }
+    }
+    const fname = `${userId}.${ext}`;
+    fs.writeFileSync(path.join(dir, fname), buf);
+    db.prepare(`UPDATE users SET avatar_path = ? WHERE id = ?`).run(fname, userId);
+    res.json({ ok: true, avatarUrl: `/avatars/${fname}` });
+  } catch (err) {
+    console.error('[avatar]', err.message);
+    res.status(500).json({ error: 'Upload failed' });
+  }
 });
 
 // GET /api/lines/:team — original + live lines for a team
@@ -1369,6 +1482,10 @@ app.listen(PORT, () => {
     await seedPickSlots().catch(err => console.error('[startup] seedPickSlots(forward) error:', err.message));
   }
 
+  // Award any completed weekly/monthly leaderboard finishes that aren't recorded
+  // yet. Idempotent + self-healing, so a missed cron run is recovered on boot.
+  try { finalizeLeaderboardAwards(); } catch (err) { console.error('[startup] finalizeLeaderboardAwards error:', err.message); }
+
   // Recover any previously-skipped (no_game) messages whose forward game now exists.
   // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
   if (!process.env.UI_ONLY) {
@@ -1441,6 +1558,13 @@ cron.schedule('30 5 * * *', () => {
   } catch (err) {
     console.error('[cron] archive purge error:', err.message);
   }
+}, { timezone: 'America/New_York' });
+
+// 5:10am ET — record any newly-completed weekly/monthly leaderboard finishes.
+// Free, DB-only, idempotent → runs even in UI_ONLY so badges stay current locally.
+cron.schedule('10 5 * * *', () => {
+  try { finalizeLeaderboardAwards(); }
+  catch (err) { console.error('[cron] finalizeLeaderboardAwards error:', err.message); }
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {

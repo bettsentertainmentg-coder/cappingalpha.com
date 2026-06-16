@@ -4,6 +4,7 @@
 
 import { isViewer } from './auth.js';
 import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
+import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -100,19 +101,9 @@ async function _renderTopPick() {
         </div>`;
     }
 
-    // Anonymous visitors get the upgrade prompt; anyone logged in (free account
-    // or paid) gets a click-through hint, since the whole card opens the MVP page.
-    // Pricing buttons stop their clicks from bubbling to the card navigation.
-    const ctaHtml = isViewer()
-      ? `<div>
-           <div class="ca-top-pick-cta-label">Unlock all picks</div>
-           <div class="ca-top-pick-pricing-row">
-             <button class="ca-top-pick-price-btn" onclick="event.stopPropagation();startCheckout('day')">$1 / day</button>
-             <button class="ca-top-pick-price-btn featured" onclick="event.stopPropagation();startCheckout('week')">$4 / week</button>
-             <button class="ca-top-pick-price-btn" onclick="event.stopPropagation();startCheckout('year')">$75 / yr</button>
-           </div>
-         </div>`
-      : `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all picks ›</div>`;
+    // The whole card opens the MVP page, so everyone just gets a click-through
+    // hint. (No Unlock CTA on this card — it cluttered the #1 Pick widget.)
+    const ctaHtml = `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all picks ›</div>`;
 
     el.innerHTML = `
       <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View MVP picks ›">

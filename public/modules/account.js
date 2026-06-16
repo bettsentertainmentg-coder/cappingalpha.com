@@ -1,7 +1,7 @@
 // modules/account.js — My Account tab
 
 import { state } from './state.js';
-import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR } from './utils.js';
+import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, voteOdds, calcVoteReturn, avatarFor } from './utils.js';
 import { doRedeemCode } from './paywall.js';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
@@ -12,14 +12,16 @@ export async function loadAccount() {
   el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
 
   try {
-    const [accountRes, picksRes] = await Promise.all([
+    const [accountRes, picksRes, friendsRes] = await Promise.all([
       fetch('/api/account'),
       fetch('/api/picks'),
+      fetch('/api/friends'),
     ]);
     if (accountRes.status === 401) { window.switchTab('home'); window.openLogin(); return; }
     const data      = await accountRes.json();
     const picks     = picksRes.ok ? await picksRes.json() : [];
-    renderAccount({ ...data, allPicks: picks });
+    const friends   = friendsRes.ok ? (await friendsRes.json()).friends || [] : [];
+    renderAccount({ ...data, allPicks: picks, friends });
   } catch (err) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load account</h3><p>${err.message}</p></div>`;
   }
@@ -47,24 +49,6 @@ function voteSlotLabel(v) {
     over:        v.spread ? `Over ${v.spread}` : 'Over',
     under:       v.spread ? `Under ${v.spread}` : 'Under',
   }[v.pick_slot] || v.pick_slot;
-}
-
-function voteOdds(v) {
-  const slot = v.pick_slot;
-  if (slot === 'home_ml') return v.ml_home || null;
-  if (slot === 'away_ml') return v.ml_away || null;
-  if (slot === 'over')    return v.ou_over_odds  || -115;
-  if (slot === 'under')   return v.ou_under_odds || -115;
-  return -115;
-}
-
-function calcVoteReturn(v, unit) {
-  const r = (v.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
-  if (r === 'loss') return -unit;
-  const odds = voteOdds(v) || -115;
-  if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);
-  return +(unit * (odds / 100)).toFixed(2);
 }
 
 let votedChart = null;
@@ -146,6 +130,50 @@ export function drawVotedPlGraph(votes, unit = 20) {
 
 export function toggleFavSport(el) {
   el.classList.toggle('active');
+}
+
+export async function toggleAccountPrivacy(makePublic) {
+  const msgEl = document.getElementById('lb-privacy-saved');
+  try {
+    const res = await fetch('/api/account/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_public: makePublic }),
+    });
+    if (res.ok) {
+      if (msgEl) { msgEl.style.display = ''; setTimeout(() => { msgEl.style.display = 'none'; }, 1800); }
+      loadAccount();
+    }
+  } catch (_) {}
+}
+
+export async function uploadAvatar(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const errEl = document.getElementById('avatar-error');
+  if (errEl) errEl.textContent = '';
+  if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+    if (errEl) errEl.textContent = 'Use a PNG, JPG, or WebP image.';
+    return;
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    if (errEl) errEl.textContent = 'Image too large (max 2MB).';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const res = await fetch('/api/account/avatar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: reader.result }),
+      });
+      const data = await res.json();
+      if (!res.ok) { if (errEl) errEl.textContent = data.error || 'Upload failed.'; return; }
+      loadAccount();
+    } catch (_) { if (errEl) errEl.textContent = 'Upload failed. Try again.'; }
+  };
+  reader.readAsDataURL(file);
 }
 
 export async function saveFavSports() {
@@ -255,7 +283,25 @@ async function changeUsername() {
 
 function renderAccount(data) {
   const el = document.getElementById('account-content');
-  const { user, favoriteSports, votes, allPicks } = data;
+  const { user, favoriteSports, votes, allPicks, isPublic, avatarUrl, friends = [] } = data;
+
+  // My Friends — the members you follow (mirrors the Friends page), each clickable.
+  const friendsHtml = friends.length === 0
+    ? `<div style="padding:24px 20px;color:var(--muted);font-size:14px;">You're not following anyone yet. Open a member from the Leaderboard and tap Follow.</div>`
+    : friends.map(f => {
+        const u = Number(f.units || 0);
+        const uCls = u >= 0 ? '#4ade80' : '#f87171';
+        const mutual = f.mutual ? ` <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#1a1205;background:linear-gradient(135deg,#FFD700,#f0b400);padding:1px 6px;border-radius:999px;vertical-align:middle;">Mutual</span>` : '';
+        return `<div onclick="openMemberModal(${f.user_id},'all')" style="display:flex;align-items:center;gap:12px;padding:11px 20px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px;">
+          ${avatarFor(f.username, 34, f.avatar_url)}
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;">@${f.username}${mutual}</div>
+            <div style="font-size:12px;color:var(--muted);">${f.wins}-${f.losses}${f.pushes ? '-' + f.pushes : ''} · ${f.win_pct == null ? '—' : Math.round(f.win_pct) + '%'} win</div>
+          </div>
+          <div style="text-align:right;color:${uCls};font-weight:700;">${u >= 0 ? '+' : ''}${u.toFixed(2)}u</div>
+        </div>`;
+      }).join('');
+  const lbPublic = isPublic == null ? true : isPublic === 1 || isPublic === true;
 
   const tierLabel = user.subscription_tier === 'free'
     ? `<span class="tier-badge tier-free">Free</span>`
@@ -379,6 +425,17 @@ function renderAccount(data) {
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Account</span></div>
           <div style="padding:4px 20px 12px;">
+            <div style="display:flex;align-items:center;gap:14px;padding:8px 0 14px;">
+              ${avatarFor(user.username, 56, avatarUrl)}
+              <div>
+                <label class="btn btn-ghost" style="font-size:12px;padding:6px 12px;cursor:pointer;display:inline-block;">
+                  Upload photo
+                  <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadAvatar(this)" />
+                </label>
+                <div style="font-size:11px;color:var(--muted);margin-top:4px;">PNG, JPG, or WebP. Max 2MB.</div>
+                <div class="form-error" id="avatar-error" style="font-size:12px;margin-top:2px;"></div>
+              </div>
+            </div>
             <div class="account-info-row">
               <span class="account-info-label">Username</span>
               <span class="account-info-val" style="font-size:13px;font-weight:600;">${user.username || '<span style="color:var(--muted);">Not set</span>'}</span>
@@ -395,6 +452,7 @@ function renderAccount(data) {
               <span class="account-info-label">Member since</span>
               <span class="account-info-val">${memberSince}</span>
             </div>
+            <button class="btn btn-danger" onclick="doLogout()" style="width:100%;margin-top:14px;padding:9px;">Log Out</button>
           </div>
           <div style="padding:0 20px 16px;border-top:1px solid var(--border);margin-top:4px;">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-top:12px;margin-bottom:4px;">Change Username</div>
@@ -429,6 +487,24 @@ function renderAccount(data) {
                </div>`
             : ''}
         </div>
+
+        <div class="card account-reveal" style="margin-top:20px;">
+          <div class="card-header"><span class="card-title">Leaderboard</span></div>
+          <div style="padding:16px 20px 18px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;">${lbPublic ? 'Public profile' : 'Private profile'}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${lbPublic
+                  ? 'Other members can see your rank, record, and picks on the leaderboard.'
+                  : 'You\'re hidden from other members. You can still see your own rank.'}</div>
+              </div>
+              <button class="sport-pill-save" onclick="toggleAccountPrivacy(${lbPublic ? 'false' : 'true'})">
+                ${lbPublic ? 'Make private' : 'Go public'}
+              </button>
+            </div>
+            <span class="sport-pill-saved" id="lb-privacy-saved" style="display:none;margin-top:8px;">Saved!</span>
+          </div>
+        </div>
       </div>
 
       <!-- Right column: P/L graph + voted picks -->
@@ -460,7 +536,7 @@ function renderAccount(data) {
           </div>
         </div>
 
-        <div class="card account-reveal">
+        <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header">
             <span class="card-title">My Votes</span>
             <span style="font-size:12px;color:var(--muted);">Pre-game votes can be removed</span>
@@ -476,6 +552,14 @@ function renderAccount(data) {
             <div id="voted-picks-list">${votesHtml}</div>
           </div>`
           : `<div id="voted-picks-list">${votesHtml}</div>`}
+        </div>
+
+        <div class="card account-reveal">
+          <div class="card-header">
+            <span class="card-title">My Friends</span>
+            <span style="font-size:12px;color:var(--muted);">${friends.length ? `Following ${friends.length}` : ''}</span>
+          </div>
+          <div class="voted-picks-scroll">${friendsHtml}</div>
         </div>
       </div>
 
@@ -511,4 +595,4 @@ function initAccountReveal() {
   });
 }
 
-Object.assign(window, { deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername });
+Object.assign(window, { deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername, toggleAccountPrivacy, uploadAvatar });

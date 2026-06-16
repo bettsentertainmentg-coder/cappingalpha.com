@@ -14,7 +14,7 @@ function userPayload(row) {
 
 // ── POST /auth/signup ─────────────────────────────────────────────────────────
 router.post('/signup', express.json(), async (req, res) => {
-  const { email, password, username, tos_agreed } = req.body || {};
+  const { email, password, username, tos_agreed, public_leaderboard } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password required.' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
   if (!username) return res.status(400).json({ error: 'Username is required.' });
@@ -34,6 +34,13 @@ router.post('/signup', express.json(), async (req, res) => {
     INSERT INTO users (email, password_hash, subscription_tier, username, tos_accepted_at)
     VALUES (?, ?, 'free', ?, datetime('now'))
   `).run(email.toLowerCase().trim(), hash, username.trim());
+
+  // Leaderboard visibility chosen at signup (default public when omitted).
+  const isPublic = public_leaderboard === false ? 0 : 1;
+  try {
+    db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports, is_public) VALUES (?, '[]', ?)`)
+      .run(result.lastInsertRowid, isPublic);
+  } catch (_) {}
 
   const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(result.lastInsertRowid);
   req.session.user = userPayload(user);

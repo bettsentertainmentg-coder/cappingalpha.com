@@ -57,6 +57,9 @@ export function updateNavAuth() {
   // Drop the "Premium Access" upgrade shortcut once they already pay.
   show(dUpgrade, !paying);
 
+  // Unlock CTA (nav): show to anyone not already paying.
+  show(document.getElementById('btn-unlock'), !paying);
+
   // Identify user in PostHog so sessions are linked to accounts.
   if (loggedIn && window.posthog) {
     posthog.identify(String(state.currentUser.id), {
@@ -95,9 +98,15 @@ export async function doLogin() {
 }
 
 // ── Signup modal ──────────────────────────────────────────────────────────────
+// Account creation now lives entirely on the unlock page ("Create your account").
+// There is no standalone signup popup — every "sign up / create account" entry
+// routes here, scrolling to the account form.
 export function openSignup() {
-  document.getElementById('signup-modal').classList.remove('hidden');
-  document.getElementById('signup-email').focus();
+  closeLogin();
+  if (window.switchTab) window.switchTab('unlock');
+  setTimeout(() => {
+    document.getElementById('unlock-account')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 60);
 }
 export function closeSignup() {
   document.getElementById('signup-modal').classList.add('hidden');
@@ -110,6 +119,8 @@ export async function doSignup() {
   const password  = document.getElementById('signup-password').value;
   const confirm   = document.getElementById('signup-confirm').value;
   const tosCheck  = document.getElementById('signup-tos')?.checked;
+  const lbEl      = document.getElementById('signup-leaderboard');
+  const publicLb  = lbEl ? lbEl.checked : true;
   const errEl     = document.getElementById('signup-error');
   errEl.textContent = '';
   if (!username) { errEl.textContent = 'Username is required.'; return; }
@@ -122,7 +133,7 @@ export async function doSignup() {
     const res  = await fetch('/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, username, tos_agreed: true }),
+      body: JSON.stringify({ email, password, username, tos_agreed: true, public_leaderboard: publicLb }),
     });
     const data = await res.json();
     if (!res.ok) { errEl.textContent = data.error || 'Signup failed.'; return; }
@@ -177,9 +188,57 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Expose to window for inline onclick handlers ──────────────────────────────
+// ── Continue with Google (login modal) ────────────────────────────────────────
+// GIS token flow → /auth/google (server validates the token + creates/links/logs
+// in the account). Dormant until google_client_id is present in /api/config.
+let _gisPromise = null;
+function _loadGis() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  if (_gisPromise) return _gisPromise;
+  _gisPromise = new Promise((resolve, reject) => {
+    let s = document.getElementById('gis-script');
+    if (s) { s.addEventListener('load', () => resolve()); s.addEventListener('error', () => reject(new Error('gis'))); return; }
+    s = document.createElement('script');
+    s.id = 'gis-script';
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('gis'));
+    document.head.appendChild(s);
+  });
+  return _gisPromise;
+}
+
+export async function loginWithGoogle() {
+  const errEl = document.getElementById('login-error');
+  const clientId = state.CONFIG?.google_client_id;
+  if (!clientId) { if (errEl) errEl.textContent = 'Google sign-in is coming soon. Use email below for now.'; return; }
+  if (errEl) errEl.textContent = '';
+  try {
+    await _loadGis();
+    const tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: 'openid email profile',
+      callback: async (resp) => {
+        if (resp.error || !resp.access_token) { if (errEl) errEl.textContent = 'Google sign-in was cancelled.'; return; }
+        try {
+          const r = await fetch('/auth/google', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token: resp.access_token }),
+          });
+          const data = await r.json();
+          if (!r.ok) { if (errEl) errEl.textContent = data.error || 'Google sign-in failed.'; return; }
+          location.reload();
+        } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
+      },
+    });
+    tokenClient.requestAccessToken();
+  } catch (_) { if (errEl) errEl.textContent = 'Could not reach Google. Try again.'; }
+}
+
 Object.assign(window, {
   openLogin, closeLogin, doLogin,
   openSignup, closeSignup, doSignup,
-  doLogout,
+  doLogout, loginWithGoogle,
   showForgotPassword, showLoginForm, doForgotPassword,
 });

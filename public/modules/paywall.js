@@ -44,38 +44,57 @@ export async function resumePendingCheckout() {
   await startCheckout(plan);
 }
 
+// Shared upgrade CTA — a gold "Unlock the CappingAlpha" button (lock → unlock on
+// hover, like the top-right nav button) that opens the unlock page, with the
+// access options underneath. Used by the Today's Picks paywall and the MVP prompt.
+export function unlockCtaHtml() {
+  return `
+    <div class="unlock-cta">
+      <button class="unlock-cta-btn" onclick="event.stopPropagation();switchTab('unlock')">
+        <span class="ucb-lock">&#128274;</span><span class="ucb-open">&#128275;</span>
+        Unlock the CappingAlpha
+      </button>
+      <div class="unlock-cta-access">Already have access? <a onclick="event.stopPropagation();openLogin()">Log in</a> &middot; <a onclick="event.stopPropagation();openCodeModal()">I have a code</a></div>
+    </div>`;
+}
+
 export function inlinePaywallHtml() {
-  const loggedIn = !isViewer();
-  const accountRow = loggedIn
-    ? ''
-    : `<div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a> &nbsp;&middot;&nbsp; <a onclick="openSignup()">Sign up free</a></div>`;
   return `
     <div class="inline-paywall-wrap" id="paywall-wrap">
       <div class="inline-paywall-fade"></div>
       <div class="inline-paywall-card" id="paywall-card">
-        <h3>Unlock Today's Top Picks</h3>
-        <div class="paywall-pricing-row">
-          <div class="paywall-price-card" onclick="startCheckout('day')">
-            <div class="paywall-price">$1</div>
-            <div class="paywall-price-label">Day</div>
-          </div>
-          <div class="paywall-price-card paywall-price-featured" onclick="startCheckout('week')">
-            <div class="paywall-price">$4</div>
-            <div class="paywall-price-label">/week</div>
-          </div>
-          <div class="paywall-price-card" onclick="startCheckout('year')">
-            <div class="paywall-price">$75</div>
-            <div class="paywall-price-label">/year</div>
-          </div>
-        </div>
-        ${accountRow}
-        <div class="paywall-code-link"><a onclick="openCodeEntry()">I have an access code</a></div>
+        ${unlockCtaHtml()}
       </div>
     </div>`;
 }
 
 export function inlineSignupCtaHtml() {
   return inlinePaywallHtml();
+}
+
+// ── Access-code modal — context-independent code entry (works from any paywall
+// button and the unlock page). Requires an account; otherwise nudges to sign up.
+export function openCodeModal() {
+  const modal = document.getElementById('code-modal');
+  if (!modal) return;
+  const entry    = document.getElementById('code-modal-inner');
+  const needAcct = document.getElementById('code-modal-needacct');
+  const err      = document.getElementById('code-modal-error');
+  if (err) err.textContent = '';
+  const loggedIn = !!state.currentUser;
+  if (entry)    entry.style.display    = loggedIn ? '' : 'none';
+  if (needAcct) needAcct.style.display = loggedIn ? 'none' : '';
+  modal.classList.remove('hidden');
+  if (loggedIn) document.getElementById('code-modal-input')?.focus();
+}
+
+export function closeCodeModal() {
+  const modal = document.getElementById('code-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+export function submitCodeModal() {
+  return doRedeemCode('code-modal-input', 'code-modal-error');
 }
 
 export function openCodeEntry() {
@@ -108,7 +127,7 @@ export function renderPaywallDefault() {
   const card = document.getElementById('paywall-card');
   if (!card) return;
   card.innerHTML = `
-    <h3>Unlock All Ranked Plays</h3>
+    <h3>Unlock the CappingAlpha</h3>
     <p>$1/day &middot; $4/week &middot; $75/year</p>
     <div class="inline-paywall-btns">
       <button class="btn btn-gold" onclick="startCheckout('day')">Day $1</button>
@@ -137,4 +156,4 @@ export async function doRedeemCode(inputId = 'access-code-input', errId = 'code-
   } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
 }
 
-Object.assign(window, { openCodeEntry, renderPaywallDefault, doRedeemCode, startCheckout, resumePendingCheckout });
+Object.assign(window, { openCodeEntry, renderPaywallDefault, doRedeemCode, startCheckout, resumePendingCheckout, openCodeModal, closeCodeModal, submitCodeModal });

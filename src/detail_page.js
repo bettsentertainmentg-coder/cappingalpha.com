@@ -68,38 +68,46 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 // Server-renders the correct logged-in/out state from the session so a subscribed
 // user never sees Login/Get Access (or a flash of them) before client JS runs.
 function buildNav(user) {
-  const on  = !!user;
-  const acct = on ? esc(user.username || user.email || '') : '';
-  const hide = 'display:none;';
+  const on     = !!user;
+  const paying = on && user.tier && user.tier !== 'free';
+  const acct   = on ? esc(user.username || user.email || '') : '';
+  const hide   = 'display:none;';
+  // Logo styling is inlined so it always matches the main nav (22px) — the detail
+  // page has no .logo CSS of its own, so otherwise it renders small.
+  const logoStyle = 'text-decoration:none;font-size:22px;font-weight:700;letter-spacing:-0.3px;color:#e2e8f0;display:inline-flex;align-items:center;white-space:nowrap;';
+  // Tabs deep-link to the SPA via hash so they actually switch (the old /?tab=
+  // links just landed on home). Leaderboard included to match the main bar.
+  const tab = (h, l) => `<a href="/#${h}" class="tab-btn" style="text-decoration:none;">${l}</a>`;
   return `<nav>
     <div class="nav-left">
       <button class="ca-hamburger" aria-label="Menu" onclick="document.getElementById('ca-detail-menu').classList.toggle('open')">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
       </button>
-      <a href="/" class="logo" style="text-decoration:none;">Capping<span>Alpha</span></a>
+      <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
-        <a href="/?tab=mvp"     class="tab-btn" style="text-decoration:none;">MVP Picks</a>
-        <a href="/?tab=sports"  class="tab-btn" style="text-decoration:none;">Sports</a>
-        <a href="/?tab=esports" class="tab-btn" style="text-decoration:none;">Esports</a>
-        <a href="/?tab=about"   class="tab-btn" style="text-decoration:none;">About</a>
+        ${tab('mvp', 'MVP Picks')}
+        ${tab('sports', 'Sports')}
+        ${tab('esports', 'Esports')}
+        ${tab('leaderboard', 'Leaderboard')}
+        ${tab('about', 'About')}
       </div>
     </div>
     <div class="nav-actions">
       <span id="nav-user-info" style="${on ? '' : hide}">${acct}</span>
+      <button class="btn" id="btn-unlock" style="${paying ? hide : ''}" onclick="location.href='/#unlock'">Unlock the CappingAlpha</button>
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()" style="${on ? hide : ''}">Login</button>
-      <button class="btn btn-primary" id="btn-signup" onclick="openSignup()" style="${on ? hide : ''}">Get Access</button>
-      <a href="/?tab=account" class="tab-btn" id="tab-account" style="${on ? '' : hide}text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
-      <button class="btn btn-danger" id="btn-logout" style="${on ? '' : hide}" onclick="doLogout()">Logout</button>
+      <a href="/#account" class="tab-btn" id="tab-account" style="${on ? '' : hide}text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
     </div>
   </nav>
   <!-- Mobile dropdown menu (matches the home hamburger) -->
   <div id="ca-detail-menu" class="ca-detail-menu">
     <a href="/">Home</a>
-    <a href="/?tab=mvp">MVP Picks</a>
-    <a href="/?tab=sports">Sports</a>
-    <a href="/?tab=esports">Esports</a>
-    <a href="/?tab=about">About</a>
-    <a href="/?tab=account">My Account</a>
+    <a href="/#mvp">MVP Picks</a>
+    <a href="/#sports">Sports</a>
+    <a href="/#esports">Esports</a>
+    <a href="/#leaderboard">Leaderboard</a>
+    <a href="/#about">About</a>
+    <a href="/#account">My Account</a>
   </div>`;
 }
 

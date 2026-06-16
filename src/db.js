@@ -400,6 +400,52 @@ try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (us
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_customer_id TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT`); } catch (_) {}
 
+// ── Leaderboard ───────────────────────────────────────────────────────────────
+// Per-user public/private flag (1 = visible on the public leaderboard, 0 = hidden).
+// Default 1 (public by default); an absent user_preferences row is also treated as
+// public via COALESCE(up.is_public, 1) in the ranking queries.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
+// Optional uploaded avatar (stored under the data volume; null = generated initials).
+try { db.exec(`ALTER TABLE users ADD COLUMN avatar_path TEXT`); } catch (_) {}
+// Speeds up per-window leaderboard aggregates (filter by result + voted_at, group by user).
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_result_voted ON game_votes (user_id, result, voted_at)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_votes (result, voted_at)`); } catch (_) {}
+// Permanent record of weekly/monthly leaderboard finishes (top 10) → drives profile
+// badges. Never wiped. tier: gold (#1), silver (top 5), bronze (top 10).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS leaderboard_awards (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL,
+      period_type TEXT    NOT NULL,
+      period_key  TEXT    NOT NULL,
+      rank        INTEGER NOT NULL,
+      tier        TEXT    NOT NULL,
+      units       REAL,
+      awarded_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, period_type, period_key),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_leaderboard_awards_user ON leaderboard_awards (user_id)`);
+} catch (_) {}
+// Social: one-way follow edges (Twitter style). Powers the Friends leaderboard and
+// follower/following counts. Never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL,
+      followee_id INTEGER NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(follower_id, followee_id),
+      FOREIGN KEY (follower_id) REFERENCES users(id),
+      FOREIGN KEY (followee_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows (follower_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows (followee_id)`);
+} catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS access_codes (
