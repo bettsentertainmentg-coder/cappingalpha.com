@@ -52,12 +52,13 @@ async function _renderTopPick() {
     else if (result === 'loss') { resultBadge = `<span class="ca-tp-result-badge loss">${X_SVG}LOST</span>`;    cardState = ' ca-tp-lost'; }
     else if (result === 'push') { resultBadge = `<span class="ca-tp-result-badge push">PUSH</span>`;            cardState = ' ca-tp-push'; }
 
-    // Live game: glowing green dot + score, with a condensed scoreboard line below
-    // (baseball bases/outs/half-inning; period/clock for other sports). Sits in the
-    // blank space right of the bet. Gate on resultBadge (set only for win/loss/push)
+    // Live game: one compact line under the bet — glowing blue dot + score + the
+    // condensed scoreboard (baseball bases/outs/half-inning; period/clock otherwise).
+    // Kept on its own left-aligned line so the card stays its original size and the
+    // bet row isn't pushed lopsided. Gate on resultBadge (set only for win/loss/push)
     // — pick.result is 'pending' while live, which is truthy.
     const isLive = (pick.game_status || '') === 'in' && !resultBadge;
-    let liveBadge = '';
+    let liveLine = '';
     if (isLive) {
       const aScore = pick.game_away_score ?? 0;
       const hScore = pick.game_home_score ?? 0;
@@ -70,11 +71,8 @@ async function _renderTopPick() {
         else if (sp === 'NHL' || sp === 'CBB' || sp === 'WCBB') fallback = `P${n}`;
         else fallback = `Q${n}`;
       }
-      const stateLine = bb || (fallback ? `<span class="bb-half">${fallback}</span>` : '');
-      liveBadge = `<span class="ca-tp-live">
-        <span class="ca-tp-live-score"><span class="ca-tp-live-dot"></span>${aScore}-${hScore}</span>
-        ${stateLine ? `<span class="ca-tp-live-state">${stateLine}</span>` : ''}
-      </span>`;
+      const tail = bb || (fallback ? `<span class="bb-half">${fallback}</span>` : '');
+      liveLine = `<div class="ca-tp-live-line"><span class="ca-tp-live-dot"></span><span class="ca-tp-live-score">${aScore}-${hScore}</span>${tail}</div>`;
       cardState = ' ca-tp-live';
     }
 
@@ -125,7 +123,8 @@ async function _renderTopPick() {
           <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
         </div>
         ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
-        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${liveBadge || resultBadge}</div>
+        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
+        ${liveLine}
         <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
         ${plHtml}
         ${ctaHtml}
