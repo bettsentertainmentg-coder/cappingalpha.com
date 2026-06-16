@@ -6,7 +6,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, liveStateHtml } from './utils.js';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
@@ -71,12 +71,19 @@ function _livePeriod(g) {
   return [q, g.clock && g.clock !== '0:00' ? g.clock : ''].filter(Boolean).join(' ') || 'Live';
 }
 
-// Foot status: live period (score lives in the team rows now), Final, or start time.
+// True when a game carries live baseball state we can draw as a bases diamond.
+function _hasBases(g) {
+  return g.status === 'in' && (g.sport || '').toUpperCase() === 'MLB' && !!g.live_detail;
+}
+
+// Foot status: live half-inning/period (baseball bases now live in the team area),
+// Final, or start time.
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
-  // Baseball shows the bases diamond + outs + half-inning; others fall back to the
-  // period/clock. Score already lives in the team rows above.
-  if (g.status === 'in')   return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${liveStateHtml(g) || _livePeriod(g)}</span>`;
+  if (g.status === 'in') {
+    const label = _hasBases(g) ? g.live_detail : _livePeriod(g);
+    return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${label}</span>`;
+  }
   if (g.status === 'post') return `<span class="ca-tg-final">Final</span>`;
   return `<span class="ca-tg-time">${start}</span>`;
 }
@@ -193,14 +200,20 @@ function _gameTile(g) {
   const pickTitle = _isUnlocked(tp) ? ` · Top pick: ${pickLabel(tp)}` : '';
   const away = _shortName(g.away_team, g.away_short);
   const home = _shortName(g.home_team, g.home_short);
+  // Live baseball: a bases diamond + outs sits in the open space between the team
+  // names and their scores (vertically centred across both rows).
+  const basesHtml = _hasBases(g)
+    ? `<div class="ca-tg-bases">${basesDiamond(g.live_bases)}${outsDots(g.live_outs)}</div>`
+    : '';
   return `<div class="ca-tg-tile" onclick="location.href='/game/${g.espn_game_id}'" title="${away} @ ${home}${pickTitle}">
     <div class="ca-tg-head">
       ${sportBadge(g.sport)}
       ${_cornerCluster(g)}
     </div>
-    <div class="ca-tg-teams">
+    <div class="ca-tg-teams${basesHtml ? ' tg-has-bases' : ''}">
       ${_teamRow(g, false)}
       ${_teamRow(g, true)}
+      ${basesHtml}
     </div>
     <div class="ca-tg-foot">
       ${_statusHtml(g)}
