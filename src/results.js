@@ -428,7 +428,13 @@ async function resolveResults() {
   // outcome from ESPN (free) and promote the row to final so the normal passes
   // settle it. Sport-agnostic: also unsticks frozen MLB/NBA/NHL/tennis rows and
   // self-heals the live board display.
-  const STUCK_AFTER_MS = 5 * 60 * 60 * 1000; // 5h after start a game is over; a postponement just won't come back final, so it's skipped
+  // 3h after start, a game is almost certainly over. This only ever PROMOTES a row
+  // that ESPN independently confirms is Final, so a still-running extra-innings/OT
+  // game is just re-checked and left alone — the threshold only controls how soon
+  // we start checking. Kept low so late games that finish after the active window
+  // (and after the cycle date rolls, so fetchTodaysGames no longer queries their
+  // date) still settle instead of stranding on their last inning.
+  const STUCK_AFTER_MS = 3 * 60 * 60 * 1000;
   const stuckGames = db.prepare(`
     SELECT espn_game_id, sport, start_time
     FROM today_games
