@@ -10,6 +10,7 @@
 const db = require('./db');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
+const { getCycleDate } = require('./cycle');
 
 // Realistic-looking handles. Editable later from the admin panel.
 const DUMMY_USERS = [
@@ -42,10 +43,17 @@ function hash100(str) {
   return h % 100;
 }
 
-// Each dummy has its own appetite (≈38–80% of eligible picks) so volumes vary.
-function dummyTakeRate(userId) { return 38 + (userId % 7) * 7; }
-function dummyTakes(userId, gameId, slot) {
-  return hash100(`${userId}:${gameId}:${slot}`) < dummyTakeRate(userId);
+// Per-day pick quota. Most dummies are light bettors (1-4 picks/day); one is a
+// heavy hitter and one is moderate, so the board has a natural spread of volumes.
+// The exact number wobbles day to day (seeded by id + cycle date) so it doesn't
+// look mechanical.
+const HEAVY  = new Set(['CoverCity']);      // bets a lot
+const MEDIUM = new Set(['LineMoveLarry']);  // moderate
+function dailyQuota(user) {
+  const seed = hash100(`${user.id}:${getCycleDate()}:q`);
+  if (HEAVY.has(user.username))  return 10 + (seed % 13); // 10-22 / day
+  if (MEDIUM.has(user.username)) return 4 + (seed % 4);   // 4-7  / day
+  return 1 + (seed % 4);                                   // 1-4  / day
 }
 
 // ── Seed accounts ─────────────────────────────────────────────────────────────
@@ -79,12 +87,12 @@ async function seedDummyAccounts() {
 // yet (so it reads like they bet pre/in-game). Snapshot columns mirror the real
 // vote endpoint so grading + leaderboard math are identical. Idempotent.
 function runDummyVotes() {
-  const dummies = db.prepare(`SELECT id FROM users WHERE is_dummy = 1`).all();
+  const dummies = db.prepare(`SELECT id, username FROM users WHERE is_dummy = 1`).all();
   if (!dummies.length) return 0;
 
   const picks = db.prepare(`
-    SELECT p.espn_game_id, p.pick_type, p.is_home_team, p.score, p.sport,
-           g.home_team, g.away_team, g.status,
+    SELECT p.espn_game_id, p.pick_type, p.is_home_team, p.sport,
+           g.home_team, g.away_team,
            g.ml_home, g.ml_away, g.ou_over_odds, g.ou_under_odds,
            g.spread_home, g.spread_away, g.over_under
     FROM picks p
@@ -93,7 +101,27 @@ function runDummyVotes() {
   `).all();
   if (!picks.length) return 0;
 
-  const hasVote = db.prepare(`SELECT 1 FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`);
+  // One candidate per (game, slot) — dedupe cappers picking the same side.
+  const candidates = [];
+  const seen = new Set();
+  for (const p of picks) {
+    const slot = pickToSlot(p);
+    if (!slot) continue;
+    const key = p.espn_game_id + ':' + slot;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const line = slot === 'home_spread' ? p.spread_home
+               : slot === 'away_spread' ? p.spread_away
+               : (slot === 'over' || slot === 'under') ? p.over_under
+               : null;
+    candidates.push({ ...p, slot, line });
+  }
+  if (!candidates.length) return 0;
+
+  const hasVote   = db.prepare(`SELECT 1 FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`);
+  // How many picks this dummy already has on the current slate (so re-running the
+  // cron through the day tops up toward the quota instead of re-betting).
+  const placedToday = db.prepare(`SELECT COUNT(*) c FROM game_votes WHERE user_id = ? AND espn_game_id IN (SELECT espn_game_id FROM today_games)`);
   const insert = db.prepare(`
     INSERT OR IGNORE INTO game_votes
       (user_id, espn_game_id, pick_slot, voted_at, home_team, away_team, sport,
@@ -103,21 +131,20 @@ function runDummyVotes() {
 
   let added = 0;
   const tx = db.transaction(() => {
-    for (const p of picks) {
-      const slot = pickToSlot(p);
-      if (!slot) continue;
-      const line = slot === 'home_spread' ? p.spread_home
-                 : slot === 'away_spread' ? p.spread_away
-                 : (slot === 'over' || slot === 'under') ? p.over_under
-                 : null;
-      for (const d of dummies) {
-        if (!dummyTakes(d.id, p.espn_game_id, slot)) continue;
-        // Never vote both sides of the same bet type.
-        if (hasVote.get(d.id, p.espn_game_id, slot)) continue;
-        if (hasVote.get(d.id, p.espn_game_id, PAIR[slot])) continue;
-        const r = insert.run(d.id, p.espn_game_id, slot, p.home_team, p.away_team, p.sport,
-          p.ml_home, p.ml_away, p.ou_over_odds, p.ou_under_odds, line);
-        if (r.changes) added++;
+    for (const d of dummies) {
+      let remaining = dailyQuota(d) - placedToday.get(d.id).c;
+      if (remaining <= 0) continue;
+      // Stable per-dummy ordering so each picks the same subset across runs.
+      const avail = candidates
+        .map(c => ({ c, h: hash100(`${d.id}:${c.espn_game_id}:${c.slot}`) }))
+        .sort((a, b) => a.h - b.h);
+      for (const { c } of avail) {
+        if (remaining <= 0) break;
+        if (hasVote.get(d.id, c.espn_game_id, c.slot)) continue;
+        if (hasVote.get(d.id, c.espn_game_id, PAIR[c.slot])) continue; // no both-sides
+        const r = insert.run(d.id, c.espn_game_id, c.slot, c.home_team, c.away_team, c.sport,
+          c.ml_home, c.ml_away, c.ou_over_odds, c.ou_under_odds, c.line);
+        if (r.changes) { added++; remaining--; }
       }
     }
   });
