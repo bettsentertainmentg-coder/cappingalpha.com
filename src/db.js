@@ -511,6 +511,8 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_golf_picks_capper ON golf_picks (c
 // ── User account migrations ───────────────────────────────────────────────────
 try { db.exec(`ALTER TABLE users ADD COLUMN username_changed_at TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN tos_accepted_at TEXT`); } catch (_) {}
+// Google sign-in: links a users row to a Google account (payload.sub).
+try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT`); } catch (_) {}
 
 try {
   db.exec(`

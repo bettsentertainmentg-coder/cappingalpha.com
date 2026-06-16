@@ -226,6 +226,7 @@ app.get('/api/config', (req, res) => {
     mvp_display_threshold: displayThreshold,
     bet_unit: betUnit,
     paid_rank_max: PAID_RANK_MAX(),
+    google_client_id: process.env.GOOGLE_CLIENT_ID || null,
   });
 });
 

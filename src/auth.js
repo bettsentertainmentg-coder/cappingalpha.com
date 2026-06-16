@@ -58,6 +58,78 @@ router.post('/login', express.json(), async (req, res) => {
   res.json({ success: true, user: userPayload(user) });
 });
 
+// ── POST /auth/google — "Continue with Google" (GIS token model) ──────────────
+// The browser sends a Google access_token (from google.accounts.oauth2). We
+// validate it with Google's tokeninfo endpoint, confirm it was minted for OUR
+// client id, then find-or-create the account. No password is set for Google
+// accounts (an unusable random hash satisfies the NOT NULL column).
+function deriveUsername(email) {
+  let base = String(email || '').split('@')[0].replace(/[^a-zA-Z0-9_]/g, '');
+  if (base.length < 3) base = (base + 'user');
+  base = base.slice(0, 20);
+  let candidate = base, n = 0;
+  while (db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?)`).get(candidate)) {
+    n += 1;
+    const suffix = String(n);
+    candidate = base.slice(0, 20 - suffix.length) + suffix;
+  }
+  return candidate;
+}
+
+router.post('/google', express.json(), async (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID) return res.status(503).json({ error: 'Google sign-in is not configured.' });
+  const { access_token } = req.body || {};
+  if (!access_token) return res.status(400).json({ error: 'Missing Google token.' });
+
+  let info;
+  try {
+    const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(access_token)}`);
+    info = await r.json();
+    if (!r.ok || info.error) throw new Error(info.error_description || info.error || 'tokeninfo failed');
+  } catch (err) {
+    console.warn('[auth] Google tokeninfo failed:', err.message);
+    return res.status(401).json({ error: 'Could not verify Google sign-in.' });
+  }
+
+  // The token must have been issued for this app, or it isn't ours to trust.
+  if (info.aud !== process.env.GOOGLE_CLIENT_ID && info.azp !== process.env.GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: 'Google sign-in token mismatch.' });
+  }
+  const googleId = info.sub;
+  const email    = (info.email || '').toLowerCase().trim();
+  if (!googleId || !email) return res.status(400).json({ error: 'Google account is missing an email.' });
+  if (info.email_verified === false || info.email_verified === 'false') {
+    return res.status(403).json({ error: 'Your Google email is not verified.' });
+  }
+
+  // 1) known google_id  2) same email (link it)  3) brand-new account
+  let user = db.prepare(`SELECT * FROM users WHERE google_id = ?`).get(googleId);
+  if (!user) {
+    const byEmail = db.prepare(`SELECT * FROM users WHERE LOWER(email) = LOWER(?)`).get(email);
+    if (byEmail) {
+      db.prepare(`UPDATE users SET google_id = ? WHERE id = ?`).run(googleId, byEmail.id);
+      user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(byEmail.id);
+    }
+  }
+  if (!user) {
+    const username   = deriveUsername(email);
+    const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
+    const result = db.prepare(`
+      INSERT INTO users (email, password_hash, subscription_tier, username, google_id, tos_accepted_at)
+      VALUES (?, ?, 'free', ?, ?, datetime('now'))
+    `).run(email, randomHash, username, googleId);
+    try {
+      db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports) VALUES (?, '[]')`)
+        .run(result.lastInsertRowid);
+    } catch (_) {}
+    user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(result.lastInsertRowid);
+    console.log(`[auth] New Google account: ${email} (@${username})`);
+  }
+
+  req.session.user = userPayload(user);
+  res.json({ success: true, user: userPayload(user) });
+});
+
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
