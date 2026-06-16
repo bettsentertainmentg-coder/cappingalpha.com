@@ -27,6 +27,7 @@ const { getSetting } = require('./src/db');
 // deploy. Single source of truth — the client reads it via /api/config (paid_rank_max).
 const PAID_RANK_MAX = () => parseInt(getSetting('paid_rank_max', 50), 10) || 50;
 const { fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
+const { syncLiveSituations } = require('./src/live_situation');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
@@ -350,7 +351,10 @@ app.get('/api/picks', (req, res) => {
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
-           tg.away_score AS game_away_score
+           tg.away_score AS game_away_score,
+           tg.live_detail AS game_live_detail,
+           tg.live_outs   AS game_live_outs,
+           tg.live_bases  AS game_live_bases
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
@@ -400,7 +404,10 @@ app.get('/api/picks/top', (req, res) => {
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
-           tg.away_score AS game_away_score
+           tg.away_score AS game_away_score,
+           tg.live_detail AS game_live_detail,
+           tg.live_outs   AS game_live_outs,
+           tg.live_bases  AS game_live_bases
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
@@ -483,9 +490,10 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
+  const cols = `espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases`;
   const rows = sport
-    ? db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
-    : db.prepare(`SELECT espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
+    ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
+    : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
   res.json(rows);
 });
 
@@ -520,6 +528,7 @@ app.get('/api/games/top', (req, res) => {
            tg.home_score, tg.away_score,
            tg.tennis_score_detail, tg.home_flag, tg.away_flag,
            tg.status, tg.period, tg.clock, tg.start_time,
+           tg.live_detail, tg.live_outs, tg.live_bases,
            pm.volume_usd AS pm_vol,
            k.volume_yes  AS k_vol
     FROM today_games tg
@@ -1371,6 +1380,8 @@ app.listen(PORT, () => {
   // Re-evaluate any pending MVP picks (covers picks reset by db.js migration on startup)
   await resolveResults().catch(err => console.error('[startup] resolveResults error:', err.message));
   await resolveVotes().catch(err => console.error('[startup] resolveVotes error:', err.message));
+  // Populate live game-state immediately so a mid-game restart shows scoreboards.
+  await syncLiveSituations().catch(err => console.error('[startup] syncLiveSituations error:', err.message));
   // Void mutually-exclusive same-game MVP picks immediately on load (also runs on
   // the */5 cron) so conflicts like Knicks Win vs Spurs -5.5 settle without waiting.
   try {
@@ -1535,6 +1546,9 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
+  // Condensed in-game state (baseball bases/outs/half-inning) for live games — free
+  // ESPN scoreboard, runs after scores so statuses are fresh.
+  await syncLiveSituations().catch(err => console.error('[cron] syncLiveSituations error:', err.message));
   // Stamp actual_start_at the first time any game flips to 'in'. Powers the
   // 5-min-past-actual-start scoring cutoff in storage.js.
   stampActualStarts();

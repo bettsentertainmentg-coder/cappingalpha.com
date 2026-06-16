@@ -169,3 +169,49 @@ export function fmtSpread(n) {
   if (n == null) return '—';
   return n > 0 ? `+${n}` : String(n);
 }
+
+// ── Live in-game state (condensed per-sport scoreboards) ──────────────────────
+// Baseball bases diamond from a bitmask (1 = on first, 2 = on second, 4 = on
+// third). Tiny inline SVG: 2B top, 1B right, 3B left. Filled = runner on.
+export function basesDiamond(bases = 0) {
+  const fill = b => (bases & b) ? 'var(--green)' : 'transparent';
+  const base = (cx, cy, b) =>
+    `<polygon points="${cx},${cy - 3.3} ${cx + 3.3},${cy} ${cx},${cy + 3.3} ${cx - 3.3},${cy}" fill="${fill(b)}" stroke="#64748b" stroke-width="1"/>`;
+  return `<svg class="bb-diamond" width="22" height="16" viewBox="0 0 22 16" aria-hidden="true">${base(11, 4.6, 2)}${base(16.4, 9, 1)}${base(5.6, 9, 4)}</svg>`;
+}
+
+// Outs as two dots (0..2 during live play). Empty between innings (outs == null).
+export function outsDots(outs) {
+  if (outs == null) return '';
+  const dot = on => `<span class="bb-out${on ? ' on' : ''}"></span>`;
+  return `<span class="bb-outs" title="${outs} out">${dot(outs >= 1)}${dot(outs >= 2)}</span>`;
+}
+
+// Condensed live state for a game/pick object. Baseball → bases diamond + outs +
+// half-inning ("Bot 5th"); returns '' for other sports or before any detail has
+// synced, so callers fall back to their own period/clock string.
+export function liveStateHtml(g) {
+  const sport  = (g.sport || '').toUpperCase();
+  const detail = g.game_live_detail ?? g.live_detail ?? null;
+  if (sport === 'MLB' && detail) {
+    const outs  = g.game_live_outs  ?? g.live_outs  ?? null;
+    const bases = g.game_live_bases ?? g.live_bases ?? 0;
+    return `<span class="bb-state">${basesDiamond(bases)}${outsDots(outs)}<span class="bb-half">${detail}</span></span>`;
+  }
+  return '';
+}
+
+// Avatar for a username: the uploaded image if a URL is given, otherwise a colored
+// initial circle (deterministic color from the name). Used by the leaderboard,
+// account, and member-profile views.
+export function avatarFor(username, size = 40, url = null) {
+  const s = Number(size) || 40;
+  if (url) {
+    return `<img src="${url}" alt="" class="ca-avatar" style="width:${s}px;height:${s}px;border-radius:50%;object-fit:cover;display:inline-block;vertical-align:middle;flex-shrink:0;">`;
+  }
+  const name = (username == null ? '?' : String(username));
+  const initial = (name.replace(/[^a-zA-Z0-9]/g, '').charAt(0) || '?').toUpperCase();
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return `<span class="ca-avatar" style="width:${s}px;height:${s}px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:hsl(${h},42%,34%);color:#fff;font-weight:700;font-size:${Math.round(s * 0.42)}px;flex-shrink:0;vertical-align:middle;">${initial}</span>`;
+}

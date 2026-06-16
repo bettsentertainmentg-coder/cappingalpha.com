@@ -1,7 +1,7 @@
 // modules/sports.js — Sports tab: filtered picks + schedule + game search
 
 import { state } from './state.js';
-import { gameTime, pickLabel } from './utils.js';
+import { gameTime, pickLabel, liveStateHtml } from './utils.js';
 import { renderPicks } from './picks.js';
 
 // ── All today's games — loaded once when Sports tab opens ─────────────────────
@@ -96,7 +96,10 @@ function scheduleRowHtml(g) {
       : sportUp === 'ATP' || sportUp === 'WTA'
         ? `Set ${g.period || ''}`
         : `P${g.period || ''}`;
-    rightCol = `<span class="schedule-live"><span style="width:6px;height:6px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse 1s infinite;"></span>${g.away_score}-${g.home_score} · ${periodLabel}</span>`;
+    // Baseball shows the bases diamond + outs + half-inning; others fall back to the period.
+    const bb = liveStateHtml(g);
+    const state = bb || `<span class="bb-half">${periodLabel}</span>`;
+    rightCol = `<span class="schedule-live"><span class="schedule-live-dot"></span>${g.away_score}-${g.home_score} ${state}</span>`;
   } else {
     rightCol = `<span class="schedule-time">${gameTime(g.start_time)}</span>`;
   }

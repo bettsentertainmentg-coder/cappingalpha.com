@@ -6,7 +6,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel } from './utils.js';
+import { sportBadge, gameTime, pickLabel, liveStateHtml } from './utils.js';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
@@ -74,7 +74,9 @@ function _livePeriod(g) {
 // Foot status: live period (score lives in the team rows now), Final, or start time.
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
-  if (g.status === 'in')   return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${_livePeriod(g)}</span>`;
+  // Baseball shows the bases diamond + outs + half-inning; others fall back to the
+  // period/clock. Score already lives in the team rows above.
+  if (g.status === 'in')   return `<span class="ca-tg-live"><span class="ca-tg-live-dot"></span>${liveStateHtml(g) || _livePeriod(g)}</span>`;
   if (g.status === 'post') return `<span class="ca-tg-final">Final</span>`;
   return `<span class="ca-tg-time">${start}</span>`;
 }

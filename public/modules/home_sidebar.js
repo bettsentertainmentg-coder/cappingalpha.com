@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname } from './utils.js';
+import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -52,23 +52,29 @@ async function _renderTopPick() {
     else if (result === 'loss') { resultBadge = `<span class="ca-tp-result-badge loss">${X_SVG}LOST</span>`;    cardState = ' ca-tp-lost'; }
     else if (result === 'push') { resultBadge = `<span class="ca-tp-result-badge push">PUSH</span>`;            cardState = ' ca-tp-push'; }
 
-    // Live game: blue pulse-dot pill with the current score (+ period) on the right,
-    // mutually exclusive with the result badge. Gate on resultBadge (set only for
-    // win/loss/push) — pick.result is 'pending' while live, which is truthy.
+    // Live game: glowing green dot + score, with a condensed scoreboard line below
+    // (baseball bases/outs/half-inning; period/clock for other sports). Sits in the
+    // blank space right of the bet. Gate on resultBadge (set only for win/loss/push)
+    // — pick.result is 'pending' while live, which is truthy.
     const isLive = (pick.game_status || '') === 'in' && !resultBadge;
     let liveBadge = '';
     if (isLive) {
       const aScore = pick.game_away_score ?? 0;
       const hScore = pick.game_home_score ?? 0;
-      const sp = (pick.sport || '').toUpperCase();
-      let per = '';
-      if (pick.game_period) {
+      const bb = liveStateHtml(pick);   // baseball diamond/outs/half, or '' otherwise
+      let fallback = '';
+      if (!bb && pick.game_period) {
+        const sp = (pick.sport || '').toUpperCase();
         const n = pick.game_period;
-        if (sp === 'MLB') per = ` ${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th'}`;
-        else if (sp === 'NHL' || sp === 'CBB' || sp === 'WCBB') per = ` P${n}`;
-        else per = ` Q${n}`;
+        if (sp === 'MLB') fallback = `${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th'} Inn`;
+        else if (sp === 'NHL' || sp === 'CBB' || sp === 'WCBB') fallback = `P${n}`;
+        else fallback = `Q${n}`;
       }
-      liveBadge = `<span class="ca-tp-result-badge live"><span class="ca-tp-live-dot"></span>${aScore}-${hScore}${per}</span>`;
+      const stateLine = bb || (fallback ? `<span class="bb-half">${fallback}</span>` : '');
+      liveBadge = `<span class="ca-tp-live">
+        <span class="ca-tp-live-score"><span class="ca-tp-live-dot"></span>${aScore}-${hScore}</span>
+        ${stateLine ? `<span class="ca-tp-live-state">${stateLine}</span>` : ''}
+      </span>`;
       cardState = ' ca-tp-live';
     }
 
@@ -313,7 +319,12 @@ function _renderSidebarGames(sport) {
     const isPost = g.status === 'post';
     let timeOrScore;
     if (isLive) {
-      timeOrScore = `<span class="ca-sidebar-live-dot"></span><span style="color:#38bdf8;font-weight:700;font-size:11px;">${g.clock || 'Live'}</span>`;
+      // Compact for the narrow sidebar: score + half-inning ("0-3 · Top 6th") for
+      // baseball, else score + clock. The full diamond lives on the wider surfaces.
+      const score  = `${g.away_score ?? 0}-${g.home_score ?? 0}`;
+      const detail = ((g.sport || '').toUpperCase() === 'MLB' && g.live_detail) ? g.live_detail
+                   : (g.clock && g.clock !== '0:00') ? g.clock : 'Live';
+      timeOrScore = `<span class="ca-sidebar-live-dot"></span><span style="color:#38bdf8;font-weight:700;font-size:11px;">${score} · ${detail}</span>`;
     } else if (isPost) {
       timeOrScore = `<span style="color:var(--muted);font-size:12px;">${g.away_score ?? 0}–${g.home_score ?? 0} F</span>`;
     } else {

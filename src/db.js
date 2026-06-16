@@ -258,6 +258,13 @@ try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN away_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_over_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch (_) {}
+// Live game-state for condensed in-game scoreboards (e.g. baseball bases/outs/
+// half-inning). Populated by src/live_situation.js from ESPN's free scoreboard,
+// cleared when a game is no longer live. live_detail = "Bot 5th"; live_bases is a
+// bitmask (1=on first, 2=on second, 4=on third); live_outs = 0..2.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN live_detail TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN live_outs INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN live_bases INTEGER`); } catch (_) {}
 // First moment a game's status flipped to 'in' (live). Used to enforce the
 // 5-minute-past-actual-start scoring cutoff. NULL until ESPN reports the game live.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_start_at TEXT`); } catch (_) {}
