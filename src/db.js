@@ -410,6 +410,21 @@ try { db.exec(`ALTER TABLE users ADD COLUMN avatar_path TEXT`); } catch (_) {}
 // Seed/dummy member accounts (look like real members; auto-vote 35+ picks to seed
 // the public leaderboard). 1 = dummy, managed from the admin Dummy Accounts tab.
 try { db.exec(`ALTER TABLE users ADD COLUMN is_dummy INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+// Per-dummy, admin-editable behavior: daily pick range, allowed sports (JSON array;
+// [] = all sports), and whether they currently vote at all.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dummy_settings (
+      user_id    INTEGER PRIMARY KEY,
+      min_picks  INTEGER NOT NULL DEFAULT 1,
+      max_picks  INTEGER NOT NULL DEFAULT 4,
+      sports     TEXT    NOT NULL DEFAULT '[]',
+      active     INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+} catch (_) {}
 // Speeds up per-window leaderboard aggregates (filter by result + voted_at, group by user).
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_result_voted ON game_votes (user_id, result, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_votes (result, voted_at)`); } catch (_) {}

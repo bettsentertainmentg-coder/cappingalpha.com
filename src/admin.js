@@ -874,27 +874,29 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <!-- DUMMY ACCOUNTS PANEL -->
     <div class="apanel${ta('dummy')}" id="panel-dummy">
       <h1>Dummy Accounts</h1>
-      <p style="color:#8892a4;max-width:760px;">Seed members that auto-vote the day's <strong>35+ point</strong> picks (pre-game only) to keep the public leaderboard populated. They look like real accounts and build a record as those games resolve — no backfill, they start from now. Rename them or hide them from the board below.</p>
-      <table style="margin-top:14px;">
+      <p style="color:#8892a4;max-width:820px;">Seed members that auto-vote the day's <strong>35+ point</strong> picks (pre-game only) to keep the public leaderboard populated. They look like real accounts and build a record as games resolve (no backfill — they start from now). Per account you can set the daily pick range, which sports they bet (blank = all), pause them, and hide them from the public board.</p>
+      <div style="overflow-x:auto;">
+      <table style="margin-top:14px;min-width:880px;">
         <thead><tr>
-          <th>Username</th><th>Votes</th><th>Record</th><th>Pending</th><th>On board</th><th>Rename</th>
+          <th>Username</th><th>Picks/day</th><th>Sports (blank = all)</th><th>Active</th><th>On board</th><th>Votes / Record</th><th></th>
         </tr></thead>
         <tbody>
           ${dummyAccountsList.length === 0
-            ? '<tr><td colspan="6" style="color:#8892a4;">No dummy accounts yet — they seed on the next server start.</td></tr>'
-            : dummyAccountsList.map(d => `<tr>
-              <td><strong>@${escHtml(d.username)}</strong></td>
-              <td>${d.total_votes}</td>
-              <td>${d.wins}-${d.losses}${d.pushes ? '-' + d.pushes : ''}</td>
-              <td>${d.pending}</td>
-              <td><button class="btn-sm" id="dpub-${d.id}" onclick="toggleDummyPublic(${d.id}, ${d.is_public ? 0 : 1})">${d.is_public ? 'Public' : 'Hidden'}</button></td>
-              <td>
-                <input id="dn-${d.id}" value="${escHtml(d.username)}" maxlength="20" style="padding:5px 8px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;width:160px;" />
-                <button class="btn-sm btn-primary" onclick="renameDummy(${d.id})">Save</button>
-              </td>
-            </tr>`).join('')}
+            ? '<tr><td colspan="7" style="color:#8892a4;">No dummy accounts yet — they seed on the next server start.</td></tr>'
+            : dummyAccountsList.map(d => {
+              const inp = 'padding:5px 7px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;';
+              return `<tr>
+              <td><input id="dn-${d.id}" value="${escHtml(d.username)}" maxlength="20" style="${inp}width:150px;" /></td>
+              <td style="white-space:nowrap;"><input id="dmin-${d.id}" type="number" min="0" max="50" value="${d.min_picks}" style="${inp}width:48px;" /> – <input id="dmax-${d.id}" type="number" min="0" max="50" value="${d.max_picks}" style="${inp}width:48px;" /></td>
+              <td><input id="dsp-${d.id}" value="${escHtml((d.sports || []).join(', '))}" placeholder="all" style="${inp}width:150px;" /></td>
+              <td style="text-align:center;"><input type="checkbox" id="dact-${d.id}" ${d.active ? 'checked' : ''} /></td>
+              <td style="text-align:center;"><input type="checkbox" id="dpub-${d.id}" ${d.is_public ? 'checked' : ''} /></td>
+              <td style="white-space:nowrap;">${d.total_votes} · ${d.wins}-${d.losses}${d.pushes ? '-' + d.pushes : ''} <span style="color:#64748b;">(${d.pending} pend)</span></td>
+              <td><button class="btn-sm btn-primary" onclick="saveDummy(${d.id})">Save</button></td>
+            </tr>`; }).join('')}
         </tbody>
       </table>
+      </div>
       <p id="dummy-msg" style="color:#8892a4;font-size:13px;margin-top:10px;"></p>
     </div>
 
@@ -1386,26 +1388,23 @@ router.get('/dashboard', requireAuth, (req, res) => {
       }
 
       // ── Dummy accounts ──────────────────────────────────────────────────────────
-      async function renameDummy(id) {
-        const v = (document.getElementById('dn-' + id).value || '').trim();
+      async function saveDummy(id) {
         const msg = document.getElementById('dummy-msg');
+        const body = {
+          id,
+          username:  (document.getElementById('dn-' + id).value || '').trim(),
+          min_picks: document.getElementById('dmin-' + id).value,
+          max_picks: document.getElementById('dmax-' + id).value,
+          sports:    document.getElementById('dsp-' + id).value,
+          active:    document.getElementById('dact-' + id).checked,
+          is_public: document.getElementById('dpub-' + id).checked,
+        };
         try {
-          const r = await fetch('/admin/api/dummy/rename', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id, username: v }) });
+          const r = await fetch('/admin/api/dummy/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
           const d = await r.json();
-          msg.textContent = d.ok ? ('Renamed to @' + d.username) : (d.error || 'Rename failed');
+          msg.textContent = d.ok ? ('Saved @' + body.username) : (d.error || 'Save failed');
           msg.style.color = d.ok ? '#22c55e' : '#f87171';
         } catch (_) { msg.textContent = 'Network error'; msg.style.color = '#f87171'; }
-      }
-      async function toggleDummyPublic(id, makePublic) {
-        const btn = document.getElementById('dpub-' + id);
-        try {
-          const r = await fetch('/admin/api/dummy/public', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id, is_public: !!makePublic }) });
-          const d = await r.json();
-          if (d.ok) {
-            btn.textContent = d.is_public ? 'Public' : 'Hidden';
-            btn.setAttribute('onclick', 'toggleDummyPublic(' + id + ',' + (d.is_public ? 0 : 1) + ')');
-          }
-        } catch (_) {}
       }
 
       // ── Correct (= set capper) on a recorded row ────────────────────────────
@@ -2871,14 +2870,10 @@ router.get('/api/users', requireAuth, (req, res) => {
   res.json({ users, q });
 });
 
-// ── Dummy accounts — rename / show-hide ──────────────────────────────────────
-router.post('/api/dummy/rename', requireAuth, express.json(), (req, res) => {
-  const { id, username } = req.body || {};
-  res.json(dummyAccounts.renameDummyAccount(parseInt(id, 10), username));
-});
-router.post('/api/dummy/public', requireAuth, express.json(), (req, res) => {
-  const { id, is_public } = req.body || {};
-  res.json(dummyAccounts.setDummyPublic(parseInt(id, 10), !!is_public));
+// ── Dummy accounts — combined editor (name, range, sports, active, board) ─────
+router.post('/api/dummy/save', requireAuth, express.json(), (req, res) => {
+  const { id, ...fields } = req.body || {};
+  res.json(dummyAccounts.saveDummyAccount(parseInt(id, 10), fields));
 });
 
 // ── POST /admin/api/grant — JSON endpoint ────────────────────────────────────

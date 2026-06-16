@@ -43,17 +43,35 @@ function hash100(str) {
   return h % 100;
 }
 
-// Per-day pick quota. Most dummies are light bettors (1-4 picks/day); one is a
-// heavy hitter and one is moderate, so the board has a natural spread of volumes.
-// The exact number wobbles day to day (seeded by id + cycle date) so it doesn't
-// look mechanical.
-const HEAVY  = new Set(['CoverCity']);      // bets a lot
-const MEDIUM = new Set(['LineMoveLarry']);  // moderate
+// Sports a dummy may be restricted to (admin-editable). Empty = all sports.
+const DUMMY_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+
+// Starting volume presets (only applied when a dummy is first seeded; admin edits
+// in dummy_settings always win after that). Most are light, one heavy, one moderate.
+function presetFor(username) {
+  if (username === 'CoverCity')     return { min: 10, max: 22 }; // heavy hitter
+  if (username === 'LineMoveLarry') return { min: 4,  max: 7  }; // moderate
+  return { min: 1, max: 4 };                                     // light
+}
+
+// Per-dummy settings with sane fallbacks if the row is missing.
+function getDummySettings(userId) {
+  const r = db.prepare(`SELECT min_picks, max_picks, sports, active FROM dummy_settings WHERE user_id = ?`).get(userId);
+  if (!r) return { min_picks: 1, max_picks: 4, sports: [], active: 1 };
+  let sports = [];
+  try { sports = JSON.parse(r.sports || '[]'); } catch (_) {}
+  return { min_picks: r.min_picks, max_picks: r.max_picks, sports, active: r.active };
+}
+
+// Today's pick quota for a dummy: a number in [min, max], seeded by id + cycle date
+// so it varies day to day but is stable across the day's cron runs. 0 if inactive.
 function dailyQuota(user) {
+  const s = getDummySettings(user.id);
+  if (!s.active) return 0;
+  const lo = Math.max(0, s.min_picks | 0);
+  const hi = Math.max(lo, s.max_picks | 0);
   const seed = hash100(`${user.id}:${getCycleDate()}:q`);
-  if (HEAVY.has(user.username))  return 10 + (seed % 13); // 10-22 / day
-  if (MEDIUM.has(user.username)) return 4 + (seed % 4);   // 4-7  / day
-  return 1 + (seed % 4);                                   // 1-4  / day
+  return lo + (hi > lo ? (seed % (hi - lo + 1)) : 0);
 }
 
 // ── Seed accounts ─────────────────────────────────────────────────────────────
@@ -61,12 +79,20 @@ function dailyQuota(user) {
 // public preferences row. Unusable password (random hash) so they can't be used
 // to log in. Returns the number newly created.
 async function seedDummyAccounts() {
+  // INSERT OR IGNORE preserves any admin edits on re-seed.
+  const ensureSettings = (uid, name) => {
+    const p = presetFor(name);
+    db.prepare(`INSERT OR IGNORE INTO dummy_settings (user_id, min_picks, max_picks, sports, active) VALUES (?, ?, ?, '[]', 1)`)
+      .run(uid, p.min, p.max);
+  };
+
   let created = 0;
   for (const name of DUMMY_USERS) {
     const existing = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?)`).get(name);
     if (existing) {
       db.prepare(`UPDATE users SET is_dummy = 1 WHERE id = ?`).run(existing.id);
       db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports, is_public) VALUES (?, '[]', 1)`).run(existing.id);
+      ensureSettings(existing.id, name);
       continue;
     }
     const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 12);
@@ -76,6 +102,7 @@ async function seedDummyAccounts() {
     `).run(`${name.toLowerCase()}@seed.cappingalpha.local`, hash, name);
     db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports, is_public) VALUES (?, '[]', 1)`)
       .run(info.lastInsertRowid);
+    ensureSettings(info.lastInsertRowid, name);
     created++;
   }
   if (created) console.log(`[dummy] seeded ${created} dummy account(s)`);
@@ -132,10 +159,15 @@ function runDummyVotes() {
   let added = 0;
   const tx = db.transaction(() => {
     for (const d of dummies) {
+      const s = getDummySettings(d.id);
+      if (!s.active) continue;
       let remaining = dailyQuota(d) - placedToday.get(d.id).c;
       if (remaining <= 0) continue;
+      // Restrict to the dummy's chosen sports (empty = all sports).
+      const allowed = s.sports.length ? new Set(s.sports.map(x => String(x).toUpperCase())) : null;
       // Stable per-dummy ordering so each picks the same subset across runs.
       const avail = candidates
+        .filter(c => !allowed || allowed.has(String(c.sport || '').toUpperCase()))
         .map(c => ({ c, h: hash100(`${d.id}:${c.espn_game_id}:${c.slot}`) }))
         .sort((a, b) => a.h - b.h);
       for (const { c } of avail) {
@@ -158,6 +190,10 @@ function listDummyAccounts() {
   return db.prepare(`
     SELECT u.id, u.username, u.created_at,
            COALESCE(up.is_public, 1) AS is_public,
+           COALESCE(ds.min_picks, 1) AS min_picks,
+           COALESCE(ds.max_picks, 4) AS max_picks,
+           COALESCE(ds.sports, '[]') AS sports,
+           COALESCE(ds.active, 1)    AS active,
            (SELECT COUNT(*) FROM game_votes v WHERE v.user_id = u.id) AS total_votes,
            (SELECT COUNT(*) FROM game_votes v WHERE v.user_id = u.id AND v.result = 'win')  AS wins,
            (SELECT COUNT(*) FROM game_votes v WHERE v.user_id = u.id AND v.result = 'loss') AS losses,
@@ -165,40 +201,61 @@ function listDummyAccounts() {
            (SELECT COUNT(*) FROM game_votes v WHERE v.user_id = u.id AND v.result = 'pending') AS pending
     FROM users u
     LEFT JOIN user_preferences up ON up.user_id = u.id
+    LEFT JOIN dummy_settings ds ON ds.user_id = u.id
     WHERE u.is_dummy = 1
     ORDER BY u.username COLLATE NOCASE
-  `).all();
+  `).all().map(r => {
+    let sports = [];
+    try { sports = JSON.parse(r.sports || '[]'); } catch (_) {}
+    return { ...r, sports };
+  });
 }
 
-function renameDummyAccount(id, newName) {
-  const name = String(newName || '').trim();
-  if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return { error: 'Username must be 3-20 chars: letters, numbers, underscores.' };
+// One combined editor for everything admin can change on a dummy. Partial: only
+// the fields present in `fields` are updated.
+function saveDummyAccount(id, fields) {
+  const f = fields || {};
   const row = db.prepare(`SELECT id FROM users WHERE id = ? AND is_dummy = 1`).get(id);
   if (!row) return { error: 'Dummy account not found.' };
-  const taken = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?`).get(name, id);
-  if (taken) return { error: 'That username is already taken.' };
-  db.prepare(`UPDATE users SET username = ? WHERE id = ?`).run(name, id);
-  return { ok: true, username: name };
-}
 
-// Toggle whether a dummy shows on the public board (still votes regardless).
-function setDummyPublic(id, isPublic) {
-  const row = db.prepare(`SELECT id FROM users WHERE id = ? AND is_dummy = 1`).get(id);
-  if (!row) return { error: 'Dummy account not found.' };
-  const pub = isPublic ? 1 : 0;
-  db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public)
-    VALUES (?, '[]', ?)
-    ON CONFLICT(user_id) DO UPDATE SET is_public = excluded.is_public
-  `).run(id, pub);
-  return { ok: true, is_public: pub };
+  if (f.username !== undefined) {
+    const name = String(f.username || '').trim();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return { error: 'Username must be 3-20 chars: letters, numbers, underscores.' };
+    const taken = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?`).get(name, id);
+    if (taken) return { error: 'That username is already taken.' };
+    db.prepare(`UPDATE users SET username = ? WHERE id = ?`).run(name, id);
+  }
+
+  db.prepare(`INSERT OR IGNORE INTO dummy_settings (user_id) VALUES (?)`).run(id);
+  const clampInt = (v) => Math.max(0, Math.min(50, parseInt(v, 10) || 0));
+  if (f.min_picks !== undefined) db.prepare(`UPDATE dummy_settings SET min_picks = ?, updated_at = datetime('now') WHERE user_id = ?`).run(clampInt(f.min_picks), id);
+  if (f.max_picks !== undefined) db.prepare(`UPDATE dummy_settings SET max_picks = ?, updated_at = datetime('now') WHERE user_id = ?`).run(clampInt(f.max_picks), id);
+  if (f.active !== undefined)    db.prepare(`UPDATE dummy_settings SET active = ?, updated_at = datetime('now') WHERE user_id = ?`).run(f.active ? 1 : 0, id);
+  if (f.sports !== undefined) {
+    let arr = Array.isArray(f.sports) ? f.sports : String(f.sports || '').split(',');
+    arr = arr.map(s => String(s).trim().toUpperCase());
+    // "all" or empty → no restriction.
+    if (arr.some(s => s === 'ALL')) arr = [];
+    const valid = new Set(DUMMY_SPORTS.map(s => s.toUpperCase()));
+    arr = [...new Set(arr.filter(s => valid.has(s)))];
+    db.prepare(`UPDATE dummy_settings SET sports = ?, updated_at = datetime('now') WHERE user_id = ?`).run(JSON.stringify(arr), id);
+  }
+  // Keep max >= min.
+  const s = db.prepare(`SELECT min_picks, max_picks FROM dummy_settings WHERE user_id = ?`).get(id);
+  if (s && s.min_picks > s.max_picks) db.prepare(`UPDATE dummy_settings SET max_picks = ? WHERE user_id = ?`).run(s.min_picks, id);
+
+  if (f.is_public !== undefined) {
+    db.prepare(`INSERT INTO user_preferences (user_id, favorite_sports, is_public) VALUES (?, '[]', ?)
+                ON CONFLICT(user_id) DO UPDATE SET is_public = excluded.is_public`).run(id, f.is_public ? 1 : 0);
+  }
+  return { ok: true };
 }
 
 module.exports = {
   DUMMY_USERS,
+  DUMMY_SPORTS,
   seedDummyAccounts,
   runDummyVotes,
   listDummyAccounts,
-  renameDummyAccount,
-  setDummyPublic,
+  saveDummyAccount,
 };
