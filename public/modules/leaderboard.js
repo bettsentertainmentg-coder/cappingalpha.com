@@ -9,6 +9,7 @@ import { avatarFor, sportBadge } from './utils.js';
 const WINDOWS = [['week', 'This Week'], ['month', 'This Month'], ['all', 'All-Time']];
 
 let _data = null;          // last-rendered leaderboard payload (for re-sorting)
+let _me = null;            // last "me" payload (drives the privacy toggle in the controls row)
 let _sortKey = null;       // null → server rank order; else a column key
 let _sortDir = -1;         // -1 desc, +1 asc
 const SORT_DEFAULT_DESC = { record: true, win_pct: true, units: true, roi: true, rank: false };
@@ -59,8 +60,8 @@ export async function loadLeaderboard(window) {
 }
 
 function renderLeaderboard(data) {
+  _me = data.me;
   renderControls(data.window);
-  renderPrivacyBanner(data.me);
   const topEl = document.getElementById('lb-top-week');
   if (topEl) topEl.innerHTML = ''; // folded into the podium now
   renderMeBanner(data.me, data.min_votes);
@@ -78,11 +79,33 @@ function renderControls(activeWin) {
   const friendsBtn = state.currentUser
     ? `<button onclick="showFriends()" style="border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-weight:800;font-size:13.5px;padding:11px 20px;border-radius:999px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;"><i class="fa-solid fa-user-group" style="font-size:12px;color:var(--accent);"></i>Friends</button>`
     : '';
-  // 3-column grid: empty spacer | centered windows | right-aligned Friends button.
+  // 3-column grid: privacy toggle (left) | centered windows | Friends button (right).
   el.innerHTML = `<div class="lb-controls">
-    <span aria-hidden="true"></span>
+    ${privacyCell()}
     ${windows}
     <div class="lb-friends-cell">${friendsBtn}</div>
+  </div>`;
+}
+
+// Left-side control: a clear public/private switch for logged-in members. Replaces
+// the old full-width banner that used to sit above the board. Logged-out users get
+// a compact "log in" pill in the same slot.
+function privacyCell() {
+  if (!state.currentUser) {
+    return `<div class="lb-privacy-cell">
+      <button class="lb-priv-toggle" onclick="openLogin()" title="Log in to appear on the leaderboard and track your rank.">
+        <i class="fa-solid fa-right-to-bracket" style="color:var(--accent);"></i><span>Log in to rank</span>
+      </button>
+    </div>`;
+  }
+  const isPublic = _me ? _me.is_public === 1 : true;
+  return `<div class="lb-privacy-cell">
+    <button class="lb-priv-toggle ${isPublic ? 'is-public' : 'is-private'}" onclick="toggleLbPrivacy(${isPublic ? 'false' : 'true'})"
+      title="${isPublic ? 'You appear on the public leaderboard. Tap to hide.' : 'Only you can see your rank. Tap to go public.'}">
+      <i class="fa-solid ${isPublic ? 'fa-eye' : 'fa-eye-slash'}"></i>
+      <span>${isPublic ? 'Public' : 'Private'}</span>
+      <span class="lb-priv-switch"><span class="lb-priv-knob"></span></span>
+    </button>
   </div>`;
 }
 
@@ -99,8 +122,8 @@ export function showBoard() {
 async function loadFriends() {
   const el = document.getElementById('lb-content');
   renderFriendsControls();
-  // Friends page has no privacy / rank / top-of-week banners.
-  ['lb-privacy-banner', 'lb-top-week', 'lb-me-banner'].forEach(id => {
+  // Friends page has no rank / top-of-week banners.
+  ['lb-top-week', 'lb-me-banner'].forEach(id => {
     const n = document.getElementById(id); if (n) n.innerHTML = '';
   });
   if (el) el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
@@ -151,27 +174,6 @@ function renderFriendsList(data) {
   el.innerHTML = `<div class="card" style="padding:4px 6px;">
     <div style="padding:10px 14px 8px;font-size:12px;color:var(--muted);">Following ${friends.length} member${friends.length === 1 ? '' : 's'} · tap anyone to view their profile</div>
     ${rows}
-  </div>`;
-}
-
-function renderPrivacyBanner(me) {
-  const el = document.getElementById('lb-privacy-banner');
-  if (!el) return;
-  if (!state.currentUser) {
-    el.innerHTML = `<div class="lb-banner">
-      <span>Log in to appear on the leaderboard and track your rank.</span>
-      <button class="lb-toggle-btn" onclick="openLogin()">Log in</button>
-    </div>`;
-    return;
-  }
-  const isPublic = me ? me.is_public === 1 : true;
-  el.innerHTML = `<div class="lb-banner">
-    <span>${isPublic
-      ? 'You\'re visible on the public leaderboard.'
-      : 'You\'re hidden from other members. Only you can see your rank.'}</span>
-    <button class="lb-toggle-btn" onclick="toggleLbPrivacy(${isPublic ? 'false' : 'true'})">
-      ${isPublic ? 'Make me private' : 'Show me publicly'}
-    </button>
   </div>`;
 }
 
