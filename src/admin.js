@@ -17,11 +17,6 @@ const path    = require('path');
 
 const router = express.Router();
 
-// Standalone UI-redesign sandbox. Lives in src/ (NOT public/) so it is never
-// statically served — only reachable through the auth-gated route below. Read
-// per request so HTML tweaks show up without a server restart.
-const PREVIEW_FILE = path.join(__dirname, 'admin_preview.html');
-
 // Generates a random 7-8 character alphanumeric code (uppercase, no ambiguous chars)
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion
@@ -174,13 +169,61 @@ router.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/admin/login'));
 });
 
-// ── GET /admin/preview — private UI redesign sandbox ──────────────────────────
+// ── GET /admin/preview — live phone-UI mirror ─────────────────────────────────
+// Renders the actual public site inside a phone-sized iframe. Because the iframe
+// reports a real phone-width viewport to the inner document, every mobile media
+// query fires exactly as it does on a phone — this is a 1:1 mirror of the live UI
+// with zero upkeep (no hand-maintained mockup to drift out of sync).
 router.get('/preview', requireAuth, (_req, res) => {
-  try {
-    res.type('html').send(fs.readFileSync(PREVIEW_FILE, 'utf8'));
-  } catch (err) {
-    res.status(500).send('Preview unavailable: ' + err.message);
-  }
+  res.type('html').send(`<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Phone UI Preview — CapperBoss</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:system-ui,-apple-system,sans-serif;background:#0b0d12;color:#e2e8f0;min-height:100vh;padding:22px;}
+  .pv-bar{display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap;}
+  .pv-title{font-weight:800;font-size:18px;}
+  .pv-title b{color:#3b82f6;}
+  .pv-note{font-size:12px;color:#8892a4;max-width:420px;}
+  .pv-sizes{display:flex;gap:6px;}
+  .pv-size{font-size:12px;font-weight:700;color:#8892a4;background:#171b24;border:1px solid #252c3b;border-radius:6px;padding:6px 11px;cursor:pointer;font-family:inherit;}
+  .pv-size.active{color:#fff;background:#3b82f6;border-color:#3b82f6;}
+  .pv-reload{font-size:12px;font-weight:700;color:#8892a4;background:#171b24;border:1px solid #252c3b;border-radius:6px;padding:6px 11px;cursor:pointer;font-family:inherit;}
+  .pv-reload:hover{color:#e2e8f0;border-color:#3b82f6;}
+  .pv-back{margin-left:auto;font-size:13px;color:#8892a4;text-decoration:none;border:1px solid #252c3b;padding:7px 14px;border-radius:7px;}
+  .pv-back:hover{color:#e2e8f0;border-color:#3b82f6;}
+  .pv-stage{display:flex;justify-content:center;padding:24px 0 60px;}
+  .phone{position:relative;width:390px;height:844px;background:#000;border-radius:46px;padding:13px;box-shadow:0 0 0 2px #2a2f3a,0 30px 80px rgba(0,0,0,.6);transition:width .15s,height .15s;}
+  .phone-notch{position:absolute;top:13px;left:50%;transform:translateX(-50%);width:150px;height:26px;background:#000;border-radius:0 0 16px 16px;z-index:2;}
+  .phone-screen{width:100%;height:100%;border-radius:34px;overflow:hidden;background:#0f1117;}
+  .phone-screen iframe{width:100%;height:100%;border:0;display:block;}
+  .pv-dim{font-size:11px;color:#5b647a;text-align:center;margin-top:10px;}
+</style></head>
+<body>
+  <div class="pv-bar">
+    <div class="pv-title">Capping<b>Alpha</b> &middot; Phone Preview</div>
+    <span class="pv-note">Live site, real data &mdash; a 1:1 mirror of the phone UI. Hit Reload after you change anything.</span>
+    <div class="pv-sizes" id="pv-sizes"></div>
+    <button class="pv-reload" onclick="document.getElementById('pv-frame').contentWindow.location.reload()">&#8635; Reload</button>
+    <a class="pv-back" href="/admin/dashboard">&larr; Admin</a>
+  </div>
+  <div class="pv-stage">
+    <div class="phone" id="phone">
+      <div class="phone-notch"></div>
+      <div class="phone-screen"><iframe id="pv-frame" src="/" title="Phone preview"></iframe></div>
+    </div>
+  </div>
+  <div class="pv-dim" id="pv-dim"></div>
+  <script>
+    var SIZES=[{label:'iPhone 14',w:390,h:844},{label:'iPhone SE',w:375,h:667},{label:'Pixel 7',w:412,h:915},{label:'iPhone 15 Pro Max',w:430,h:932}];
+    var phone=document.getElementById('phone'),bar=document.getElementById('pv-sizes'),dim=document.getElementById('pv-dim');
+    function setSize(i){var s=SIZES[i];phone.style.width=s.w+'px';phone.style.height=s.h+'px';dim.textContent=s.label+' \\u2014 '+s.w+' \\u00d7 '+s.h;Array.prototype.forEach.call(bar.children,function(b,j){b.classList.toggle('active',j===i);});}
+    SIZES.forEach(function(s,i){var b=document.createElement('button');b.className='pv-size';b.textContent=s.label;b.onclick=function(){setSize(i);};bar.appendChild(b);});
+    setSize(0);
+  </script>
+</body></html>`);
 });
 
 // ── GET /admin → dashboard ────────────────────────────────────────────────────

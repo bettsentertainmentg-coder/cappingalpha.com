@@ -35,10 +35,12 @@ export function updateNavAuth() {
   // Mobile drawer mirrors the same auth state. It previously never updated, so the
   // phone always showed "Log In / Get Access" (and the upgrade prompt) even when
   // signed in and subscribed.
-  const dLogin   = document.getElementById('drawer-btn-login');
-  const dSignup  = document.getElementById('drawer-btn-signup');
   const dLogout  = document.getElementById('drawer-btn-logout');
   const dUpgrade = document.getElementById('drawer-upgrade');
+  const drawerFooter = document.getElementById('ca-drawer-footer');
+  // Mobile top-bar action: Unlock (logged out) vs My Account (signed in).
+  const mUnlock  = document.getElementById('m-nav-unlock');
+  const mAccount = document.getElementById('m-nav-account');
 
   const loggedIn = !!state.currentUser;
   const paying   = loggedIn && state.currentUser.tier !== 'free';
@@ -51,14 +53,17 @@ export function updateNavAuth() {
   show(userInfo, loggedIn);
   if (loggedIn && userInfo) userInfo.textContent = state.currentUser.username || state.currentUser.email;
 
-  show(dLogin,  !loggedIn);
-  show(dSignup, !loggedIn);
   show(dLogout, loggedIn);
   // Drop the "Premium Access" upgrade shortcut once they already pay.
   show(dUpgrade, !paying);
+  // Drawer footer holds the logged-out Unlock CTA (replaces old Log In / Get Access).
+  show(drawerFooter, !loggedIn);
 
-  // Unlock CTA (nav): show to anyone not already paying.
+  // Unlock CTA (desktop nav): show to anyone not already paying.
   show(document.getElementById('btn-unlock'), !paying);
+  // Mobile top-bar: one button only — Unlock when logged out, My Account when signed in.
+  show(mUnlock,  !loggedIn);
+  show(mAccount, loggedIn);
 
   // Identify user in PostHog so sessions are linked to accounts.
   if (loggedIn && window.posthog) {

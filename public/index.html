@@ -130,6 +130,19 @@
     .nav-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
     #nav-user-info { font-size: 13px; color: var(--muted); display: none; }
 
+    /* ── Mobile-only top-bar action (Unlock + CA logo when logged out, My Account when signed in) ── */
+    .nav-actions-mobile { display: none; }
+    .nav-unlock-m {
+      display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+      background: var(--gold); color: #111; font-weight: 800; font-family: inherit;
+      border: none; border-radius: 8px; padding: 6px 11px; font-size: 13px; cursor: pointer;
+    }
+    .nav-unlock-m-logo { height: 17px; width: auto; border-radius: 3px; display: inline-block; }
+    .nav-account-m {
+      background: none; border: 1px solid var(--border); color: var(--text); white-space: nowrap;
+      font-weight: 700; font-family: inherit; border-radius: 8px; padding: 6px 13px; font-size: 13px; cursor: pointer;
+    }
+
     /* ── Logo-as-tab ── */
     .logo {
       font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
@@ -407,7 +420,7 @@
     /* ── Inline paywall ── */
     .inline-paywall-wrap { position: relative; }
     .inline-paywall-fade { position: absolute; top: -80px; left: 0; right: 0; height: 80px; background: linear-gradient(to bottom, transparent, var(--surface)); pointer-events: none; }
-    .inline-paywall-card { background: var(--surface); border-top: 1px solid var(--border); padding: 36px 24px 40px; text-align: center; position: relative; }
+    .inline-paywall-card { background: var(--surface); border-top: 1px solid var(--border); padding: 28px 24px 18px; text-align: center; position: relative; }
     .inline-paywall-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
     .inline-paywall-card p  { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
     /* Pricing cards row inside paywall */
@@ -1466,10 +1479,13 @@
 
     /* ── Mobile: stack home grid, show hamburger, hide nav tabs ── */
     @media (max-width: 768px) {
-      .ca-hamburger { display: flex; align-items: center; }
+      .ca-hamburger { display: flex; align-items: center; padding-right: 4px; }
       nav .nav-tabs  { display: none; }
-      /* Condensed view: account + actions move into the hamburger drawer. */
+      /* Tighten the gap between the hamburger and the CappingAlpha wordmark. */
+      nav .nav-left { gap: 12px; }
+      /* Condensed view: the desktop actions hide; a single right-side button shows. */
       nav .nav-actions { display: none; }
+      .nav-actions-mobile { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
       /* Single-column, but flatten the sidebar/main wrappers so every section
          is a direct flex child and we can interleave them with `order`:
@@ -1678,6 +1694,10 @@
       <button class="btn" id="btn-unlock" style="display:none;" onclick="switchTab('unlock')">Unlock the CappingAlpha</button>
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()">Login</button>
       <button class="tab-btn" data-tab="account" onclick="switchTab('account')" id="tab-account" style="display:none;border-bottom:none;padding:0 4px;">My Account</button>
+    </div>
+    <div class="nav-actions-mobile">
+      <button class="nav-unlock-m" id="m-nav-unlock" onclick="switchTab('unlock')">Unlock<img src="/ca-logo.png" alt="" class="nav-unlock-m-logo" onerror="this.style.display='none'"></button>
+      <button class="nav-account-m" id="m-nav-account" onclick="switchTab('account')" style="display:none;">My Account</button>
     </div>
   </nav>
 
@@ -2202,9 +2222,14 @@
       </a>
     </div>
 
-    <div class="ca-drawer-footer">
-      <button class="btn btn-ghost" id="drawer-btn-login" style="width:100%;margin-bottom:10px;" onclick="openLogin();closeDrawer();">Log In</button>
-      <button class="btn btn-primary" id="drawer-btn-signup" style="width:100%;" onclick="openSignup();closeDrawer();">Get Access</button>
+    <div class="ca-drawer-footer" id="ca-drawer-footer">
+      <div class="unlock-cta">
+        <button class="unlock-cta-btn" style="width:100%;justify-content:center;" onclick="switchTab('unlock');closeDrawer();">
+          <span class="ucb-lock">&#128274;</span><span class="ucb-open">&#128275;</span>
+          Unlock the CappingAlpha
+        </button>
+        <div class="unlock-cta-access">Already have access? <a onclick="openLogin();closeDrawer();">Log in</a> &middot; <a onclick="openCodeModal();closeDrawer();">I have a code</a></div>
+      </div>
     </div>
 
   </div>

@@ -25,8 +25,14 @@ const UNLOCK_CSS = `
 .unlock-sub { font-size:18px; color:var(--muted); line-height:1.5; margin:0 0 22px; max-width:520px; }
 .unlock-note { background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.3); color:#4ade80; padding:12px 18px; border-radius:10px; font-weight:600; display:inline-block; }
 .unlock-buy { margin-top:22px; }
-.unlock-seewhat { display:inline-block; margin-top:16px; color:var(--accent); cursor:pointer; font-weight:700; font-size:14px; text-decoration:underline; }
+.unlock-seewhat { display:inline-block; color:var(--accent); cursor:pointer; font-weight:700; font-size:14px; text-decoration:underline; }
 .unlock-seewhat:hover { color:var(--text); }
+/* "See everything you get  ·  Log in" — one left-aligned row, stays left even when
+   the hero centers on phones. Wraps gracefully on very narrow screens. */
+.unlock-hero-links { display:flex; align-items:center; justify-content:flex-start; gap:10px; flex-wrap:wrap; margin-top:16px; }
+.unlock-hero-sep { color:var(--muted); }
+.unlock-hero-login { color:var(--accent); cursor:pointer; font-weight:700; font-size:14px; text-decoration:underline; }
+.unlock-hero-login:hover { color:var(--text); }
 .unlock-buy-head { font-size:19px; font-weight:800; margin-bottom:12px; font-family:'Space Grotesk',sans-serif; }
 .unlock-price-row { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; max-width:760px; margin:0 auto; }
 .unlock-hero .unlock-price-row { gap:10px; max-width:none; margin:0; }
@@ -372,7 +378,10 @@ function unlockHtml() {
         <h1>The edge, <span class="unlock-gold">unlocked</span>.</h1>
         <p class="unlock-sub">Every game, every day, run through a proprietary scoring engine and ranked into the day's highest-conviction plays. All the data that moves a line, fed straight to your screen, giving you everything you need to help you make a sharper pick.</p>
         ${buyBlock}
-        <a class="unlock-seewhat" onclick="document.getElementById('unlock-whatyouget')?.scrollIntoView({behavior:'smooth',block:'start'})">See everything you get &darr;</a>
+        <div class="unlock-hero-links">
+          <a class="unlock-seewhat" onclick="document.getElementById('unlock-whatyouget')?.scrollIntoView({behavior:'smooth',block:'start'})">See everything you get &darr;</a>
+          ${paying ? '' : `<span class="unlock-hero-sep">&middot;</span><a class="unlock-hero-login" onclick="openLogin()">Already have an account? Log in</a>`}
+        </div>
         <div class="unlock-hero-stats" id="unlock-hero-stats"></div>
       </div>
       <div class="unlock-hero-art">

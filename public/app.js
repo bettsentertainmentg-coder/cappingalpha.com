@@ -29,6 +29,11 @@ export function switchTab(tabName) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
 
+  // Land at the top of the page on every tab switch. Without this the page keeps
+  // its prior scroll position (e.g. opening Unlock from mid-Home dropped you into
+  // the middle of the unlock page instead of the "edge, unlocked" hero).
+  window.scrollTo(0, 0);
+
   if (tabName === 'mvp') {
     if (!state.mvpLoaded) {
       state.mvpLoaded = true;
