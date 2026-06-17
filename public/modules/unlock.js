@@ -23,7 +23,7 @@ const UNLOCK_CSS = `
 .unlock-hero-text h1 { font-size:52px; line-height:1.04; font-weight:900; margin:0 0 16px; font-family:'Space Grotesk',sans-serif; letter-spacing:-1px; }
 .unlock-gold { color:var(--gold); }
 .unlock-sub { font-size:18px; color:var(--muted); line-height:1.5; margin:0 0 22px; max-width:520px; }
-.unlock-sub-link { color:var(--accent); cursor:pointer; text-decoration:underline; font-weight:700; }
+.unlock-sub-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
 .unlock-sub-link:hover { color:var(--text); }
 .unlock-note { background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.3); color:#4ade80; padding:12px 18px; border-radius:10px; font-weight:600; display:inline-block; }
 .unlock-buy { margin-top:22px; }
@@ -378,7 +378,7 @@ function unlockHtml() {
     <section class="unlock-hero">
       <div class="unlock-hero-text">
         <h1>The edge, <span class="unlock-gold">unlocked</span>.</h1>
-        <p class="unlock-sub">Every game, every day, ranked through our <a class="unlock-sub-link" onclick="switchTab('about');setTimeout(()=>document.getElementById('about-algo')?.scrollIntoView({behavior:'smooth',block:'start'}),60)">proprietary scoring engine</a> and expert analysts. All the data, fed straight to your screen.</p>
+        <p class="unlock-sub">Every game, every day, run through our proprietary scoring engine. Each pick ranked using the <a class="unlock-sub-link" onclick="switchTab('about');setTimeout(()=>document.getElementById('about-algo')?.scrollIntoView({behavior:'smooth',block:'start'}),60)">CappingAlpha algorithm</a> and expert analysts. All the data that moves the line, giving you everything you need to make a sharper pick.</p>
         ${buyBlock}
         <div class="unlock-hero-links">
           <a class="unlock-seewhat" onclick="document.getElementById('unlock-whatyouget')?.scrollIntoView({behavior:'smooth',block:'start'})">See everything you get &darr;</a>
