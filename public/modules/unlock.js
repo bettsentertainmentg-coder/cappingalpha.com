@@ -380,7 +380,7 @@ function unlockHtml() {
         ${buyBlock}
         <div class="unlock-hero-links">
           <a class="unlock-seewhat" onclick="document.getElementById('unlock-whatyouget')?.scrollIntoView({behavior:'smooth',block:'start'})">See everything you get &darr;</a>
-          ${paying ? '' : `<span class="unlock-hero-sep">&middot;</span><a class="unlock-hero-login" onclick="openLogin()">Already have an account? Log in</a>`}
+          ${paying ? '' : `<span class="unlock-hero-sep">&middot;</span><a class="unlock-hero-login" onclick="openLogin()">Have an account? Log in</a>`}
         </div>
         <div class="unlock-hero-stats" id="unlock-hero-stats"></div>
       </div>
@@ -452,6 +452,16 @@ export async function renderUnlock() {
     const proofEl = document.getElementById('unlock-proof');
     if (proofEl) { const p = buildProof(data, bet); proofEl.innerHTML = p.html; if (p.series) drawChart('unlock-pl-chart', p.series); }
   } catch (_) { /* leave the static blocks */ }
+
+  // Came here from a "sign up" action (login popup, drawer Premium Access, etc.)?
+  // Center the "Create your account" card. We scroll AFTER the async fills above so
+  // the hero stats / proof have already re-flowed the page — otherwise the form
+  // landed half off-screen. rAF waits for that layout to settle.
+  if (window.__caScrollAccount) {
+    window.__caScrollAccount = false;
+    const acct = document.getElementById('unlock-account');
+    if (acct) requestAnimationFrame(() => acct.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }
 }
 
 // Inline signup (Action-style block). Consent is via the "By continuing" line, so we

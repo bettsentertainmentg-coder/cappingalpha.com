@@ -108,10 +108,11 @@ export async function doLogin() {
 // routes here, scrolling to the account form.
 export function openSignup() {
   closeLogin();
+  // Tell renderUnlock to center the "Create your account" card once it finishes
+  // loading. Scrolling here (before the async render re-flows the page) left the
+  // form half off-screen, so renderUnlock owns the scroll now.
+  window.__caScrollAccount = true;
   if (window.switchTab) window.switchTab('unlock');
-  setTimeout(() => {
-    document.getElementById('unlock-account')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 60);
 }
 export function closeSignup() {
   document.getElementById('signup-modal').classList.add('hidden');
