@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Privacy Policy | CappingAlpha</title>
-  <meta name="description" content="How CappingAlpha collects, uses, and protects your information, including cookies and analytics." />
+  <meta name="description" content="How CappingAlpha collects, uses, and protects your information, including cookies, analytics, Google sign-in, and your US state privacy rights." />
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://cappingalpha.com/privacy" />
   <style>
@@ -21,6 +21,7 @@
     h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
     .updated { font-size: 13px; color: #8892a4; margin-bottom: 36px; }
     h2 { font-size: 16px; font-weight: 700; margin: 32px 0 10px; color: #e2e8f0; }
+    h3 { font-size: 14px; font-weight: 700; margin: 18px 0 8px; color: #e2e8f0; }
     p { margin-bottom: 14px; color: #c8d3e0; }
     ul { margin: 0 0 14px 22px; color: #c8d3e0; }
     li { margin-bottom: 6px; }
@@ -32,6 +33,9 @@
     .toc-title { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #8892a4; margin-bottom: 10px; }
     .toc ol { margin: 0 0 0 20px; color: #c8d3e0; font-size: 13px; }
     .toc li { margin-bottom: 4px; }
+    table.pii { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: 13px; }
+    table.pii th, table.pii td { border: 1px solid #252c3b; padding: 8px 10px; text-align: left; vertical-align: top; color: #c8d3e0; }
+    table.pii th { background: #171b24; color: #e2e8f0; font-weight: 700; font-size: 12px; }
     .site-header {
       border-bottom: 1px solid #1e2535;
       padding: 14px 16px;
@@ -79,11 +83,13 @@
         <li><a href="#analytics">Analytics and session recording</a></li>
         <li><a href="#use">How we use your information</a></li>
         <li><a href="#sharing">How we share information</a></li>
+        <li><a href="#sell">Selling and sharing of personal information</a></li>
         <li><a href="#choices">Your choices and opt-out</a></li>
         <li><a href="#retention">Data retention</a></li>
         <li><a href="#security">Security</a></li>
         <li><a href="#children">Age requirement</a></li>
-        <li><a href="#rights">Your privacy rights</a></li>
+        <li><a href="#rights">Your US state privacy rights</a></li>
+        <li><a href="#links">Third-party links</a></li>
         <li><a href="#changes">Changes to this policy</a></li>
         <li><a href="#contact">Contact</a></li>
       </ol>
@@ -92,12 +98,13 @@
     <p>This Privacy Policy explains how CappingAlpha collects, uses, and protects information when you use cappingalpha.com (the "Site"). By using the Site, you agree to this policy. It works alongside our <a href="/terms">Terms of Service</a>.</p>
 
     <h2 id="intro">1. Who we are</h2>
-    <p>CappingAlpha LLC ("CappingAlpha," "we," "us") operates a sports betting intelligence website that ranks, scores, and tracks daily picks. We are based in the United States and our audience is primarily United States residents who are 18 or older.</p>
+    <p>CappingAlpha LLC ("CappingAlpha," "we," "us"), a Florida limited liability company, operates a sports betting intelligence website that ranks, scores, and tracks daily picks. We are the operator and the controller of the information described here. We are based in the United States, and the Site is operated from and directed to users in the United States who are 18 or older. Information we collect is stored and processed in the United States. A mailing address is available on request by emailing <a href="mailto:support@cappingalpha.com">support@cappingalpha.com</a>.</p>
 
     <h2 id="collect">2. Information we collect</h2>
     <ul>
       <li><strong>Account information.</strong> When you create an account we collect your email address, a username if you provide one, and a hashed (not plain text) password.</li>
-      <li><strong>Subscription and payment information.</strong> Purchases are processed by Stripe. We do not see or store your full card number. We receive limited billing details from Stripe such as your subscription status, plan, and the result of a payment.</li>
+      <li><strong>Sign in with Google.</strong> If you choose "Continue with Google," Google shares your email address, your basic profile name, and your Google account identifier (a unique ID Google assigns to your account) with us. We use these only to create your account and sign you in, and we store the Google account identifier so we can recognize you on return visits. We never receive your Google password. Your use of Google sign-in is also subject to <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's privacy policy</a>.</li>
+      <li><strong>Subscription and payment information.</strong> Purchases are processed by Stripe. Your card details are collected and handled solely by Stripe under <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's terms and privacy policy</a>. We never receive or store your full card number. From Stripe we receive limited billing details such as your subscription status, plan, and the result of a payment.</li>
       <li><strong>Usage and activity data.</strong> How you use the Site, including pages and tabs you view, picks and games you open, votes you cast, sports you follow, and similar interactions.</li>
       <li><strong>Device and log data.</strong> Standard technical data such as your IP address, browser type, device type, approximate location (country or region), referring site, and timestamps.</li>
       <li><strong>Communications.</strong> If you email us or submit feedback, we keep that message and your contact details.</li>
@@ -107,14 +114,14 @@
     <h2 id="cookies">3. Cookies and similar technologies</h2>
     <p>Cookies are small files stored in your browser. We use two kinds:</p>
     <ul>
-      <li><strong>Strictly necessary cookies.</strong> A session cookie keeps you logged in and keeps your account secure. The Site cannot function without it, so it is always on and does not require consent.</li>
-      <li><strong>Analytics cookies.</strong> Our analytics provider (PostHog) sets a cookie to recognize your browser across visits so we can understand how the Site is used. You can opt out of these at any time using the control in Section 7.</li>
+      <li><strong>Strictly necessary cookies.</strong> A session cookie keeps you logged in and keeps your account secure. It lasts for your session and login. The Site cannot function without it, so it is always on and does not require consent.</li>
+      <li><strong>Analytics cookies.</strong> Our analytics provider (PostHog), acting as a processor on our behalf, sets a cookie to recognize your browser across visits so we can understand how the Site is used. It persists across visits until you opt out or clear it. You can opt out at any time using the control in Section 8.</li>
     </ul>
     <p>We show a brief cookie notice on your first visit. Continuing to use the Site means you are aware of this policy. You can change your analytics choice at any time below.</p>
 
     <h2 id="analytics">4. Analytics and session recording</h2>
     <p>We use PostHog, a product analytics service, to understand which features people use and where they run into friction. This includes aggregated metrics (pages, tabs, clicks, referrers, devices) and may include session recordings that capture on-screen interactions such as clicks, navigation, and scrolling.</p>
-    <p>To protect your privacy, recordings are configured to mask everything you type. We do not record the contents of input fields, and payment details are entered only on Stripe's secure checkout, never on our pages. We use this data to improve the Site, not to identify you personally beyond your account.</p>
+    <p>To protect your privacy, recordings are configured to mask everything you type. We do not record the contents of input fields, and payment details are entered only on Stripe's secure checkout, never on our pages. We use this data to improve the Site, not to identify you personally beyond your account. Analytics and recording data is kept for a limited period (see Section 9).</p>
 
     <h2 id="use">5. How we use your information</h2>
     <ul>
@@ -125,41 +132,85 @@
       <li>To respond to your messages and support requests.</li>
       <li>To comply with legal obligations.</li>
     </ul>
+    <p><strong>Email we send.</strong> We currently use email only for account and transactional messages, such as password resets and replies to your support requests, sent through our email provider. We do not run a marketing email program. If we introduce one later, those messages will include a way to unsubscribe and you can opt out at any time.</p>
+    <p><strong>Aggregated and de-identified data.</strong> We may create and use aggregated or de-identified data, such as overall usage statistics, that cannot reasonably identify you. We do not treat that data as personal information.</p>
 
     <h2 id="sharing">6. How we share information</h2>
     <p>We do not sell your personal information. We share information only with service providers that help us run the Site, and only as needed for them to perform their work:</p>
     <ul>
-      <li><strong>Stripe</strong> for payment processing and subscription management.</li>
+      <li><strong>Stripe</strong> for payment processing and subscription management (<a href="https://stripe.com/privacy" target="_blank" rel="noopener">privacy policy</a>).</li>
       <li><strong>PostHog</strong> for product analytics and session recording.</li>
-      <li><strong>Our hosting provider</strong> for serving the Site and storing data.</li>
+      <li><strong>Google</strong> as the sign-in provider, if you choose "Continue with Google."</li>
+      <li><strong>Resend</strong> for sending transactional email such as password resets and support replies.</li>
+      <li><strong>Railway</strong>, our hosting provider, for serving the Site and storing data.</li>
     </ul>
+    <p><strong>Sources of sports data, not recipients of your information.</strong> To build picks, scores, schedules, and market data, we pull information from third-party sources including ESPN, The Odds API, Discord, ActionNetwork, Polymarket, and Kalshi. These are sources of sports and market data flowing into the Site. We do not send your personal information to them.</p>
     <p>We may also disclose information if required by law, to protect our rights or the safety of others, or in connection with a merger, acquisition, or sale of assets.</p>
 
-    <h2 id="choices">7. Your choices and opt-out</h2>
+    <h2 id="sell">7. Selling and sharing of personal information</h2>
+    <p>We do not sell your personal information for money, and we do not operate an advertising network or share your information with advertising partners to build profiles about you.</p>
+    <p>Some US state laws, including California's, define "sharing" broadly enough that using analytics cookies could be treated as "sharing" for cross-context purposes. To the extent that applies, the analytics opt-out described in Section 8 also serves as your "Do Not Sell or Share My Personal Information" choice. You can exercise it at any time, on any device, at no cost, and we will not deny you service or change your experience for using it.</p>
+
+    <h2 id="choices">8. Your choices and opt-out</h2>
     <p>You can opt out of analytics and session recording at any time. This sets a preference in your browser and stops new analytics collection on this device.</p>
     <div class="optout-box">
       <button id="ca-optout-btn" onclick="caToggleOptout()">Opt out of analytics</button>
       <div class="optout-status" id="ca-optout-status"></div>
     </div>
-    <p>You can also block or delete cookies in your browser settings, and you can request access to or deletion of your account data by contacting us (see Section 13).</p>
+    <p><strong>Global Privacy Control.</strong> If your browser or a browser extension sends a Global Privacy Control (GPC) signal, we treat it as a request to opt out of analytics and any "sharing" on that browser. There is no agreed industry standard for the older "Do Not Track" signal, so we do not respond to Do Not Track separately. The GPC signal and the opt-out control above both work.</p>
+    <p>You can also block or delete cookies in your browser settings, and you can request access to or deletion of your account data by contacting us (see Sections 12 and 15).</p>
 
-    <h2 id="retention">8. Data retention</h2>
-    <p>We keep account information for as long as your account is active and as needed to provide the Site. We keep analytics and log data for a limited period for analysis and security. We keep billing records as required for tax and accounting. When data is no longer needed, we delete or anonymize it.</p>
+    <h2 id="retention">9. Data retention</h2>
+    <p>We keep information only for as long as we need it. In practice:</p>
+    <ul>
+      <li><strong>Account data</strong> (email, username, hashed password, Google account identifier) is kept while your account is active and for a limited period after you close it, unless we need it longer to meet a legal, tax, or accounting requirement or to resolve a dispute.</li>
+      <li><strong>Analytics and session-recording data</strong> is kept for a limited period set by our analytics provider's retention settings, after which it is deleted or de-identified.</li>
+      <li><strong>Billing records</strong> are kept as required for tax and accounting.</li>
+      <li><strong>Support emails</strong> are kept while needed to handle your request and for a reasonable period afterward.</li>
+    </ul>
+    <p>When data is no longer needed, we delete or anonymize it.</p>
 
-    <h2 id="security">9. Security</h2>
-    <p>We use reasonable technical and organizational measures to protect your information, including password hashing, encrypted connections (HTTPS), and access controls. No method of transmission or storage is completely secure, so we cannot guarantee absolute security.</p>
+    <h2 id="security">10. Security</h2>
+    <p>We use reasonable technical and organizational measures to protect your information, including password hashing (bcrypt), encrypted connections (HTTPS), secure session cookies, and access controls. We never store your full card number. No method of transmission or storage is completely secure, so we cannot guarantee absolute security.</p>
 
-    <h2 id="children">10. Age requirement</h2>
+    <h2 id="children">11. Age requirement</h2>
     <p>The Site is intended only for people who are 18 or older. We do not knowingly collect information from anyone under 18. If you believe a minor has provided us information, contact us and we will delete it.</p>
 
-    <h2 id="rights">11. Your privacy rights</h2>
-    <p>Depending on where you live, you may have the right to access, correct, or delete your personal information, and to opt out of certain processing. California residents have rights under the CCPA, including the right to know what we collect and to request deletion. We do not sell personal information. To exercise any right, contact us using the details below and we will respond as required by law.</p>
+    <h2 id="rights">12. Your US state privacy rights</h2>
+    <p>Depending on where you live, you may have privacy rights under state law, including California (CCPA and CPRA), Virginia, Colorado, Connecticut, and Utah. CappingAlpha is based in Florida, which does not currently have a comprehensive consumer privacy law, but we extend the following rights to residents of states that grant them:</p>
+    <ul>
+      <li><strong>Right to know and access</strong> the personal information we have collected about you.</li>
+      <li><strong>Right to correct</strong> inaccurate personal information.</li>
+      <li><strong>Right to delete</strong> personal information we hold about you, subject to legal exceptions.</li>
+      <li><strong>Right to opt out</strong> of the sale or sharing of personal information and of targeted advertising. We do not sell your information or run targeted advertising (see Section 7), and the control in Section 8 covers analytics "sharing."</li>
+      <li><strong>Right to limit the use of sensitive personal information</strong> (California). We do not collect sensitive personal information.</li>
+      <li><strong>Right to appeal</strong> (Virginia, Colorado, Connecticut, Utah). If we decline your request, you may ask us to reconsider.</li>
+    </ul>
+    <h3>Categories of personal information we collect</h3>
+    <table class="pii">
+      <thead>
+        <tr><th>Category</th><th>What this includes for us</th><th>Why we collect it</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Identifiers</td><td>Email, username, IP address, Google account identifier</td><td>Create and secure your account, analytics</td></tr>
+        <tr><td>Customer and commercial records</td><td>Subscription status, plan, and payment result from Stripe (no card numbers)</td><td>Provide and manage paid access</td></tr>
+        <tr><td>Internet or network activity</td><td>Pages and tabs viewed, picks and games opened, votes, session recordings (typing masked)</td><td>Operate and improve the Site, security</td></tr>
+        <tr><td>Geolocation</td><td>Approximate location (country or region) from your IP address</td><td>Security and regional context</td></tr>
+        <tr><td>Inferences</td><td>Favorite sports and general usage patterns</td><td>Personalize and improve the Site</td></tr>
+      </tbody>
+    </table>
+    <p>We do not collect Social Security numbers, driver's license numbers, financial account numbers, precise geolocation, or other sensitive personal information.</p>
+    <h3>How to exercise your rights</h3>
+    <p>Email <a href="mailto:support@cappingalpha.com">support@cappingalpha.com</a> to make a request. We will verify your identity using the email address on your account before we act. You may use an authorized agent to submit a request on your behalf; we may ask the agent for proof of authorization and may still verify your identity directly. We will not deny you service, charge you a different price, or give you a different experience for exercising any of these rights.</p>
 
-    <h2 id="changes">12. Changes to this policy</h2>
+    <h2 id="links">13. Third-party links</h2>
+    <p>The Site links to and surfaces data from external sites and services, such as ESPN, sportsbooks, and prediction markets. We do not control those sites, and their privacy practices are their own. This policy does not cover them, so please review their policies before sharing information with them.</p>
+
+    <h2 id="changes">14. Changes to this policy</h2>
     <p>We may update this policy from time to time. When we make material changes, we will update the date at the top and, where appropriate, provide additional notice. Your continued use of the Site after an update means you accept the revised policy.</p>
 
-    <h2 id="contact">13. Contact</h2>
-    <p>For privacy questions or requests, contact us at <a href="mailto:support@cappingalpha.com">support@cappingalpha.com</a>.</p>
+    <h2 id="contact">15. Contact</h2>
+    <p>For privacy questions, or to access, correct, or delete your data, contact us at <a href="mailto:support@cappingalpha.com">support@cappingalpha.com</a>. We will respond as required by law and may verify your identity first.</p>
 
     <a class="back" href="/">← Back to CappingAlpha</a>
   </div>

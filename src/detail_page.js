@@ -153,7 +153,7 @@ function buildAuthModals() {
       <div class="form-group" style="display:flex;align-items:flex-start;gap:10px;">
         <input type="checkbox" id="signup-tos" style="margin-top:3px;flex-shrink:0;" />
         <label for="signup-tos" style="font-size:13px;color:var(--text-tertiary);cursor:pointer;">
-          I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent-brand);">Terms of Service</a>
+          I am 18 or older and agree to the <a href="/terms" target="_blank" style="color:var(--accent-brand);">Terms of Service</a> and <a href="/privacy" target="_blank" style="color:var(--accent-brand);">Privacy Policy</a>
         </label>
       </div>
       <button class="btn btn-primary btn-block" onclick="doSignup()">Create Account</button>
