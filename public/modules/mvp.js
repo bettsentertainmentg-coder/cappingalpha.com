@@ -205,11 +205,11 @@ export function renderMvpRow(p, i, opts = {}) {
   const isGold   = (p.score || 0) >= displayThreshold;
   const rowClass = isGold ? 'mvp-row' : 'mvp-row-silver';
   const starColor = isGold ? 'var(--gold)' : '#a0aec0';
-  // Rank marker. Top table: star for #1, number otherwise. History rows get a
-  // small gold/silver tier dot — the literal "MVP" tag on every single row was
-  // redundant (everything in these tables is already an MVP). Keep the gold.
+  // Rank marker. Top table: gold "#1 ★" for the top pick, number otherwise.
+  // History rows get a small gold/silver tier dot — the literal "MVP" tag on
+  // every single row was redundant (everything in these tables is already an MVP).
   const rankMarker = opts.showStar
-    ? (rank === 1 ? `<span style="color:${starColor};">★</span>` : `${rank}`)
+    ? (rank === 1 ? `<span style="color:var(--gold);font-weight:700;white-space:nowrap;">#1 ★</span>` : `${rank}`)
     : `<span class="mvp-tier-dot" style="color:${starColor};font-size:0.7em;">●</span>`;
 
   // Clicking a row opens the full game detail page (live for today's games,
