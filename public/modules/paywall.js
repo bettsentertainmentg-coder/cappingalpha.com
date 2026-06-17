@@ -44,6 +44,16 @@ export async function resumePendingCheckout() {
   await startCheckout(plan);
 }
 
+// Drawer "Premium Access". Logged in → straight to checkout. Logged out → the
+// unlock page at the TOP (the "edge, unlocked" hero), NOT scrolled to the
+// Create-your-account form — that centered scroll is only for explicit "sign up"
+// actions (login popup, etc.), not the hamburger-menu upgrade tap.
+export function drawerPremium() {
+  if (state.currentUser) { startCheckout('week'); return; }
+  window.__caScrollAccount = false;
+  if (window.switchTab) window.switchTab('unlock');
+}
+
 // Shared upgrade CTA — a gold "Unlock the CappingAlpha" button (lock → unlock on
 // hover, like the top-right nav button) that opens the unlock page, with the
 // access options underneath. Used by the Today's Picks paywall and the MVP prompt.
@@ -156,4 +166,4 @@ export async function doRedeemCode(inputId = 'access-code-input', errId = 'code-
   } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
 }
 
-Object.assign(window, { openCodeEntry, renderPaywallDefault, doRedeemCode, startCheckout, resumePendingCheckout, openCodeModal, closeCodeModal, submitCodeModal });
+Object.assign(window, { openCodeEntry, renderPaywallDefault, doRedeemCode, startCheckout, resumePendingCheckout, drawerPremium, openCodeModal, closeCodeModal, submitCodeModal });
