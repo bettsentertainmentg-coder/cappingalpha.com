@@ -365,7 +365,7 @@ function unlockHtml() {
           <button class="btn btn-primary unlock-signup-btn" onclick="window.__unlockSignup()">Create Account</button>
           <div class="unlock-form-err" id="ua-err"></div>
         </div>
-        <div class="unlock-tos">By continuing, you agree to CappingAlpha's <a onclick="switchTab('about')">Terms of Service</a> and <a onclick="switchTab('about')">Privacy Policy</a>.</div>
+        <div class="unlock-tos">By continuing, you agree to CappingAlpha's <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</div>
         <div class="unlock-account-login">Already have an account? <a onclick="openLogin()">Log in</a> &middot; <a onclick="openCodeModal()">I have a code</a></div>
       </div>
     </section>` : '';
