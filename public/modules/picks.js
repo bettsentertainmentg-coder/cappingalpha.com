@@ -79,7 +79,9 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const badgeColor = isGoldMvp ? '' : 'background:rgba(160,174,192,0.15);color:#a0aec0;border-color:rgba(160,174,192,0.3);';
     const mvpBadge  = isMvp ? ` <span class="badge-mvp" style="font-size:0.6em;vertical-align:middle;${badgeColor}">MVP</span>` : '';
     const starSpan  = rank === 1
-      ? (isMvp ? `<span style="color:var(--gold);">★</span>` : `<span class="star-silver">★</span>`)
+      ? (isMvp
+          ? `<span style="color:var(--gold);font-weight:700;white-space:nowrap;">#1 ★</span>`
+          : `<span class="star-silver" style="font-weight:700;white-space:nowrap;">#1 ★</span>`)
       : '';
     const rankInner = rank === 1 ? `${starSpan}${mvpBadge}` : `${rank}${mvpBadge}`;
     const rankTd    = `<td class="rank ${rank === 1 ? 'rank-1' : ''}">
