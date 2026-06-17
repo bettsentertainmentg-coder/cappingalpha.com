@@ -23,7 +23,7 @@ const UNLOCK_CSS = `
 .unlock-hero-text h1 { font-size:52px; line-height:1.04; font-weight:900; margin:0 0 16px; font-family:'Space Grotesk',sans-serif; letter-spacing:-1px; }
 .unlock-gold { color:var(--gold); }
 .unlock-sub { font-size:18px; color:var(--muted); line-height:1.5; margin:0 0 22px; max-width:520px; }
-.unlock-sub-link { color:var(--accent); cursor:pointer; text-decoration:underline; }
+.unlock-sub-link { color:var(--accent); cursor:pointer; text-decoration:none; }
 .unlock-sub-link:hover { color:var(--text); }
 .unlock-note { background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.3); color:#4ade80; padding:12px 18px; border-radius:10px; font-weight:600; display:inline-block; }
 .unlock-buy { margin-top:22px; }
