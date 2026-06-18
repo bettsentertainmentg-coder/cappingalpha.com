@@ -35,14 +35,7 @@ export function switchTab(tabName) {
   window.scrollTo(0, 0);
 
   if (tabName === 'mvp') {
-    if (!state.mvpLoaded) {
-      state.mvpLoaded = true;
-      if (isPaying()) {
-        loadMvp();
-      } else {
-        loadMvpPublic();
-      }
-    }
+    loadMvpTab();
   }
   if (tabName === 'sports' && !state.sportsLoaded) {
     state.sportsLoaded = true;
@@ -67,6 +60,18 @@ export function switchTab(tabName) {
 }
 
 window.switchTab = switchTab;
+
+// Load the CA Picks tab for the current auth tier. Re-loads when the tier changed
+// since the last render — fixes the paywall race where the tab rendered its
+// public/limited view (with the "Unlock" prompt) before checkAuth() resolved the
+// paid tier, then cached it. Called on tab switch and again once auth resolves.
+function loadMvpTab() {
+  const paid = isPaying();
+  if (state.mvpLoaded && state.mvpLoadedPaid === paid) return;
+  state.mvpLoaded = true;
+  state.mvpLoadedPaid = paid;
+  if (paid) loadMvp(); else loadMvpPublic();
+}
 
 // ── Support / contact form (About page) ───────────────────────────────────────
 async function sendSupport() {
@@ -174,6 +179,11 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
     document.querySelectorAll('.mvp-pts-live').forEach(n => { n.textContent = t; });
   }
   await checkAuth();
+
+  // If the CA Picks tab already rendered before auth resolved (DOMContentLoaded
+  // hash nav can beat checkAuth), re-sync it now so a paying member isn't left
+  // looking at the public/limited "Unlock" view.
+  if (state.mvpLoaded) loadMvpTab();
 
   // Handle Stripe redirect back to site
   const params = new URLSearchParams(location.search);

@@ -9,6 +9,7 @@ export const state = {
   mvpData:       null,
   homeMvpPicks:  null,
   mvpLoaded:     false,
+  mvpLoadedPaid: null,   // tier the CA Picks tab last rendered for (true=paid view, false=public/limited). Lets us re-sync after auth resolves.
   sportsLoaded:  false,
   esportsLoaded: false,
   leaderboardLoaded: false,
