@@ -193,6 +193,11 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${esc(title)}</title>
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
   <meta name="description" content="${esc(desc)}" />
   <link rel="canonical" href="${esc(canonical)}" />
   <meta name="robots" content="index, follow, max-image-preview:large" />
