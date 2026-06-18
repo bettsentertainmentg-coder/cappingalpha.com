@@ -120,6 +120,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
   container.innerHTML = mvpHero + `
     ${upgradePrompt}
+    ${liveTodaySections}
     <div class="graph-card">
       <div class="graph-header">
         <div>
@@ -150,8 +151,6 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
         ${_recordBarHtml(barRec, limited)}
       </div>
     </div>
-
-    ${liveTodaySections}
 
     <div class="mvp-section-title">Pick History</div>
     <div class="mvp-history-wrap">
