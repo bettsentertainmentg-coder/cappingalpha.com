@@ -89,12 +89,12 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
   const liveTodaySections = limited ? '' : `
     ${liveMvpPicks.length > 0 ? `
-      <div class="mvp-section-title">Live CA Games</div>
+      <div class="mvp-section-title">Live Games</div>
       <div class="card" style="margin-bottom:24px;">
         <div id="mvp-live-body"></div>
       </div>
     ` : ''}
-    <div class="mvp-section-title">Today's CA Picks</div>
+    <div class="mvp-section-title">Today's Picks</div>
     <div class="card" style="margin-bottom:24px;">
       <div id="mvp-today-body"></div>
     </div>`;
@@ -153,7 +153,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
     ${liveTodaySections}
 
-    <div class="mvp-section-title">CA Pick History</div>
+    <div class="mvp-section-title">Pick History</div>
     <div class="mvp-history-wrap">
       <div class="card" style="border:none;border-radius:0;">
         <div id="mvp-history-body"></div>
@@ -171,7 +171,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
   if (todayMvps.length === 0) {
     const el = document.getElementById('mvp-today-body');
-    if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No CA picks today yet.</p></div>`;
+    if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No picks today yet.</p></div>`;
   } else {
     renderMvpRows(todayMvps, 'mvp-today-body', { useLiveScore: true, showStar: true });
   }
@@ -233,7 +233,7 @@ export function renderMvpRows(picks, targetId, opts = {}) {
   const el = document.getElementById(targetId);
   if (!el) return;
   if (!picks || picks.length === 0) {
-    el.innerHTML = `<div class="empty"><p>No CA picks recorded yet.</p></div>`;
+    el.innerHTML = `<div class="empty"><p>No picks recorded yet.</p></div>`;
     return;
   }
   const rows = picks.map((p, i) => renderMvpRow(p, i, opts)).join('');
