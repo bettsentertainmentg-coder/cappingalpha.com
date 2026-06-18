@@ -24,7 +24,7 @@ export async function loadMvp() {
   } catch (err) {
     console.error('[MVP] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
-      `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load MVP data</h3><p style="color:#f87171;">${err.message}</p></div>`;
+      `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;
   }
 }
 
@@ -37,7 +37,7 @@ export async function loadMvpPublic() {
   } catch (err) {
     console.error('[MVP public] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
-      `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load MVP data</h3><p style="color:#f87171;">${err.message}</p></div>`;
+      `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;
   }
 }
 
@@ -89,26 +89,26 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
   const liveTodaySections = limited ? '' : `
     ${liveMvpPicks.length > 0 ? `
-      <div class="mvp-section-title">Live MVP Games</div>
+      <div class="mvp-section-title">Live CA Games</div>
       <div class="card" style="margin-bottom:24px;">
         <div id="mvp-live-body"></div>
       </div>
     ` : ''}
-    <div class="mvp-section-title">Today's MVPs</div>
+    <div class="mvp-section-title">Today's CA Picks</div>
     <div class="card" style="margin-bottom:24px;">
       <div id="mvp-today-body"></div>
     </div>`;
 
   const upgradePrompt = limited ? `
     <div class="inline-paywall-card" style="margin-bottom:28px;">
-      <h3>Follow Today's MVP Picks Live</h3>
+      <h3>Follow Today's CA Picks Live</h3>
       <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">Today's games, live action, and full P/L tracking are available to subscribers.</p>
       ${unlockCtaHtml()}
     </div>` : '';
 
   const mvpHero = `
     <div class="mvp-tab-hero">
-      <div class="mvp-tab-badge">MVP Picks</div>
+      <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Picks</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
       <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
     </div>`;
@@ -119,6 +119,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
   if (!limited) barRec.pending = record.pending;
 
   container.innerHTML = mvpHero + `
+    ${upgradePrompt}
     <div class="graph-card">
       <div class="graph-header">
         <div>
@@ -150,10 +151,9 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
       </div>
     </div>
 
-    ${upgradePrompt}
     ${liveTodaySections}
 
-    <div class="mvp-section-title">MVP Pick History</div>
+    <div class="mvp-section-title">CA Pick History</div>
     <div class="mvp-history-wrap">
       <div class="card" style="border:none;border-radius:0;">
         <div id="mvp-history-body"></div>
@@ -171,7 +171,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
   if (todayMvps.length === 0) {
     const el = document.getElementById('mvp-today-body');
-    if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No MVP picks today yet.</p></div>`;
+    if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No CA picks today yet.</p></div>`;
   } else {
     renderMvpRows(todayMvps, 'mvp-today-body', { useLiveScore: true, showStar: true });
   }
@@ -233,7 +233,7 @@ export function renderMvpRows(picks, targetId, opts = {}) {
   const el = document.getElementById(targetId);
   if (!el) return;
   if (!picks || picks.length === 0) {
-    el.innerHTML = `<div class="empty"><p>No MVP picks recorded yet.</p></div>`;
+    el.innerHTML = `<div class="empty"><p>No CA picks recorded yet.</p></div>`;
     return;
   }
   const rows = picks.map((p, i) => renderMvpRow(p, i, opts)).join('');

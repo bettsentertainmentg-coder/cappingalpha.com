@@ -106,7 +106,7 @@ async function _renderTopPick() {
     const ctaHtml = `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all picks ›</div>`;
 
     el.innerHTML = `
-      <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View MVP picks ›">
+      <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View CA Picks ›">
         <div class="ca-tp-brand">
           <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">

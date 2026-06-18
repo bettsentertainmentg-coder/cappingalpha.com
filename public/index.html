@@ -173,6 +173,12 @@
     }
     .tab-btn:hover { color: var(--text); }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    /* CA logo chip shown inline beside "Picks" labels (the marquee badge from the #1 pick card). Scales with surrounding text. */
+    .ca-pick-logo { height: 1.25em; width: auto; border-radius: 3px; vertical-align: middle; display: inline-block; margin-right: 6px; flex-shrink: 0; }
+    /* On the nav tab: a touch larger, tighter to "Picks", and dim by default — it brightens with the tab's hover + active state so the logo tracks the text. */
+    .tab-btn .ca-pick-logo { height: 1.5em; margin-right: 3px; opacity: 0.78; transition: opacity 0.15s; }
+    .tab-btn:hover .ca-pick-logo,
+    .tab-btn.active .ca-pick-logo { opacity: 1; }
 
     /* ── Tab panels ── */
     .tab-panel { display: none; }
@@ -1689,7 +1695,7 @@
       </button>
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
       <div class="nav-tabs">
-        <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')">MVP Picks</button>
+        <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Picks</button>
         <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
         <button class="tab-btn" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</button>
@@ -1774,7 +1780,7 @@
         <!-- MVP P/L Widget -->
         <div class="ca-home-section" id="ca-mvp-home-section">
           <div class="ca-home-section-header">
-            <span class="ca-home-section-title">MVP Picks</span>
+            <span class="ca-home-section-title"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Picks</span>
             <a class="ca-home-section-link" onclick="switchTab('mvp')">View all ↗</a>
           </div>
           <div id="home-mvp-section" style="display:none;">
@@ -1798,7 +1804,7 @@
     </div>
   </div>
 
-  <!-- ── Tab 2: MVP Pick History ── -->
+  <!-- ── Tab 2: CA Pick History ── -->
   <div id="panel-mvp" class="tab-panel">
     <div class="container" style="padding-top:32px;">
       <div id="mvp-tab-content">
@@ -1880,7 +1886,7 @@
 
         <h3 class="about-h3">Why does the house always win?</h3>
         <p class="about-p">There are inconsistencies in the lines and spreads that can often give the house an edge. CappingAlpha's algorithm uses a system of complex agents to find the gaps where teams, players, and lines look most profitable versus the books, and ranks them accordingly.</p>
-        <p class="about-p">These calculations happen throughout the day and can sometimes take right up until tip-off to fully crystallize. Picks are ranked, and the day's MVP picks (<span class="mvp-pts-live">50</span>+ points) are highlighted along with a wide range of statistics to help inform your call.</p>
+        <p class="about-p">These calculations happen throughout the day and can sometimes take right up until tip-off to fully crystallize. Picks are ranked, and the day's CA picks (<span class="mvp-pts-live">50</span>+ points) are highlighted along with a wide range of statistics to help inform your call.</p>
         <p class="about-p">This is to inform you and give you an extra layer of insight on each pick. No pick is ever recommended by our side. Anything can happen in a sports match. It's purely statistical data.</p>
 
         <h3 class="about-h3">How the scoring model works</h3>
@@ -1916,8 +1922,8 @@
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#FFD700;">★</div>
-          <div class="about-signal-title">MVP Tracking</div>
-          <div class="about-signal-desc">Picks reaching <span id="about-mvp-pts" class="mvp-pts-live">50</span>+ points earn MVP status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
+          <div class="about-signal-title">CA Pick Tracking</div>
+          <div class="about-signal-desc">Picks reaching <span id="about-mvp-pts" class="mvp-pts-live">50</span>+ points earn CA Pick status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#38bdf8;">◈</div>
@@ -1935,7 +1941,7 @@
       <hr class="about-divider" />
 
       <h2 class="about-h2">Transparency and Disclaimers</h2>
-      <p class="about-p">Every MVP pick is logged with the final game score and result. The hypothetical P/L shown in the MVP tab assumes a flat $10 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
+      <p class="about-p">Every CA pick is logged with the final game score and result. The hypothetical P/L shown in the CA Picks tab assumes a flat $10 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
       <p class="about-p">Scores generated by CappingAlpha are produced by an AI model trained on public capper data. A high score means more community agreement on a given side. It does not mean that side is likely to cover or win. Past hypothetical performance is not indicative of future results.</p>
       <p class="about-p">CappingAlpha is a research and data tool. Nothing on this site constitutes financial advice, sports betting advice, or a recommendation to wager. Use this data at your own discretion.</p>
 
@@ -1962,7 +1968,7 @@
         <div class="about-pricing-card">
           <div class="price" style="color:var(--accent);">$75<span style="font-size:14px;font-weight:400;color:var(--muted);">/year</span></div>
           <div class="price-label">Annual subscription</div>
-          <div class="price-feature">Full season access plus MVP history, P/L graph, and all future features.</div>
+          <div class="price-feature">Full season access plus CA pick history, P/L graph, and all future features.</div>
         </div>
       </div>
 
@@ -2201,7 +2207,7 @@
       Home <span class="ca-drawer-nav-chevron">›</span>
     </a>
     <a class="ca-drawer-nav-item gold" onclick="switchTab('mvp');closeDrawer();">
-      MVP Picks <span class="ca-drawer-nav-chevron" style="color:var(--gold);">›</span>
+      <img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Picks <span class="ca-drawer-nav-chevron" style="color:var(--gold);">›</span>
     </a>
     <a class="ca-drawer-nav-item" onclick="switchTab('sports');closeDrawer();">
       Sports <span class="ca-drawer-nav-chevron">›</span>

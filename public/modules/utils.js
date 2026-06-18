@@ -55,7 +55,7 @@ export function sportBadge(sport) {
 }
 
 export function ratingCell(score, mvp_threshold = 50) {
-  if (score >= mvp_threshold) return `<span class="badge-mvp">MVP</span>`;
+  if (score >= mvp_threshold) return `<span class="badge-mvp">CA</span>`;
   return `<span class="score-num">${score ?? '—'}</span>`;
 }
 

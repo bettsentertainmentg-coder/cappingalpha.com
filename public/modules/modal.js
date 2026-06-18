@@ -509,7 +509,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     ? `<div class="pick-score-box${isMvp ? ' mvp' : ''}">
         <span class="pick-score-brand">Capping<span>Alpha</span> Score</span>
         <span class="pick-info-score" style="color:${isMvp ? '#000' : heat.color};">${p.score || 0}${heat.fire ? ' 🔥' : ''}</span>
-        ${isMvp ? '<span class="pick-info-mvp" style="background:#000;color:var(--gold);">MVP</span>' : ''}
+        ${isMvp ? '<span class="pick-info-mvp" style="background:#000;color:var(--gold);">CA</span>' : ''}
       </div>`
     : `<div class="pick-score-box locked-score">
         <span class="pick-score-brand">Capping<span>Alpha</span> Score</span>

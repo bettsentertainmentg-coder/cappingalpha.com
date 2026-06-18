@@ -159,7 +159,7 @@ const COMPARE = [
   ['Every sport, every day (MLB, NBA, WNBA, NHL, Tennis, Golf)', true, true],
   ['Vote and track your own P/L', true, true],
   ['Every pick\'s score and conviction', '#1 only', true],
-  ['MVP picks, full long-term record', 'recent only', true],
+  ['CA picks, full long-term record', 'recent only', true],
   ['__ALLPICKS__', false, true],
   ['Zero ads', false, true],
 ];
@@ -292,14 +292,14 @@ function buildHeroStats(data, bet, best) {
 
 function buildProof(data, bet) {
   const resolved = _resolved(data?.picks || []);
-  if (!resolved.length) return { html: `<div class="unlock-proof-snippet">The tracked record builds daily. Every MVP pick (50+ points) is logged long term, win or lose.</div>`, series: null };
+  if (!resolved.length) return { html: `<div class="unlock-proof-snippet">The tracked record builds daily. Every CA pick (50+ points) is logged long term, win or lose.</div>`, series: null };
   const s = _series(resolved, bet);
   const pos = s.total >= 0;
   const amt = `${pos ? '+' : '-'}$${Math.abs(s.total).toFixed(2)}`;
   const html = `
     <div class="unlock-proof-pl-head"><span class="unlock-proof-pl-label">All-Time P/L</span><span class="unlock-proof-pl-amt ${pos ? 'pos' : 'neg'}">${amt}</span></div>
     <div class="unlock-proof-chart-wrap"><canvas id="unlock-pl-chart"></canvas></div>
-    <div class="unlock-proof-betsize">Based on a flat $${bet} bet size. Every MVP pick (50+ points) is tracked long term, win or lose.</div>`;
+    <div class="unlock-proof-betsize">Based on a flat $${bet} bet size. Every CA pick (50+ points) is tracked long term, win or lose.</div>`;
   return { html, series: s };
 }
 

@@ -312,7 +312,7 @@ function table(rows, minVotes, window) {
     const member = r.is_house
       ? `<div class="lb-member"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1a2030,#3b82f6);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;flex-shrink:0;">CA</div>${r.username}${r.sport ? ' ' + sportBadge(r.sport) : ''} <span class="lb-house-badge">Official</span></div>`
       : `<div class="lb-member">${avatarFor(r.username, 30)} @${r.username}${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(r)}</div>`;
-    return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? "View CappingAlpha's MVP picks" : 'View profile'}">
+    return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? "View the CA Picks" : 'View profile'}">
       <td class="lb-left lb-rank${r.rank === 1 ? ' lb-r1' : ''}">${r.rank}${rankMedal(r.rank)}</td>
       <td class="lb-left">${member}</td>
       <td>${record(r)}</td>
@@ -360,7 +360,7 @@ function howItWorks() {
       </div>
       <div class="lb-howto-item">
         <div class="lb-howto-ico">🛡️</div>
-        <div><div class="lb-howto-h">Beat the CappingAlpha bots</div><div class="lb-howto-p">CappingAlpha bots are our tracked MVP picks, overall and per sport. Outrank them to prove you're beating the model.</div></div>
+        <div><div class="lb-howto-h">Beat the CappingAlpha bots</div><div class="lb-howto-p">CappingAlpha bots are our tracked CA picks, overall and per sport. Outrank them to prove you're beating the model.</div></div>
       </div>
       <div class="lb-howto-item">
         <div class="lb-howto-ico">🥇</div>
