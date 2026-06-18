@@ -194,11 +194,15 @@ function getLeaderboard(window, meId) {
   const w = ['week', 'month', 'all'].includes(window) ? window : 'week';
   const ranked = rankAll(w);
 
+  // Public board: house + public members, plus the caller's OWN row even when it's
+  // private. Other people's private rows stay hidden; the caller-only inclusion is
+  // safe because this is filtered per-request against meId.
   const rows = ranked
-    .filter(u => u.is_house || u.is_public === 1)
+    .filter(u => u.is_house || u.is_public === 1 || (meId != null && u.user_id === meId))
     .map(u => ({
       rank: u.rank, user_id: u.user_id, username: u.username,
       is_house: u.is_house ? 1 : 0, sport: u.sport || null,
+      is_public: u.is_house ? 1 : (u.is_public == null ? 1 : u.is_public),
       wins: u.wins, losses: u.losses, pushes: u.pushes, total_votes: u.total_votes,
       win_pct: u.win_pct, units: u.units, roi: u.roi,
       is_me: meId != null && u.user_id === meId,

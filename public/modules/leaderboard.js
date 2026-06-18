@@ -32,6 +32,13 @@ function rankMedal(rank) {
   if (rank <= 10) return ' 🥉';
   return '';
 }
+// Gray lock shown on the caller's OWN row when their account is private. Only the
+// owner is ever sent this row, so the lock means "you still hold this spot, but
+// it's hidden from everyone else."
+function privacyLock(r) {
+  if (!(r.is_me && r.is_public === 0)) return '';
+  return ` <i class="fa-solid fa-lock" style="color:var(--muted);font-size:10px;" title="Hidden from the public leaderboard. Only you can see your spot here."></i>`;
+}
 // Click target for a row: house → MVP tab, member → profile popup (scoped to the
 // window being viewed so the popup shows that window's record + chart).
 function rowClick(r, window) {
@@ -252,7 +259,7 @@ function podiumSlot(row, place, window) {
     : avatarFor(row.username, place === 1 ? 56 : 46);
   const name = row.is_house
     ? `${row.username}<div class="lb-podium-house-tag">Official</div>`
-    : `@${row.username}${row.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}`;
+    : `@${row.username}${row.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(row)}`;
   return `<div class="lb-podium-slot ${placeCls} clickable" onclick="${rowClick(row, window)}">
     <div class="lb-podium-medal">${medal}</div>
     <div class="lb-podium-av">${av}</div>
@@ -304,7 +311,7 @@ function table(rows, minVotes, window) {
     const cls = r.is_house ? 'lb-row lb-house' : `lb-row${r.is_me ? ' lb-me' : ''}`;
     const member = r.is_house
       ? `<div class="lb-member"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1a2030,#3b82f6);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;flex-shrink:0;">CA</div>${r.username}${r.sport ? ' ' + sportBadge(r.sport) : ''} <span class="lb-house-badge">Official</span></div>`
-      : `<div class="lb-member">${avatarFor(r.username, 30)} @${r.username}${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}</div>`;
+      : `<div class="lb-member">${avatarFor(r.username, 30)} @${r.username}${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(r)}</div>`;
     return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? "View CappingAlpha's MVP picks" : 'View profile'}">
       <td class="lb-left lb-rank${r.rank === 1 ? ' lb-r1' : ''}">${r.rank}${rankMedal(r.rank)}</td>
       <td class="lb-left">${member}</td>
