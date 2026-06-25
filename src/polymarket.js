@@ -4,6 +4,7 @@
 // Polled every 15 min; every 5 min for games within 60 min of tip.
 
 const db = require('./db');
+const { ET_OFFSET_MS } = require('./cycle');
 
 // Polymarket tag slugs per sport
 const TAG_MAP = {
@@ -127,12 +128,16 @@ function detectMarketType(question) {
 function extractAllMarkets(ev, game) {
   const result = {};
   const spreadCandidates = []; // collect all spread markets, pick best at end
+  const totalCandidates  = []; // collect all total markets, pick the main one at end
 
-  const processMarket = (q, outcomes, priceStr) => {
+  const processMarket = (q, outcomes, priceStr, vol = 0) => {
     try {
       const ql = (q || '').toLowerCase();
-      // Skip first-half, player props, series/award markets
-      if (ql.includes('1h ') || ql.includes('half')) return;
+      // Skip partial-game lines (1st half, 1st 5 innings, 1st inning), player
+      // props, series/award markets. The partial totals/spreads were polluting
+      // the main-line pick (a "1st 5 innings" run line can sit closer to 50/50
+      // than the real run line).
+      if (ql.includes('1h ') || ql.includes('half') || ql.includes('1st ') || ql.includes('inning')) return;
       if (ql.includes('series') || ql.includes('champion') || ql.includes('mvp')) return;
       if (ql.includes('rebounds') || ql.includes('assists') || ql.includes('points o/u')) return;
       if (ql.includes('total games')) return;
@@ -152,17 +157,18 @@ function extractAllMarkets(ev, game) {
       if (isNaN(p0) || isNaN(p1)) return;
 
       if (type === 'total') {
-        if (result.total) return; // already have one
-        // Outcomes: ["Over", "Under"] — line is in the question like "O/U 216.5"
+        // Outcomes: ["Over", "Under"] — line is in the question like "O/U 216.5".
+        // Collect every total line; the book lists several (7.5, 8.5, 10.5…) and
+        // the main one is simply the most-traded, so pick by volume at the end.
         const overIdx = outs.findIndex(o => o.toLowerCase().startsWith('over'));
         if (overIdx === -1) return;
-        const underIdx = overIdx === 0 ? 1 : 0;
         const lineMatch = ql.match(/[\d.]+\s*$/); // trailing number from question
-        result.total = {
+        totalCandidates.push({
           over_prob:  overIdx === 0 ? p0 : p1,
-          under_prob: underIdx === 0 ? p0 : p1,
+          under_prob: overIdx === 0 ? p1 : p0,
           line: lineMatch ? parseFloat(lineMatch[0]) : null,
-        };
+          vol: vol || 0,
+        });
       } else if (type === 'spread') {
         // Collect all spread candidates — pick closest to 50/50 at the end
         const homeIdx = outs.findIndex(o => nameMatch(o, game.home_team));
@@ -194,13 +200,15 @@ function extractAllMarkets(ev, game) {
 
   // Top-level market (simple events)
   if (ev.outcomePrices || ev.outcomes) {
-    processMarket(ev.question || ev.title || '', ev.outcomes, ev.outcomePrices);
+    processMarket(ev.question || ev.title || '', ev.outcomes, ev.outcomePrices,
+                  parseFloat(ev.volumeNum || ev.volume || 0) || 0);
   }
 
   // Nested markets (complex events with spread/total sub-markets)
   if (Array.isArray(ev.markets)) {
     for (const m of ev.markets) {
-      processMarket(m.question || m.title || '', m.outcomes, m.outcomePrices);
+      processMarket(m.question || m.title || '', m.outcomes, m.outcomePrices,
+                    parseFloat(m.volumeNum || m.volume || 0) || 0);
     }
   }
 
@@ -209,6 +217,15 @@ function extractAllMarkets(ev, game) {
     spreadCandidates.sort((a, b) => a.balance - b.balance);
     const best = spreadCandidates[0];
     result.spread = { home_prob: best.home_prob, away_prob: best.away_prob, line: best.line };
+  }
+
+  // Pick the main total = the most-traded line (tiebreak: closest to 50/50). The
+  // book quotes several alternate totals; the headline line carries the volume.
+  if (totalCandidates.length > 0) {
+    totalCandidates.sort((a, b) =>
+      (b.vol - a.vol) || (Math.abs(a.over_prob - 0.5) - Math.abs(b.over_prob - 0.5)));
+    const t = totalCandidates[0];
+    result.total = { over_prob: t.over_prob, under_prob: t.under_prob, line: t.line };
   }
 
   return result;
@@ -253,14 +270,55 @@ function nameMatch(str, teamName) {
   return s.includes(nick) || s.includes(t);
 }
 
-// Match a Polymarket event to one of our ESPN games by team names in the title
+// ESPN game's ET calendar date (YYYY-MM-DD). start_time is UTC; the daily slate is
+// keyed on the ET date, so shift by the (DST-aware) ET offset before slicing.
+function _gameEtDate(startTime) {
+  if (!startTime) return null;
+  const t = new Date(startTime).getTime();
+  if (isNaN(t)) return null;
+  return new Date(t - ET_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// A Polymarket event's game date (ET). Prefer a market's gameStartTime (a precise
+// UTC instant); fall back to the YYYY-MM-DD embedded in the event slug
+// (e.g. mlb-nyy-bos-2026-06-25). Returns null when neither is available.
+function _eventEtDate(ev) {
+  for (const m of (ev.markets || [])) {
+    if (!m.gameStartTime) continue;
+    // "2026-06-25 23:10:00+00" → ISO: normalize the space and a bare +00 offset.
+    const s = String(m.gameStartTime).trim().replace(' ', 'T').replace(/\+00(:?00)?$/, 'Z');
+    const t = new Date(s).getTime();
+    if (!isNaN(t)) return new Date(t - ET_OFFSET_MS).toISOString().slice(0, 10);
+  }
+  const sm = (ev.slug || '').match(/(\d{4}-\d{2}-\d{2})/);
+  return sm ? sm[1] : null;
+}
+
+// Match a Polymarket event to one of our ESPN games by team names AND date.
+// Polymarket leaves finished events active=true, so a same-teams series (e.g. a
+// 3-game MLB set) returns several live events at once — matching on names alone
+// locked onto a stale, days-old event whose prices never move (the reported
+// "Yankees 49%/line +104, not updating" bug). Disambiguate by game date; fail
+// open to the name match only when no date is available on either side.
 function matchGameToEvent(ev, games) {
   const title = (ev.title || ev.question || '').toLowerCase();
-  return games.find(g => {
+  const nameMatches = games.filter(g => {
     const homeNick = (g.home_team || '').split(' ').pop().toLowerCase();
     const awayNick = (g.away_team || '').split(' ').pop().toLowerCase();
-    return title.includes(homeNick) && title.includes(awayNick);
-  }) || null;
+    return homeNick && awayNick && title.includes(homeNick) && title.includes(awayNick);
+  });
+  if (!nameMatches.length) return null;
+
+  const evDate = _eventEtDate(ev);
+  if (evDate) {
+    const dated = nameMatches.find(g => _gameEtDate(g.start_time) === evDate);
+    if (dated) return dated;
+    // Event is dated to a different day than any candidate game → it's another
+    // game in the series (or a dead event Polymarket never closed). Skip it
+    // rather than overwrite today's odds with stale ones.
+    if (nameMatches.some(g => _gameEtDate(g.start_time))) return null;
+  }
+  return nameMatches[0];
 }
 
 function getPolymarketForGame(espn_game_id) {
