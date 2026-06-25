@@ -85,7 +85,7 @@ function buildNav(user) {
       </button>
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
-        ${tab('mvp', 'MVP Picks')}
+        ${tab('mvp', `<img src="/ca-logo.png" alt="CA" style="height:1.2em;width:auto;border-radius:3px;vertical-align:middle;margin-right:5px;" onerror="this.style.display='none'">Rankings`)}
         ${tab('sports', 'Sports')}
         ${tab('esports', 'Esports')}
         ${tab('leaderboard', 'Leaderboard')}
@@ -102,7 +102,7 @@ function buildNav(user) {
   <!-- Mobile dropdown menu (matches the home hamburger) -->
   <div id="ca-detail-menu" class="ca-detail-menu">
     <a href="/">Home</a>
-    <a href="/#mvp">MVP Picks</a>
+    <a href="/#mvp">CA Rankings</a>
     <a href="/#sports">Sports</a>
     <a href="/#esports">Esports</a>
     <a href="/#leaderboard">Leaderboard</a>

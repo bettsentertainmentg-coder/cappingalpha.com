@@ -94,21 +94,21 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
         <div id="mvp-live-body"></div>
       </div>
     ` : ''}
-    <div class="mvp-section-title">Today's Picks</div>
+    <div class="mvp-section-title">Today's Rankings</div>
     <div class="card" style="margin-bottom:24px;">
       <div id="mvp-today-body"></div>
     </div>`;
 
   const upgradePrompt = limited ? `
     <div class="inline-paywall-card" style="margin-bottom:28px;">
-      <h3>Follow Today's CA Picks Live</h3>
+      <h3>Follow Today's CA Rankings Live</h3>
       <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">Today's games, live action, and full P/L tracking are available to subscribers.</p>
       ${unlockCtaHtml()}
     </div>` : '';
 
   const mvpHero = `
     <div class="mvp-tab-hero">
-      <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Picks</div>
+      <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
       <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
     </div>`;
@@ -152,7 +152,10 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
       </div>
     </div>
 
-    <div class="mvp-section-title">Pick History</div>
+    <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:6px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">History</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ pts.</span>
+    </div>
     <div class="mvp-history-wrap">
       <div class="card" style="border:none;border-radius:0;">
         <div id="mvp-history-body"></div>
@@ -519,7 +522,7 @@ export async function loadHomeMvp() {
       picksCard.innerHTML = `
         <div class="card">
           <div class="card-header">
-            <span class="card-title">Today's Picks</span>
+            <span class="card-title">Today's Rankings</span>
             <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
           </div>
           <div id="home-picks-body">

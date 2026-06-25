@@ -103,15 +103,15 @@ async function _renderTopPick() {
 
     // The whole card opens the MVP page, so everyone just gets a click-through
     // hint. (No Unlock CTA on this card — it cluttered the #1 Pick widget.)
-    const ctaHtml = `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all picks ›</div>`;
+    const ctaHtml = `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all rankings ›</div>`;
 
     el.innerHTML = `
-      <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View CA Picks ›">
+      <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View CA Rankings ›">
         <div class="ca-tp-brand">
           <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
           <span class="ca-tp-logo-fallback">CA</span>
-          <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Pick</span></div>
+          <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Ranked</span></div>
         </div>
         ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
         <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
