@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG } from './utils.js';
-import { inlinePaywallHtml } from './paywall.js';
+import { inlinePaywallHtml, freeAccountCtaHtml } from './paywall.js';
 
 export async function loadPicks() {
   try {
@@ -40,7 +40,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
         <h3>No picks yet today.</h3>
         <p>Check back after 6am ET once the scanner runs.</p>
       </div>`;
-    el.innerHTML = isPaying() ? emptyHtml : emptyHtml + inlinePaywallHtml();
+    el.innerHTML = isPaying() ? emptyHtml : emptyHtml + (isAccount() ? inlinePaywallHtml() : freeAccountCtaHtml());
     return;
   }
 
@@ -127,9 +127,13 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     return;
   }
 
-  // Free user — only the #1 pick is shown; everything else (rank 2..end) is locked
-  // behind the paywall. No public tail. A single blurred teaser row hints there's
-  // more under the wall.
+  // Free tier. The #1 ranked pick is account-gated:
+  //  • logged-in free account → sees #1; ranks 2+ locked behind the upgrade paywall.
+  //  • logged-out visitor      → #1 itself is locked (server withholds it) and the
+  //    CTA nudges a free account instead of a paid upgrade.
+  const acct    = isAccount();                                   // logged-in, unpaid
+  const gateCta = acct ? inlinePaywallHtml() : freeAccountCtaHtml();
+
   // Sports tab passes globalRanks so only the true #1 overall pick is unlocked.
   if (globalRanks) {
     const gr = p => globalRanks.get(p.id) ?? 999;
@@ -138,8 +142,8 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     const hasLocked = activePicks.some(p => gr(p) >= 2);
 
     const topRows = [
-      rank1 ? makeRow(rank1, 1, false) : '',
-      rank2 ? makeRow(rank2, 2, true)  : '',
+      rank1 ? makeRow(rank1, 1, !acct) : '',            // viewer → #1 locked too
+      (acct && rank2) ? makeRow(rank2, 2, true) : '',   // teaser row only for accounts
     ].join('');
 
     if (!topRows && !hasLocked) {
@@ -148,22 +152,22 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
           <div class="empty-icon">🕐</div>
           <h3>No picks yet today.</h3>
           <p>Check back after 6am ET once the scanner runs.</p>
-        </div>` + inlinePaywallHtml();
+        </div>` + gateCta;
       return;
     }
 
     el.innerHTML =
       (topRows ? thead + topRows + `</tbody></table></div>` : '') +
-      ((topRows || hasLocked) ? inlinePaywallHtml() : '');
+      ((topRows || hasLocked) ? gateCta : '');
     return;
   }
 
-  // Free user — main picks tab (no globalRanks, local ranking). #1 + one blurred
-  // teaser, then the paywall. Everything past #1 is locked.
-  const row1 = activePicks[0] ? makeRow(activePicks[0], 1, false) : '';
-  const row2 = activePicks[1] ? makeRow(activePicks[1], 2, true)  : '';
+  // Main picks tab (no globalRanks, local ranking). Account → #1 + one locked
+  // teaser; viewer → #1 locked. Then the gate CTA.
+  const row1 = activePicks[0] ? makeRow(activePicks[0], 1, !acct) : '';
+  const row2 = (acct && activePicks[1]) ? makeRow(activePicks[1], 2, true) : '';
 
   el.innerHTML =
     thead + row1 + row2 + `</tbody></table></div>` +
-    inlinePaywallHtml();
+    gateCta;
 }

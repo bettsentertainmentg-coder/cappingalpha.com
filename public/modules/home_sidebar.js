@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, LOCK_SVG } from './utils.js';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -22,6 +22,27 @@ export async function loadHomeSidebar() {
 async function _renderTopPick() {
   const el = document.getElementById('ca-top-pick-slot');
   if (!el) return;
+
+  // The #1 ranked pick is account-gated. Logged-out visitors get a "create a free
+  // account" card in this slot (the server withholds the pick), nudging signups.
+  if (isViewer()) {
+    el.innerHTML = `
+      <div class="ca-top-pick-card" onclick="openSignup()" title="Create a free account" style="cursor:pointer;">
+        <div class="ca-tp-brand">
+          <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
+               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+          <span class="ca-tp-logo-fallback">CA</span>
+          <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Ranked</span></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px;color:var(--text);font-size:14px;font-weight:600;line-height:1.45;">
+          <span style="flex-shrink:0;">${LOCK_SVG}</span>
+          Create a free account to see today's #1 ranked pick.
+        </div>
+        <button onclick="event.stopPropagation();openSignup()" style="width:100%;margin-top:10px;padding:11px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">Create free account ›</button>
+        <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--muted);">Already have an account? <a onclick="event.stopPropagation();openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a></div>
+      </div>`;
+    return;
+  }
 
   try {
     // Today's #1 pick (team + points) and the resolved MVP history (P/L graph)

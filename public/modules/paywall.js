@@ -82,6 +82,23 @@ export function inlineSignupCtaHtml() {
   return inlinePaywallHtml();
 }
 
+// CTA shown to logged-out visitors where the #1 ranked pick would be. The #1 pick
+// is account-gated, so nudge a free account (no card) rather than the paid upgrade.
+export function freeAccountCtaHtml() {
+  return `
+    <div class="inline-paywall-wrap" id="paywall-wrap">
+      <div class="inline-paywall-fade"></div>
+      <div class="inline-paywall-card" id="paywall-card">
+        <h3>See today's #1 ranked pick</h3>
+        <p>Create a free account to unlock the #1 ranked pick. No card required.</p>
+        <div class="inline-paywall-btns">
+          <button class="btn btn-primary" onclick="openSignup()">Create free account</button>
+          <button class="btn btn-ghost" onclick="openLogin()">Log in</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 // ── Access-code modal — context-independent code entry (works from any paywall
 // button and the unlock page). Requires an account; otherwise nudges to sign up.
 export function openCodeModal() {

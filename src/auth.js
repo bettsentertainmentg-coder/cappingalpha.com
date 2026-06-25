@@ -453,6 +453,12 @@ function isPaid(req) {
   return !!u && u.tier !== 'free';
 }
 
+// True for any logged-in user (free account, code, or paid). The #1 ranked pick
+// is gated on this — logged-out visitors must create an account to see it.
+function isAuthed(req) {
+  return !!req?.session?.user;
+}
+
 // ── Middleware: require paid tier ─────────────────────────────────────────────
 function requirePaid(req, res, next) {
   if (!isPaid(req)) {
@@ -463,5 +469,6 @@ function requirePaid(req, res, next) {
 
 module.exports = router;
 module.exports.isPaid        = isPaid;
+module.exports.isAuthed      = isAuthed;
 module.exports.requirePaid   = requirePaid;
 module.exports.stripeWebhook = stripeWebhook;

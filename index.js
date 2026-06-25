@@ -121,12 +121,17 @@ app.use(session({
   secret:            secret,
   resave:            false,
   saveUninitialized: false,
+  // rolling: refresh the cookie (and the SQLite session expiry, via store.touch)
+  // on every request so an active user effectively stays logged in — returning on
+  // the same device doesn't force a re-login. Combined with the 30-day maxAge this
+  // is a standard persistent "remember me" session.
+  rolling:           true,
   store:             new SQLiteStore(),
   cookie: {
     httpOnly: true,           // JS can't read the cookie — blocks XSS token theft
     secure:   !!process.env.SESSION_SECURE, // set SESSION_SECURE=1 in prod behind HTTPS
     sameSite: 'lax',          // blocks most CSRF while allowing normal navigation
-    maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days (rolling — refreshed each visit)
   },
 }));
 app.use('/auth/login',  loginRateLimit);
@@ -377,10 +382,16 @@ app.get('/api/picks', (req, res) => {
   // Server-side paywall enforcement. Free/logged-out users only ever receive the
   // actual #1 pick — EVERY other ranked pick (2..end) is withheld server-side and
   // flagged locked (no more public tail). Pushes (rank null) stay full.
+  // Tiered visibility. Paid: everything. Free account: the #1 ranked pick only.
+  // Logged-out visitor: nothing — the #1 pick is account-gated to encourage signups,
+  // so every ranked pick is withheld and the client shows a "create a free account"
+  // CTA in its place.
   if (!auth.isPaid(req)) {
+    const authed = auth.isAuthed(req);
     for (let i = 0; i < picks.length; i++) {
       const p = picks[i];
-      if (p.rank && p.rank >= 2) {
+      const visible = authed && p.rank === 1;   // free account sees only the #1
+      if (p.rank && !visible) {
         // Keep only what the UI needs to render a locked row + paywall nudge.
         // sport is retained so the Sports tab can still show "a locked pick here";
         // team/side/score/game are all withheld.
@@ -394,6 +405,9 @@ app.get('/api/picks', (req, res) => {
 
 // GET /api/picks/top — #1 pick today
 app.get('/api/picks/top', (req, res) => {
+  // The #1 ranked pick is account-gated — logged-out visitors get nothing here and
+  // the client shows a "create a free account" card in the #1 slot instead.
+  if (!auth.isAuthed(req)) return res.json({ locked: true });
   // #1 pick on TODAY'S BOARD only (rolls at the ~5am wipe). Without the board-day
   // filter, yesterday's finished picks linger in the table (the prune keeps them
   // for final scores) and a stale graded loss could win as "Today's #1 Pick".
