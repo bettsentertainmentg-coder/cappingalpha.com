@@ -1220,6 +1220,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <option value="over">Over</option>
           <option value="under">Under</option>
         </select>
+        <span style="color:#8892a4;font-size:12px;white-space:nowrap;">Pts</span>
+        <input type="number" id="ph-pts-min" placeholder="min" oninput="phFilter()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:13px;width:72px;" title="Minimum points (e.g. 35)" />
+        <span style="color:#8892a4;font-size:12px;">to</span>
+        <input type="number" id="ph-pts-max" placeholder="max" oninput="phFilter()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:13px;width:72px;" title="Maximum points (e.g. 45)" />
         <span style="color:#8892a4;font-size:12px;white-space:nowrap;">From</span>
         <input type="date" id="ph-date-from" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;" title="Start date (leave blank for all time)" />
         <span style="color:#8892a4;font-size:12px;">to</span>
@@ -2561,9 +2565,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const type    = document.getElementById('ph-type').value.toLowerCase();
         const dateFrom = document.getElementById('ph-date-from').value;
         const dateTo   = document.getElementById('ph-date-to').value;
+        const ptsMin   = parseFloat(document.getElementById('ph-pts-min').value);
+        const ptsMax   = parseFloat(document.getElementById('ph-pts-max').value);
 
         const filtered = _phData.filter(p => {
           if (type && (p.pick_type || '').toLowerCase() !== type) return false;
+          const sc = Number(p.score);
+          if (!isNaN(ptsMin) && sc < ptsMin) return false;
+          if (!isNaN(ptsMax) && sc > ptsMax) return false;
           const d = (p.game_date || '').slice(0, 10);
           if (dateFrom && d < dateFrom) return false;
           if (dateTo   && d > dateTo)   return false;
