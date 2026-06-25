@@ -89,8 +89,20 @@ async function _syncGames(games) {
         // Volume drives the Top Games ranking, so capture it straight off the event
         // even when the moneyline can't be resolved (settled markets have no live
         // bid/ask). Keep the largest seen across the open + settled passes.
+        // Kalshi reports volume in CONTRACTS; Polymarket reports USD. The Top Games
+        // ranking sums the two, so convert contracts -> dollars here (contracts x
+        // mid yes-price, since each contract settles $0-$1). Without this a tennis
+        // match with a big contract count outranked an MLB game carrying far more
+        // real money. Fall back to $0.50 (max-uncertainty mid) when a settled
+        // market has no live bid/ask so its volume still counts in USD terms.
         let evVol = 0;
-        for (const m of (ev.markets || [])) evVol += parseFloat(m.volume_fp || m.volume || 0) || 0;
+        for (const m of (ev.markets || [])) {
+          const contracts = parseFloat(m.volume_fp || m.volume || 0) || 0;
+          if (contracts <= 0) continue;
+          const bid = parseFloat(m.yes_bid_dollars), ask = parseFloat(m.yes_ask_dollars);
+          const price = (!isNaN(bid) && !isNaN(ask) && (bid + ask) > 0) ? (bid + ask) / 2 : 0.5;
+          evVol += contracts * price;
+        }
         if (evVol > 0) volumeMap[game.espn_game_id] = Math.max(volumeMap[game.espn_game_id] || 0, evVol);
         const ml = extractMoneyline(ev, game);
         if (!ml) continue;
@@ -220,8 +232,10 @@ function extractMoneyline(ev, game) {
     const ask  = parseFloat(m.yes_ask_dollars);
     if (isNaN(bid) || isNaN(ask)) continue;
     const mid = (bid + ask) / 2;
-    const vol = parseFloat(m.volume_fp || 0);
-    if (!isNaN(vol)) totalVolume += vol;
+    // Dollar volume (contracts x mid yes-price) so it's comparable to Polymarket
+    // USD in the Top Games ranking. See the volume-capture loop in syncKalshi().
+    const vol = parseFloat(m.volume_fp || m.volume || 0) || 0;
+    if (vol > 0) totalVolume += vol * mid;
 
     const isHome = homeKeys.some(k => k && sub.includes(k));
     const isAway = awayKeys.some(k => k && sub.includes(k));

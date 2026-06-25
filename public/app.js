@@ -24,6 +24,18 @@ export function switchTab(tabName) {
     try { posthog.capture('tab_viewed', { tab: tabName }); } catch (e) {}
   }
 
+  // Keep the URL hash in sync with the active tab. Tab clicks normally never touch
+  // the URL, so a stale hash (e.g. #mvp left over from a Rankings visit) lingered —
+  // and the standalone detail page's Back button uses history.back(), which would
+  // reload that stale URL and applyHashTab() would re-open Rankings instead of the
+  // page you actually came from. Syncing the hash makes "back" land on the right
+  // tab. replaceState (not a hash assignment) avoids firing hashchange (no
+  // re-entrancy) and avoids piling up a history entry on every tab switch.
+  try {
+    const base = location.pathname + location.search;
+    history.replaceState(null, '', tabName === 'home' ? base : base + '#' + tabName);
+  } catch (_) {}
+
   const logo = document.querySelector('.logo');
   if (logo) logo.classList.toggle('active', tabName === 'home');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
