@@ -322,7 +322,7 @@ function unlockHtml() {
   const buyBlock = paying
     ? `<div class="unlock-note" style="margin-top:22px;">You are unlocked. Thanks for being a member.</div>`
     : `<div class="unlock-buy">
-         <div class="unlock-buy-head"><span class="unlock-gold">Unlock</span> the CappingAlpha</div>
+         <div class="unlock-buy-head"><span class="unlock-gold">Unlock</span> CappingAlpha</div>
          <div class="unlock-price-row">
            ${priceCard('day', '$1', '/day', 'One day', false, paying)}
            ${priceCard('week', '$4', '/week', 'Cancel anytime', false, paying)}

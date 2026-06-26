@@ -26,6 +26,9 @@ async function _renderTopPick() {
   // The #1 ranked pick is account-gated. Logged-out visitors get a "create a free
   // account" card in this slot (the server withholds the pick), nudging signups.
   if (isViewer()) {
+    // Looks like the real #1 card (so it reads as "there's a pick here"), but the
+    // pick content is blurred placeholder text (no real data is sent to logged-out
+    // visitors). The CTA underneath nudges a free account to reveal the real pick.
     el.innerHTML = `
       <div class="ca-top-pick-card" onclick="openSignup()" title="Create a free account" style="cursor:pointer;">
         <div class="ca-tp-brand">
@@ -34,11 +37,15 @@ async function _renderTopPick() {
           <span class="ca-tp-logo-fallback">CA</span>
           <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Ranked</span></div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin:14px 0 4px;color:var(--text);font-size:14px;font-weight:600;line-height:1.45;">
-          <span style="flex-shrink:0;">${LOCK_SVG}</span>
-          Create a free account to see today's #1 ranked pick.
+        <div style="filter:blur(7px);opacity:0.6;user-select:none;pointer-events:none;margin-top:2px;" aria-hidden="true">
+          <div class="ca-tp-matchup">New York @ Boston</div>
+          <div class="ca-tp-team-row"><span class="ca-tp-team">New York ML</span></div>
+          <div class="ca-tp-sub"><span class="ca-tp-pts">57 pts</span> · MLB</div>
         </div>
-        <button onclick="event.stopPropagation();openSignup()" style="width:100%;margin-top:10px;padding:11px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">Create free account ›</button>
+        <div style="display:flex;align-items:center;gap:7px;margin:12px 0 4px;color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4;">
+          <span style="flex-shrink:0;">${LOCK_SVG}</span> Create a free account to see the #1 ranked pick.
+        </div>
+        <button onclick="event.stopPropagation();openSignup()" style="width:100%;margin-top:6px;padding:11px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">Create free account ›</button>
         <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--muted);">Already have an account? <a onclick="event.stopPropagation();openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a></div>
       </div>`;
     return;

@@ -62,7 +62,7 @@ export function unlockCtaHtml() {
     <div class="unlock-cta">
       <button class="unlock-cta-btn" onclick="event.stopPropagation();switchTab('unlock')">
         <span class="ucb-lock">&#128274;</span><span class="ucb-open">&#128275;</span>
-        Unlock the CappingAlpha
+        Unlock CappingAlpha
       </button>
       <div class="unlock-cta-access">Already have access? <a onclick="event.stopPropagation();openLogin()">Log in</a> &middot; <a onclick="event.stopPropagation();openCodeModal()">I have a code</a></div>
     </div>`;
@@ -73,6 +73,7 @@ export function inlinePaywallHtml() {
     <div class="inline-paywall-wrap" id="paywall-wrap">
       <div class="inline-paywall-fade"></div>
       <div class="inline-paywall-card" id="paywall-card">
+        <div class="inline-paywall-head" style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:10px;text-align:center;">See today's complete rankings</div>
         ${unlockCtaHtml()}
       </div>
     </div>`;
@@ -80,23 +81,6 @@ export function inlinePaywallHtml() {
 
 export function inlineSignupCtaHtml() {
   return inlinePaywallHtml();
-}
-
-// CTA shown to logged-out visitors where the #1 ranked pick would be. The #1 pick
-// is account-gated, so nudge a free account (no card) rather than the paid upgrade.
-export function freeAccountCtaHtml() {
-  return `
-    <div class="inline-paywall-wrap" id="paywall-wrap">
-      <div class="inline-paywall-fade"></div>
-      <div class="inline-paywall-card" id="paywall-card">
-        <h3>See today's #1 ranked pick</h3>
-        <p>Create a free account to unlock the #1 ranked pick. No card required.</p>
-        <div class="inline-paywall-btns">
-          <button class="btn btn-primary" onclick="openSignup()">Create free account</button>
-          <button class="btn btn-ghost" onclick="openLogin()">Log in</button>
-        </div>
-      </div>
-    </div>`;
 }
 
 // ── Access-code modal — context-independent code entry (works from any paywall
@@ -154,7 +138,7 @@ export function renderPaywallDefault() {
   const card = document.getElementById('paywall-card');
   if (!card) return;
   card.innerHTML = `
-    <h3>Unlock the CappingAlpha</h3>
+    <h3>Unlock CappingAlpha</h3>
     <p>$1/day &middot; $4/week &middot; $75/year</p>
     <div class="inline-paywall-btns">
       <button class="btn btn-gold" onclick="startCheckout('day')">Day $1</button>

@@ -94,7 +94,7 @@ function buildNav(user) {
     </div>
     <div class="nav-actions">
       <span id="nav-user-info" style="${on ? '' : hide}">${acct}</span>
-      <button class="btn" id="btn-unlock" style="${paying ? hide : ''}" onclick="location.href='/#unlock'">Unlock the CappingAlpha</button>
+      <button class="btn" id="btn-unlock" style="${paying ? hide : ''}" onclick="location.href='/#unlock'">Unlock CappingAlpha</button>
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()" style="${on ? hide : ''}">Login</button>
       <a href="/#account" class="tab-btn" id="tab-account" style="${on ? '' : hide}text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
     </div>
