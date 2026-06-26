@@ -550,6 +550,44 @@ function renderSlotGrid() {
   }).join('');
 
   _applySlotGlow(_activeSlot);
+  _wireSlotScrollbar();
+}
+
+// Tiny scroll hint under the chip row — only when the chips overflow (phone /
+// tight screens). It tucks into the existing gap so it adds no real height: when
+// shown, the row's bottom margin shrinks to make room for the 3px bar.
+function _wireSlotScrollbar() {
+  const grid = document.getElementById('ca-slot-grid');
+  if (!grid) return;
+  let bar = grid.nextElementSibling;
+  if (!bar || !bar.classList.contains('ca-slot-scrollbar')) {
+    bar = document.createElement('div');
+    bar.className = 'ca-slot-scrollbar';
+    bar.innerHTML = '<span class="ca-slot-scrollthumb"></span>';
+    grid.parentNode.insertBefore(bar, grid.nextSibling);
+  }
+  const thumb = bar.firstElementChild;
+  const update = () => {
+    const sw = grid.scrollWidth, cw = grid.clientWidth;
+    if (sw <= cw + 2) {                 // everything fits → no bar, no extra space
+      bar.style.display = 'none';
+      grid.style.marginBottom = '';
+      return;
+    }
+    bar.style.display = 'block';
+    grid.style.marginBottom = '3px';    // bar (3px) + its margin fills the rest of the 10px gap
+    const wPct = Math.max(14, (cw / sw) * 100);
+    thumb.style.width = wPct + '%';
+    const maxScroll = sw - cw;
+    const pos = maxScroll > 0 ? grid.scrollLeft / maxScroll : 0;
+    thumb.style.left = (pos * (100 - wPct)) + '%';
+  };
+  if (!grid.dataset.sbWired) {
+    grid.dataset.sbWired = '1';
+    grid.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+  }
+  requestAnimationFrame(update);
 }
 
 // The team color a slot should glow in when selected (over/under have no team).

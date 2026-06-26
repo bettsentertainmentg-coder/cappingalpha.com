@@ -317,6 +317,16 @@ nav {
 }
 .ca-slot-grid::-webkit-scrollbar { display: none; }
 
+/* Tiny custom scroll hint under the chips (shown by JS only when they overflow) */
+.ca-slot-scrollbar {
+  display: none; height: 3px; border-radius: 3px;
+  background: var(--surface2); position: relative; margin: 0 0 4px;
+}
+.ca-slot-scrollthumb {
+  position: absolute; top: 0; bottom: 0; left: 0; min-width: 14%;
+  border-radius: 3px; background: var(--text-tertiary); opacity: 0.55;
+}
+
 .ca-slot-chip {
   position: relative;
   display: flex; flex-direction: row; align-items: center;
