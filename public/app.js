@@ -63,8 +63,15 @@ export function switchTab(tabName) {
   }
   if (tabName === 'unlock') renderUnlock();
   if (tabName === 'account') {
-    if (!state.currentUser) { switchTab('home'); window.openLogin(); return; }
-    loadAccount();
+    if (state.currentUser) {
+      loadAccount();
+    } else if (state.authReady) {
+      // Definitely logged out — bounce to home and prompt login.
+      switchTab('home'); window.openLogin(); return;
+    }
+    // else: auth still resolving (a /#account reload can beat checkAuth) — leave the
+    // panel active; the post-checkAuth re-sync resolves it instead of bouncing a
+    // logged-in member to the login popup.
   }
 
   // Close mobile drawer when navigating
@@ -191,11 +198,15 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
     document.querySelectorAll('.mvp-pts-live').forEach(n => { n.textContent = t; });
   }
   await checkAuth();
+  state.authReady = true;
 
-  // If the CA Picks tab already rendered before auth resolved (DOMContentLoaded
-  // hash nav can beat checkAuth), re-sync it now so a paying member isn't left
-  // looking at the public/limited "Unlock" view.
+  // Auth-dependent tabs can render before checkAuth resolves — a /#tab reload makes
+  // DOMContentLoaded hash nav beat checkAuth. Re-sync whatever already rendered so a
+  // logged-in member never sees the logged-out view: the CA Rankings "Unlock" view,
+  // "Log in to rank" on the leaderboard, or an account bounce to the login popup.
   if (state.mvpLoaded) loadMvpTab();
+  if (state.leaderboardLoaded) loadLeaderboard(state.leaderboardWindow);
+  if (document.getElementById('panel-account')?.classList.contains('active')) switchTab('account');
 
   // Handle Stripe redirect back to site
   const params = new URLSearchParams(location.search);

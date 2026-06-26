@@ -10,6 +10,7 @@ export const state = {
   homeMvpPicks:  null,
   mvpLoaded:     false,
   mvpLoadedPaid: null,   // tier the CA Picks tab last rendered for (true=paid view, false=public/limited). Lets us re-sync after auth resolves.
+  authReady:     false,  // true once checkAuth() has resolved. Guards tabs that render before auth (a /#tab reload beats checkAuth) from showing the logged-out view.
   sportsLoaded:  false,
   esportsLoaded: false,
   leaderboardLoaded: false,
