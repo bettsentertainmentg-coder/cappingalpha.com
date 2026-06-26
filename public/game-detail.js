@@ -610,6 +610,74 @@ function selectSlot(key) {
 window.selectSlot = selectSlot;
 
 // ── Detail panel ─────────────────────────────────────────────────────────────
+// ── Live game feed (shown in the pick panel once the game has started) ────────
+function liveStatusLabel(game) {
+  const sport = (game.sport || '').toUpperCase();
+  if (game.status === 'post') return 'Final';
+  if (sport === 'ATP' || sport === 'WTA') return game.period ? `Set ${game.period}` : 'Live';
+  const p = game.period;
+  let lbl = p ? `P${p}` : 'Live';
+  if (sport === 'NFL' || sport === 'NCAAF' || sport === 'NBA' || sport === 'WNBA' || sport === 'CBB') lbl = p ? `Q${p}` : 'Live';
+  else if (sport === 'MLB') lbl = p ? `Inn ${p}` : 'Live';
+  const clock = game.clock && sport !== 'MLB' ? ` · ${esc(game.clock)}` : '';
+  return lbl + clock;
+}
+
+function liveFeedHtml() {
+  const { game, stats } = _data;
+  const sport = (game.sport || '').toUpperCase();
+  const live  = game.status === 'in';
+  const awayName = game.away_abbr || game.away_short || teamNick(game.away_team) || 'Away';
+  const homeName = game.home_abbr || game.home_short || teamNick(game.home_team) || 'Home';
+
+  let scoreRow;
+  if (sport === 'ATP' || sport === 'WTA') {
+    scoreRow = `<div class="ca-live-tennis ca-num">${esc(_tennisScoreStr(game, live))}</div>`;
+  } else {
+    const aS = game.away_score ?? 0, hS = game.home_score ?? 0;
+    const aWin = game.status === 'post' && aS > hS;
+    const hWin = game.status === 'post' && hS > aS;
+    const teamLine = (name, score, win) =>
+      `<div class="ca-live-team${win ? ' ca-live-win' : ''}"><span class="ca-live-tname">${esc(name)}</span><span class="ca-live-tscore ca-num">${score}</span></div>`;
+    scoreRow = `<div class="ca-live-score">${teamLine(awayName, aS, aWin)}${teamLine(homeName, hS, hWin)}</div>`;
+  }
+
+  let leadersHtml = '';
+  const L = stats && stats.leaders;
+  if (L && ((L.away && L.away.length) || (L.home && L.home.length))) {
+    const mk = arr => (arr || []).slice(0, 2).map(x =>
+      `<div class="ca-live-leader"><span class="ca-live-lcat">${esc(x.cat)}</span>` +
+      `<span class="ca-live-lname">${esc(x.name || '')}</span>` +
+      `<span class="ca-live-lval ca-num">${esc(String(x.value))}</span></div>`).join('');
+    const aL = mk(L.away), hL = mk(L.home);
+    if (aL || hL) leadersHtml = `<div class="ca-live-leaders">` +
+      (aL ? `<div class="ca-live-lside"><div class="ca-live-lteam">${esc(awayName)}</div>${aL}</div>` : '') +
+      (hL ? `<div class="ca-live-lside"><div class="ca-live-lteam">${esc(homeName)}</div>${hL}</div>` : '') +
+      `</div>`;
+  }
+
+  const badge = live
+    ? `<span class="ca-live-badge ca-live-badge--live">● LIVE</span>`
+    : `<span class="ca-live-badge ca-live-badge--final">FINAL</span>`;
+  return `<div class="ca-live-feed">
+    <div class="ca-live-head">${badge}<span class="ca-live-status">${esc(liveStatusLabel(game))}</span></div>
+    ${scoreRow}
+    ${leadersHtml}
+  </div>`;
+}
+
+function userVotesBarHtml() {
+  const { game, userVote } = _data;
+  const voted = buildSlots(game).filter(s => userVote && userVote[s.key]);
+  if (!voted.length) return `<div class="ca-live-votes ca-live-votes--none">You didn't vote on this game.</div>`;
+  const chips = voted.map(s => {
+    const label = s.team ? teamNick(s.team) : s.label.replace(/\s+\d.*/, '');
+    const line  = slotLineCurrent(s.key, game) || '';
+    return `<span class="ca-live-vote-chip">${esc(label)}${line ? ` <span class="ca-num">${esc(line)}</span>` : ''}</span>`;
+  }).join('');
+  return `<div class="ca-live-votes"><span class="ca-live-votes-lbl">Your pick${voted.length > 1 ? 's' : ''}</span>${chips}</div>`;
+}
+
 function renderDetailPanel() {
   const el = document.getElementById('ca-detail-panel');
   if (!el) return;
@@ -768,21 +836,22 @@ function renderDetailPanel() {
     </div>`;
   };
 
-  let voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>`;
-  if (isViewer()) {
-    voteHtml += `<div class="ca-dp-vote-sub"><a onclick="openSignup()">Make an account</a> to vote on this game.</div>
+  // Once the game starts, voting is closed — this column becomes a live game
+  // feed (score + status + leaders) with a small bar of the viewer's own votes.
+  // The feed is game-level, identical no matter which bet slot is selected.
+  let voteHtml;
+  if (gameStarted) {
+    voteHtml = liveFeedHtml() + userVotesBarHtml();
+  } else if (isViewer()) {
+    voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>` +
+      `<div class="ca-dp-vote-sub"><a onclick="openSignup()">Make an account</a> to vote on this game.</div>
     <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, false, true)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, false, true) : ''}
     </div>`;
-  } else if (gameStarted) {
-    voteHtml += `<div class="ca-dp-vote-sub ca-vote-locked-sub">Voting closed. Game ${game.status === 'post' ? 'ended' : 'started'}.</div>
-    <div class="ca-vc-pair">
-      ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, userOnThis, true)}
-      ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, userOnOpp, true) : ''}
-    </div>`;
   } else {
-    voteHtml += `<div class="ca-dp-vote-sub">Cast your vote on this game. Voting locks at tip-off.</div>
+    voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>` +
+      `<div class="ca-dp-vote-sub">Cast your vote on this game. Voting locks at tip-off.</div>
     <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, userOnThis, false)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, userOnOpp, false) : ''}
@@ -2106,36 +2175,64 @@ function histLast20Html(games) {
          `<div class="ca-hist-minirow">${cells}</div></div>`;
 }
 
-// Instant hover banner for the Last-20 chips: date, full score, opponent, result.
-// Delegated on the chip row so it survives re-paints; one shared floating element.
+// Banner for the Last-20 chips: date, full score, opponent, result. The tooltip is
+// a child of its chip row (absolutely positioned), so it scrolls WITH the chips
+// instead of floating fixed over the page. It's clamped inside the row so it never
+// runs off-screen, and has a speech-bubble arrow pointing at the tapped chip.
 function wireHistTips() {
-  let tip = document.getElementById('ca-hist-tip');
-  if (!tip) {
-    tip = document.createElement('div');
-    tip.id = 'ca-hist-tip';
-    tip.className = 'ca-hist-tip hidden';
-    document.body.appendChild(tip);
-  }
   document.querySelectorAll('.ca-hist-minirow').forEach(row => {
     if (row.dataset.tipWired) return;
     row.dataset.tipWired = '1';
-    const show = chip => {
+
+    let tip = row.querySelector(':scope > .ca-hist-tip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'ca-hist-tip hidden';
+      row.appendChild(tip);
+    }
+    let active = null;
+
+    const place = chip => {
       const win = chip.dataset.res === 'W';
       tip.innerHTML =
         `<span class="ca-hist-tip-res ca-hist-tip-res--${win ? 'w' : 'l'}">${win ? 'Win' : 'Loss'}</span>` +
         `<span class="ca-hist-tip-main">${esc(chip.dataset.opp)} <b>${esc(chip.dataset.score)}</b></span>` +
-        `<span class="ca-hist-tip-date">${esc(chip.dataset.date)}</span>`;
-      const r = chip.getBoundingClientRect();
-      tip.style.left = (r.left + r.width / 2) + 'px';
-      tip.style.top  = (r.top - 10) + 'px';
-      tip.classList.remove('hidden');
+        `<span class="ca-hist-tip-date">${esc(chip.dataset.date)}</span>` +
+        `<span class="ca-hist-tip-arrow"></span>`;
+      tip.classList.remove('hidden');               // un-hide first so we can measure
+      const rowW = row.clientWidth;
+      const tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+      const cx = chip.offsetLeft + chip.offsetWidth / 2;
+      const left = Math.max(2, Math.min(cx - tipW / 2, rowW - tipW - 2));
+      const above = chip.offsetTop >= tipH + 10;    // top row → drop the tip below
+      const top = above ? chip.offsetTop - tipH - 9 : chip.offsetTop + chip.offsetHeight + 9;
+      tip.style.left = left + 'px';
+      tip.style.top  = top + 'px';
+      tip.classList.toggle('ca-hist-tip--below', !above);
+      const arrow = tip.querySelector('.ca-hist-tip-arrow');
+      if (arrow) arrow.style.left = Math.max(12, Math.min(cx - left, tipW - 12)) + 'px';
+      active = chip;
     };
-    row.addEventListener('mouseover', e => { const c = e.target.closest('.ca-hist-mini'); if (c) show(c); });
-    row.addEventListener('mouseout',  e => {
-      const to = e.relatedTarget;
-      if (!to || !to.closest || !to.closest('.ca-hist-mini')) tip.classList.add('hidden');
+    const hide = () => { tip.classList.add('hidden'); active = null; };
+
+    // Tap toggles (mobile + desktop); hover previews on desktop.
+    row.addEventListener('click', e => {
+      const c = e.target.closest('.ca-hist-mini');
+      if (!c) return;
+      if (c === active) hide(); else place(c);
     });
+    row.addEventListener('mouseover', e => { const c = e.target.closest('.ca-hist-mini'); if (c && c !== active) place(c); });
+    row.addEventListener('mouseleave', hide);
   });
+
+  // One global dismiss: tapping anywhere that isn't a chip closes open tooltips.
+  if (!window.__histTipDismiss) {
+    window.__histTipDismiss = true;
+    document.addEventListener('click', e => {
+      if (e.target.closest && e.target.closest('.ca-hist-mini')) return;
+      document.querySelectorAll('.ca-hist-minirow > .ca-hist-tip').forEach(t => t.classList.add('hidden'));
+    }, true);
+  }
 }
 
 // ── Tennis variant (player recent matches, not a team schedule) ───────────────
