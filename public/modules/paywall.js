@@ -83,6 +83,17 @@ export function inlineSignupCtaHtml() {
   return inlinePaywallHtml();
 }
 
+// Floating box that sits ON TOP of the blurred rankings list (vs. a bar below it),
+// so visitors see a full board of blurred picks behind it. Caller wraps the table
+// + this box in a .ca-rank-lock-wrap (position:relative).
+export function lockedRankingsBoxHtml() {
+  return `
+    <div class="ca-rank-lock-box">
+      <div class="ca-rank-lock-box-head">See today's complete rankings</div>
+      ${unlockCtaHtml()}
+    </div>`;
+}
+
 // ── Access-code modal — context-independent code entry (works from any paywall
 // button and the unlock page). Requires an account; otherwise nudges to sign up.
 export function openCodeModal() {

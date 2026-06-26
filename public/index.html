@@ -436,6 +436,18 @@
     .inline-paywall-card { background: var(--surface); border-top: 1px solid var(--border); padding: 28px 24px 18px; text-align: center; position: relative; }
     .inline-paywall-card h3 { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
     .inline-paywall-card p  { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+    /* Floating "Unlock CappingAlpha" box over the blurred rankings list (logged-out
+       + free accounts). The board of up-to-10 blurred rows shows around it so
+       visitors can tell there's a full set of ranked picks behind the wall. */
+    .ca-rank-lock-wrap { position: relative; }
+    .ca-rank-lock-box {
+      position: absolute; left: 50%; top: 88px; transform: translateX(-50%);
+      width: min(440px, 88%); background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 22px 20px 18px; text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.62); z-index: 3;
+    }
+    .ca-rank-lock-box-head { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 14px; }
+    @media (max-width: 600px) { .ca-rank-lock-box { top: 76px; padding: 18px 16px 14px; } }
     /* Pricing cards row inside paywall */
     .paywall-pricing-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 18px; flex-wrap: wrap; }
     .paywall-price-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; cursor: pointer; transition: border-color .15s, background .15s; min-width: 72px; }

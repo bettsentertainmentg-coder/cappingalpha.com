@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, LOCK_SVG } from './utils.js';
+import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -23,57 +23,35 @@ async function _renderTopPick() {
   const el = document.getElementById('ca-top-pick-slot');
   if (!el) return;
 
-  // The #1 ranked pick is account-gated. Logged-out visitors get a "create a free
-  // account" card in this slot (the server withholds the pick), nudging signups.
-  if (isViewer()) {
-    // Looks like the real #1 card (so it reads as "there's a pick here"), but the
-    // pick content is blurred placeholder text (no real data is sent to logged-out
-    // visitors). The CTA underneath nudges a free account to reveal the real pick.
-    el.innerHTML = `
-      <div class="ca-top-pick-card" onclick="openSignup()" title="Create a free account" style="cursor:pointer;">
-        <div class="ca-tp-brand">
-          <img src="/ca-logo.png" alt="CappingAlpha" class="ca-tp-logo"
-               onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-          <span class="ca-tp-logo-fallback">CA</span>
-          <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Ranked</span></div>
-        </div>
-        <div style="filter:blur(7px);opacity:0.6;user-select:none;pointer-events:none;margin-top:2px;" aria-hidden="true">
-          <div class="ca-tp-matchup">New York @ Boston</div>
-          <div class="ca-tp-team-row"><span class="ca-tp-team">New York ML</span></div>
-          <div class="ca-tp-sub"><span class="ca-tp-pts">57 pts</span> · MLB</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:7px;margin:12px 0 4px;color:var(--text);font-size:13.5px;font-weight:600;line-height:1.4;">
-          <span style="flex-shrink:0;">${LOCK_SVG}</span> Create a free account to see the #1 ranked pick.
-        </div>
-        <button onclick="event.stopPropagation();openSignup()" style="width:100%;margin-top:6px;padding:11px;border:none;border-radius:8px;background:var(--accent);color:#fff;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;">Create free account ›</button>
-        <div style="text-align:center;margin-top:10px;font-size:12px;color:var(--muted);">Already have an account? <a onclick="event.stopPropagation();openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a></div>
-      </div>`;
-    return;
-  }
+  // The #1 ranked pick is account-gated. Logged-out visitors see the SAME card at
+  // the SAME size — only the pick content (matchup / bet / live / points) is blurred.
+  // The P/L graph + record (public data) and "view all rankings" stay clear. The
+  // server withholds the pick from them, so we blur a placeholder, not real data.
+  const viewer = isViewer();
 
   try {
-    // Today's #1 pick (team + points) and the resolved MVP history (P/L graph)
-    // are independent feeds — fetch together, tolerate the graph feed failing.
+    // Today's #1 pick (team + points) and the resolved MVP history (P/L graph) are
+    // independent feeds. Logged-out visitors don't get the pick (it's gated), so
+    // only the public P/L feed is fetched for them.
     const [pick, mvp] = await Promise.all([
-      fetch('/api/picks/top').then(r => r.ok ? r.json() : null).catch(() => null),
+      viewer ? Promise.resolve(null) : fetch('/api/picks/top').then(r => r.ok ? r.json() : null).catch(() => null),
       fetch('/api/mvp/public').then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
-    if (!pick || !pick.team) throw new Error('empty');
+    if (!viewer && (!pick || !pick.team)) throw new Error('empty');
 
-    const score = pick.score || 0;
-    const sport = pick.sport ? ` · ${pick.sport}` : '';
+    const score = viewer ? 65 : (pick.score || 0);
+    const sport = viewer ? ' · MLB' : (pick.sport ? ` · ${pick.sport}` : '');
 
     // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
-    // than a bare team name — "Minnesota Twins" tells you nothing when the pick is
-    // an over/under. The matchup rides above it as context.
-    const betText = pickLabel(pick) || pick.team || '—';
-    const away = pick.away_team ? teamNickname(pick.away_team) : '';
-    const home = pick.home_team ? teamNickname(pick.home_team) : '';
-    const matchupText = (away && home) ? `${away} @ ${home}` : '';
+    // than a bare team name. Logged-out visitors get blurred placeholders.
+    const betText = viewer ? 'Yankees Win' : (pickLabel(pick) || pick.team || '—');
+    const away = (!viewer && pick.away_team) ? teamNickname(pick.away_team) : '';
+    const home = (!viewer && pick.home_team) ? teamNickname(pick.home_team) : '';
+    const matchupText = viewer ? 'New York @ Boston' : ((away && home) ? `${away} @ ${home}` : '');
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).
     // A win turns the whole card green with a checkmark; loss/push stay honest.
-    const result = (pick.result || '').toLowerCase();
+    const result = viewer ? '' : (pick.result || '').toLowerCase();
     const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
     const X_SVG     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
     let resultBadge = '', cardState = '';
@@ -86,7 +64,7 @@ async function _renderTopPick() {
     // Kept on its own left-aligned line so the card stays its original size and the
     // bet row isn't pushed lopsided. Gate on resultBadge (set only for win/loss/push)
     // — pick.result is 'pending' while live, which is truthy.
-    const isLive = (pick.game_status || '') === 'in' && !resultBadge;
+    const isLive = !viewer && (pick.game_status || '') === 'in' && !resultBadge;
     let liveLine = '';
     if (isLive) {
       const aScore = pick.game_away_score ?? 0;
@@ -116,7 +94,7 @@ async function _renderTopPick() {
       const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
       plHtml = `
         <div class="ca-tp-pl-head">
-          <span class="ca-tp-pl-title">${best.label} P/L</span>
+          <span class="ca-tp-pl-title">Rankings ${best.label} P/L</span>
           <span class="graph-pl-label ${sign}">${amt}</span>
         </div>
         <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
@@ -133,6 +111,18 @@ async function _renderTopPick() {
     // hint. (No Unlock CTA on this card — it cluttered the #1 Pick widget.)
     const ctaHtml = `<div class="ca-top-pick-cta-label" style="text-align:center;margin-bottom:0;">Click to view all rankings ›</div>`;
 
+    // The pick-content block (matchup / bet / live / points) is identical for
+    // everyone; for logged-out visitors it's wrapped in a blur so the card keeps its
+    // exact size and layout while the actual pick stays hidden.
+    const pickBlock = `
+        ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
+        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
+        ${viewer ? `<div class="ca-tp-live-line"><span class="ca-tp-live-dot"></span><span class="ca-tp-live-score">2-0</span><span class="bb-half">Bot 4th</span></div>` : liveLine}
+        <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>`;
+    const pickContent = viewer
+      ? `<div style="filter:blur(7px);opacity:0.7;user-select:none;pointer-events:none;" aria-hidden="true">${pickBlock}</div>`
+      : pickBlock;
+
     el.innerHTML = `
       <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View CA Rankings ›">
         <div class="ca-tp-brand">
@@ -141,10 +131,7 @@ async function _renderTopPick() {
           <span class="ca-tp-logo-fallback">CA</span>
           <div class="ca-tp-title"><span class="ca-tp-title-rank">#1</span> <span class="ca-tp-title-pick">Ranked</span></div>
         </div>
-        ${matchupText ? `<div class="ca-tp-matchup">${matchupText}</div>` : ''}
-        <div class="ca-tp-team-row"><span class="ca-tp-team">${betText}</span>${resultBadge}</div>
-        ${liveLine}
-        <div class="ca-tp-sub"><span class="ca-tp-pts">${score} pts</span>${sport}</div>
+        ${pickContent}
         ${plHtml}
         ${ctaHtml}
       </div>`;

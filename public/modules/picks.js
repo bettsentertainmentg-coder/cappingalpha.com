@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG } from './utils.js';
-import { inlinePaywallHtml } from './paywall.js';
+import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
 
 export async function loadPicks() {
   try {
@@ -127,45 +127,25 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
     return;
   }
 
-  // Free tier. The #1 ranked pick is account-gated, so a logged-out viewer sees it
-  // blurred (the server withholds it) while a logged-in free account sees #1. Either
-  // way ranks 2+ are paid-only behind the original "Unlock CappingAlpha" rankings bar.
+  // Free tier. Show up to 10 ranked rows as a blurred board with a floating
+  // "Unlock CappingAlpha" box over them, so visitors see the full slate exists (not
+  // a single teaser). #1 stays visible for a logged-in free account; a logged-out
+  // visitor has it blurred too (the server withholds every pick from them).
   const acct = isAccount();   // logged-in, unpaid
+  const lockedBoard = (rowsHtml) =>
+    `<div class="ca-rank-lock-wrap">${thead}${rowsHtml}</tbody></table></div>${lockedRankingsBoxHtml()}</div>`;
 
-  // Sports tab passes globalRanks so only the true #1 overall pick is unlocked.
+  // Sports tab passes globalRanks — the true #1 overall pick is the only unlock.
   if (globalRanks) {
     const gr = p => globalRanks.get(p.id) ?? 999;
-    const rank1 = activePicks.find(p => gr(p) === 1);
-    const rank2 = activePicks.find(p => gr(p) === 2);
-    const hasLocked = activePicks.some(p => gr(p) >= 2);
-
-    const topRows = [
-      rank1 ? makeRow(rank1, 1, !acct) : '',   // viewer → #1 blurred; account → #1 shown
-      rank2 ? makeRow(rank2, 2, true)  : '',
-    ].join('');
-
-    if (!topRows && !hasLocked) {
-      el.innerHTML = `
-        <div class="empty">
-          <div class="empty-icon">🕐</div>
-          <h3>No picks yet today.</h3>
-          <p>Check back after 6am ET once the scanner runs.</p>
-        </div>` + inlinePaywallHtml();
-      return;
-    }
-
-    el.innerHTML =
-      (topRows ? thead + topRows + `</tbody></table></div>` : '') +
-      ((topRows || hasLocked) ? inlinePaywallHtml() : '');
+    const ordered = [...activePicks].sort((a, b) => gr(a) - gr(b)).slice(0, 10);
+    const rows = ordered.map(p => makeRow(p, gr(p), !(acct && gr(p) === 1))).join('');
+    el.innerHTML = rows ? lockedBoard(rows) : inlinePaywallHtml();
     return;
   }
 
-  // Main picks tab (no globalRanks, local ranking). #1 (blurred for viewers) + one
-  // locked teaser, then the original "Unlock CappingAlpha" rankings bar.
-  const row1 = activePicks[0] ? makeRow(activePicks[0], 1, !acct) : '';
-  const row2 = activePicks[1] ? makeRow(activePicks[1], 2, true)  : '';
-
-  el.innerHTML =
-    thead + row1 + row2 + `</tbody></table></div>` +
-    inlinePaywallHtml();
+  // Main / home rankings list (local ranking). #1 shown for accounts, blurred for
+  // logged-out; ranks 2+ always blurred. Capped at 10 (never the full 50).
+  const rows = activePicks.slice(0, 10).map((p, i) => makeRow(p, i + 1, i === 0 ? !acct : true)).join('');
+  el.innerHTML = rows ? lockedBoard(rows) : inlinePaywallHtml();
 }
