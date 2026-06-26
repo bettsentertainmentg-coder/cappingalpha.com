@@ -124,10 +124,10 @@ async function _renderTopPick() {
           <div style="filter:blur(7px);opacity:0.7;user-select:none;pointer-events:none;" aria-hidden="true">${pickBlock}</div>
           <div onclick="event.stopPropagation();" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:86%;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 26px rgba(0,0,0,0.55);padding:9px 10px 8px;text-align:center;">
             <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:7px;line-height:1.3;">See today's #1 ranked play</div>
-            <button class="unlock-cta-btn" onclick="event.stopPropagation();openLogin()" style="width:100%;justify-content:center;padding:6px 12px;font-size:11.5px;border-radius:7px;gap:6px;">
+            <button class="ca-tp-login-btn" onclick="event.stopPropagation();openLogin()">
               <span class="ucb-lock">&#128274;</span><span class="ucb-open">&#128275;</span>Log in to see it
             </button>
-            <div style="margin-top:6px;font-size:10px;color:var(--muted);">No account? <a onclick="event.stopPropagation();openSignup()" style="color:var(--accent);cursor:pointer;">Sign up free</a></div>
+            <div style="margin-top:6px;font-size:10px;color:var(--muted);">No account? <a class="ca-tp-signup-link" onclick="event.stopPropagation();openSignup()">Sign up free</a></div>
           </div>
         </div>`
       : pickBlock;
