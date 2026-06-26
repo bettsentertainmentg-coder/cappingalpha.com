@@ -358,9 +358,21 @@ async function _renderMyStrips() {
       await _ensureTeamColors();
       const games = await fetch(`/api/games/top?sport=${encodeURIComponent(s)}&limit=12`)
         .then(r => r.ok ? r.json() : []);
-      row.innerHTML = (games && games.length)
-        ? games.map(_gameTile).join('')
-        : `<div class="ca-top-games-empty">No ${s} games today.</div>`;
+      if (games && games.length) {
+        row.innerHTML = games.map(_gameTile).join('');
+      } else {
+        // No games → tuck the note inline next to the sport title and collapse
+        // the empty row so it doesn't leave a big blank band.
+        row.innerHTML = '';
+        const strip = row.closest('.ca-ms-strip');
+        if (strip) {
+          strip.classList.add('ca-ms-strip--empty');
+          const head = strip.querySelector('.ca-ms-strip-head');
+          if (head && !head.querySelector('.ca-ms-strip-empty')) {
+            head.insertAdjacentHTML('beforeend', `<span class="ca-ms-strip-empty">No games today</span>`);
+          }
+        }
+      }
     } catch (_) {
       row.innerHTML = `<div class="ca-top-games-empty">Unavailable.</div>`;
     }
