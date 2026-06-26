@@ -2190,7 +2190,6 @@ function wireHistTips() {
       tip.className = 'ca-hist-tip hidden';
       row.appendChild(tip);
     }
-    let active = null;
 
     const place = chip => {
       const win = chip.dataset.res === 'W';
@@ -2211,26 +2210,28 @@ function wireHistTips() {
       tip.classList.toggle('ca-hist-tip--below', !above);
       const arrow = tip.querySelector('.ca-hist-tip-arrow');
       if (arrow) arrow.style.left = Math.max(12, Math.min(cx - left, tipW - 12)) + 'px';
-      active = chip;
     };
-    const hide = () => { tip.classList.add('hidden'); active = null; };
 
-    // Tap toggles (mobile + desktop); hover previews on desktop.
+    // Click-driven, state lives in the DOM (no hover race → no double-click glitch).
+    // One click on a chip opens its tip + lifts the chip; clicking it again, another
+    // chip, or anywhere off closes it.
     row.addEventListener('click', e => {
       const c = e.target.closest('.ca-hist-mini');
       if (!c) return;
-      if (c === active) hide(); else place(c);
+      const wasActive = c.classList.contains('ca-hist-mini--active');
+      row.querySelectorAll('.ca-hist-mini--active').forEach(x => x.classList.remove('ca-hist-mini--active'));
+      tip.classList.add('hidden');
+      if (!wasActive) { place(c); c.classList.add('ca-hist-mini--active'); }
     });
-    row.addEventListener('mouseover', e => { const c = e.target.closest('.ca-hist-mini'); if (c && c !== active) place(c); });
-    row.addEventListener('mouseleave', hide);
   });
 
-  // One global dismiss: tapping anywhere that isn't a chip closes open tooltips.
+  // Global dismiss: any click that isn't on a chip closes open tips + drops chips.
   if (!window.__histTipDismiss) {
     window.__histTipDismiss = true;
     document.addEventListener('click', e => {
       if (e.target.closest && e.target.closest('.ca-hist-mini')) return;
       document.querySelectorAll('.ca-hist-minirow > .ca-hist-tip').forEach(t => t.classList.add('hidden'));
+      document.querySelectorAll('.ca-hist-mini--active').forEach(c => c.classList.remove('ca-hist-mini--active'));
     }, true);
   }
 }

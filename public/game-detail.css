@@ -309,7 +309,7 @@ nav {
 /* Compact horizontal pill row — mirrors the game popup ticker. Scrolls
    sideways instead of wrapping, so it stays one tidy row on phones too. */
 .ca-slot-grid {
-  display: flex; gap: 6px; flex-wrap: nowrap;
+  display: flex; gap: 8px; flex-wrap: nowrap;
   overflow-x: auto; -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   margin-bottom: 20px;
@@ -319,8 +319,8 @@ nav {
 .ca-slot-chip {
   position: relative;
   display: flex; flex-direction: row; align-items: center;
-  gap: 6px;
-  padding: 6px 11px;
+  gap: 7px;
+  padding: 3px 13px;
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 20px; cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -340,11 +340,11 @@ nav {
 .ca-slot-chip.no-pick.active { opacity: 1; border-color: var(--accent); background: rgba(59,130,246,0.12); }
 
 .ca-slot-pill-label {
-  font-size: 14px; font-weight: 600; color: var(--text);
+  font-size: 13px; font-weight: 600; color: var(--text);
   line-height: 1.2;
 }
 .ca-slot-chip.mvp .ca-slot-pill-label { color: var(--gold); }
-.ca-slot-pill-score { font-size: 15px; font-weight: 800; line-height: 1; }
+.ca-slot-pill-score { font-size: 14px; font-weight: 800; line-height: 1; }
 .ca-slot-pill-score.ca-slot-pts--none { color: var(--text-disabled); opacity: 0.7; font-weight: 700; }
 .ca-slot-pill-locked { color: var(--text-disabled); }
 /* Fire glyph faded behind the number — adds heat without taking width. */
@@ -1349,10 +1349,10 @@ nav {
 
   .ca-section { padding: 24px 16px; }
 
-  .ca-slot-grid { gap: 5px; }
-  .ca-slot-chip { padding: 5px 10px; gap: 5px; }
-  .ca-slot-pill-label { font-size: 13px; }
-  .ca-slot-pill-score { font-size: 14px; }
+  .ca-slot-grid { gap: 6px; }
+  .ca-slot-chip { padding: 3px 11px; gap: 6px; }   /* bigger text on phone, half the vertical dead space */
+  .ca-slot-pill-label { font-size: 14px; }
+  .ca-slot-pill-score { font-size: 15px; }
 
   .ca-dp-grid {
     grid-template-columns: 1fr;
@@ -1554,6 +1554,7 @@ nav {
   transition: transform 0.12s ease;
 }
 .ca-hist-mini:hover { transform: translateY(-2px); }
+.ca-hist-mini--active { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 5px 12px -3px rgba(0,0,0,0.55); }
 .ca-hist-mini--w { background: linear-gradient(180deg, #4ade80, #22c55e); color: #08260f; }
 .ca-hist-mini--l { background: linear-gradient(180deg, #f87171, #ef4444); color: #2b0707; }
 .ca-hist-caption { font-size: 11px; color: var(--text-disabled); margin-top: 14px; font-style: italic; }
