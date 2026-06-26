@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, LOCK_SVG } from './utils.js';
+import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -94,7 +94,7 @@ async function _renderTopPick() {
       const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
       plHtml = `
         <div class="ca-tp-pl-head">
-          <span class="ca-tp-pl-title"><span style="text-transform:none;">Rankings</span> ${best.label} P/L</span>
+          <span class="ca-tp-pl-title" style="text-transform:none;">Rankings ${best.label} P/L</span>
           <span class="graph-pl-label ${sign}">${amt}</span>
         </div>
         <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
@@ -122,10 +122,12 @@ async function _renderTopPick() {
     const pickContent = viewer
       ? `<div style="position:relative;">
           <div style="filter:blur(7px);opacity:0.7;user-select:none;pointer-events:none;" aria-hidden="true">${pickBlock}</div>
-          <div onclick="event.stopPropagation();" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:92%;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 30px rgba(0,0,0,0.55);padding:11px 12px;text-align:center;">
-            <div style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--text);margin-bottom:9px;line-height:1.3;">${LOCK_SVG} See today's #1 ranked play</div>
-            <button onclick="event.stopPropagation();openLogin()" style="width:100%;padding:8px;border:none;border-radius:7px;background:var(--accent);color:#fff;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer;">Log in to see it</button>
-            <div style="margin-top:7px;font-size:11px;color:var(--muted);">No account? <a onclick="event.stopPropagation();openSignup()" style="color:var(--accent);cursor:pointer;">Sign up free</a></div>
+          <div onclick="event.stopPropagation();" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:86%;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 10px 26px rgba(0,0,0,0.55);padding:9px 10px 8px;text-align:center;">
+            <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:7px;line-height:1.3;">See today's #1 ranked play</div>
+            <button class="unlock-cta-btn" onclick="event.stopPropagation();openLogin()" style="width:100%;justify-content:center;padding:6px 12px;font-size:11.5px;border-radius:7px;gap:6px;">
+              <span class="ucb-lock">&#128274;</span><span class="ucb-open">&#128275;</span>Log in to see it
+            </button>
+            <div style="margin-top:6px;font-size:10px;color:var(--muted);">No account? <a onclick="event.stopPropagation();openSignup()" style="color:var(--accent);cursor:pointer;">Sign up free</a></div>
           </div>
         </div>`
       : pickBlock;
