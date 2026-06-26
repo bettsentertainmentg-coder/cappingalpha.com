@@ -295,7 +295,7 @@ nav {
 }
 .ca-section-header--picks {
   align-items: center;
-  margin-bottom: 10px; /* tighter gap above the pick chips */
+  margin-bottom: 7px; /* nudge the pick chips up ~3px */
 }
 
 .ca-section-h2 {

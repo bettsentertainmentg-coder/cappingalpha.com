@@ -92,6 +92,7 @@ export function cappingGauge(opts = {}) {
     leftColorSecondary  = '',           // optional team secondary for outline + underline
     rightColorSecondary = '',
     centerLine          = null,
+    centerTeam          = null,         // optional: team the centerLine belongs to (e.g. spread side)
     size                = 'md',
     // Voting: when votable, the team chips become buttons that call castVote(slot).
     // leftVoted/rightVoted highlight the current user's own pick.
@@ -209,11 +210,11 @@ export function cappingGauge(opts = {}) {
         <div class="cag-pct-row">
           ${noData ? `
             <span class="cag-side-pct cag-side-pct-l cag-empty">—</span>
-            <span class="cag-line-mid${centerLine ? '' : ' cag-line-mid--empty'}">${esc(centerLine || '')}</span>
+            ${_lineMid(centerLine, centerTeam)}
             <span class="cag-side-pct cag-side-pct-r cag-empty">—</span>
           ` : `
             <span class="cag-side-pct cag-side-pct-l" style="${_pctStyle(leftColor,  leftColorSecondary)}">${lp}%</span>
-            <span class="cag-line-mid${centerLine ? '' : ' cag-line-mid--empty'}">${esc(centerLine || '')}</span>
+            ${_lineMid(centerLine, centerTeam)}
             <span class="cag-side-pct cag-side-pct-r" style="${_pctStyle(rightColor, rightColorSecondary)}">${rp}%</span>
           `}
         </div>
@@ -227,6 +228,16 @@ export function cappingGauge(opts = {}) {
         ${_teamChip('r', rightLabel, rightColor, rightColorSecondary, votable, rightSlot, rightVoted)}
       </div>
     </div>`;
+}
+
+// Center value (e.g. spread "-1.5") with an optional small team label beneath it,
+// so the line is never ambiguous about which side it applies to.
+function _lineMid(centerLine, centerTeam) {
+  const cls = `cag-line-mid${centerLine ? '' : ' cag-line-mid--empty'}`;
+  return `<span class="${cls}">` +
+    `<span class="cag-line-val">${esc(centerLine || '')}</span>` +
+    (centerLine && centerTeam ? `<span class="cag-line-team">${esc(centerTeam)}</span>` : '') +
+    `</span>`;
 }
 
 // Inline-style builder for per-side % numbers. Primary color drives the text

@@ -575,7 +575,7 @@ function _wireSlotScrollbar() {
       return;
     }
     bar.style.display = 'block';
-    grid.style.marginBottom = '3px';    // bar (3px) + its margin fills the rest of the 10px gap
+    grid.style.marginBottom = '6px';    // a little breathing room between the chips and the scroll bar
     const wPct = Math.max(14, (cw / sw) * 100);
     thumb.style.width = wPct + '%';
     const maxScroll = sw - cw;
@@ -1398,8 +1398,10 @@ function _buildBetTypes() {
       leftColor:           awayColors.primary,   rightColor:           homeColors.primary,
       leftColorSecondary:  awayColors.secondary, rightColorSecondary:  homeColors.secondary,
       // Show the home-side line in the center (e.g. -1.5) — matches the line
-      // value users actually see on the lines table.
+      // value users actually see on the lines table. centerTeam labels WHICH team
+      // that spread belongs to (the home side) so "+1.5" isn't ambiguous.
       centerLine: homeSpread,
+      centerTeam: homeName,
     },
     {
       label:     'WIN',
@@ -1462,6 +1464,7 @@ function renderSentiment() {
       leftColorSecondary:  bt.leftColorSecondary,
       rightColorSecondary: bt.rightColorSecondary,
       centerLine:          bt.centerLine,
+      centerTeam:          bt.centerTeam,
       size: 'md',
     }) + '</div>';
   }).join('');
@@ -1509,6 +1512,7 @@ function renderCommunity() {
       leftColorSecondary:  bt.leftColorSecondary,
       rightColorSecondary: bt.rightColorSecondary,
       centerLine:          bt.centerLine,
+      centerTeam:          bt.centerTeam,
       size: 'md',
       // Voting wired straight into the gauge chips.
       votable,
