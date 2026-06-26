@@ -295,6 +295,7 @@ nav {
 }
 .ca-section-header--picks {
   align-items: center;
+  margin-bottom: 10px; /* tighter gap above the pick chips */
 }
 
 .ca-section-h2 {
@@ -312,7 +313,7 @@ nav {
   display: flex; gap: 8px; flex-wrap: nowrap;
   overflow-x: auto; -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
-  margin-bottom: 20px;
+  margin-bottom: 10px; /* tighter gap below the pick chips, before the detail card */
 }
 .ca-slot-grid::-webkit-scrollbar { display: none; }
 
