@@ -54,17 +54,17 @@ command words: **SHARP / SEMI-SHARP / EVEN / SEMI-WILD / WILD** (Form = K-BB, so
 note to the tooltip (the dial is NOT faded — a shown value always renders full).
 Below the min-games floor the dial is empty (grey dome, no needle) = no data yet.
 
-### The 4th column (MLB only)
-- **MLB hitters → "Recent":** the recent-bat note below.
-- **MLB pitchers → "ERA":** earned-run average accumulated over recent outings to
-  ~15 IP (stable for starters and relievers). The **results** axis — distinct from
-  Form (command / K-BB) and Load (fatigue). Tone: ≤3.00 good (green), ≥4.75 bad
-  (red), else neutral.
-- **All other sports: no 4th column.** A usage/minutes "trend" is redundant with Load
-  (which already blends minutes/TOI/touches), so basketball/hockey show just
-  Name · Form · Load · Splits · Status. (`computeUsageTrend` still exists but isn't
-  displayed.) Note NBA/NHL blocks are internally tagged role `batter`, so anything
-  metric-specific must gate on `sport === 'MLB'`.
+### The 4th column — MLB pitchers only ("ERA")
+Earned-run average accumulated over recent outings to ~15 IP (stable for starters
+≈3 outings and relievers ≈10; the game count rides in the cell as "(N GP)"). The
+**results** axis — distinct from Form (command / K-BB) and Load (fatigue). Tone:
+≤3.00 good (green), ≥4.75 bad (red), else neutral.
+
+**Everyone else has no 4th column** — Name · Form · Load · Splits · Status. Hitters'
+recent production already shows in the name cell; a usage/minutes "trend" is redundant
+with Load. (`computeUsageTrend` and `computeBatterNote` still exist but aren't
+displayed.) Note NBA/NHL blocks are internally tagged role `batter`, so anything
+metric-specific gates on `sport === 'MLB'`.
 
 ### Recent-bat note (MLB hitters, the "Recent" column)
 Separate from Form (answers "what has he done lately," power-first). Over last 5 played

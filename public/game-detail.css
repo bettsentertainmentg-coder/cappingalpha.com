@@ -1688,6 +1688,10 @@ nav {
 .ca-tf-lineuptag { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; text-transform: none; color: var(--text-tertiary); }
 .ca-tf-lineuptag.is-confirmed { color: var(--accent-win); }
 
+/* Small sub-labels: "(last 5)" in the Recent header, "(N GP)" beside ERA */
+.ca-tf-hdrsub { font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-disabled); }
+.ca-tf-recentsub { font-size: 9px; font-weight: 600; color: var(--text-disabled); }
+
 /* Recent-bat note (HR/hit streak) in the hitters' column */
 .ca-tf-recentnote { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ca-tf-recentnote--hot     { color: #fb923c; }

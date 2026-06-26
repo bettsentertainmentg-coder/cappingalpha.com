@@ -2539,12 +2539,13 @@ function tfBlockToggleHtml(blocks) {
 }
 
 function tfBlockTable(blk, injMap) {
-  // The 4th column only exists for MLB (hitters' recent note / pitchers' ERA).
-  // Other sports don't get a usage "Trend" — it's redundant with Load — so the
-  // table is Name · Form · Load · Splits · Status.
+  // The 4th column is ERA — MLB pitchers only. Hitters and other sports don't get
+  // one (recent production already shows in the name cell; usage Trend is redundant
+  // with Load). So those tables are Name · Form · Load · Splits · Status.
   const isMlb = (_data.game.sport || '').toUpperCase() === 'MLB';
   const isBat = blk.role === 'batter';
-  const cols  = isMlb ? 6 : 5;
+  const has4  = isMlb && blk.role === 'pitcher';
+  const cols  = has4 ? 6 : 5;
 
   const sorted = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0));
   const grp = label => `<tr class="ca-tf-grouprow"><td colspan="${cols}">${esc(label)}</td></tr>`;
@@ -2552,16 +2553,16 @@ function tfBlockTable(blk, injMap) {
   if (blk.hasGameStarter) {
     const sp   = sorted.filter(r => r.gameStarter);
     const rest = sorted.filter(r => !r.gameStarter);
-    body = grp('Starting pitcher') + sp.map(r => tfPlayerRow(r, injMap, isMlb)).join('') +
-      (rest.length ? grp('Bullpen') + rest.map(r => tfPlayerRow(r, injMap, isMlb)).join('') : '');
+    body = grp('Starting pitcher') + sp.map(r => tfPlayerRow(r, injMap, has4)).join('') +
+      (rest.length ? grp('Bullpen') + rest.map(r => tfPlayerRow(r, injMap, has4)).join('') : '');
   } else {
-    body = sorted.map(r => tfPlayerRow(r, injMap, isMlb)).join('');
+    body = sorted.map(r => tfPlayerRow(r, injMap, has4)).join('');
   }
 
   const nameHdr = (isMlb && isBat)
     ? `<span class="ca-tf-lineuptag${blk.lineupConfirmed ? ' is-confirmed' : ''}" title="${blk.lineupConfirmed ? 'Posted lineup for tonight' : 'Lineup not posted yet (showing last game order)'}">${blk.lineupConfirmed ? 'Lineup confirmed' : 'Projected order'}</span>`
     : '';
-  const col4Hdr = isMlb ? `<th class="ca-tf-th">${blk.role === 'pitcher' ? 'ERA' : 'Recent'}</th>` : '';
+  const col4Hdr = has4 ? `<th class="ca-tf-th">ERA</th>` : '';
   const head = `<tr>` +
     `<th class="ca-hp-th-name">${nameHdr}</th>` +
     `<th class="ca-hp-th-ours">Form</th>` +
@@ -2573,11 +2574,9 @@ function tfBlockTable(blk, injMap) {
   return `<div class="ca-hp-scroll"><table class="ca-hp-table ca-tf-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
 }
 
-function tfPlayerRow(r, injMap, isMlb) {
-  // 4th column (MLB only): hitters' recent-bat note / pitchers' ERA.
-  const col4 = isMlb
-    ? `<td class="ca-tf-cell">${(r.recent !== undefined) ? tfRecentCell(r.recent) : tfTrendCell(r.usage)}</td>`
-    : '';
+function tfPlayerRow(r, injMap, has4) {
+  // 4th column = ERA (MLB pitchers only).
+  const col4 = has4 ? `<td class="ca-tf-cell">${tfRecentCell(r.recent)}</td>` : '';
   return `<tr class="ca-hp-row">` +
     `<td class="ca-hp-name">${tfNameCell(r)}</td>` +
     `<td class="ca-hp-formcell">${histFormCell(r.form)}</td>` +
@@ -2591,7 +2590,10 @@ function tfPlayerRow(r, injMap, isMlb) {
 function tfRecentCell(rec) {
   if (!rec || !rec.text) return `<span class="ca-tf-dash" title="Not enough recent games yet">—</span>`;
   const tone = ['hot', 'cold', 'good', 'bad'].includes(rec.tone) ? rec.tone : 'neutral';
-  return `<span class="ca-tf-recentnote ca-tf-recentnote--${tone}">${esc(rec.text)}</span>`;
+  // ERA window varies by role (≈3 starts vs ≈10 relief outings), so show its game
+  // count per cell. Hitter notes are uniformly last-5 (shown once in the header).
+  const gp = rec.n ? ` <span class="ca-tf-recentsub">(${rec.n} GP)</span>` : '';
+  return `<span class="ca-tf-recentnote ca-tf-recentnote--${tone}">${esc(rec.text)}</span>${gp}`;
 }
 
 function tfNameCell(r) {

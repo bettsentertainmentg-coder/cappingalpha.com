@@ -565,19 +565,19 @@ function computeBatterNote(gamelog, beforeDate = null) {
   const played = prior.filter(g => { const ab = pick(g.stats, 'AB', 'atBats'); return ab != null && ab > 0; });
   if (!played.length) return null;
 
+  // Window (last 5) is shown once in the column header, not repeated per cell.
   const last5 = played.slice(0, 5);
-  const n     = last5.length;
   const hr5   = last5.reduce((s, g) => s + (pick(g.stats, 'HR', 'homeRuns') || 0), 0);
   const h5    = last5.reduce((s, g) => s + (pick(g.stats, 'H', 'hits') || 0), 0);
   const multi = last5.filter(g => (pick(g.stats, 'H', 'hits') || 0) >= 2).length;
   let streak = 0;
   for (const g of played) { const h = pick(g.stats, 'H', 'hits'); if (h != null && h >= 1) streak++; else break; }
 
-  if (hr5 >= 1)      return { text: `${hr5} HR · L${n}`,        tone: hr5 >= 2 ? 'hot' : 'neutral' };
-  if (streak >= 3)   return { text: `${streak}-gm hit streak`,  tone: streak >= 4 ? 'hot' : 'neutral' };
-  if (multi >= 2)    return { text: `${multi} multi-hit · L${n}`, tone: 'neutral' };
-  if (h5 === 0)      return { text: `0 H · L${n}`,              tone: 'cold' };
-  return { text: `${h5} H · L${n}`, tone: 'neutral' };
+  if (hr5 >= 1)      return { text: `${hr5} HR`,              tone: hr5 >= 2 ? 'hot' : 'neutral' };
+  if (streak >= 3)   return { text: `${streak}-gm hit streak`, tone: streak >= 4 ? 'hot' : 'neutral' };
+  if (multi >= 2)    return { text: `${multi} multi-hit`,     tone: 'neutral' };
+  if (h5 === 0)      return { text: `0 H`,                    tone: 'cold' };
+  return { text: `${h5} H`, tone: 'neutral' };
 }
 
 // ESPN innings pitched use baseball notation: "6.1" = 6⅓, "6.2" = 6⅔.

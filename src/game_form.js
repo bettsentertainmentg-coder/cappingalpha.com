@@ -137,11 +137,9 @@ async function getGameForm(eventId, sport, teamId, gameDate, oppId) {
       r.usage   = gl ? computeUsageTrend(gl, sport, ctx, gd) : null;
       r.splits  = gl ? computeSplits(gl, sport, ctx, gd, oppId) : null;
       r.absence = gl ? absenceInfo(gl, teamDates, gd, sport, ctx) : null;
-      // MLB only: hitters show a recent-bat note, pitchers a recent ERA, in place
-      // of the usage trend. Other sports keep their usage Trend (role is 'batter'
-      // for them too, so this MUST stay gated on MLB).
-      if (sport === 'MLB') {
-        r.recent = gl ? (blk.role === 'pitcher' ? computePitcherRecent(gl, gd) : computeBatterNote(gl, gd)) : null;
+      // MLB pitchers get a recent-ERA column; hitters and other sports have none.
+      if (sport === 'MLB' && blk.role === 'pitcher') {
+        r.recent = gl ? computePitcherRecent(gl, gd) : null;
       }
     }));
     // Forward view: keep only profiled players, drop the past game's raw line.
@@ -171,7 +169,6 @@ async function getGameForm(eventId, sport, teamId, gameDate, oppId) {
           starter: true, lineupSpot: p.batOrder,
           form:    gl ? computeHotCold(gl, sport, ctx, gd) : null,
           load:    gl ? computeFreshness(gl, sport, ctx, gd) : null,
-          recent:  gl ? computeBatterNote(gl, gd) : null,
           splits:  gl ? computeSplits(gl, sport, ctx, gd, oppId) : null,
           absence: gl ? absenceInfo(gl, teamDates, gd, sport, ctx) : null,
         };
