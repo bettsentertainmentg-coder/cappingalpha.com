@@ -174,7 +174,7 @@
     .tab-btn:hover { color: var(--text); }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
     /* CA logo chip shown inline beside "Picks" labels (the marquee badge from the #1 pick card). Scales with surrounding text. */
-    .ca-pick-logo { height: 1.25em; width: auto; border-radius: 3px; vertical-align: middle; display: inline-block; margin-right: 6px; flex-shrink: 0; }
+    .ca-pick-logo { height: 1.25em; width: auto; aspect-ratio: 440 / 305; border-radius: 3px; vertical-align: middle; display: inline-block; margin-right: 6px; flex-shrink: 0; }
     /* On the nav tab: a touch larger, tighter to "Picks", and dim by default — it brightens with the tab's hover + active state so the logo tracks the text. */
     .tab-btn .ca-pick-logo { height: 1.5em; margin-right: 3px; opacity: 0.78; transition: opacity 0.15s; }
     .tab-btn:hover .ca-pick-logo,
@@ -1275,6 +1275,10 @@
     /* ── Today's Top Games strip (ESPN scoreboard cards) ── */
     .ca-top-games-row {
       display: flex; gap: 12px; overflow-x: auto; padding-bottom: 10px;
+      /* overflow-x:auto forces overflow-y to clip, which cut off the tile hover
+         lift (translateY) + shadow at the top. Add top room for it; the matching
+         negative margin keeps net vertical spacing unchanged (no added dead space). */
+      padding-top: 8px; margin-top: -8px;
       cursor: grab; -webkit-overflow-scrolling: touch;
       /* No scrollbar-width/scrollbar-color here: Safari treats those as the modern
          path and ignores ::-webkit-scrollbar sizing, so the bar can't be thinned.
