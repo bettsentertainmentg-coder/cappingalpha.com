@@ -97,6 +97,12 @@ nav {
 }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* CA logo chip in the nav tab — kept identical to index.html so the top bar is
+   pixel-for-pixel the same between the SPA and this standalone detail page. */
+.ca-pick-logo { height: 1.25em; width: auto; border-radius: 3px; vertical-align: middle; display: inline-block; margin-right: 6px; flex-shrink: 0; }
+.tab-btn .ca-pick-logo { height: 1.5em; margin-right: 3px; opacity: 0.78; transition: opacity 0.15s; }
+.tab-btn:hover .ca-pick-logo,
+.tab-btn.active .ca-pick-logo { opacity: 1; }
 
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn {
