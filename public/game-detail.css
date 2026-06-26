@@ -1642,3 +1642,115 @@ nav {
   .ca-hist-stat { min-width: 60px; }
   .ca-hist-stat-val { font-size: 16px; }
 }
+
+/* ── Team Form tab (forward-looking player form/load) ──────────────────────── */
+.ca-tf-sub {
+  font-size: 12px; color: var(--text-tertiary); line-height: 1.5;
+  margin: 4px 0 16px; max-width: 720px;
+}
+.ca-tf-sub b { color: var(--text-secondary); font-weight: 700; }
+.ca-tf-body { transition: opacity 0.14s ease; }
+
+/* Team-level ATS / O-U trend chips */
+.ca-tf-trends { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.ca-tf-trendchip {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 11px;
+}
+.ca-tf-trendlbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-tertiary); font-weight: 700; }
+.ca-tf-trendval { font-size: 13px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Offense / defense (stat-group) sub-toggle */
+.ca-tf-blocktoggle { display: inline-flex; gap: 4px; margin-bottom: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+.ca-tf-blocktab {
+  background: none; border: none; cursor: pointer;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+  color: var(--text-tertiary); padding: 6px 13px; border-radius: 7px; transition: all 0.15s ease;
+}
+.ca-tf-blocktab:hover { color: var(--text-secondary); }
+.ca-tf-blocktab.active { background: var(--accent); color: #fff; }
+
+/* Forward grid reuses .ca-hp-table; these style the extra columns */
+.ca-tf-table { min-width: 620px; }
+/* "Starting pitcher" / "Bullpen" group separators inside the pitching block */
+.ca-tf-grouprow td {
+  text-align: left !important; padding: 8px 10px !important; vertical-align: middle;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
+  color: var(--accent); border-top: 1px solid var(--border) !important;
+}
+/* First group ("Starting pitcher") sits under the column header — no double rule,
+   but keep the padding symmetric so it's centered the same as "Bullpen". */
+.ca-tf-grouprow:first-child td { border-top: none !important; }
+
+/* Lineup status, shown in the batting block's name-column header (level with the
+   Form/Load/Recent headers). Green when tonight's lineup is posted. */
+.ca-tf-lineuptag { font-size: 10px; font-weight: 700; letter-spacing: 0.2px; text-transform: none; color: var(--text-tertiary); }
+.ca-tf-lineuptag.is-confirmed { color: var(--accent-win); }
+
+/* Recent-bat note (HR/hit streak) in the hitters' column */
+.ca-tf-recentnote { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-tf-recentnote--hot     { color: #fb923c; }
+.ca-tf-recentnote--cold    { color: #38bdf8; }
+.ca-tf-recentnote--good    { color: var(--accent-win); }
+.ca-tf-recentnote--bad     { color: var(--accent-live); }
+.ca-tf-recentnote--neutral { color: var(--text-secondary); }
+
+/* Batting-order number badge (replaces the star for hitters) */
+.ca-tf-spot {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text-secondary); font-size: 10px; font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ca-tf-th  { text-align: center !important; }
+.ca-tf-cell { text-align: center !important; vertical-align: middle; }
+.ca-tf-dash { color: var(--text-disabled); }
+
+.ca-tf-recent { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; }
+.ca-tf-reclbl { font-weight: 800; color: var(--text-secondary); letter-spacing: 0.3px; }
+.ca-tf-recent .ca-num { color: var(--text); font-weight: 700; }
+.ca-tf-recbase { color: var(--text-disabled); }
+
+/* Usage / role trend */
+.ca-tf-trend { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ca-tf-arrow { font-size: 10px; }
+.ca-tf-unit { font-size: 9.5px; color: var(--text-tertiary); font-weight: 700; }
+.ca-tf-trend--up   { color: var(--accent-win); }
+.ca-tf-trend--down { color: var(--accent-live); }
+.ca-tf-trend--flat { color: var(--text-tertiary); }
+
+/* Home/road + vs-opponent splits */
+.ca-tf-splits { display: inline-flex; flex-direction: column; gap: 1px; font-size: 11px; line-height: 1.35; }
+.ca-tf-split-stat { font-size: 9px; font-weight: 800; letter-spacing: 0.4px; color: var(--text-tertiary); text-transform: uppercase; }
+.ca-tf-split-ha  { color: var(--text-secondary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ca-tf-split-opp { color: var(--accent-warning); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Status chip (injury / return / active) + one-line note beneath */
+.ca-tf-statuswrap { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; }
+.ca-tf-statusnote { font-size: 9.5px; color: var(--text-tertiary); line-height: 1.25; max-width: 132px; white-space: normal; }
+.ca-tf-status {
+  display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.3px; white-space: nowrap;
+}
+.ca-tf-status--out   { background: rgba(239,68,68,0.16);  color: #f87171; }
+.ca-tf-status--quest { background: rgba(245,158,11,0.16); color: #fbbf24; }
+.ca-tf-status--prob  { background: rgba(34,197,94,0.14);  color: #4ade80; }
+.ca-tf-status--back  { background: rgba(56,189,248,0.16); color: #38bdf8; }
+.ca-tf-status--ok    { background: var(--surface2);       color: var(--text-tertiary); }
+
+/* Tennis: single-player card */
+.ca-tf-tennis {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 22px 30px;
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 18px 22px;
+}
+.ca-tf-tennis-name { font-size: 18px; font-weight: 800; color: var(--text); }
+.ca-tf-tennis-dials { display: flex; gap: 20px; }
+.ca-tf-tennis-dial { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.ca-tf-tennis-diallbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-tertiary); font-weight: 700; }
+.ca-tf-tennis-stats { display: flex; gap: 22px; margin-left: auto; }
+
+@media (max-width: 640px) {
+  .ca-tf-tennis-stats { margin-left: 0; }
+}

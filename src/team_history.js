@@ -68,6 +68,16 @@ function parseScheduleGame(e, teamId) {
                : mine.winner === false ? 'L'
                : (pf != null && pa != null ? (pf > pa ? 'W' : pa > pf ? 'L' : 'T') : null);
 
+  // Closing line for this game, when ESPN ships it. `spread` is home-relative
+  // (negative = home favored); `overUnder` is the total. Used for the team's
+  // ATS / over-under trend. Often absent on older rows — handled as best-effort.
+  const oddsObj = comp.odds?.[0] || null;
+  const spread     = oddsObj && oddsObj.spread != null     ? num(oddsObj.spread)     : null;
+  const overUnder  = oddsObj && oddsObj.overUnder != null  ? num(oddsObj.overUnder)  : null;
+
+  // Venue location (for the travel/time-zone load factor). State is enough.
+  const vAddr = comp.venue?.address || {};
+
   // Inline per-game leaders (top scorer/rebounder/etc.) — free, no box-score call.
   const leaders = (mine.leaders || []).map(cat => {
     const top = (cat.leaders || [])[0];
@@ -91,6 +101,10 @@ function parseScheduleGame(e, teamId) {
     pf, pa,
     margin:   (pf != null && pa != null) ? pf - pa : null,
     result,
+    spread,
+    overUnder,
+    venueCity:  vAddr.city  || null,
+    venueState: vAddr.state || null,
     leaders,
   };
 }
@@ -149,6 +163,7 @@ async function getEventTeamPlayers(eventId, sport, teamId) {
         shortName: ath.shortName || null,
         pos:       ath.position?.abbreviation || a.position || null,
         starter:   a.starter === true,
+        batOrder:  a.batOrder ?? null,
         dnp:       a.didNotPlay === true,
         statsArr:  a.stats || [],
         stats,
@@ -162,6 +177,55 @@ async function getEventTeamPlayers(eventId, sport, teamId) {
     team: { abbr: entry.team?.abbreviation || null, name: teamShort(entry.team) },
     blocks,
   };
+}
+
+// Public: tonight's pre-game intel for one team, from the game summary —
+// the announced starter (probable pitcher, available days ahead) and the
+// CONFIRMED batting order once the lineup is posted (~1-3h before MLB first
+// pitch; empty until then). One ESPN call. Returns { starter, lineup }, where
+// lineup is the 9 hitters with their real batOrder, or null if not posted yet.
+async function getEventPregame(eventId, sport, teamId) {
+  sport = (sport || '').toUpperCase();
+  const leaguePath = LEAGUE_PATH[sport];
+  const out = { starter: null, lineup: null };
+  if (!leaguePath || !eventId || !teamId) return out;
+
+  let summary;
+  try {
+    const res = await axios.get(`${ESPN_SITE}/${leaguePath}/summary`, { params: { event: eventId }, timeout: 9000 });
+    summary = res.data;
+  } catch (_) { return out; }
+
+  const comps = summary?.header?.competitions?.[0]?.competitors || [];
+  const comp  = comps.find(c => String(c.team?.id) === String(teamId));
+  const ath   = comp?.probables?.[0]?.athlete;
+  if (ath && ath.id) {
+    out.starter = {
+      athleteId: String(ath.id),
+      name:      ath.displayName || ath.fullName || ath.shortName || '?',
+      shortName: ath.shortName || null,
+      pos:       ath.position?.abbreviation || 'SP',
+    };
+  }
+
+  const rEntry  = (summary?.rosters || []).find(r => String(r.team?.id) === String(teamId));
+  const batters = (rEntry?.roster || [])
+    .filter(p => p.starter && p.batOrder && !/^(P|SP|RP)$/i.test(p.position?.abbreviation || ''))
+    .map(p => {
+      const a = p.athlete || {};
+      return {
+        athleteId: a.id ? String(a.id) : null,
+        name:      a.displayName || a.shortName || a.fullName || '?',
+        shortName: a.shortName || null,
+        pos:       p.position?.abbreviation || a.position?.abbreviation || null,
+        batOrder:  p.batOrder,
+      };
+    })
+    .filter(p => p.athleteId)
+    .sort((a, b) => a.batOrder - b.batOrder);
+  if (batters.length) out.lineup = batters;
+
+  return out;
 }
 
 // Public: last-20 (most-recent-first) + last-5 + summary for one team.
@@ -190,10 +254,16 @@ async function getTeamHistory(teamId, sport) {
 
   const last20 = completed.slice(0, 20);
   const last5  = last20.slice(0, 5);
-  const data = { sport, teamId: String(teamId), summary: buildSummary(last20), last20, last5 };
+
+  // Next (tonight's) game venue — for the travel/time-zone load factor.
+  const upcoming = events.find(e => !(e.competitions?.[0]?.status?.type?.completed) && e.competitions?.[0]?.venue);
+  const nv = upcoming?.competitions?.[0]?.venue?.address || null;
+  const nextVenue = nv ? { city: nv.city || null, state: nv.state || null } : null;
+
+  const data = { sport, teamId: String(teamId), summary: buildSummary(last20), last20, last5, nextVenue };
 
   _cache.set(key, { ts: Date.now(), data });
   return data;
 }
 
-module.exports = { getTeamHistory, getEventTeamPlayers, TEAM_SPORTS, LEAGUE_PATH };
+module.exports = { getTeamHistory, getEventTeamPlayers, getEventPregame, TEAM_SPORTS, LEAGUE_PATH };

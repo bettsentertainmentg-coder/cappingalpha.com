@@ -42,6 +42,7 @@ const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring')
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getTeamHistory, getEventTeamPlayers, TEAM_SPORTS } = require('./src/team_history');
 const { getPlayerGamelog, buildPlayerForm }           = require('./src/player_form');
+const { getGameForm }                                 = require('./src/game_form');
 const { getTennisHistory }                            = require('./src/tennis_player_form');
 const { getLinesForGame }                             = require('./src/lines_scraper');
 const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_betting');
@@ -149,6 +150,38 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 // Uploaded member avatars live on the data volume (survive redeploys). Cached a day.
 app.use('/avatars', express.static(path.join(__dirname, 'data', 'avatars'), { maxAge: 24 * 60 * 60 * 1000 }));
+
+// ── Mirror production data locally ────────────────────────────────────────────
+// Local dev runs UI_ONLY (no scanner, no AI) so its DB has no picks/games. With
+// MIRROR_PROD set, read-only GET /api/* calls are proxied to production so the
+// local UI shows real data. MIRROR_PROD=1 uses cappingalpha.com; or pass a URL.
+// Gated on UI_ONLY so it can never run on Railway (prod never sets UI_ONLY).
+const MIRROR_URL = (process.env.UI_ONLY && process.env.MIRROR_PROD)
+  ? (process.env.MIRROR_PROD === '1' ? 'https://cappingalpha.com' : process.env.MIRROR_PROD.replace(/\/$/, ''))
+  : null;
+if (MIRROR_URL) {
+  console.log(`[mirror] Proxying read-only /api GET requests to ${MIRROR_URL}`);
+  // Endpoints that depend on local session (login state) or that don't exist on
+  // prod yet (new features in development) stay local.
+  const MIRROR_SKIP = ['/api/account', '/api/game-form'];
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
+    if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
+    const target = MIRROR_URL + req.originalUrl;
+    fetch(target, { headers: { accept: 'application/json' } })
+      .then(async (r) => {
+        const body = await r.text();
+        res.status(r.status);
+        const ct = r.headers.get('content-type');
+        if (ct) res.set('content-type', ct);
+        res.send(body);
+      })
+      .catch((err) => {
+        console.warn(`[mirror] ${req.path} failed (${err.message}) — falling back to local`);
+        next();
+      });
+  });
+}
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -1062,6 +1095,19 @@ app.get('/api/game-players', async (req, res) => {
   res.json({ sport, ...data });
 });
 
+// ── Team Form tab: forward-looking player form/load grid for tonight's game ──
+app.get('/api/game-form', async (req, res) => {
+  const event  = (req.query.event  || '').toString().trim();
+  const teamId = (req.query.teamId || '').toString().trim();
+  const sport  = (req.query.sport  || '').toString().trim().toUpperCase();
+  const date   = (req.query.date   || '').toString().trim() || null;
+  const oppId  = (req.query.oppId  || '').toString().trim() || null;
+  if (!teamId) return res.status(400).json({ error: 'teamId required' });
+  if (!TEAM_SPORTS.has(sport)) return res.json({ unsupported: true });
+  const data = await getGameForm(event, sport, teamId, date, oppId).catch(() => null);
+  res.json(data || { unavailable: true });
+});
+
 // ── History tab: tennis player recent matches (ESPN eventlog, lazy, cached) ───
 app.get('/api/tennis-history', async (req, res) => {
   const player = (req.query.player || '').toString().trim();
@@ -1377,21 +1423,50 @@ async function renderGameDetail(req, res, game, opts = {}) {
 // /game/:espn_game_id — live games 301 to their slug URL (SEO); historical MVP
 // games (post-wipe) render in place from the snapshot + mvp_picks.
 app.get('/game/:espn_game_id', async (req, res) => {
-  const live = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(req.params.espn_game_id);
+  const id = req.params.espn_game_id;
+  const live = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(id);
   if (live) return res.redirect(301, makeDetailUrl(live));
 
-  const hist = resolveHistoricalGame(req.params.espn_game_id);
-  if (!hist) return res.status(404).send('Game not found');
-  return renderGameDetail(req, res, hist.game, {
-    historical:    true,
-    picks:         hist.picks,
-    lines:         hist.snap ? hist.snap.lines         : null,
-    publicBetting: hist.snap ? hist.snap.publicBetting : null,
-    lineHistory:   hist.snap ? hist.snap.lineHistory   : null,
-    polymarket:    hist.snap ? hist.snap.polymarket    : null,
-    kalshi:        hist.snap ? hist.snap.kalshi        : null,
-    insights:      hist.snap ? hist.snap.insights      : null,
-  });
+  const hist = resolveHistoricalGame(id);
+  if (hist) {
+    return renderGameDetail(req, res, hist.game, {
+      historical:    true,
+      picks:         hist.picks,
+      lines:         hist.snap ? hist.snap.lines         : null,
+      publicBetting: hist.snap ? hist.snap.publicBetting : null,
+      lineHistory:   hist.snap ? hist.snap.lineHistory   : null,
+      polymarket:    hist.snap ? hist.snap.polymarket    : null,
+      kalshi:        hist.snap ? hist.snap.kalshi        : null,
+      insights:      hist.snap ? hist.snap.insights      : null,
+    });
+  }
+
+  // Local dev: the live slate lives on prod (the mirror). When a game isn't in
+  // the local DB, pull its data from prod's JSON API and render it with the LOCAL
+  // templates, so new detail-page features can be tested on real games. Prod never
+  // sets MIRROR_URL, so this branch is inert there.
+  if (MIRROR_URL) {
+    try {
+      const r = await fetch(`${MIRROR_URL}/api/game/${encodeURIComponent(id)}`, { headers: { accept: 'application/json' } });
+      if (r.ok) {
+        const pd = await r.json();
+        if (pd && pd.game) {
+          return renderGameDetail(req, res, pd.game, {
+            historical:    true, // public render (no paywall blanking) + per-game ranks
+            picks:         pd.picks || [],
+            lines:         pd.lines,
+            publicBetting: pd.publicBetting,
+            lineHistory:   pd.lineHistory,
+            polymarket:    pd.polymarket,
+            kalshi:        pd.kalshi,
+            insights:      pd.insights,
+          });
+        }
+      }
+    } catch (err) { console.warn(`[mirror] detail ${id} failed (${err.message})`); }
+  }
+
+  return res.status(404).send('Game not found');
 });
 
 app.get('/:sport/:slug', async (req, res) => {
@@ -1421,8 +1496,8 @@ app.get('/:sport/:slug', async (req, res) => {
   const game = db.prepare(`
     SELECT * FROM today_games
     WHERE (LOWER(sport) = LOWER(?) OR (? IN ('ATP','WTA') AND sport IN ('ATP','WTA')))
-      AND LOWER(REPLACE(REPLACE(home_team,' ',''),'.','' )) LIKE ?
-      AND LOWER(REPLACE(REPLACE(away_team,' ',''),'.','' )) LIKE ?
+      AND LOWER(REPLACE(REPLACE(REPLACE(home_team,' ',''),'.',''),'-','')) LIKE ?
+      AND LOWER(REPLACE(REPLACE(REPLACE(away_team,' ',''),'.',''),'-','')) LIKE ?
       AND DATE(start_time) = ?
     LIMIT 1
   `).get(sportFilter, sportFilter, `%${homeSlug}%`, `%${awaySlug}%`, date)
@@ -1430,8 +1505,8 @@ app.get('/:sport/:slug', async (req, res) => {
   || (sportFilter === 'ATP' && db.prepare(`
     SELECT * FROM today_games
     WHERE sport IN ('ATP','WTA')
-      AND LOWER(REPLACE(REPLACE(home_team,' ',''),'.','' )) LIKE ?
-      AND LOWER(REPLACE(REPLACE(away_team,' ',''),'.','' )) LIKE ?
+      AND LOWER(REPLACE(REPLACE(REPLACE(home_team,' ',''),'.',''),'-','')) LIKE ?
+      AND LOWER(REPLACE(REPLACE(REPLACE(away_team,' ',''),'.',''),'-','')) LIKE ?
       AND DATE(start_time) = ?
     LIMIT 1
   `).get(`%${homeSlug}%`, `%${awaySlug}%`, date));

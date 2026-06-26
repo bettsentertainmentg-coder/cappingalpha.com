@@ -81,6 +81,10 @@ let _countdownId = null;
 let _historyTeam  = 'away';   // 'away' | 'home' — local History toggle
 const _historyCache = {};     // `${sport}:${teamId}` → team-history payload
 const _playersCache = {};     // `${sport}:${teamId}:${eventId}` → game-players payload
+let _tfTeam   = 'away';       // 'away' | 'home' — local Team Form toggle
+let _tfBlockIdx = 0;          // selected offense/defense block for the active team
+let _tfBlockType = null;      // its type (e.g. 'pitching') — preserved across team switches
+const _tfCache = {};          // `${sport}:${teamId}` (team) or `T:${sport}:${player}` (tennis)
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -127,6 +131,7 @@ async function init() {
   renderSentiment();
   renderInjuries();
   renderContext();
+  renderTeamForm();
   renderHistory();
   renderCommunity();
 
@@ -664,9 +669,9 @@ function renderDetailPanel() {
       : '';
 
   const mvpBadge = isGoldMvp
-    ? `<div class="ca-dp-mvp-badge ca-dp-mvp-badge--gold">MVP</div>`
+    ? `<div class="ca-dp-mvp-badge ca-dp-mvp-badge--gold">CA</div>`
     : isSilverMvp
-      ? `<div class="ca-dp-mvp-badge ca-dp-mvp-badge--silver">MVP</div>`
+      ? `<div class="ca-dp-mvp-badge ca-dp-mvp-badge--silver">CA</div>`
       : '';
 
   const scoreCls = isGoldMvp ? ' mvp-gold' : isSilverMvp ? ' mvp-silver' : '';
@@ -1840,7 +1845,7 @@ const HIST_PTS_RANGE = {
   NBA: [95, 130], WNBA: [70, 95], CBB: [55, 90],
   NHL: [1, 6], MLB: [1, 9], NFL: [10, 38], NCAAF: [10, 45],
 };
-const FRESH_BAND_COLOR = { fresh: '#22c55e', moderate: '#eab308', heavy: '#f97316', overworked: '#ef4444' };
+const FRESH_BAND_COLOR = { fresh: '#22c55e', moderate: '#eab308', elevated: '#f59e0b', heavy: '#f97316', overworked: '#ef4444' };
 
 function clampPct(x) { return Math.max(0, Math.min(1, x)); }
 function histDate(iso) {
@@ -2270,7 +2275,7 @@ const MG_STOPS = {
   form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['100%', '#fb923c']],
   load: [['0%', '#22c55e'], ['45%', '#eab308'], ['72%', '#f97316'], ['100%', '#ef4444']],
 };
-function miniHeatGauge({ pct, kind, label, labelColor, tip }) {
+function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
   const has = pct != null && Number.isFinite(pct);
   const p   = has ? Math.max(0, Math.min(100, pct)) : 50;
   const deg = Math.max(-90, Math.min(90, (p - 50) * 1.8));
@@ -2318,25 +2323,426 @@ function histFormCell(hc) {
   const pct = hc.z != null
     ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
     : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
+  // Pitchers read command (K-BB) as sharp ↔ wild; everyone else hot ↔ cold.
+  const isPitcher = hc.primaryName === 'K-BB';
+  const hi = hc.bucket === 'hot' || hc.bucket === 'warm';
+  const lo = hc.bucket === 'cold' || hc.bucket === 'cool';
   let label, color;
-  if (hc.bucket === 'hot' || hc.bucket === 'warm')      { label = 'HOT';  color = '#fb923c'; }
-  else if (hc.bucket === 'cold' || hc.bucket === 'cool') { label = 'COLD'; color = '#38bdf8'; }
-  else                                                   { label = 'EVEN'; color = 'var(--text-tertiary)'; }
-  const tip = `${hc.primaryName} form: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}`;
+  if (isPitcher) {
+    label = ({ hot: 'SHARP', warm: 'SEMI-SHARP', neutral: 'EVEN', cool: 'SEMI-WILD', cold: 'WILD' })[hc.bucket] || 'EVEN';
+  } else {
+    label = hi ? 'HOT' : lo ? 'COLD' : 'EVEN';
+  }
+  color = hi ? '#fb923c' : lo ? '#38bdf8' : 'var(--text-tertiary)';
+  const low = hc.n != null && hc.n < 10; // few recent games → noted in tooltip
+  const tip = `${hc.primaryName} ${isPitcher ? 'command' : 'form'}: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}${low ? ` · limited sample (${hc.n} g)` : ''}`;
   return miniHeatGauge({ pct, kind: 'form', label, labelColor: color, tip });
 }
 
 // Load dial: fresh and clean on the left, tired and taxed on the right. Label
 // reads the workload band (rest + schedule density, not injury risk).
-const LOAD_WORD = { fresh: 'Fresh', moderate: 'Moderate', heavy: 'Heavy', overworked: 'Tired' };
+const LOAD_WORD = { fresh: 'Fresh', moderate: 'Moderate', elevated: 'Elevated', heavy: 'Heavy', overworked: 'Very Heavy' };
 function histLoadCell(fr) {
   if (!fr || fr.score == null) {
     return miniHeatGauge({ pct: null, kind: 'load', label: '—', tip: fr && fr.note ? fr.note : 'No load data' });
   }
   const color = FRESH_BAND_COLOR[fr.band] || '#eab308';
   const word  = LOAD_WORD[fr.band] || '';
-  const tip = `Player load ${fr.score}/100${fr.note ? ' · ' + fr.note : ''} (workload and rest, not injury risk)`;
+  const low   = fr.n != null && fr.n < 5; // few recent games → noted in tooltip
+  const tip = `Player load ${fr.score}/100${fr.note ? ' · ' + fr.note : ''} (workload and rest, not injury risk)${low ? ` · limited sample (${fr.n} g)` : ''}`;
   return miniHeatGauge({ pct: fr.score, kind: 'load', label: word, labelColor: color, tip });
+}
+
+// ── Team Form section (forward-looking: each player's shape going INTO tonight) ─
+// Reuses the History tab's dials (Form = hot/cold, Load = fresh/tired) and team
+// toggle, but the data is "as of tonight" instead of a past box score. Backend:
+// /api/game-form. Tennis renders a single-player card from /api/tennis-history.
+function _tfPaintToggle() {
+  const toggle = document.getElementById('ca-tf-toggle');
+  if (!toggle) return;
+  const away = teamColors(_data.game, false);
+  const home = teamColors(_data.game, true);
+  toggle.style.setProperty('--hist-away-color', _legibleOnDark(away.primary));
+  toggle.style.setProperty('--hist-home-color', _legibleOnDark(home.primary));
+  _tfApplyActivePill();
+}
+function _tfApplyActivePill() {
+  const toggle = document.getElementById('ca-tf-toggle');
+  if (!toggle) return;
+  const col  = teamColors(_data.game, _tfTeam === 'home');
+  const pill = col.secondary ? col.secondary : _vividFill(col.primary);
+  toggle.style.setProperty('--hist-slider-bg', pill);
+  toggle.style.setProperty('--hist-active-text', _ensureReadable(col.primary, pill));
+}
+
+async function renderTeamForm() {
+  const section = document.getElementById('teamform');
+  if (!section) return;
+  if (!histSportSupported()) { section.style.display = 'none'; return; }
+
+  section.style.display = '';
+  const { game } = _data;
+  const tennis = histIsTennis();
+  // Individual sports (tennis, golf) read "Player Form"; team sports "Team Form".
+  const individual = tennis || (game.sport || '').toUpperCase() === 'GOLF';
+
+  const navS = document.getElementById('ca-nav-teamform');
+  const navM = document.getElementById('ca-mtab-teamform');
+  if (navS) { navS.style.display = ''; navS.textContent = individual ? 'Player Form' : 'Team Form'; }
+  if (navM) { navM.style.display = ''; navM.textContent = 'FORM'; }
+
+  const title = document.getElementById('ca-tf-title');
+  if (title) title.textContent = individual ? 'Player form' : 'Team form';
+  const sub = document.getElementById('ca-tf-sub');
+  if (sub) sub.innerHTML = tennis
+    ? `Each player's form and load going into this match. <b>Form</b> is recent results; <b>load</b> is matches played and rest, not injury risk.`
+    : `Each player's form and load going into tonight's game. <b>Form</b> is recent play vs their own baseline; <b>load</b> is rest and recent workload, not injury risk.`;
+
+  const setAbbr = (team, txt) => {
+    const el = document.querySelector(`#ca-tf-toggle .ca-hist-tab[data-team="${team}"] .ca-hist-tab-abbr`);
+    if (el) el.textContent = txt;
+  };
+  setAbbr('away', (game.away_abbr || game.away_short || teamNick(game.away_team) || 'AWAY').toUpperCase());
+  setAbbr('home', (game.home_abbr || game.home_short || teamNick(game.home_team) || 'HOME').toUpperCase());
+
+  _tfPaintToggle();
+
+  const toggle = document.getElementById('ca-tf-toggle');
+  if (toggle && !toggle.dataset.wired) {
+    toggle.dataset.wired = '1';
+    toggle.querySelectorAll('.ca-hist-tab').forEach(btn =>
+      btn.addEventListener('click', () => selectTeamFormTeam(btn.dataset.team)));
+  }
+  await loadAndPaintTeamForm();
+}
+
+function selectTeamFormTeam(team) {
+  if (team !== 'away' && team !== 'home') return;
+  if (team === _tfTeam) return;
+  _tfTeam = team;
+  // keep the current stat group (Batting/Pitching) — paintTeamForm re-resolves it by type
+  const toggle = document.getElementById('ca-tf-toggle');
+  if (toggle) {
+    toggle.querySelectorAll('.ca-hist-tab').forEach(b => b.classList.toggle('active', b.dataset.team === team));
+    toggle.classList.toggle('ca-hist-toggle--home', team === 'home');
+    _tfApplyActivePill();
+    const slider = toggle.querySelector('.ca-hist-toggle-slider');
+    if (slider) { slider.classList.remove('ca-hist-pop'); void slider.offsetWidth; slider.classList.add('ca-hist-pop'); }
+  }
+  const body = document.getElementById('ca-tf-body');
+  if (body) body.classList.add('ca-hist-fading');
+  setTimeout(() => {
+    loadAndPaintTeamForm().finally(() => {
+      document.getElementById('ca-tf-body')?.classList.remove('ca-hist-fading');
+    });
+  }, 140);
+}
+
+function tfOppId(team) {
+  return team === 'home' ? _data.stats?.awayTeamId : _data.stats?.homeTeamId;
+}
+
+async function loadAndPaintTeamForm() {
+  const body = document.getElementById('ca-tf-body');
+  if (!body) return;
+  const sport = (_data.game.sport || '').toUpperCase();
+
+  if (histIsTennis()) { await loadTennisForm(body, sport); return; }
+
+  const teamId = histTeamId(_tfTeam);
+  if (!teamId) { body.innerHTML = `<div class="ca-hist-empty">No player data on record.</div>`; return; }
+
+  const cacheKey = `${sport}:${teamId}`;
+  if (_tfCache[cacheKey]) { paintTeamForm(_tfCache[cacheKey]); return; }
+
+  body.innerHTML = `<div class="ca-hist-loading">Loading player form…</div>`;
+  try {
+    const oppId = tfOppId(_tfTeam) || '';
+    const url = `/api/game-form?event=${encodeURIComponent(_data.game.espn_game_id)}` +
+      `&teamId=${encodeURIComponent(teamId)}&sport=${encodeURIComponent(sport)}` +
+      `&date=${encodeURIComponent(_data.game.start_time || '')}&oppId=${encodeURIComponent(oppId)}`;
+    const data = await (await fetch(url)).json();
+    if (!data || data.unsupported || data.unavailable || !(data.blocks && data.blocks.length)) {
+      body.innerHTML = `<div class="ca-hist-empty">No player form on record yet.</div>`;
+      return;
+    }
+    _tfCache[cacheKey] = data;
+    if (histTeamId(_tfTeam) === teamId) paintTeamForm(data); // user may have toggled mid-fetch
+  } catch (_) {
+    body.innerHTML = `<div class="ca-hist-empty">Could not load player form.</div>`;
+  }
+}
+
+function paintTeamForm(data) {
+  const body = document.getElementById('ca-tf-body');
+  if (!body) return;
+  const blocks = data.blocks || [];
+  // Keep the user on the same stat group (e.g. Pitching) when they switch teams.
+  if (_tfBlockType) {
+    const i = blocks.findIndex(b => b.type === _tfBlockType);
+    if (i >= 0) _tfBlockIdx = i;
+  }
+  if (_tfBlockIdx >= blocks.length) _tfBlockIdx = 0;
+  const injMap = tfInjuryMap(_tfTeam);
+  const blk = blocks[_tfBlockIdx];
+  const travelChip = data.travel
+    ? `<div class="ca-tf-trends"><span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">Travel</span><span class="ca-tf-trendval">${esc(data.travel)}</span></span></div>`
+    : '';
+  body.innerHTML =
+    tfBettingHtml(data.betting) +
+    travelChip +
+    tfBlockToggleHtml(blocks) +
+    (blk ? tfBlockTable(blk, injMap) : `<div class="ca-hist-empty">No players to show.</div>`) +
+    `<div class="ca-hist-caption">Form is recent production vs the player's own baseline. Load blends rest and recent workload (not injury risk). Trends and splits use recent games only.</div>`;
+
+  body.querySelectorAll('.ca-tf-blocktab').forEach(b => b.addEventListener('click', () => {
+    const i = parseInt(b.dataset.idx, 10);
+    if (i === _tfBlockIdx) return;
+    _tfBlockIdx = i;
+    _tfBlockType = (blocks[i] || {}).type || null;
+    paintTeamForm(data);
+  }));
+}
+
+// Build a name → {status, detail} map from the injuries already in the payload,
+// so the Status column needs no extra fetch.
+function tfInjuryMap(team) {
+  const inj = _data.stats?.injuries?.[team];
+  const map = {};
+  (inj?.players || []).forEach(p => {
+    if (p.player)    map[p.player.toLowerCase()]    = { status: p.status, detail: p.detail };
+    if (p.shortName) map[p.shortName.toLowerCase()] = { status: p.status, detail: p.detail };
+  });
+  return map;
+}
+
+function tfBettingHtml(b) {
+  if (!b) return '';
+  const chips = [];
+  if (b.ats) { const { w, l, p, n } = b.ats; chips.push(
+    `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">ATS · last ${n}</span><span class="ca-tf-trendval ca-num">${w}-${l}${p ? '-' + p : ''}</span></span>`); }
+  if (b.ou)  { const { over, under, push, n } = b.ou; chips.push(
+    `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">O/U · last ${n}</span><span class="ca-tf-trendval ca-num">${over}-${under}${push ? '-' + push : ''}</span></span>`); }
+  return chips.length ? `<div class="ca-tf-trends">${chips.join('')}</div>` : '';
+}
+
+function tfBlockLabel(b) {
+  const t = (b.type || '').toString();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Players';
+}
+function tfBlockToggleHtml(blocks) {
+  if (!blocks || blocks.length < 2) return '';
+  const tabs = blocks.map((b, i) =>
+    `<button type="button" class="ca-tf-blocktab${i === _tfBlockIdx ? ' active' : ''}" data-idx="${i}">${esc(tfBlockLabel(b))}</button>`
+  ).join('');
+  return `<div class="ca-tf-blocktoggle">${tabs}</div>`;
+}
+
+function tfBlockTable(blk, injMap) {
+  // The 4th column only exists for MLB (hitters' recent note / pitchers' ERA).
+  // Other sports don't get a usage "Trend" — it's redundant with Load — so the
+  // table is Name · Form · Load · Splits · Status.
+  const isMlb = (_data.game.sport || '').toUpperCase() === 'MLB';
+  const isBat = blk.role === 'batter';
+  const cols  = isMlb ? 6 : 5;
+
+  const sorted = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0));
+  const grp = label => `<tr class="ca-tf-grouprow"><td colspan="${cols}">${esc(label)}</td></tr>`;
+  let body;
+  if (blk.hasGameStarter) {
+    const sp   = sorted.filter(r => r.gameStarter);
+    const rest = sorted.filter(r => !r.gameStarter);
+    body = grp('Starting pitcher') + sp.map(r => tfPlayerRow(r, injMap, isMlb)).join('') +
+      (rest.length ? grp('Bullpen') + rest.map(r => tfPlayerRow(r, injMap, isMlb)).join('') : '');
+  } else {
+    body = sorted.map(r => tfPlayerRow(r, injMap, isMlb)).join('');
+  }
+
+  const nameHdr = (isMlb && isBat)
+    ? `<span class="ca-tf-lineuptag${blk.lineupConfirmed ? ' is-confirmed' : ''}" title="${blk.lineupConfirmed ? 'Posted lineup for tonight' : 'Lineup not posted yet (showing last game order)'}">${blk.lineupConfirmed ? 'Lineup confirmed' : 'Projected order'}</span>`
+    : '';
+  const col4Hdr = isMlb ? `<th class="ca-tf-th">${blk.role === 'pitcher' ? 'ERA' : 'Recent'}</th>` : '';
+  const head = `<tr>` +
+    `<th class="ca-hp-th-name">${nameHdr}</th>` +
+    `<th class="ca-hp-th-ours">Form</th>` +
+    `<th class="ca-hp-th-ours">Load</th>` +
+    col4Hdr +
+    `<th class="ca-tf-th">Splits</th>` +
+    `<th class="ca-tf-th">Status</th>` +
+    `</tr>`;
+  return `<div class="ca-hp-scroll"><table class="ca-hp-table ca-tf-table"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function tfPlayerRow(r, injMap, isMlb) {
+  // 4th column (MLB only): hitters' recent-bat note / pitchers' ERA.
+  const col4 = isMlb
+    ? `<td class="ca-tf-cell">${(r.recent !== undefined) ? tfRecentCell(r.recent) : tfTrendCell(r.usage)}</td>`
+    : '';
+  return `<tr class="ca-hp-row">` +
+    `<td class="ca-hp-name">${tfNameCell(r)}</td>` +
+    `<td class="ca-hp-formcell">${histFormCell(r.form)}</td>` +
+    `<td class="ca-hp-loadcell">${histLoadCell(r.load)}</td>` +
+    col4 +
+    `<td class="ca-tf-cell">${tfSplitCell(r.splits)}</td>` +
+    `<td class="ca-tf-cell">${tfStatusCell(r, injMap)}</td>` +
+    `</tr>`;
+}
+
+function tfRecentCell(rec) {
+  if (!rec || !rec.text) return `<span class="ca-tf-dash" title="Not enough recent games yet">—</span>`;
+  const tone = ['hot', 'cold', 'good', 'bad'].includes(rec.tone) ? rec.tone : 'neutral';
+  return `<span class="ca-tf-recentnote ca-tf-recentnote--${tone}">${esc(rec.text)}</span>`;
+}
+
+function tfNameCell(r) {
+  // Batting-order number for hitters; nothing otherwise (no starter star).
+  const badge = r.lineupSpot
+    ? `<span class="ca-tf-spot" title="Lineup spot">${r.lineupSpot}</span>`
+    : '';
+  const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
+  let line = '';
+  const hc = r.form;
+  if (hc && hc.recent != null && hc.primaryName) {
+    const base = hc.baseline != null ? ` <span class="ca-tf-recbase">(${hc.baseline} avg)</span>` : '';
+    line = `<div class="ca-tf-recent"><span class="ca-tf-reclbl">${esc(hc.primaryName)}</span> <span class="ca-num">${hc.recent}</span>${base}</div>`;
+  }
+  return `<div class="ca-hp-namerow">${badge}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${line}`;
+}
+
+function tfTrendCell(u) {
+  if (!u || u.recent == null) return `<span class="ca-tf-dash" title="Not enough recent appearances for a workload trend">—</span>`;
+  const arrow = u.dir === 'up' ? '▲' : u.dir === 'down' ? '▼' : '▬';
+  const cls   = u.dir === 'up' ? 'up' : u.dir === 'down' ? 'down' : 'flat';
+  const tip   = `${u.unit} recent ${u.recent}${u.prior != null ? ' vs ' + u.prior + ' before' : ''}`;
+  return `<span class="ca-tf-trend ca-tf-trend--${cls}" title="${esc(tip)}">` +
+    `<span class="ca-tf-arrow">${arrow}</span> <span class="ca-num">${esc(String(u.recent))}</span> <span class="ca-tf-unit">${esc(u.unit)}</span></span>`;
+}
+
+// Splits read as "average <stat> in this player's home vs road games, and vs
+// tonight's opponent." Stat label is shown so the numbers are self-explanatory;
+// the opponent's real abbreviation replaces a generic "opp".
+function tfSplitCell(s) {
+  if (!s) return `<span class="ca-tf-dash">—</span>`;
+  const g = _data.game;
+  const oppAbbr = (_tfTeam === 'home'
+    ? (g.away_abbr || g.away_short || teamNick(g.away_team))
+    : (g.home_abbr || g.home_short || teamNick(g.home_team))) || 'opp';
+  const lines = [];
+  if ((s.home && s.home.avg != null) || (s.away && s.away.avg != null)) {
+    const h = s.home && s.home.avg != null ? s.home.avg : '—';
+    const r = s.away && s.away.avg != null ? s.away.avg : '—';
+    lines.push(`<span class="ca-tf-split-ha" title="Average ${esc(s.label)} in home vs road games">Home ${h} · Road ${r}</span>`);
+  }
+  if (s.vsOpp && s.vsOpp.avg != null) {
+    lines.push(`<span class="ca-tf-split-opp" title="Average ${esc(s.label)} vs ${esc(oppAbbr)} (${s.vsOpp.n} game${s.vsOpp.n === 1 ? '' : 's'})">vs ${esc(oppAbbr)} ${s.vsOpp.avg}</span>`);
+  }
+  if (!lines.length) return `<span class="ca-tf-dash">—</span>`;
+  return `<div class="ca-tf-splits"><span class="ca-tf-split-stat">${esc(s.label)}</span>${lines.join('')}</div>`;
+}
+
+const TF_INJ_SHORT = {
+  'Out': 'OUT', 'Doubtful': 'DOUBT', 'Questionable': 'QUEST', 'Probable': 'PROB',
+  'Day-To-Day': 'DTD', 'Game Time Decision': 'GTD', 'Injured Reserve': 'IR', 'Suspension': 'SUSP',
+};
+function tfInjClass(s) {
+  s = (s || '').toLowerCase();
+  if (s.includes('out') || s.includes('reserve') || s === 'ir' || s.includes('doubt') || s.includes('susp')) return 'out';
+  if (s.includes('quest') || s.includes('day') || s.includes('game time') || s.includes('gtd')) return 'quest';
+  if (s.includes('prob')) return 'prob';
+  return 'quest';
+}
+function tfShorten(s, n) { s = (s || '').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; }
+
+// Status = availability going in. A short code chip (OUT / QUEST / Back / Active)
+// with a one-line note beneath it, and the full picture on hover. When ESPN still
+// lists the player we show the reason; for someone already back in the lineup ESPN
+// drops them, so we describe the absence we can see (games sat / days off).
+function tfStatusChip(cls, code, note, tip) {
+  const noteHtml = note ? `<div class="ca-tf-statusnote">${esc(note)}</div>` : '';
+  return `<div class="ca-tf-statuswrap"${tip ? ` title="${esc(tip)}"` : ''}>` +
+    `<span class="ca-tf-status ca-tf-status--${cls}">${esc(code)}</span>${noteHtml}</div>`;
+}
+function tfStatusCell(r, injMap) {
+  const inj = injMap[(r.name || '').toLowerCase()] || injMap[(r.shortName || '').toLowerCase()];
+  const a = r.absence;
+
+  if (inj && inj.status) {
+    const cls    = tfInjClass(inj.status);
+    const code   = TF_INJ_SHORT[inj.status] || inj.status.toUpperCase();
+    const reason = inj.detail ? tfShorten(inj.detail, 26) : '';
+    const sat    = a && a.missed ? `sat ${a.missed} of last 10` : '';
+    const note   = [reason, sat].filter(Boolean).join(' · ');
+    const tip    = [inj.status, inj.detail,
+      a && a.missed ? `missed ${a.missed} of last 10 team games` : '',
+      a && a.daysSince != null ? `${a.daysSince}d since last game` : ''].filter(Boolean).join(' · ');
+    return tfStatusChip(cls, code, note, tip);
+  }
+
+  if (a && a.layoff) {
+    return tfStatusChip('back', 'Back', `${a.daysSince}d off`,
+      `Returned after a layoff — ${a.daysSince} days since last game`);
+  }
+  if (a && a.missed) {
+    const code = a.playedLast ? 'Back' : 'Out';
+    const note = `sat ${a.missed} of last 10`;
+    const tip  = `Missed ${a.missed} of last 10 team games${a.daysSince != null ? ` · ${a.daysSince}d since last game` : ''}`;
+    return tfStatusChip(a.playedLast ? 'back' : 'out', code, note, tip);
+  }
+  return tfStatusChip('ok', 'Active', '', '');
+}
+
+// Tennis: a single-player card (the toggle switches which player). Form derived
+// from recent win rate; load is the same freshness dial used everywhere else.
+function tfTennisHotCold(f) {
+  if (!f || f.winPct == null) return null;
+  const wp = f.winPct;
+  const bucket = wp >= 70 ? 'hot' : wp >= 58 ? 'warm' : wp >= 43 ? 'neutral' : wp >= 30 ? 'cool' : 'cold';
+  return { bucket, z: null, recent: null, baseline: null, n: (f.wins || 0) + (f.losses || 0), primaryName: 'W%' };
+}
+async function loadTennisForm(body, sport) {
+  const player = _tfTeam === 'home' ? _data.game.home_team : _data.game.away_team;
+  if (!player) { body.innerHTML = `<div class="ca-hist-empty">No player data on record.</div>`; return; }
+  const cacheKey = `T:${sport}:${player}`;
+  if (_tfCache[cacheKey]) { paintTennisForm(_tfCache[cacheKey], player); return; }
+  body.innerHTML = `<div class="ca-hist-loading">Loading player form…</div>`;
+  try {
+    const url = `/api/tennis-history?player=${encodeURIComponent(player)}&sport=${sport}&date=${encodeURIComponent(_data.game.start_time || '')}`;
+    const data = await (await fetch(url)).json();
+    if (!data || data.unsupported || data.unavailable || !data.form) {
+      body.innerHTML = `<div class="ca-hist-empty">No player form on record.</div>`;
+      return;
+    }
+    _tfCache[cacheKey] = data;
+    const stillActive = (_tfTeam === 'home' ? _data.game.home_team : _data.game.away_team) === player;
+    if (stillActive) paintTennisForm(data, player);
+  } catch (_) {
+    body.innerHTML = `<div class="ca-hist-empty">Could not load player form.</div>`;
+  }
+}
+function paintTennisForm(data, player) {
+  const body = document.getElementById('ca-tf-body');
+  if (!body) return;
+  const f  = data.form || {};
+  const fr = data.freshness;
+  const last5 = (f.lastFive || []).map(r =>
+    `<span class="ca-hist-formdot ca-hist-formdot--${r === 'W' ? 'w' : 'l'}">${r}</span>`).join('') || '—';
+  const formGauge = histFormCell(tfTennisHotCold(f));
+  const loadGauge = fr && fr.score != null ? histLoadCell(fr)
+    : miniHeatGauge({ pct: null, kind: 'load', label: '—', tip: 'No load data' });
+  body.innerHTML =
+    `<div class="ca-tf-tennis">` +
+      `<div class="ca-tf-tennis-name">${esc(lastNameOf(player))}</div>` +
+      `<div class="ca-tf-tennis-dials">` +
+        `<div class="ca-tf-tennis-dial"><div class="ca-tf-tennis-diallbl">Form</div>${formGauge}</div>` +
+        `<div class="ca-tf-tennis-dial"><div class="ca-tf-tennis-diallbl">Load</div>${loadGauge}</div>` +
+      `</div>` +
+      `<div class="ca-tf-tennis-stats">` +
+        `<div class="ca-hist-stat"><div class="ca-hist-stat-val ca-num">${f.record ?? '—'}</div><div class="ca-hist-stat-label">Last ${(f.wins || 0) + (f.losses || 0)}</div></div>` +
+        `<div class="ca-hist-stat"><div class="ca-hist-stat-val ca-num">${f.winPct != null ? f.winPct + '%' : '—'}</div><div class="ca-hist-stat-label">Win rate</div></div>` +
+        `<div class="ca-hist-stat"><div class="ca-hist-formrow">${last5}</div><div class="ca-hist-stat-label">Last 5</div></div>` +
+      `</div>` +
+    `</div>` +
+    `<div class="ca-hist-caption">Form is recent results; load is matches played plus days rest, not injury risk.</div>`;
 }
 
 // ── Countdown timer ───────────────────────────────────────────────────────────

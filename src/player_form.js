@@ -94,12 +94,22 @@ async function getPlayerGamelog(athleteId, sport) {
         if (!ev.eventId || seen.has(ev.eventId)) continue;
         seen.add(ev.eventId);
         const meta = evMeta[ev.eventId] || {};
+        const opp  = meta.opponent || {};
         const stats = {};
         (ev.stats || []).forEach((v, i) => {
           if (names[i])  stats[names[i]]  = v;
           if (labels[i]) stats[labels[i]] = v;
         });
-        series.push({ eventId: ev.eventId, date: meta.gameDate || meta.date || null, atVs: meta.atVs || null, stats });
+        series.push({
+          eventId: ev.eventId,
+          date:    meta.gameDate || meta.date || null,
+          atVs:    meta.atVs || null,
+          oppId:   opp.id || null,
+          oppAbbr: opp.abbreviation || null,
+          result:  meta.gameResult || null,
+          score:   meta.score || null,
+          stats,
+        });
       }
     }
   }
@@ -111,7 +121,9 @@ async function getPlayerGamelog(athleteId, sport) {
 }
 
 // ── primary "form" stat per sport (read by label or machine name) ─────────────
-const PRIMARY_LABEL = { NBA: 'PRA', WNBA: 'PRA', CBB: 'PRA', NHL: 'SOG', MLB: 'TB', NFL: 'YDS', NCAAF: 'YDS' };
+// MLB hitters use "TB+" = total bases + walks + HBP (on-base-inclusive, so a guy
+// who walks and singles isn't graded as cold). Pitchers use K-BB (net strikeouts).
+const PRIMARY_LABEL = { NBA: 'PRA', WNBA: 'PRA', CBB: 'PRA', NHL: 'SOG', MLB: 'TB+', NFL: 'YDS', NCAAF: 'YDS' };
 
 function mlbTotalBases(s) {
   const h = pick(s, 'H', 'hits');
@@ -128,6 +140,17 @@ function mlbTotalBases(s) {
   return (h - r) + 4 * r;
 }
 
+// On-base-inclusive hitter value: total bases (via hits) plus a base for each
+// walk and hit-by-pitch. A simple "bases reached" proxy (not true wOBA) so
+// on-base skill counts toward form, matching what the hot-hand research measured.
+function mlbBatterValue(s) {
+  const tb = mlbTotalBases(s);
+  if (tb == null) return null;
+  const bb  = pick(s, 'BB', 'walks') || 0;
+  const hbp = pick(s, 'HBP', 'hitByPitch') || 0;
+  return tb + bb + hbp;
+}
+
 function primaryStat(sport, s, ctx = {}) {
   switch (sport) {
     case 'NBA': case 'WNBA': case 'CBB': {
@@ -140,8 +163,12 @@ function primaryStat(sport, s, ctx = {}) {
     case 'NHL':
       return pick(s, 'SOG', 'S', 'shots', 'shotsTotal');
     case 'MLB':
-      if (ctx.role === 'pitcher') return pick(s, 'K', 'SO', 'strikeouts');
-      return mlbTotalBases(s);
+      if (ctx.role === 'pitcher') {
+        const k = pick(s, 'K', 'SO', 'strikeouts');
+        if (k == null) return null;
+        return k - (pick(s, 'BB', 'walks') || 0); // net strikeouts (K-BB)
+      }
+      return mlbBatterValue(s);
     case 'NFL': case 'NCAAF': {
       const pos = (ctx.position || '').toUpperCase();
       if (pos === 'QB') return pick(s, 'passingYards', 'YDS');
@@ -219,7 +246,7 @@ const HOTCOLD = {
   WNBA:        { short: 5,  baseline: 12, minGames: 4, minMin: 10 },
   CBB:         { short: 5,  baseline: 13, minGames: 4, minMin: 10 },
   NHL:         { short: 10, baseline: 25, minGames: 6, minToi: 300 },
-  MLB:         { short: 10, baseline: 30, minGames: 6 },
+  MLB:         { short: 7,  baseline: 42, minGames: 6 },
   MLB_PITCHER: { short: 3,  baseline: 9,  minGames: 2 },
   NFL:         { short: 3,  baseline: 7,  minGames: 2 },
   NCAAF:       { short: 3,  baseline: 6,  minGames: 2 },
@@ -228,6 +255,25 @@ const HOTCOLD = {
 function hotColdCfg(sport, ctx) {
   if (sport === 'MLB' && ctx.role === 'pitcher') return HOTCOLD.MLB_PITCHER;
   return HOTCOLD[sport];
+}
+
+// League-relative reference for the Hot/Cold blend: a typical MLB regular's
+// per-game total bases (mean + game-to-game SD). selfWeight keeps the player's
+// own baseline the bigger factor (the rest is "vs an average regular"). Tunable.
+const LEAGUE_FORM = {
+  // Metric is TB+ (total bases + walks + HBP): a typical regular ≈ 1.85/game.
+  MLB: { mean: 1.85, sd: 1.5, selfWeight: 0.70 },
+};
+
+// Exponentially weighted mean of a recent-first list: newest game weight 1, each
+// older game ×decay. Recency bias without a hard window cutoff.
+function ewma(vals, decay) {
+  let vsum = 0, wsum = 0, w = 1;
+  for (const v of vals) {
+    if (v == null) continue;
+    vsum += w * v; wsum += w; w *= decay;
+  }
+  return wsum ? vsum / wsum : null;
 }
 
 function bucketFromZ(z) {
@@ -248,22 +294,37 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     return primaryStat(sport, g.stats, ctx) != null;
   });
 
-  const primaryName = (sport === 'MLB' && ctx.role === 'pitcher') ? 'K' : (PRIMARY_LABEL[sport] || 'form');
+  const primaryName = (sport === 'MLB' && ctx.role === 'pitcher') ? 'K-BB' : (PRIMARY_LABEL[sport] || 'form');
   if (played.length < cfg.minGames) {
     return { bucket: 'na', z: null, recent: null, baseline: null, n: played.length, primaryName };
   }
 
   const vals      = played.map(g => primaryStat(sport, g.stats, ctx));
   const baseVals  = vals.slice(0, cfg.baseline);
-  const shortVals = vals.slice(0, cfg.short);
-  const bMean = mean(baseVals), bSd = sd(baseVals), rMean = mean(shortVals);
+  const bMean = mean(baseVals), bSd = sd(baseVals);
+  // Recent form = exponentially weighted mean (newest games count more), no hard
+  // window edge. Half-life = short/2 games → decay 0.82 for MLB hitters, i.e. the
+  // 7th-most-recent game ≈ 30% the weight of the latest. Baseline stays a flat,
+  // stable long average (his true normal). Tunable via the half-life divisor.
+  const decay      = Math.pow(0.5, 1 / Math.max(1, cfg.short / 2));
+  const rMean      = ewma(vals.slice(0, cfg.short * 3), decay);
+  const shortCount = Math.min(vals.length, cfg.short);
 
   let bucket, z = null;
   if (bSd == null || bSd < 1e-6) {
     bucket = bucketFromRatio(bMean ? rMean / bMean : 1);
   } else {
-    z = clamp((rMean - bMean) / bSd, -3, 3);
-    if (shortVals.length < cfg.short) z *= shortVals.length / cfg.short; // shrink thin samples
+    let selfZ = clamp((rMean - bMean) / bSd, -3, 3);
+    if (shortCount < cfg.short) selfZ *= shortCount / cfg.short; // shrink thin samples
+    z = selfZ;
+    // Blend in a league-relative read so production well above (or below) a
+    // typical regular registers, not just movement vs the player's own bar.
+    // (MLB hitters for now; self stays the heavier factor.)
+    const lf = (sport === 'MLB' && ctx.role !== 'pitcher') ? LEAGUE_FORM.MLB : null;
+    if (lf) {
+      const leagueZ = clamp((rMean - lf.mean) / lf.sd, -3, 3);
+      z = lf.selfWeight * selfZ + (1 - lf.selfWeight) * leagueZ;
+    }
     bucket = bucketFromZ(z);
   }
   return {
@@ -319,23 +380,52 @@ function densityFactor(sport, priorDates, gameDate) {
   return Math.max(b2b ? 0.6 : 0, within(3) >= 3 ? 0.8 : 0, within(5) >= 4 ? 1.0 : 0);
 }
 
+// Five bands so the dial label tracks the colour: "Heavy" / "Very Heavy" sit in
+// the orange-red, while a needle just past the middle reads "Elevated".
 function bandFor(score) {
-  return score < 30 ? 'fresh' : score < 55 ? 'moderate' : score < 78 ? 'heavy' : 'overworked';
+  return score < 28 ? 'fresh'
+       : score < 48 ? 'moderate'
+       : score < 66 ? 'elevated'
+       : score < 84 ? 'heavy'
+       : 'overworked';
 }
 
 function mlbPitcherFreshness(gamelog, ctx, gameDate) {
   const prior = gamelog.series.filter(g => g.date && new Date(g.date) < new Date(gameDate));
-  if (!prior.length) return { score: 10, band: 'fresh', note: 'Season start' };
-  const prev = prior[0];
+  if (!prior.length) return { score: 10, band: 'fresh', note: 'Season start', n: 0 };
+
+  const restDays = Math.max(0, daysBetween(gameDate, prior[0].date) - 1);
+  const apps3    = prior.filter(g => daysBetween(gameDate, g.date) <= 3).length;
+  const apps4    = prior.filter(g => daysBetween(gameDate, g.date) <= 4).length;
+  const ipLast   = pick(prior[0].stats, 'IP', 'inningsPitched');
+  const pos      = (ctx.position || '').toUpperCase();
+  // Relievers pitch often in short bursts; starters pitch once then rest days.
+  const isReliever = pos === 'RP' || apps4 >= 2 || (pos !== 'SP' && ipLast != null && ipLast <= 3);
+
+  if (isReliever) {
+    // Bullpen load is appearance frequency + back-to-back days, not one big start.
+    const b2b      = restDays === 0; // pitched yesterday
+    const pitches3 = prior.filter(g => daysBetween(gameDate, g.date) <= 3)
+      .reduce((s, g) => s + (pick(g.stats, 'pitches', 'pitchesThrown', 'PC')
+        ?? (pick(g.stats, 'IP', 'inningsPitched') || 0) * 16), 0);
+    const fFreq = clamp((apps3 - 1) / (3 - 1), 0, 1);        // 1 app/3d → 0, 3 → maxed
+    const fB2b  = b2b ? 1 : restDays === 1 ? 0.4 : 0;
+    const fVol  = clamp((pitches3 - 25) / (70 - 25), 0, 1);  // recent pitch volume
+    const score = clamp(100 * (0.45 * fFreq + 0.30 * fB2b + 0.25 * fVol), 0, 100);
+    const note  = b2b ? 'Pitched yesterday' : apps3 >= 3 ? 'Heavy recent usage' : restDays >= 4 ? 'Rested' : null;
+    return { score: Math.round(score), band: bandFor(score), restDays, note, n: prior.length, role: 'reliever' };
+  }
+
+  // Starter: a single outing, then multi-day rest; short rest elevates load.
+  const prev    = prior[0];
   const pitches = pick(prev.stats, 'pitches', 'pitchesThrown', 'PC');
-  const ip = pick(prev.stats, 'IP', 'inningsPitched');
+  const ip      = pick(prev.stats, 'IP', 'inningsPitched');
   let fPrev = 0;
   if (pitches != null)      fPrev = clamp((pitches - 75) / (115 - 75), 0, 1);
   else if (ip != null)      fPrev = clamp((ip - 4) / (7 - 4), 0, 1);
-  const restDays = Math.max(0, daysBetween(gameDate, prev.date) - 1);
   const fRest = restDays <= 3 ? 1.0 : restDays === 4 ? 0.6 : restDays === 5 ? 0.2 : 0;
   const score = clamp(100 * (0.55 * fPrev + 0.45 * fRest), 0, 100);
-  return { score: Math.round(score), band: bandFor(score), restDays, note: restDays <= 3 ? 'Short rest' : null };
+  return { score: Math.round(score), band: bandFor(score), restDays, note: restDays <= 3 ? 'Short rest' : null, n: prior.length, role: 'starter' };
 }
 
 // Position players don't carry a pitch count, so their "load" is a rest +
@@ -344,7 +434,7 @@ function mlbPitcherFreshness(gamelog, ctx, gameDate) {
 // / congested week nudges up. Honest and low-drama — it's rest, not injury risk.
 function mlbBatterFreshness(gamelog, gameDate) {
   const prior = gamelog.series.filter(g => g.date && new Date(g.date) < new Date(gameDate));
-  if (!prior.length) return { score: 8, band: 'fresh', note: 'Season start' };
+  if (!prior.length) return { score: 8, band: 'fresh', note: 'Season start', n: 0 };
   const restDays = Math.max(0, daysBetween(gameDate, prior[0].date) - 1);
   const dates    = prior.map(g => g.date).filter(Boolean);
   const within7  = dates.filter(d => daysBetween(gameDate, d) <= 7).length;
@@ -354,7 +444,7 @@ function mlbBatterFreshness(gamelog, gameDate) {
   let note = null;
   if (restDays >= 3) note = 'Well rested';
   else if (within7 >= 7) note = 'Daily duty';
-  return { score: Math.round(score), band: bandFor(score), restDays, note };
+  return { score: Math.round(score), band: bandFor(score), restDays, note, n: prior.length };
 }
 
 function computeFreshness(gamelog, sport, ctx = {}, gameDate = null) {
@@ -369,7 +459,7 @@ function computeFreshness(gamelog, sport, ctx = {}, gameDate = null) {
   if (!cfg) return null;
 
   const prior = gamelog.series.filter(g => g.date && new Date(g.date) < new Date(gameDate));
-  if (!prior.length) return { score: 8, band: 'fresh', note: 'Season start' };
+  if (!prior.length) return { score: 8, band: 'fresh', note: 'Season start', n: 0 };
 
   const loadOf  = g => loadValue(sport, g.stats, cfg, ctx);
   const acute   = prior.slice(0, cfg.acuteN).map(loadOf).filter(v => v != null);
@@ -391,7 +481,135 @@ function computeFreshness(gamelog, sport, ctx = {}, gameDate = null) {
   if (restDays === 0) note = 'Back-to-back';
   else if (fDensity >= 0.8) note = 'Congested schedule';
   else if (restDays >= 3) note = 'Well rested';
-  return { score: Math.round(score), band: bandFor(score), restDays, note };
+  return { score: Math.round(score), band: bandFor(score), restDays, note, n: prior.length };
+}
+
+// ── Usage / role trend (is the player's workload climbing or fading?) ─────────
+// Reads the same workload stat the Load engine uses (minutes / time-on-ice /
+// touches / pitch count) and compares the last few games to the window behind
+// them. This is "are they being leaned on more or less lately," not load itself.
+function usageStat(sport, s, ctx = {}) {
+  switch (sport) {
+    case 'NBA': case 'WNBA': case 'CBB': return pick(s, 'minutes', 'MIN');
+    case 'NHL': return toiSeconds(s.timeOnIce ?? s.TOI ?? s.avgTimeOnIce);
+    case 'NFL': case 'NCAAF': {
+      const pos = (ctx.position || '').toUpperCase();
+      if (pos === 'QB') return (pick(s, 'passingAttempts') || 0) + (pick(s, 'rushingAttempts') || 0);
+      if (pos === 'RB') return (pick(s, 'rushingAttempts') || 0) + (pick(s, 'receptions') || 0);
+      return pick(s, 'receivingTargets', 'targets') ?? pick(s, 'receptions');
+    }
+    case 'MLB':
+      if (ctx.role === 'pitcher') return pick(s, 'pitches', 'pitchesThrown', 'PC') ?? pick(s, 'IP', 'inningsPitched');
+      return null; // position players carry no usage-intensity signal
+    default: return null;
+  }
+}
+const USAGE_UNIT = { NBA: 'MIN', WNBA: 'MIN', CBB: 'MIN', NHL: 'TOI', NFL: 'TCH', NCAAF: 'TCH', MLB: 'PC' };
+
+function computeUsageTrend(gamelog, sport, ctx = {}, beforeDate = null) {
+  sport = (sport || '').toUpperCase();
+  if (!gamelog || !gamelog.series) return null;
+  const prior = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
+  const vals = prior.map(g => usageStat(sport, g.stats, ctx)).filter(v => v != null);
+  if (vals.length < 3) return null;
+  const recentN = sport === 'NFL' || sport === 'NCAAF' ? 2 : 3;
+  const recent = mean(vals.slice(0, recentN));
+  const prevSlice = vals.slice(recentN, recentN + Math.max(recentN, 4));
+  const before = prevSlice.length ? mean(prevSlice) : null;
+  if (recent == null) return null;
+  let dir = 'flat';
+  if (before != null) {
+    if (recent > before * 1.08) dir = 'up';
+    else if (recent < before * 0.92) dir = 'down';
+  }
+  const fmt = v => sport === 'NHL' ? Math.round(v / 60) + "'" : Math.round(v);
+  return { unit: USAGE_UNIT[sport] || '', dir, recent: fmt(recent), prior: before != null ? fmt(before) : null };
+}
+
+// ── Home/away + head-to-head production splits ────────────────────────────────
+// Average of the player's primary stat at home vs on the road, and vs tonight's
+// opponent specifically. Small-sample by nature, so n is always returned.
+function computeSplits(gamelog, sport, ctx = {}, beforeDate = null, oppId = null) {
+  sport = (sport || '').toUpperCase();
+  if (!gamelog || !gamelog.series) return null;
+  const prior = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
+  const label = (sport === 'MLB' && ctx.role === 'pitcher') ? 'K' : (PRIMARY_LABEL[sport] || 'form');
+  const homeVals = [], awayVals = [], oppVals = [];
+  const oppRec = { w: 0, l: 0 };
+  for (const g of prior) {
+    const v = primaryStat(sport, g.stats, ctx);
+    if (v == null) continue;
+    const at = String(g.atVs || '').trim();
+    if (/^(vs|home|h)$/i.test(at)) homeVals.push(v);
+    else if (/^(@|away|a)$/i.test(at)) awayVals.push(v);
+    if (oppId && g.oppId != null && String(g.oppId) === String(oppId)) {
+      oppVals.push(v);
+      if (g.result === 'W') oppRec.w++; else if (g.result === 'L') oppRec.l++;
+    }
+  }
+  const avg = a => a.length ? +mean(a).toFixed(1) : null;
+  return {
+    label,
+    home: { avg: avg(homeVals), n: homeVals.length },
+    away: { avg: avg(awayVals), n: awayVals.length },
+    vsOpp: oppVals.length ? { avg: avg(oppVals), n: oppVals.length, record: `${oppRec.w}-${oppRec.l}` } : null,
+  };
+}
+
+// ── Recent batting note (MLB hitters) ────────────────────────────────────────
+// A short, bettor-friendly read on what a hitter has done lately — power first,
+// then on-base streaks, then a plain hit count. Returns { text, tone } or null.
+function computeBatterNote(gamelog, beforeDate = null) {
+  if (!gamelog || !gamelog.series) return null;
+  const prior  = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
+  const played = prior.filter(g => { const ab = pick(g.stats, 'AB', 'atBats'); return ab != null && ab > 0; });
+  if (!played.length) return null;
+
+  const last5 = played.slice(0, 5);
+  const n     = last5.length;
+  const hr5   = last5.reduce((s, g) => s + (pick(g.stats, 'HR', 'homeRuns') || 0), 0);
+  const h5    = last5.reduce((s, g) => s + (pick(g.stats, 'H', 'hits') || 0), 0);
+  const multi = last5.filter(g => (pick(g.stats, 'H', 'hits') || 0) >= 2).length;
+  let streak = 0;
+  for (const g of played) { const h = pick(g.stats, 'H', 'hits'); if (h != null && h >= 1) streak++; else break; }
+
+  if (hr5 >= 1)      return { text: `${hr5} HR · L${n}`,        tone: hr5 >= 2 ? 'hot' : 'neutral' };
+  if (streak >= 3)   return { text: `${streak}-gm hit streak`,  tone: streak >= 4 ? 'hot' : 'neutral' };
+  if (multi >= 2)    return { text: `${multi} multi-hit · L${n}`, tone: 'neutral' };
+  if (h5 === 0)      return { text: `0 H · L${n}`,              tone: 'cold' };
+  return { text: `${h5} H · L${n}`, tone: 'neutral' };
+}
+
+// ESPN innings pitched use baseball notation: "6.1" = 6⅓, "6.2" = 6⅔.
+function parseInnings(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (s === '' || s === '-') return null;
+  const [w, f] = s.split('.');
+  const whole = parseInt(w, 10);
+  if (!Number.isFinite(whole)) return null;
+  const frac = f ? parseInt(f[0], 10) : 0;
+  return whole + (Number.isFinite(frac) ? frac / 3 : 0);
+}
+
+// Recent ERA over the last several outings (accumulate to ~15 IP so it's stable
+// for starters and relievers alike). This is the RESULTS axis — distinct from Form
+// (K-BB peripherals = command) and Load (fatigue). Returns { text, tone }.
+function computePitcherRecent(gamelog, beforeDate = null) {
+  if (!gamelog || !gamelog.series) return null;
+  const prior = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
+  let er = 0, ip = 0, n = 0;
+  for (const g of prior) {
+    const gIp = parseInnings(pick(g.stats, 'IP', 'inningsPitched'));
+    if (gIp == null) continue;
+    er += (pick(g.stats, 'ER', 'earnedRuns') || 0);
+    ip += gIp; n++;
+    if (ip >= 15 || n >= 10) break;
+  }
+  if (ip <= 0 || n === 0) return null;
+  const era = (er / ip) * 9;
+  const tone = era <= 3.00 ? 'good' : era >= 4.75 ? 'bad' : 'neutral';
+  return { text: `${era.toFixed(2)} ERA`, tone, n, ip: +ip.toFixed(1) };
 }
 
 // ── High-level assembler: everything the popup needs for one player ───────────
@@ -441,6 +659,11 @@ module.exports = {
   getPlayerGamelog,
   computeHotCold,
   computeFreshness,
+  computeUsageTrend,
+  computeSplits,
+  computeBatterNote,
+  computePitcherRecent,
+  bandFor,
   buildPlayerForm,
   primaryStat,
   gameExtras,

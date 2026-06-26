@@ -279,9 +279,10 @@ ${buildNav(payload.user)}
     <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">Picks</a>
     <a href="#lines"     class="ca-sidebar-link"        data-sec="lines">Lines</a>
     <a href="#sentiment" class="ca-sidebar-link"        data-sec="sentiment">Public Betting</a>
-    <a href="#context"   class="ca-sidebar-link"        data-sec="context">Context</a>
-    <a href="#injuries"  class="ca-sidebar-link"        data-sec="injuries">Injuries</a>
+    <a href="#teamform"  class="ca-sidebar-link" id="ca-nav-teamform" data-sec="teamform" style="display:none;">Team Form</a>
     <a href="#history"   class="ca-sidebar-link" id="ca-nav-history" data-sec="history" style="display:none;">History</a>
+    <a href="#injuries"  class="ca-sidebar-link"        data-sec="injuries">Injuries</a>
+    <a href="#context"   class="ca-sidebar-link"        data-sec="context">Context</a>
     <a href="#community" class="ca-sidebar-link"        data-sec="community">Community</a>
   </aside>
 
@@ -293,9 +294,10 @@ ${buildNav(payload.user)}
       <a href="#picks"     class="ca-mtab active" data-sec="picks">PICKS</a>
       <a href="#lines"     class="ca-mtab"        data-sec="lines">LINES</a>
       <a href="#sentiment" class="ca-mtab"        data-sec="sentiment">BETTING</a>
-      <a href="#context"   class="ca-mtab"        data-sec="context">CONTEXT</a>
-      <a href="#injuries"  class="ca-mtab"        data-sec="injuries">INJURIES</a>
+      <a href="#teamform"  class="ca-mtab" id="ca-mtab-teamform" data-sec="teamform" style="display:none;">FORM</a>
       <a href="#history"   class="ca-mtab" id="ca-mtab-history" data-sec="history" style="display:none;">HISTORY</a>
+      <a href="#injuries"  class="ca-mtab"        data-sec="injuries">INJURIES</a>
+      <a href="#context"   class="ca-mtab"        data-sec="context">CONTEXT</a>
       <a href="#community" class="ca-mtab"        data-sec="community">COMMUNITY</a>
     </div>
 
@@ -340,19 +342,19 @@ ${buildNav(payload.user)}
 </section>
 
 
-<!-- ── CONTEXT ───────────────────────────────────────────────────────────── -->
-<section id="context" class="ca-section">
-  <h2 class="ca-section-h2" style="margin-bottom:14px;">Game context</h2>
-  <div class="ca-context-grid" id="ca-context-grid">
-    <!-- Rendered by game-detail.js -->
+<!-- ── TEAM FORM (forward-looking player form/load; revealed by JS) ───────── -->
+<section id="teamform" class="ca-section ca-tf-section" style="display:none;">
+  <div class="ca-section-header ca-hist-header">
+    <h2 class="ca-section-h2" id="ca-tf-title" style="margin:0;">Team form</h2>
+    <div class="ca-hist-toggle" id="ca-tf-toggle">
+      <button class="ca-hist-tab active" data-team="away" type="button"><span class="ca-hist-tab-abbr">AWAY</span></button>
+      <button class="ca-hist-tab" data-team="home" type="button"><span class="ca-hist-tab-abbr">HOME</span></button>
+      <span class="ca-hist-toggle-slider" aria-hidden="true"></span>
+    </div>
   </div>
-</section>
-
-<!-- ── INJURIES ──────────────────────────────────────────────────────────── -->
-<section id="injuries" class="ca-section">
-  <h2 class="ca-section-h2" style="margin-bottom:14px;">Injury report</h2>
-  <div class="ca-two-col" id="ca-injuries">
-    <!-- Rendered by game-detail.js -->
+  <div class="ca-tf-sub" id="ca-tf-sub"></div>
+  <div class="ca-tf-body" id="ca-tf-body">
+    <!-- Rendered by game-detail.js renderTeamForm() -->
   </div>
 </section>
 
@@ -368,6 +370,22 @@ ${buildNav(payload.user)}
   </div>
   <div class="ca-hist-body" id="ca-history-body">
     <!-- Rendered by game-detail.js renderHistory() -->
+  </div>
+</section>
+
+<!-- ── INJURIES ──────────────────────────────────────────────────────────── -->
+<section id="injuries" class="ca-section">
+  <h2 class="ca-section-h2" style="margin-bottom:14px;">Injury report</h2>
+  <div class="ca-two-col" id="ca-injuries">
+    <!-- Rendered by game-detail.js -->
+  </div>
+</section>
+
+<!-- ── CONTEXT ───────────────────────────────────────────────────────────── -->
+<section id="context" class="ca-section">
+  <h2 class="ca-section-h2" style="margin-bottom:14px;">Game context</h2>
+  <div class="ca-context-grid" id="ca-context-grid">
+    <!-- Rendered by game-detail.js -->
   </div>
 </section>
 

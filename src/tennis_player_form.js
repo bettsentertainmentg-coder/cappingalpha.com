@@ -45,7 +45,10 @@ function surfaceFor(name, indoor) {
 
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 function daysBetween(a, b) { return Math.floor(Math.abs(new Date(a) - new Date(b)) / 86400000); }
-function bandFor(score) { return score < 30 ? 'fresh' : score < 55 ? 'moderate' : score < 78 ? 'heavy' : 'overworked'; }
+// 5 bands, kept in sync with player_form.js so the dial labels match everywhere.
+function bandFor(score) {
+  return score < 28 ? 'fresh' : score < 48 ? 'moderate' : score < 66 ? 'elevated' : score < 84 ? 'heavy' : 'overworked';
+}
 
 async function getRef(url) {
   if (!url) return null;
@@ -154,7 +157,7 @@ function buildForm(matches) {
 
 function buildFreshness(matches, gameDate) {
   const prior = matches.filter(m => m.date && (!gameDate || new Date(m.date) < new Date(gameDate)));
-  if (!prior.length) return { score: 6, band: 'fresh', note: 'No recent matches' };
+  if (!prior.length) return { score: 6, band: 'fresh', note: 'No recent matches', n: 0 };
   const last = prior[0];
   const ref = gameDate ? new Date(gameDate) : new Date(last.date);
   const restDays = Math.max(0, daysBetween(ref, last.date) - 1);
@@ -165,7 +168,7 @@ function buildFreshness(matches, gameDate) {
   const fLast  = clamp(((last.setsPlayed || 0) - 2) / (5 - 2), 0, 1);
   const score = clamp(100 * (0.50 * fAcute + 0.35 * fRest + 0.15 * fLast), 0, 100);
   const note = restDays === 0 ? 'Played yesterday' : restDays >= 3 ? 'Well rested' : (setsLoad >= 12 ? 'Heavy recent load' : null);
-  return { score: Math.round(score), band: bandFor(score), restDays, note };
+  return { score: Math.round(score), band: bandFor(score), restDays, note, n: prior.length };
 }
 
 // ── Public: a player's recent tennis history ──────────────────────────────────
