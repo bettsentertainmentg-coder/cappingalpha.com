@@ -1580,11 +1580,9 @@ app.listen(PORT, () => {
   // picks so the public leaderboard isn't empty. Cron keeps them voting daily.
   try { await seedDummyAccounts(); runDummyVotes(); } catch (err) { console.error('[startup] dummy accounts error:', err.message); }
 
-  // Recover any previously-skipped (no_game) messages whose forward game now exists.
-  // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
-  if (!process.env.UI_ONLY) {
-    scanner.rescanSkipped().catch(err => console.error('[startup] rescanSkipped error:', err.message));
-  }
+  // Skipped-message rescans are MANUAL ONLY (admin "Rescan Skipped" button). The
+  // reader must read each Discord message exactly once. It must never auto re-read
+  // on a boot or deploy. Do NOT re-add an automatic scanner.rescanSkipped() here.
 
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
@@ -1692,8 +1690,8 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   syncEsportsMarkets().catch(e => console.error('[cron] 5am syncEsports:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
-  // Recover yesterday's no_game skips now that forward games are fetched + seeded.
-  await scanner.rescanSkipped().catch(err => console.error('[cron] 5am rescanSkipped error:', err.message));
+  // No automatic skipped-message rescan here. Rescans are manual only (admin
+  // "Rescan Skipped" button) so the reader never re-reads already-seen messages.
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {
