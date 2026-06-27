@@ -2711,7 +2711,7 @@ function tfBlockTable(blk, injMap) {
   const head = `<tr>` +
     `<th class="ca-hp-th-name">${nameHdr}</th>` +
     `<th class="ca-hp-th-ours">Form</th>` +
-    `<th class="ca-tf-th ca-tf-why-th">Why</th>` +
+    `<th class="ca-tf-th ca-tf-why-th"></th>` +
     `<th class="ca-hp-th-ours">Load</th>` +
     col4Hdr +
     `<th class="ca-tf-th">Splits</th>` +
@@ -2734,11 +2734,13 @@ function tfPlayerRow(r, injMap, has4) {
     `</tr>`;
 }
 
-// Plain explanation of the Form reading (from the engine's `reasons`).
+// Plain explanation of the Form reading (from the engine's `reasons`), tinted to
+// the form level (hot → orange, warm → amber, cold → ice, etc.).
 function tfWhyCell(hc) {
   const reasons = (hc && hc.reasons) || [];
   if (!reasons.length) return `<span class="ca-tf-dash">—</span>`;
-  return `<span class="ca-tf-why-text">${reasons.map(esc).join(' ')}</span>`;
+  const tone = ['hot', 'warm', 'neutral', 'cool', 'cold'].includes(hc.bucket) ? hc.bucket : 'neutral';
+  return `<span class="ca-tf-why-text ca-tf-why--${tone}">${reasons.map(esc).join(' ')}</span>`;
 }
 
 function tfRecentCell(rec) {

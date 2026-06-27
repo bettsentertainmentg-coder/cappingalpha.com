@@ -292,29 +292,72 @@ const PRIMARY_DESC = {
   YDS: 'yards',
 };
 
-// Build a short, plain explanation for the Form reading — the real drivers
-// (recent vs his own norm, and vs a typical regular) without exposing the math.
-// EVEN stays a one-liner; hot/cold/sharp/wild get the fuller multi-reason read.
-function formReasons(bucket, recent, baseline, shortN, primaryName, lf) {
-  if (!bucket || bucket === 'na' || recent == null || baseline == null) return [];
-  const label  = PRIMARY_DESC[primaryName] || (primaryName || 'production').toLowerCase();
-  const r = +recent.toFixed(1), b = +baseline.toFixed(1);
+function gamesAgo(i) { return i === 0 ? 'last game' : `${i + 1} games ago`; }
 
-  if (bucket === 'neutral') {
-    return [`Producing right around his usual level (~${b} ${label} a game).`];
-  }
-
-  const strong = bucket === 'hot' || bucket === 'cold';
+// Build a short, plain explanation for the Form reading — the real drivers,
+// no formula. It varies the window (3/5/7/10) to whichever best shows the trend
+// (so it's not always "last 7"), compares to his own norm + a typical regular,
+// and calls out a standout recent game (homers for MLB, a big game otherwise).
+// EVEN stays light; hot/cold/sharp/wild get the fuller read. `vals` are the
+// recent-first primary-stat values; `played` the matching recent-first games.
+function formReasons(sport, ctx, bucket, vals, baseline, primaryName, lf, played) {
+  if (!bucket || bucket === 'na' || baseline == null || !vals || !vals.length) return [];
+  const label = PRIMARY_DESC[primaryName] || (primaryName || 'production').toLowerCase();
+  const b = +baseline.toFixed(1);
   const up = bucket === 'hot' || bucket === 'warm';
-  const mag = strong ? 'well' : 'a bit';
-  const reasons = [
-    `His last ${shortN} games (${r} ${label} a game) are ${mag} ${up ? 'above' : 'below'} his season norm (${b}).`,
-  ];
-  if (lf) { // MLB hitters: how he stacks up vs a league-average regular
-    if (recent > lf.mean * 1.05)      reasons.push(`That's also ahead of a typical hitter (~${lf.mean}).`);
-    else if (recent < lf.mean * 0.95) reasons.push(`That's also behind a typical hitter (~${lf.mean}).`);
+  const down = bucket === 'cold' || bucket === 'cool';
+  const strong = bucket === 'hot' || bucket === 'cold';
+  const wMean = w => mean(vals.slice(0, Math.min(w, vals.length)));
+
+  // Pick the window that best shows the trend so the note isn't always "last 7".
+  let win = Math.min(7, vals.length);
+  if (up || down) {
+    const wins = [3, 5, 7, 10].filter(w => vals.length >= w);
+    if (wins.length) {
+      let best = wins[0];
+      for (const w of wins) {
+        if (up && wMean(w) > wMean(best)) best = w;
+        if (down && wMean(w) < wMean(best)) best = w;
+      }
+      win = best;
+    }
+  } else {
+    win = Math.min(10, vals.length); // steady → longest stable read
   }
-  return reasons;
+  const r = +wMean(win).toFixed(1);
+
+  const reasons = [];
+  if (bucket === 'neutral') {
+    reasons.push(`Steady — about ${r} ${label} a game over his last ${win}.`);
+  } else {
+    reasons.push(`His last ${win} games (${r} ${label} a game) are ${strong ? 'well' : 'a bit'} ${up ? 'above' : 'below'} his season norm (${b}).`);
+    if (lf) {
+      if (r > lf.mean * 1.05)      reasons.push(`Ahead of a typical hitter (~${lf.mean}).`);
+      else if (r < lf.mean * 0.95) reasons.push(`Behind a typical hitter (~${lf.mean}).`);
+    }
+  }
+
+  // Standout driver: a big single game that's carrying (or punctuating) the read.
+  const recentN = Math.min(vals.length, 10);
+  if (sport === 'MLB' && ctx.role !== 'pitcher' && played) {
+    let hr = 0, hrIdx = -1;
+    for (let i = 0; i < Math.min(played.length, 10); i++) {
+      const g = pick(played[i].stats, 'HR', 'homeRuns') || 0;
+      if (g > hr) { hr = g; hrIdx = i; }
+    }
+    if (hr >= 2) reasons.push(`${hr} homers ${gamesAgo(hrIdx)}.`);
+    else if (hr === 1 && hrIdx <= 1) reasons.push(`Homered ${gamesAgo(hrIdx)}.`);
+  } else {
+    let hiIdx = 0;
+    for (let i = 1; i < recentN; i++) if (vals[i] > vals[hiIdx]) hiIdx = i;
+    const hv = +vals[hiIdx].toFixed(1);
+    if (hv >= b * 1.5 && hv >= r * 1.25) {
+      if (up)                   reasons.push(`A ${hv}-${label} game ${gamesAgo(hiIdx)} has carried it.`);
+      else if (bucket === 'neutral') reasons.push(`One ${hv}-${label} game ${gamesAgo(hiIdx)}, otherwise level.`);
+    }
+  }
+
+  return reasons.slice(0, 3);
 }
 
 function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
@@ -370,7 +413,7 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     baseline: bMean != null ? +bMean.toFixed(1) : null,
     n: played.length,
     primaryName,
-    reasons: formReasons(bucket, rMean, bMean, cfg.short, primaryName, lf),
+    reasons: formReasons(sport, ctx, bucket, vals, bMean, primaryName, lf, played),
   };
 }
 

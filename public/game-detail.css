@@ -1732,8 +1732,14 @@ nav {
 .ca-tf-table { min-width: 760px; }
 /* "Why" column — left-aligned plain-English explanation of the Form reading. */
 .ca-tf-why-th { text-align: left !important; }
-.ca-tf-cell.ca-tf-why { text-align: left !important; vertical-align: middle; min-width: 190px; max-width: 240px; }
-.ca-tf-why-text { display: block; font-size: 11px; line-height: 1.35; color: var(--text-secondary); white-space: normal; }
+.ca-tf-cell.ca-tf-why { text-align: left !important; vertical-align: middle; min-width: 180px; max-width: 230px; }
+.ca-tf-why-text { display: block; font-size: 10px; line-height: 1.35; color: var(--text-secondary); white-space: normal; }
+/* Tint the explanation to the form level (matches the dial). */
+.ca-tf-why--hot     { color: #fb923c; }
+.ca-tf-why--warm    { color: #fbbf24; }
+.ca-tf-why--neutral { color: var(--text-secondary); }
+.ca-tf-why--cool    { color: #60a5fa; }
+.ca-tf-why--cold    { color: #38bdf8; }
 /* "Starting pitcher" / "Bullpen" group separators inside the pitching block */
 .ca-tf-grouprow td {
   text-align: left !important; padding: 8px 10px !important; vertical-align: middle;
