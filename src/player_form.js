@@ -283,83 +283,6 @@ function bucketFromRatio(r) {
   return r >= 1.25 ? 'hot' : r >= 1.10 ? 'warm' : r >= 0.90 ? 'neutral' : r >= 0.75 ? 'cool' : 'cold';
 }
 
-// Plain-English stat names so the "why" never leans on abbreviations.
-const PRIMARY_DESC = {
-  PRA: 'points, rebounds & assists',
-  SOG: 'shots on goal',
-  'TB+': 'bases (hits + walks)',
-  'K-BB': 'strikeouts vs walks',
-  YDS: 'yards',
-};
-
-function gamesAgo(i) { return i === 0 ? 'last game' : `${i + 1} games ago`; }
-
-// Build a short, plain explanation for the Form reading — the real drivers,
-// no formula. It varies the window (3/5/7/10) to whichever best shows the trend
-// (so it's not always "last 7"), compares to his own norm + a typical regular,
-// and calls out a standout recent game (homers for MLB, a big game otherwise).
-// EVEN stays light; hot/cold/sharp/wild get the fuller read. `vals` are the
-// recent-first primary-stat values; `played` the matching recent-first games.
-function formReasons(sport, ctx, bucket, vals, baseline, primaryName, lf, played) {
-  if (!bucket || bucket === 'na' || baseline == null || !vals || !vals.length) return [];
-  const label = PRIMARY_DESC[primaryName] || (primaryName || 'production').toLowerCase();
-  const b = +baseline.toFixed(1);
-  const up = bucket === 'hot' || bucket === 'warm';
-  const down = bucket === 'cold' || bucket === 'cool';
-  const strong = bucket === 'hot' || bucket === 'cold';
-  const wMean = w => mean(vals.slice(0, Math.min(w, vals.length)));
-
-  // Pick the window that best shows the trend so the note isn't always "last 7".
-  let win = Math.min(7, vals.length);
-  if (up || down) {
-    const wins = [3, 5, 7, 10].filter(w => vals.length >= w);
-    if (wins.length) {
-      let best = wins[0];
-      for (const w of wins) {
-        if (up && wMean(w) > wMean(best)) best = w;
-        if (down && wMean(w) < wMean(best)) best = w;
-      }
-      win = best;
-    }
-  } else {
-    win = Math.min(10, vals.length); // steady → longest stable read
-  }
-  const r = +wMean(win).toFixed(1);
-
-  const reasons = [];
-  if (bucket === 'neutral') {
-    reasons.push(`Steady — about ${r} ${label} a game over his last ${win}.`);
-  } else {
-    reasons.push(`His last ${win} games (${r} ${label} a game) are ${strong ? 'well' : 'a bit'} ${up ? 'above' : 'below'} his season norm (${b}).`);
-    if (lf) {
-      if (r > lf.mean * 1.05)      reasons.push(`Ahead of a typical hitter (~${lf.mean}).`);
-      else if (r < lf.mean * 0.95) reasons.push(`Behind a typical hitter (~${lf.mean}).`);
-    }
-  }
-
-  // Standout driver: a big single game that's carrying (or punctuating) the read.
-  const recentN = Math.min(vals.length, 10);
-  if (sport === 'MLB' && ctx.role !== 'pitcher' && played) {
-    let hr = 0, hrIdx = -1;
-    for (let i = 0; i < Math.min(played.length, 10); i++) {
-      const g = pick(played[i].stats, 'HR', 'homeRuns') || 0;
-      if (g > hr) { hr = g; hrIdx = i; }
-    }
-    if (hr >= 2) reasons.push(`${hr} homers ${gamesAgo(hrIdx)}.`);
-    else if (hr === 1 && hrIdx <= 1) reasons.push(`Homered ${gamesAgo(hrIdx)}.`);
-  } else {
-    let hiIdx = 0;
-    for (let i = 1; i < recentN; i++) if (vals[i] > vals[hiIdx]) hiIdx = i;
-    const hv = +vals[hiIdx].toFixed(1);
-    if (hv >= b * 1.5 && hv >= r * 1.25) {
-      if (up)                   reasons.push(`A ${hv}-${label} game ${gamesAgo(hiIdx)} has carried it.`);
-      else if (bucket === 'neutral') reasons.push(`One ${hv}-${label} game ${gamesAgo(hiIdx)}, otherwise level.`);
-    }
-  }
-
-  return reasons.slice(0, 3);
-}
-
 function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
   const cfg = hotColdCfg(sport, ctx);
   if (!gamelog || !gamelog.series || !cfg) return null;
@@ -387,9 +310,6 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
   const rMean      = ewma(vals.slice(0, cfg.short * 3), decay);
   const shortCount = Math.min(vals.length, cfg.short);
 
-  // League reference (MLB hitters only) — used in both the blend and the "why".
-  const lf = (sport === 'MLB' && ctx.role !== 'pitcher') ? LEAGUE_FORM.MLB : null;
-
   let bucket, z = null;
   if (bSd == null || bSd < 1e-6) {
     bucket = bucketFromRatio(bMean ? rMean / bMean : 1);
@@ -399,13 +319,14 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     z = selfZ;
     // Blend in a league-relative read so production well above (or below) a
     // typical regular registers, not just movement vs the player's own bar.
+    // (MLB hitters for now; self stays the heavier factor.)
+    const lf = (sport === 'MLB' && ctx.role !== 'pitcher') ? LEAGUE_FORM.MLB : null;
     if (lf) {
       const leagueZ = clamp((rMean - lf.mean) / lf.sd, -3, 3);
       z = lf.selfWeight * selfZ + (1 - lf.selfWeight) * leagueZ;
     }
     bucket = bucketFromZ(z);
   }
-
   return {
     bucket,
     z: z != null ? +z.toFixed(2) : null,
@@ -413,7 +334,6 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     baseline: bMean != null ? +bMean.toFixed(1) : null,
     n: played.length,
     primaryName,
-    reasons: formReasons(sport, ctx, bucket, vals, bMean, primaryName, lf, played),
   };
 }
 
@@ -692,49 +612,6 @@ function computePitcherRecent(gamelog, beforeDate = null) {
   return { text: `${era.toFixed(2)} ERA`, tone, n, ip: +ip.toFixed(1) };
 }
 
-// Batting-average string: ".285", "1.000".
-function avgStr(x) {
-  if (x == null || !Number.isFinite(x)) return '—';
-  return x >= 1 ? x.toFixed(3) : '.' + Math.round(x * 1000).toString().padStart(3, '0');
-}
-
-// One or two recognizable SEASON averages to show under a player's name (clear
-// labels, no internal abbreviations). MLB hitters: bases/game + batting average;
-// pitchers: ERA + WHIP; other sports: the primary stat per game.
-function computeKeyAverages(gamelog, sport, ctx = {}, beforeDate = null) {
-  if (!gamelog || !gamelog.series) return [];
-  sport = (sport || '').toUpperCase();
-  const games = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
-  if (!games.length) return [];
-  const out = [];
-
-  if (sport === 'MLB' && ctx.role !== 'pitcher') {
-    let h = 0, ab = 0, bases = 0, n = 0;
-    for (const g of games.slice(0, 42)) {
-      const a = pick(g.stats, 'AB', 'atBats');
-      if (a == null) continue;
-      h += pick(g.stats, 'H', 'hits') || 0; ab += a;
-      const bv = mlbBatterValue(g.stats); if (bv != null) { bases += bv; n++; }
-    }
-    if (n)  out.push({ label: 'bases/gm', val: (bases / n).toFixed(1) });
-    if (ab) out.push({ label: 'AVG', val: avgStr(h / ab) });
-  } else if (sport === 'MLB') {
-    let er = 0, ip = 0, bb = 0, h = 0;
-    for (const g of games.slice(0, 12)) {
-      const gip = parseInnings(pick(g.stats, 'IP', 'inningsPitched'));
-      if (gip == null) continue;
-      er += pick(g.stats, 'ER', 'earnedRuns') || 0; ip += gip;
-      bb += pick(g.stats, 'BB', 'walks') || 0; h += pick(g.stats, 'H', 'hits') || 0;
-    }
-    if (ip > 0) { out.push({ label: 'ERA', val: ((er / ip) * 9).toFixed(2) }); out.push({ label: 'WHIP', val: ((bb + h) / ip).toFixed(2) }); }
-  } else {
-    let s = 0, c = 0;
-    for (const g of games.slice(0, 20)) { const v = primaryStat(sport, g.stats, ctx); if (v != null) { s += v; c++; } }
-    if (c) out.push({ label: (PRIMARY_LABEL[sport] || 'avg') + '/gm', val: (s / c).toFixed(1) });
-  }
-  return out;
-}
-
 // ── High-level assembler: everything the popup needs for one player ───────────
 // boxStats = THIS game's stat line keyed by label (for display-derived extras if
 // the gamelog row is missing). gamelog drives the computed metrics.
@@ -786,7 +663,6 @@ module.exports = {
   computeSplits,
   computeBatterNote,
   computePitcherRecent,
-  computeKeyAverages,
   bandFor,
   buildPlayerForm,
   primaryStat,

@@ -41,7 +41,7 @@ const { pingIndexNow, corePages } = require('./src/indexnow');
 const { MVP_THRESHOLD, CHANNEL_POINTS }               = require('./src/scoring');
 const { getFullGameContext }                          = require('./src/game_stats');
 const { getTeamHistory, getEventTeamPlayers, TEAM_SPORTS } = require('./src/team_history');
-const { getPlayerGamelog, buildPlayerForm, computeKeyAverages } = require('./src/player_form');
+const { getPlayerGamelog, buildPlayerForm }           = require('./src/player_form');
 const { getGameForm }                                 = require('./src/game_form');
 const { getTennisHistory }                            = require('./src/tennis_player_form');
 const { getLinesForGame }                             = require('./src/lines_scraper');
@@ -53,12 +53,9 @@ const { syncEsportsMarkets, getTopEsportsGames } = require('./src/esports_market
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
-const { getLiveState, prevPulseMag, savePulseMag } = require('./src/live_tracker');
-const { liveWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
-const { computeValuePulse } = require('./src/live_value');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
-const { seedDummyAccounts, runDummyVotes, runDummyComments } = require('./src/dummy_accounts');
+const { seedDummyAccounts, runDummyVotes } = require('./src/dummy_accounts');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
 const ACTIVE_START = 5;
@@ -170,10 +167,6 @@ if (MIRROR_URL) {
   app.use((req, res, next) => {
     if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
     if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
-    // The live tracker route runs LOCALLY (fetches ESPN directly, pulls its pick
-    // context from the mirror itself) so the live UI is testable in UI_ONLY. The
-    // main /api/game/:id stays mirrored.
-    if (/^\/api\/game\/[^/]+\/live$/.test(req.path)) return next();
     const target = MIRROR_URL + req.originalUrl;
     fetch(target, { headers: { accept: 'application/json' } })
       .then(async (r) => {
@@ -548,30 +541,9 @@ app.get('/api/games', (req, res) => {
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
   const cols = `espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases`;
-  let rows = sport
+  const rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
-  // Opt-in board scoping: today_games can hold future-dated rows (e.g. the same
-  // MLB matchup tomorrow). When ?board=1 is passed, keep only games whose ET cycle
-  // date is today's board day — same rule /api/games/top uses. Callers that want
-  // the full schedule (Sports tab, game search) omit the flag.
-  // Tennis runs on a global clock: early-morning European slates land on tomorrow's
-  // board but are only hours away, so tennis also keeps upcoming matches within the
-  // next ~10h. Every other sport stays day-only. Mirrored client-side in utils.js.
-  if (req.query.board === '1') {
-    const boardDate = currentBoardDate();
-    const now = Date.now();
-    const TENNIS_LOOKAHEAD_MS = 10 * 60 * 60 * 1000;
-    rows = rows.filter(g => {
-      if (cycleDateForInstant(g.start_time) === boardDate) return true;
-      const sp = (g.sport || '').toUpperCase();
-      if (sp === 'ATP' || sp === 'WTA') {
-        const t = new Date(g.start_time).getTime();
-        if (!Number.isNaN(t) && t >= now && (t - now) <= TENNIS_LOOKAHEAD_MS) return true;
-      }
-      return false;
-    });
-  }
   res.json(rows);
 });
 
@@ -883,11 +855,9 @@ app.get('/api/account', (req, res) => {
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
   const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
-  const unitSize = prefs && prefs.unit_size != null ? prefs.unit_size : 20;
-  const startingBankroll = prefs && prefs.starting_bankroll != null ? prefs.starting_bankroll : 0;
   const avatarUrl = user.avatar_path ? `/avatars/${user.avatar_path}` : null;
 
   // Votes joined to today_games + picks. Snapshot columns (gv.*) take priority —
@@ -921,7 +891,7 @@ app.get('/api/account', (req, res) => {
     ORDER BY gv.voted_at ASC
   `).all(userId);
 
-  res.json({ user, favoriteSports, isPublic, unitSize, startingBankroll, avatarUrl, votes });
+  res.json({ user, favoriteSports, isPublic, avatarUrl, votes });
 });
 
 // DELETE /api/game/:espn_game_id/vote — remove a vote while game is still pre-game
@@ -950,12 +920,12 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
 app.put('/api/account/preferences', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
-  const { favorite_sports, is_public, unit_size, starting_bankroll } = req.body || {};
+  const { favorite_sports, is_public } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
-  // Read the current row so a partial update preserves the untouched fields.
-  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll FROM user_preferences WHERE user_id = ?`).get(userId);
+  // Read the current row so a partial update preserves the untouched field.
+  const cur = db.prepare(`SELECT favorite_sports, is_public FROM user_preferences WHERE user_id = ?`).get(userId);
 
   const sports = favorite_sports !== undefined
     ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
@@ -965,31 +935,16 @@ app.put('/api/account/preferences', (req, res) => {
     ? (is_public ? 1 : 0)
     : (cur ? (cur.is_public == null ? 1 : cur.is_public) : 1);
 
-  // Clamp numeric inputs to sane ranges; fall back to the stored value (then default).
-  const clampNum = (v, def, min, max) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return def;
-    return Math.min(max, Math.max(min, n));
-  };
-  const unitSize = unit_size !== undefined
-    ? clampNum(unit_size, 20, 0.01, 1_000_000)
-    : (cur && cur.unit_size != null ? cur.unit_size : 20);
-  const bankroll = starting_bankroll !== undefined
-    ? clampNum(starting_bankroll, 0, 0, 100_000_000)
-    : (cur && cur.starting_bankroll != null ? cur.starting_bankroll : 0);
-
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, updated_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, updated_at)
+    VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
-      favorite_sports   = excluded.favorite_sports,
-      is_public         = excluded.is_public,
-      unit_size         = excluded.unit_size,
-      starting_bankroll = excluded.starting_bankroll,
-      updated_at        = datetime('now')
-  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll);
+      favorite_sports = excluded.favorite_sports,
+      is_public       = excluded.is_public,
+      updated_at      = datetime('now')
+  `).run(userId, JSON.stringify(sports), pub);
 
-  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub });
 });
 
 // POST /api/account/avatar — upload a profile photo as a base64 data URL.
@@ -1104,124 +1059,6 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting, lineHistory, polymarket, kalshi, insights });
 });
 
-// ── GET /api/game/:id/live — fast (~12s) live state + value pulse (MLB v1) ─────
-// Live game STATE (score, diamond, count, batter/pitcher) is public/free. The
-// value PULSE magnitude is paid-gated (mirrors /api/picks). Pulls fresh state from
-// ESPN's free scoreboard via live_tracker; computes the pulse server-side from our
-// win-prob model + the frozen pre-game prob + the pick's CA score. No DB writes.
-function _americanToProb(ml) {
-  const m = Number(ml);
-  if (!m || isNaN(m)) return null;
-  return m < 0 ? (-m) / (-m + 100) : 100 / (m + 100);
-}
-function _pregameHomeProb(poly, kalshi) {
-  for (const row of [poly, kalshi]) {
-    try {
-      const mj = row && row.markets_json ? (typeof row.markets_json === 'string' ? JSON.parse(row.markets_json) : row.markets_json) : null;
-      const hp = mj?.moneyline?.home_prob;
-      if (typeof hp === 'number' && hp > 0 && hp < 1) return hp;
-    } catch (_) {}
-  }
-  return null;
-}
-function _slotKey(p) {
-  const t = (p.pick_type || '').toLowerCase();
-  const home = p.is_home_team === 1 || p.is_home_team === true;
-  if (t === 'over') return 'over';
-  if (t === 'under') return 'under';
-  if (t === 'ml') return home ? 'home_ml' : 'away_ml';
-  if (t === 'spread') return home ? 'home_spread' : 'away_spread';
-  return null;
-}
-
-app.get('/api/game/:espn_game_id/live', async (req, res) => {
-  const { espn_game_id } = req.params;
-  try {
-    // Pick context: local DB in prod; mirror from prod in local UI_ONLY dev.
-    let game  = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
-    let picks = game ? db.prepare(`SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC`).all(espn_game_id) : [];
-    let pregameHomeProb = game ? _pregameHomeProb(getPolymarketForGame(espn_game_id), getKalshiForGame(espn_game_id)) : null;
-    // Local UI_ONLY dev has no scanned picks/markets — pull the pick context from
-    // the prod mirror so the pulse is testable locally. Live STATE still comes from
-    // ESPN below. In prod (no MIRROR_URL) this is skipped and local DB is used.
-    if (MIRROR_URL && (!game || !picks.length || pregameHomeProb == null)) {
-      try {
-        const mr = await fetch(`${MIRROR_URL}/api/game/${encodeURIComponent(espn_game_id)}`, { headers: { accept: 'application/json' } });
-        if (mr.ok) {
-          const pd = await mr.json();
-          game = game || pd.game || null;
-          if (Array.isArray(pd.picks) && pd.picks.length) picks = pd.picks;
-          const mp = _pregameHomeProb(pd.polymarket, pd.kalshi);
-          if (mp != null) pregameHomeProb = mp;
-        }
-      } catch (_) {}
-    }
-    if (!game) return res.status(404).json({ error: 'Game not found' });
-
-    const sport = String(game.sport || '').toUpperCase();
-    const fallbackState = {
-      status: game.status, detail: game.live_detail || null, period: game.period ?? null, clock: game.clock ?? null,
-      homeScore: game.home_score ?? null, awayScore: game.away_score ?? null,
-      inning: game.period ?? null,
-      half: /bot/i.test(game.live_detail || '') ? 'bot' : (/top/i.test(game.live_detail || '') ? 'top' : null),
-      outs: game.live_outs ?? null, bases: game.live_bases ?? null,
-      balls: null, strikes: null, batter: null, batterLine: null, pitcher: null, pitcherLine: null, dueUp: [], lastPlay: null,
-    };
-    const state = (await getLiveState(sport, espn_game_id)) || fallbackState;
-
-    // Pulse magnitude is paid-gated (mirrors /api/picks). In local UI_ONLY dev we
-    // treat the viewer as paid so the real bar is reviewable without a local paid
-    // login. UI_ONLY is never set on Railway, so prod gating is unaffected.
-    const paid = auth.isPaid(req) || !!process.env.UI_ONLY;
-    const pulses = {};
-    // Value pulse is MLB-only in v1; other sports return live state with no pulse.
-    if (state.status === 'in' && sport === 'MLB') {
-      const gp = gameProgress({ inning: state.inning, half: state.half, outs: state.outs });
-      const totalRuns = (state.homeScore || 0) + (state.awayScore || 0);
-      const preOverRaw = (() => {
-        const o = _americanToProb(game.ou_over_odds), u = _americanToProb(game.ou_under_odds);
-        return (o != null && u != null && o + u > 0) ? o / (o + u) : 0.5;
-      })();
-      for (const p of picks) {
-        const slot = _slotKey(p);
-        if (!slot) continue;
-        const type = (p.pick_type || '').toLowerCase();
-        const home = p.is_home_team === 1 || p.is_home_team === true;
-        let now = null, pre = null;
-        if (type === 'ml' || type === 'spread') {
-          const side = home ? 'home' : 'away';
-          now = liveWinProb(state, pregameHomeProb, side);
-          pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
-        } else if (type === 'over' || type === 'under') {
-          const op = liveOverProb(totalRuns, game.over_under, gp);
-          if (op == null) continue;
-          now = type === 'over' ? op : 1 - op;
-          pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
-        } else { continue; }
-
-        if (!paid) { pulses[slot] = { locked: true, pickType: type }; continue; }
-
-        const key = `${espn_game_id}:${p.id}`;
-        const pulse = computeValuePulse({
-          pickWP_now: now, pickWP_pre: pre, caScore: p.score || 0,
-          gameProgress: gp, prevMagnitude: prevPulseMag(key), mvpThreshold: MVP_THRESHOLD,
-        });
-        savePulseMag(key, pulse.magnitude);
-        pulses[slot] = {
-          ...pulse, pickType: type,
-          approx: type === 'spread' || type === 'over' || type === 'under',
-          winPct: Math.round(now * 100),
-        };
-      }
-    }
-
-    res.json({ state, pulses, paid });
-  } catch (err) {
-    console.error('[api/game/live]', err.message);
-    res.status(500).json({ error: 'live unavailable' });
-  }
-});
-
 // ── History tab: per-team recent games (lazy, public ESPN data, cached) ───────
 app.get('/api/team-history', async (req, res) => {
   const teamId = (req.query.teamId || '').toString().trim();
@@ -1250,9 +1087,6 @@ app.get('/api/game-players', async (req, res) => {
       const gl  = await getPlayerGamelog(r.athleteId, sport).catch(() => null);
       const ctx = { role: blk.role, position: r.pos };
       r.form = buildPlayerForm(gl, sport, ctx, event, r.stats);
-      // Key averages going INTO this game (before its date), for the name cell.
-      const gd = gl && (gl.series.find(g => String(g.eventId) === String(event)) || {}).date;
-      r.keyAvgs = gl ? computeKeyAverages(gl, sport, ctx, gd) : [];
     }));
     // Drop the label-keyed object from the payload; statsArr drives the table.
     blk.rows.forEach(r => { delete r.stats; });
@@ -1744,7 +1578,7 @@ app.listen(PORT, () => {
 
   // Seed dummy member accounts (idempotent) and place their votes on today's 35+
   // picks so the public leaderboard isn't empty. Cron keeps them voting daily.
-  try { await seedDummyAccounts(); runDummyVotes(); runDummyComments(); } catch (err) { console.error('[startup] dummy accounts error:', err.message); }
+  try { await seedDummyAccounts(); runDummyVotes(); } catch (err) { console.error('[startup] dummy accounts error:', err.message); }
 
   // Recover any previously-skipped (no_game) messages whose forward game now exists.
   // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
@@ -1827,13 +1661,12 @@ cron.schedule('10 5 * * *', () => {
   catch (err) { console.error('[cron] finalizeLeaderboardAwards error:', err.message); }
 }, { timezone: 'America/New_York' });
 
-// Dummy accounts vote on the day's picks for not-yet-started games, then chat on
-// the games they bet. Runs a few times a day (idempotent) to catch picks that come
-// in after the morning setup, while their games are still pre-game. The extra late
-// run (22:00) lets post-game reactions land after the slate finishes. Free, DB-only.
-cron.schedule('20 6,10,14,18,22 * * *', () => {
-  try { runDummyVotes(); runDummyComments(); }
-  catch (err) { console.error('[cron] dummy accounts error:', err.message); }
+// Dummy accounts vote on the day's 35+ picks for not-yet-started games. Runs a few
+// times a day (idempotent) to catch picks that come in after the morning setup,
+// while their games are still pre-game. Free, DB-only.
+cron.schedule('20 6,10,14,18 * * *', () => {
+  try { runDummyVotes(); }
+  catch (err) { console.error('[cron] runDummyVotes error:', err.message); }
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {

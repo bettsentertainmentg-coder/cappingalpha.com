@@ -9,7 +9,6 @@ import { state } from '/modules/state.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
-import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js';
 
 function formatActualStart(actualIso, scheduledIso) {
   if (!actualIso) return '';
@@ -830,7 +829,6 @@ function renderDetailPanel() {
   const wrapMods = [
     hasTimeline ? '' : 'is-empty',
     timelineVisible ? '' : 'is-locked',
-    game.status === 'in' ? 'is-live' : '',   // minimize the conviction curve once live
   ].filter(Boolean).join(' ');
   const startLabel = formatStartLabel(game?.actual_start_at, game?.start_time);
   pubHtml += `<div class="ca-dp-timeline-wrap${wrapMods ? ' ' + wrapMods : ''}">
@@ -900,10 +898,7 @@ function renderDetailPanel() {
 
   destroyPickTimeline();
 
-  const isMlbLive = game.status === 'in' && (game.sport || '').toUpperCase() === 'MLB';
-  el.innerHTML = headerHtml +
-    (isMlbLive ? `<div id="ca-live-command" class="ca-live-command"></div>` : '') +
-    `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
+  el.innerHTML = headerHtml + `<div class="ca-dp-grid">
     <div class="ca-dp-col">${pubHtml}</div>
     <div class="ca-dp-divider"></div>
     <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
@@ -923,12 +918,6 @@ function renderDetailPanel() {
       }
     });
   }
-
-  // Live command bar (MLB v1): mount + start the ~12s visibility-gated poll once
-  // the game is live; tear it down otherwise. Re-runs on every slot change so the
-  // pulse tracks the slot the user is viewing.
-  if (isMlbLive) mountLiveCommand({ gameId, activeSlot: _activeSlot });
-  else unmountLiveCommand();
 
   // Paywall banner
   if (!isPaying() && p && scoreHidden) {
@@ -2393,9 +2382,7 @@ function histBlockHtml(blk) {
   // Our own calculations (Form + Load) lead, right after the player name; the raw
   // box-score stats follow. A separator marks where ESPN's stats begin.
   const head = `<tr><th class="ca-hp-th-name"></th>` +
-    `<th class="ca-hp-th-ours">Form</th>` +
-    `<th class="ca-tf-th ca-tf-why-th"></th>` +
-    `<th class="ca-hp-th-ours">Load</th>` +
+    `<th class="ca-hp-th-ours">Form</th><th class="ca-hp-th-ours">Load</th>` +
     labels.map((l, i) => {
       const tip = HIST_LABEL_TIPS[l];
       return `<th class="ca-num${i === 0 ? ' ca-hp-th-statstart' : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(l)}</th>`;
@@ -2415,7 +2402,6 @@ function histPlayerRow(r, labels) {
   return `<tr class="ca-hp-row${r.dnp ? ' ca-hp-dnp' : ''}">` +
     `<td class="ca-hp-name">${histNameCell(r, f)}</td>` +
     `<td class="ca-hp-formcell">${histFormCell(f.hotCold)}</td>` +
-    `<td class="ca-tf-cell ca-tf-why">${tfWhyCell(f.hotCold)}</td>` +
     `<td class="ca-hp-loadcell">${histLoadCell(f.freshness)}</td>` +
     cells + `</tr>`;
 }
@@ -2426,7 +2412,7 @@ function histPlayerRow(r, labels) {
 // under the dial. Null pct renders an empty (greyed) dial.
 let _mgUid = 0;
 const MG_STOPS = {
-  form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['78%', '#fb923c'], ['100%', '#ef4444']],
+  form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['100%', '#fb923c']],
   load: [['0%', '#22c55e'], ['45%', '#eab308'], ['72%', '#f97316'], ['100%', '#ef4444']],
 };
 function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
@@ -2456,63 +2442,38 @@ function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
 function histNameCell(r, f) {
   const star = r.starter ? `<span class="ca-hp-starter" title="Starter">★</span>` : '';
   const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
-  // Under the name: his recognizable season averages going into this game.
-  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${keyAvgsHtml(r)}`;
+  let scale = '';
+  const p = f.primary;
+  if (p && p.val != null) {
+    const dCls = p.delta == null ? '' : p.delta < 0 ? ' ca-hp-delta--below' : p.delta > 0 ? ' ca-hp-delta--above' : '';
+    const dStr = p.delta == null ? '' : `<span class="ca-hp-delta${dCls}">${p.delta > 0 ? '+' : ''}${p.delta} vs avg</span>`;
+    scale = `<div class="ca-hp-scale"><span class="ca-hp-scale-lbl">${esc(p.label)}</span>` +
+      `<span class="ca-hp-scale-track"><span class="ca-hp-scale-fill" style="width:${p.scalePct}%;"></span></span>` +
+      `<span class="ca-hp-scale-val ca-num">${p.val}</span>${dStr}</div>`;
+  }
+  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${scale}`;
 }
 
 // Form dial: you're hot or you're cold. The needle leans toward fire (playing
 // well vs the player's baseline) or ice (slumping). Label reads HOT / EVEN / COLD.
-// Continuous cold→hot tint for the form word + explanation, so a slight lean
-// (even-but-warming) reads slightly warm. `dim` = the body-text variant; vivid is
-// for the dial word. 0 = cold (ice), 50 = even (grey), 100 = hot (fire).
-function _lerpHex(a, b, t) {
-  const n = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-  const ca = n(a), cb = n(b);
-  return '#' + ca.map((v, i) => Math.round(v + (cb[i] - v) * t).toString(16).padStart(2, '0')).join('');
-}
-// Multi-stop gradient: deep blue → ice → grey → orange → deep red, so "really hot"
-// actually reaches red (and "really cold" deep blue), not just a mild tint.
-const FORM_STOPS = {
-  vivid: [[0, '#2f6f99'], [28, '#38bdf8'], [50, '#9aa3b4'], [74, '#fb923c'], [100, '#ef4444']],
-  dim:   [[0, '#3a6478'], [28, '#4f93b0'], [50, '#8892a4'], [74, '#c46a2a'], [100, '#c0392b']],
-};
-function _gradAt(stops, pct) {
-  const p = Math.max(0, Math.min(100, pct));
-  for (let i = 1; i < stops.length; i++) {
-    if (p <= stops[i][0]) {
-      const [p0, c0] = stops[i - 1], [p1, c1] = stops[i];
-      return _lerpHex(c0, c1, (p - p0) / (p1 - p0 || 1));
-    }
-  }
-  return stops[stops.length - 1][1];
-}
-// Steeper z→position so a genuine hot/cold stretch reaches the ends of the dial.
-// z 0 = 50 (even/center); z ~±2 maxes out. Was z×16.7 (needed z≈3 — too tame).
-function formPct(hc) {
-  if (!hc) return 50;
-  return hc.z != null ? Math.max(0, Math.min(100, 50 + hc.z * 24))
-    : ({ hot: 92, warm: 70, neutral: 50, cool: 30, cold: 8 }[hc.bucket] ?? 50);
-}
-function formTint(pct, dim) {
-  return _gradAt(dim ? FORM_STOPS.dim : FORM_STOPS.vivid, pct);
-}
-
 function histFormCell(hc) {
   if (!hc || !hc.bucket || hc.bucket === 'na') {
     return miniHeatGauge({ pct: null, kind: 'form', label: '—', tip: 'Not enough games yet' });
   }
-  const pct = formPct(hc);
+  const pct = hc.z != null
+    ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
+    : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
   // Pitchers read command (K-BB) as sharp ↔ wild; everyone else hot ↔ cold.
   const isPitcher = hc.primaryName === 'K-BB';
   const hi = hc.bucket === 'hot' || hc.bucket === 'warm';
   const lo = hc.bucket === 'cold' || hc.bucket === 'cool';
-  let label;
+  let label, color;
   if (isPitcher) {
     label = ({ hot: 'SHARP', warm: 'SEMI-SHARP', neutral: 'EVEN', cool: 'SEMI-WILD', cold: 'WILD' })[hc.bucket] || 'EVEN';
   } else {
     label = hi ? 'HOT' : lo ? 'COLD' : 'EVEN';
   }
-  const color = formTint(pct, false); // continuous tint → "even" leans warm/cool
+  color = hi ? '#fb923c' : lo ? '#38bdf8' : 'var(--text-tertiary)';
   const low = hc.n != null && hc.n < 10; // few recent games → noted in tooltip
   const tip = `${hc.primaryName} ${isPitcher ? 'command' : 'form'}: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}${low ? ` · limited sample (${hc.n} g)` : ''}`;
   return miniHeatGauge({ pct, kind: 'form', label, labelColor: color, tip });
@@ -2664,16 +2625,15 @@ function paintTeamForm(data) {
   if (_tfBlockIdx >= blocks.length) _tfBlockIdx = 0;
   const injMap = tfInjuryMap(_tfTeam);
   const blk = blocks[_tfBlockIdx];
-  // Toggle on the left, team chips (ATS/O-U + travel) on the right of one row.
-  const toggle = tfBlockToggleHtml(blocks);
-  const chips  = tfTeamChips(data);
-  const controls = (toggle || chips)
-    ? `<div class="ca-tf-controls">${toggle || '<span></span>'}<div class="ca-tf-teamchips">${chips}</div></div>`
+  const travelChip = data.travel
+    ? `<div class="ca-tf-trends"><span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">Travel</span><span class="ca-tf-trendval">${esc(data.travel)}</span></span></div>`
     : '';
   body.innerHTML =
-    controls +
+    tfBettingHtml(data.betting) +
+    travelChip +
+    tfBlockToggleHtml(blocks) +
     (blk ? tfBlockTable(blk, injMap) : `<div class="ca-hist-empty">No players to show.</div>`) +
-    `<div class="ca-hist-caption">Form is recent production vs the player's own baseline. Load blends rest and recent workload (not injury risk). Splits use recent games only.</div>`;
+    `<div class="ca-hist-caption">Form is recent production vs the player's own baseline. Load blends rest and recent workload (not injury risk). Trends and splits use recent games only.</div>`;
 
   body.querySelectorAll('.ca-tf-blocktab').forEach(b => b.addEventListener('click', () => {
     const i = parseInt(b.dataset.idx, 10);
@@ -2696,18 +2656,14 @@ function tfInjuryMap(team) {
   return map;
 }
 
-// Team-level chips (ATS / O-U trend + travel), shown to the right of the
-// Batting/Pitching toggle so they don't take their own stacked row.
-function tfTeamChips(data) {
-  const b = data.betting;
+function tfBettingHtml(b) {
+  if (!b) return '';
   const chips = [];
-  if (b && b.ats) { const { w, l, p, n } = b.ats; chips.push(
+  if (b.ats) { const { w, l, p, n } = b.ats; chips.push(
     `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">ATS · last ${n}</span><span class="ca-tf-trendval ca-num">${w}-${l}${p ? '-' + p : ''}</span></span>`); }
-  if (b && b.ou)  { const { over, under, push, n } = b.ou; chips.push(
+  if (b.ou)  { const { over, under, push, n } = b.ou; chips.push(
     `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">O/U · last ${n}</span><span class="ca-tf-trendval ca-num">${over}-${under}${push ? '-' + push : ''}</span></span>`); }
-  if (data.travel) chips.push(
-    `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">Travel</span><span class="ca-tf-trendval">${esc(data.travel)}</span></span>`);
-  return chips.join('');
+  return chips.length ? `<div class="ca-tf-trends">${chips.join('')}</div>` : '';
 }
 
 function tfBlockLabel(b) {
@@ -2729,7 +2685,7 @@ function tfBlockTable(blk, injMap) {
   const isMlb = (_data.game.sport || '').toUpperCase() === 'MLB';
   const isBat = blk.role === 'batter';
   const has4  = isMlb && blk.role === 'pitcher';
-  const cols  = (has4 ? 6 : 5) + 1; // +1 for the "Why" explanation column
+  const cols  = has4 ? 6 : 5;
 
   const sorted = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0));
   const grp = label => `<tr class="ca-tf-grouprow"><td colspan="${cols}">${esc(label)}</td></tr>`;
@@ -2750,7 +2706,6 @@ function tfBlockTable(blk, injMap) {
   const head = `<tr>` +
     `<th class="ca-hp-th-name">${nameHdr}</th>` +
     `<th class="ca-hp-th-ours">Form</th>` +
-    `<th class="ca-tf-th ca-tf-why-th"></th>` +
     `<th class="ca-hp-th-ours">Load</th>` +
     col4Hdr +
     `<th class="ca-tf-th">Splits</th>` +
@@ -2765,21 +2720,11 @@ function tfPlayerRow(r, injMap, has4) {
   return `<tr class="ca-hp-row">` +
     `<td class="ca-hp-name">${tfNameCell(r)}</td>` +
     `<td class="ca-hp-formcell">${histFormCell(r.form)}</td>` +
-    `<td class="ca-tf-cell ca-tf-why">${tfWhyCell(r.form)}</td>` +
     `<td class="ca-hp-loadcell">${histLoadCell(r.load)}</td>` +
     col4 +
     `<td class="ca-tf-cell">${tfSplitCell(r.splits)}</td>` +
     `<td class="ca-tf-cell">${tfStatusCell(r, injMap)}</td>` +
     `</tr>`;
-}
-
-// Plain explanation of the Form reading (from the engine's `reasons`), tinted to
-// the form level (hot → orange, warm → amber, cold → ice, etc.).
-function tfWhyCell(hc) {
-  const reasons = (hc && hc.reasons) || [];
-  if (!reasons.length) return `<span class="ca-tf-dash">—</span>`;
-  const color = formTint(formPct(hc), true); // dim continuous tint, matches the lean
-  return `<span class="ca-tf-why-text" style="color:${color}">${reasons.map(esc).join(' ')}</span>`;
 }
 
 function tfRecentCell(rec) {
@@ -2791,23 +2736,19 @@ function tfRecentCell(rec) {
   return `<span class="ca-tf-recentnote ca-tf-recentnote--${tone}">${esc(rec.text)}</span>${gp}`;
 }
 
-// Recognizable season averages under a name (bases/gm · AVG for hitters, etc.).
-function keyAvgsHtml(r) {
-  const ks = r.keyAvgs || [];
-  if (!ks.length) return '';
-  const items = ks.map(a =>
-    `<span class="ca-tf-kavg"><span class="ca-tf-kavg-val ca-num">${esc(a.val)}</span> <span class="ca-tf-kavg-lbl">${esc(a.label)}</span></span>`
-  ).join('<span class="ca-tf-kavg-sep">·</span>');
-  return `<div class="ca-tf-recent">${items}</div>`;
-}
-
 function tfNameCell(r) {
   // Batting-order number for hitters; nothing otherwise (no starter star).
   const badge = r.lineupSpot
     ? `<span class="ca-tf-spot" title="Lineup spot">${r.lineupSpot}</span>`
     : '';
   const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
-  return `<div class="ca-hp-namerow">${badge}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${keyAvgsHtml(r)}`;
+  let line = '';
+  const hc = r.form;
+  if (hc && hc.recent != null && hc.primaryName) {
+    const base = hc.baseline != null ? ` <span class="ca-tf-recbase">(${hc.baseline} avg)</span>` : '';
+    line = `<div class="ca-tf-recent"><span class="ca-tf-reclbl">${esc(hc.primaryName)}</span> <span class="ca-num">${hc.recent}</span>${base}</div>`;
+  }
+  return `<div class="ca-hp-namerow">${badge}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${line}`;
 }
 
 function tfTrendCell(u) {

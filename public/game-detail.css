@@ -1627,13 +1627,6 @@ nav {
 .ca-hp-dnp { opacity: 0.45; }
 .ca-hp-name { text-align: left !important; min-width: 190px; }
 .ca-hp-namerow { display: flex; align-items: center; gap: 5px; }
-/* History popup: name on top, his key average underneath; Form + explanation +
-   Load are columns to the right (the explanation reads a touch bigger here). */
-.ca-hp-avgline { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
-.ca-hp-avg-lbl { font-size: 9px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-tertiary); }
-.ca-hp-avg-val { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
-.ca-hp-avg-sub { font-size: 9px; color: var(--text-disabled); }
-.ca-hp-blockwrap .ca-tf-why-text { font-size: 11px; }
 .ca-hp-starter { color: var(--accent-mvp); font-size: 9px; }
 .ca-hp-pname { font-weight: 600; color: var(--text); }
 .ca-hp-pos { font-size: 10px; color: var(--text-disabled); }
@@ -1720,12 +1713,6 @@ nav {
 .ca-tf-trendval { font-size: 13px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Offense / defense (stat-group) sub-toggle */
-/* Controls row: Batting/Pitching toggle on the left, team chips (ATS/O-U + travel)
-   on the right so they don't take their own stacked row. */
-.ca-tf-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-.ca-tf-controls .ca-tf-blocktoggle { margin-bottom: 0; }
-.ca-tf-teamchips { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-
 .ca-tf-blocktoggle { display: inline-flex; gap: 4px; margin-bottom: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
 .ca-tf-blocktab {
   background: none; border: none; cursor: pointer;
@@ -1736,18 +1723,7 @@ nav {
 .ca-tf-blocktab.active { background: var(--accent); color: #fff; }
 
 /* Forward grid reuses .ca-hp-table; these style the extra columns */
-.ca-tf-table { min-width: 760px; }
-/* "Why" column — left-aligned plain-English explanation of the Form reading. */
-.ca-tf-why-th { text-align: left !important; }
-.ca-tf-cell.ca-tf-why { text-align: left !important; vertical-align: middle; min-width: 180px; max-width: 230px; }
-.ca-tf-why-text { display: block; font-size: 10px; line-height: 1.35; color: var(--text-secondary); white-space: normal; }
-/* Tint the explanation to the form level (matches the dial), dimmed so it reads
-   as a note, not a headline. */
-.ca-tf-why--hot     { color: #c46a2a; }
-.ca-tf-why--warm    { color: #b8842a; }
-.ca-tf-why--neutral { color: var(--text-tertiary); }
-.ca-tf-why--cool    { color: #5479a8; }
-.ca-tf-why--cold    { color: #3f7e96; }
+.ca-tf-table { min-width: 620px; }
 /* "Starting pitcher" / "Bullpen" group separators inside the pitching block */
 .ca-tf-grouprow td {
   text-align: left !important; padding: 8px 10px !important; vertical-align: middle;
@@ -1791,10 +1767,6 @@ nav {
 .ca-tf-reclbl { font-weight: 800; color: var(--text-secondary); letter-spacing: 0.3px; }
 .ca-tf-recent .ca-num { color: var(--text); font-weight: 700; }
 .ca-tf-recbase { color: var(--text-disabled); }
-/* Season key-averages line (e.g. "2.6 bases/gm · .285 AVG") */
-.ca-tf-kavg-val { color: var(--text-secondary); font-weight: 700; }
-.ca-tf-kavg-lbl { color: var(--text-tertiary); }
-.ca-tf-kavg-sep { color: var(--text-disabled); margin: 0 5px; }
 
 /* Usage / role trend */
 .ca-tf-trend { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -1836,64 +1808,4 @@ nav {
 
 @media (max-width: 640px) {
   .ca-tf-tennis-stats { margin-left: 0; }
-}
-
-/* ── Live command bar (MLB v1) ─────────────────────────────────────────────── */
-.ca-live-command { margin: 14px 0 16px; }
-.ca-lc-loading { color: var(--text-tertiary); font-size: 13px; padding: 14px; text-align: center; }
-.ca-lc {
-  display: grid; grid-template-columns: auto 1fr minmax(190px, 1.1fr); gap: 16px;
-  background: var(--bg-tertiary, #11151e); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
-}
-.ca-lc-cell { min-width: 0; }
-.ca-lc-cell-hd { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap; }
-.ca-lc-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-live); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink: 0; }
-.ca-lc-score { font-weight: 800; font-size: 15px; color: var(--text); margin-left: auto; }
-.ca-lc-score-dash { color: var(--text-tertiary); margin: 0 3px; }
-
-.ca-lc-state { display: flex; align-items: center; gap: 12px; }
-.ca-lc-diamond { flex-shrink: 0; }
-.ca-lc-base { fill: none; stroke: #475569; stroke-width: 1.5; }
-.ca-lc-base--on { fill: #FFD700; stroke: #FFD700; }
-.ca-lc-home { fill: #475569; }
-.ca-lc-state-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.ca-lc-half { font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; }
-.ca-lc-count { display: flex; align-items: center; gap: 5px; }
-.ca-lc-count-lbl { font-size: 9px; font-weight: 800; color: var(--text-tertiary); text-transform: uppercase; margin-right: 1px; }
-.ca-lc-pip { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #475569; display: inline-block; box-sizing: border-box; }
-.ca-lc-pip--on.ca-lc-pip--ball   { background: #22c55e; border-color: #22c55e; }
-.ca-lc-pip--on.ca-lc-pip--strike { background: #f59e0b; border-color: #f59e0b; }
-.ca-lc-pip--on.ca-lc-pip--out    { background: #ef4444; border-color: #ef4444; }
-
-.ca-lc-matchup { display: flex; flex-direction: column; gap: 6px; }
-.ca-lc-mrow { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; min-width: 0; }
-.ca-lc-mlbl { font-size: 9px; font-weight: 800; color: var(--text-tertiary); text-transform: uppercase; flex-shrink: 0; min-width: 18px; }
-.ca-lc-mname { font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ca-lc-mline { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
-.ca-lc-mrow--empty, .ca-lc-mrow--ondeck { color: var(--text-tertiary); }
-
-.ca-lc-cell--pulse { display: flex; flex-direction: column; }
-.ca-lc-pulse { display: flex; flex-direction: column; gap: 7px; }
-.ca-lc-pulse-bar { height: 9px; border-radius: 6px; background: var(--surface2, #1e2330); overflow: visible; }
-.ca-lc-pulse-fill { height: 100%; width: 4%; border-radius: 6px; background: #8892a4; transition: width .35s ease, background .35s ease; position: relative; }
-.ca-lc-pulse-fill--pulsing::after { content: ''; position: absolute; right: 0; top: 50%; transform: translate(50%, -50%); width: 9px; height: 9px; border-radius: 50%; background: inherit; animation: ca-live-dot 2.4s ease-in-out infinite; }
-.ca-lc-pulse-label { font-size: 12.5px; font-weight: 700; color: var(--text); }
-.ca-lc-pulse-caret { font-size: 11px; }
-.ca-lc-pulse-approx { font-size: 9px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
-.ca-lc-pulse-note { font-size: 10px; color: var(--text-tertiary); text-decoration: underline dotted; cursor: help; align-self: flex-start; }
-.ca-lc-pulse-empty { font-size: 12px; color: var(--text-tertiary); }
-.ca-lc-pulse-locked { cursor: pointer; display: flex; flex-direction: column; gap: 7px; }
-.ca-lc-pulse-lock { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
-.ca-lc-pulse-sub { font-size: 11px; color: var(--text-tertiary); }
-.ca-lc-pulse-sub a { color: var(--accent); cursor: pointer; }
-
-/* Conviction curve minimized once the game is live (kept visible per spec). */
-.ca-dp-timeline-wrap.is-live { height: 74px; opacity: 0.9; }
-
-@media (prefers-reduced-motion: reduce) {
-  .ca-lc-livedot, .ca-lc-pulse-fill--pulsing::after { animation: none; }
-  .ca-lc-pulse-fill { transition: none; }
-}
-@media (max-width: 720px) {
-  .ca-lc { grid-template-columns: 1fr; gap: 12px; }
 }

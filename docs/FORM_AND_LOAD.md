@@ -50,11 +50,6 @@ well above league is "hot" even if it's normal for him. So:
 command words: **SHARP / SEMI-SHARP / EVEN / SEMI-WILD / WILD** (Form = K-BB, so it
 *is* command, and a separate "sharp/wild" note would just duplicate it).
 
-**Dial display:** the needle + tint map position as `50 + z×24` (clamped 0–100), so a
-genuine hot stretch (z≈1) clearly leans and z≈2 maxes out red — even (z≈0) stays
-centered grey. Tint runs deep blue → ice → grey → orange → deep red. Tunable in
-game-detail.js (`formPct` multiplier, `FORM_STOPS`).
-
 **Low sample:** fewer than 10 qualifying recent games adds a "limited sample (N g)"
 note to the tooltip (the dial is NOT faded — a shown value always renders full).
 Below the min-games floor the dial is empty (grey dome, no needle) = no data yet.

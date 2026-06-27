@@ -16,7 +16,7 @@
 const { getTeamHistory, getEventTeamPlayers, getEventPregame, TEAM_SPORTS } = require('./team_history');
 const {
   getPlayerGamelog, computeHotCold, computeFreshness, computeUsageTrend, computeSplits,
-  computeBatterNote, computePitcherRecent, computeKeyAverages, bandFor,
+  computeBatterNote, computePitcherRecent, bandFor,
 } = require('./player_form');
 
 const _cache = new Map();
@@ -44,7 +44,7 @@ function travelBump(fromState, toState) {
   if (a == null || b == null) return { bump: 0, note: null };
   const tz = Math.abs(a - b);
   if (tz <= 0) return { bump: 0, note: null };
-  return { bump: Math.min(12, tz * 4), note: tz >= 3 ? 'Cross-country' : `${tz} time zone${tz > 1 ? 's' : ''}` };
+  return { bump: Math.min(12, tz * 4), note: tz >= 3 ? 'Cross-country trip' : `${tz} time zone${tz > 1 ? 's' : ''} traveled` };
 }
 
 // "Coming off an injury?" — compare the player's own game dates against the
@@ -137,7 +137,6 @@ async function getGameForm(eventId, sport, teamId, gameDate, oppId) {
       r.usage   = gl ? computeUsageTrend(gl, sport, ctx, gd) : null;
       r.splits  = gl ? computeSplits(gl, sport, ctx, gd, oppId) : null;
       r.absence = gl ? absenceInfo(gl, teamDates, gd, sport, ctx) : null;
-      r.keyAvgs = gl ? computeKeyAverages(gl, sport, ctx, gd) : [];
       // MLB pitchers get a recent-ERA column; hitters and other sports have none.
       if (sport === 'MLB' && blk.role === 'pitcher') {
         r.recent = gl ? computePitcherRecent(gl, gd) : null;
@@ -172,7 +171,6 @@ async function getGameForm(eventId, sport, teamId, gameDate, oppId) {
           load:    gl ? computeFreshness(gl, sport, ctx, gd) : null,
           splits:  gl ? computeSplits(gl, sport, ctx, gd, oppId) : null,
           absence: gl ? absenceInfo(gl, teamDates, gd, sport, ctx) : null,
-          keyAvgs: gl ? computeKeyAverages(gl, sport, ctx, gd) : [],
         };
       }));
       let bat = roster.blocks.find(b => b.role === 'batter');
@@ -195,7 +193,6 @@ async function getGameForm(eventId, sport, teamId, gameDate, oppId) {
         recent:  gl ? computePitcherRecent(gl, gd) : null,
         splits:  gl ? computeSplits(gl, sport, ctx, gd, oppId) : null,
         absence: gl ? absenceInfo(gl, teamDates, gd, sport, ctx) : null,
-        keyAvgs: gl ? computeKeyAverages(gl, sport, ctx, gd) : [],
       };
       let pitch = roster.blocks.find(b => b.role === 'pitcher');
       if (!pitch) { pitch = { type: 'pitching', role: 'pitcher', labels: [], rows: [] }; roster.blocks.push(pitch); }
