@@ -2382,7 +2382,7 @@ function histBlockHtml(blk) {
   // Our own calculations (Form + Load) lead, right after the player name; the raw
   // box-score stats follow. A separator marks where ESPN's stats begin.
   const head = `<tr><th class="ca-hp-th-name"></th>` +
-    `<th class="ca-hp-th-ours">Form</th><th class="ca-hp-th-ours">Load</th>` +
+    `<th class="ca-hp-th-ours">Load</th>` +
     labels.map((l, i) => {
       const tip = HIST_LABEL_TIPS[l];
       return `<th class="ca-num${i === 0 ? ' ca-hp-th-statstart' : ''}"${tip ? ` title="${esc(tip)}"` : ''}>${esc(l)}</th>`;
@@ -2401,7 +2401,6 @@ function histPlayerRow(r, labels) {
     `<td class="ca-num${i === 0 ? ' ca-hp-statstart' : ''}">${esc(r.statsArr[i] ?? '—')}</td>`).join('');
   return `<tr class="ca-hp-row${r.dnp ? ' ca-hp-dnp' : ''}">` +
     `<td class="ca-hp-name">${histNameCell(r, f)}</td>` +
-    `<td class="ca-hp-formcell">${histFormCell(f.hotCold)}</td>` +
     `<td class="ca-hp-loadcell">${histLoadCell(f.freshness)}</td>` +
     cells + `</tr>`;
 }
@@ -2442,16 +2441,14 @@ function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
 function histNameCell(r, f) {
   const star = r.starter ? `<span class="ca-hp-starter" title="Starter">★</span>` : '';
   const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
-  let scale = '';
-  const p = f.primary;
-  if (p && p.val != null) {
-    const dCls = p.delta == null ? '' : p.delta < 0 ? ' ca-hp-delta--below' : p.delta > 0 ? ' ca-hp-delta--above' : '';
-    const dStr = p.delta == null ? '' : `<span class="ca-hp-delta${dCls}">${p.delta > 0 ? '+' : ''}${p.delta} vs avg</span>`;
-    scale = `<div class="ca-hp-scale"><span class="ca-hp-scale-lbl">${esc(p.label)}</span>` +
-      `<span class="ca-hp-scale-track"><span class="ca-hp-scale-fill" style="width:${p.scalePct}%;"></span></span>` +
-      `<span class="ca-hp-scale-val ca-num">${p.val}</span>${dStr}</div>`;
-  }
-  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${scale}`;
+  // The Form dial moves into the name cell (left), and his form going INTO this
+  // game is explained in small sentences where the avg ticker used to be.
+  const hc = f.hotCold || {};
+  const reasons = hc.reasons || [];
+  const tone = ['hot', 'warm', 'neutral', 'cool', 'cold'].includes(hc.bucket) ? hc.bucket : 'neutral';
+  const why  = reasons.length ? `<span class="ca-hp-why ca-tf-why--${tone}">${reasons.map(esc).join(' ')}</span>` : '';
+  const forminfo = `<div class="ca-hp-forminfo">${histFormCell(hc)}${why}</div>`;
+  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${forminfo}`;
 }
 
 // Form dial: you're hot or you're cold. The needle leans toward fire (playing
