@@ -2456,14 +2456,8 @@ function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
 function histNameCell(r, f) {
   const star = r.starter ? `<span class="ca-hp-starter" title="Starter">★</span>` : '';
   const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
-  // Under the name: his key average for the mentioned stat, going into this game.
-  const p = f.primary;
-  const avgLbl = p && (p.label === 'TB+' ? 'Bases' : p.label);
-  const avg = (p && p.avg != null)
-    ? `<div class="ca-hp-avgline"><span class="ca-hp-avg-lbl">${esc(avgLbl)}</span>` +
-      `<span class="ca-hp-avg-val ca-num">${p.avg}</span><span class="ca-hp-avg-sub">/gm avg</span></div>`
-    : '';
-  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${avg}`;
+  // Under the name: his recognizable season averages going into this game.
+  return `<div class="ca-hp-namerow">${star}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${keyAvgsHtml(r)}`;
 }
 
 // Form dial: you're hot or you're cold. The needle leans toward fire (playing
@@ -2797,19 +2791,23 @@ function tfRecentCell(rec) {
   return `<span class="ca-tf-recentnote ca-tf-recentnote--${tone}">${esc(rec.text)}</span>${gp}`;
 }
 
+// Recognizable season averages under a name (bases/gm · AVG for hitters, etc.).
+function keyAvgsHtml(r) {
+  const ks = r.keyAvgs || [];
+  if (!ks.length) return '';
+  const items = ks.map(a =>
+    `<span class="ca-tf-kavg"><span class="ca-tf-kavg-val ca-num">${esc(a.val)}</span> <span class="ca-tf-kavg-lbl">${esc(a.label)}</span></span>`
+  ).join('<span class="ca-tf-kavg-sep">·</span>');
+  return `<div class="ca-tf-recent">${items}</div>`;
+}
+
 function tfNameCell(r) {
   // Batting-order number for hitters; nothing otherwise (no starter star).
   const badge = r.lineupSpot
     ? `<span class="ca-tf-spot" title="Lineup spot">${r.lineupSpot}</span>`
     : '';
   const pos  = r.pos ? `<span class="ca-hp-pos">${esc(r.pos)}</span>` : '';
-  let line = '';
-  const hc = r.form;
-  if (hc && hc.recent != null && hc.primaryName) {
-    const base = hc.baseline != null ? ` <span class="ca-tf-recbase">(${hc.baseline} avg)</span>` : '';
-    line = `<div class="ca-tf-recent"><span class="ca-tf-reclbl">${esc(hc.primaryName)}</span> <span class="ca-num">${hc.recent}</span>${base}</div>`;
-  }
-  return `<div class="ca-hp-namerow">${badge}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${line}`;
+  return `<div class="ca-hp-namerow">${badge}<span class="ca-hp-pname">${esc(r.shortName || r.name)}</span>${pos}</div>${keyAvgsHtml(r)}`;
 }
 
 function tfTrendCell(u) {

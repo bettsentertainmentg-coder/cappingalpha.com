@@ -692,6 +692,49 @@ function computePitcherRecent(gamelog, beforeDate = null) {
   return { text: `${era.toFixed(2)} ERA`, tone, n, ip: +ip.toFixed(1) };
 }
 
+// Batting-average string: ".285", "1.000".
+function avgStr(x) {
+  if (x == null || !Number.isFinite(x)) return '—';
+  return x >= 1 ? x.toFixed(3) : '.' + Math.round(x * 1000).toString().padStart(3, '0');
+}
+
+// One or two recognizable SEASON averages to show under a player's name (clear
+// labels, no internal abbreviations). MLB hitters: bases/game + batting average;
+// pitchers: ERA + WHIP; other sports: the primary stat per game.
+function computeKeyAverages(gamelog, sport, ctx = {}, beforeDate = null) {
+  if (!gamelog || !gamelog.series) return [];
+  sport = (sport || '').toUpperCase();
+  const games = gamelog.series.filter(g => !beforeDate || (g.date && new Date(g.date) < new Date(beforeDate)));
+  if (!games.length) return [];
+  const out = [];
+
+  if (sport === 'MLB' && ctx.role !== 'pitcher') {
+    let h = 0, ab = 0, bases = 0, n = 0;
+    for (const g of games.slice(0, 42)) {
+      const a = pick(g.stats, 'AB', 'atBats');
+      if (a == null) continue;
+      h += pick(g.stats, 'H', 'hits') || 0; ab += a;
+      const bv = mlbBatterValue(g.stats); if (bv != null) { bases += bv; n++; }
+    }
+    if (n)  out.push({ label: 'bases/gm', val: (bases / n).toFixed(1) });
+    if (ab) out.push({ label: 'AVG', val: avgStr(h / ab) });
+  } else if (sport === 'MLB') {
+    let er = 0, ip = 0, bb = 0, h = 0;
+    for (const g of games.slice(0, 12)) {
+      const gip = parseInnings(pick(g.stats, 'IP', 'inningsPitched'));
+      if (gip == null) continue;
+      er += pick(g.stats, 'ER', 'earnedRuns') || 0; ip += gip;
+      bb += pick(g.stats, 'BB', 'walks') || 0; h += pick(g.stats, 'H', 'hits') || 0;
+    }
+    if (ip > 0) { out.push({ label: 'ERA', val: ((er / ip) * 9).toFixed(2) }); out.push({ label: 'WHIP', val: ((bb + h) / ip).toFixed(2) }); }
+  } else {
+    let s = 0, c = 0;
+    for (const g of games.slice(0, 20)) { const v = primaryStat(sport, g.stats, ctx); if (v != null) { s += v; c++; } }
+    if (c) out.push({ label: (PRIMARY_LABEL[sport] || 'avg') + '/gm', val: (s / c).toFixed(1) });
+  }
+  return out;
+}
+
 // ── High-level assembler: everything the popup needs for one player ───────────
 // boxStats = THIS game's stat line keyed by label (for display-derived extras if
 // the gamelog row is missing). gamelog drives the computed metrics.
@@ -743,6 +786,7 @@ module.exports = {
   computeSplits,
   computeBatterNote,
   computePitcherRecent,
+  computeKeyAverages,
   bandFor,
   buildPlayerForm,
   primaryStat,
