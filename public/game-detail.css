@@ -1627,12 +1627,13 @@ nav {
 .ca-hp-dnp { opacity: 0.45; }
 .ca-hp-name { text-align: left !important; min-width: 190px; }
 .ca-hp-namerow { display: flex; align-items: center; gap: 5px; }
-/* History popup: Form dial + small "why" sentences sit under the name (taking the
-   old avg-ticker space); the name column widens, the box-score stats give up room. */
-.ca-hp-blockwrap .ca-hp-name { min-width: 280px; max-width: 320px; }
-.ca-hp-forminfo { display: flex; align-items: center; gap: 9px; margin-top: 4px; }
-.ca-hp-forminfo .ca-mg-svg { width: 50px; height: 28px; }
-.ca-hp-why { font-size: 9px; line-height: 1.32; white-space: normal; color: var(--text-tertiary); flex: 1; }
+/* History popup: name on top, his key average underneath; Form + explanation +
+   Load are columns to the right (the explanation reads a touch bigger here). */
+.ca-hp-avgline { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
+.ca-hp-avg-lbl { font-size: 9px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-tertiary); }
+.ca-hp-avg-val { font-size: 13px; font-weight: 800; color: var(--text); }
+.ca-hp-avg-sub { font-size: 9px; color: var(--text-disabled); }
+.ca-hp-blockwrap .ca-tf-why-text { font-size: 11px; }
 .ca-hp-starter { color: var(--accent-mvp); font-size: 9px; }
 .ca-hp-pname { font-weight: 600; color: var(--text); }
 .ca-hp-pos { font-size: 10px; color: var(--text-disabled); }
