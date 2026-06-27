@@ -9,6 +9,7 @@ import { state } from '/modules/state.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
+import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js';
 
 function formatActualStart(actualIso, scheduledIso) {
   if (!actualIso) return '';
@@ -829,6 +830,7 @@ function renderDetailPanel() {
   const wrapMods = [
     hasTimeline ? '' : 'is-empty',
     timelineVisible ? '' : 'is-locked',
+    game.status === 'in' ? 'is-live' : '',   // minimize the conviction curve once live
   ].filter(Boolean).join(' ');
   const startLabel = formatStartLabel(game?.actual_start_at, game?.start_time);
   pubHtml += `<div class="ca-dp-timeline-wrap${wrapMods ? ' ' + wrapMods : ''}">
@@ -898,7 +900,10 @@ function renderDetailPanel() {
 
   destroyPickTimeline();
 
-  el.innerHTML = headerHtml + `<div class="ca-dp-grid">
+  const isMlbLive = game.status === 'in' && (game.sport || '').toUpperCase() === 'MLB';
+  el.innerHTML = headerHtml +
+    (isMlbLive ? `<div id="ca-live-command" class="ca-live-command"></div>` : '') +
+    `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
     <div class="ca-dp-col">${pubHtml}</div>
     <div class="ca-dp-divider"></div>
     <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
@@ -918,6 +923,12 @@ function renderDetailPanel() {
       }
     });
   }
+
+  // Live command bar (MLB v1): mount + start the ~12s visibility-gated poll once
+  // the game is live; tear it down otherwise. Re-runs on every slot change so the
+  // pulse tracks the slot the user is viewing.
+  if (isMlbLive) mountLiveCommand({ gameId, activeSlot: _activeSlot });
+  else unmountLiveCommand();
 
   // Paywall banner
   if (!isPaying() && p && scoreHidden) {
@@ -2415,7 +2426,7 @@ function histPlayerRow(r, labels) {
 // under the dial. Null pct renders an empty (greyed) dial.
 let _mgUid = 0;
 const MG_STOPS = {
-  form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['100%', '#fb923c']],
+  form: [['0%', '#38bdf8'], ['50%', '#8b93a7'], ['78%', '#fb923c'], ['100%', '#ef4444']],
   load: [['0%', '#22c55e'], ['45%', '#eab308'], ['72%', '#f97316'], ['100%', '#ef4444']],
 };
 function miniHeatGauge({ pct, kind, label, labelColor, tip, muted }) {
@@ -2465,17 +2476,31 @@ function _lerpHex(a, b, t) {
   const ca = n(a), cb = n(b);
   return '#' + ca.map((v, i) => Math.round(v + (cb[i] - v) * t).toString(16).padStart(2, '0')).join('');
 }
+// Multi-stop gradient: deep blue → ice → grey → orange → deep red, so "really hot"
+// actually reaches red (and "really cold" deep blue), not just a mild tint.
+const FORM_STOPS = {
+  vivid: [[0, '#2f6f99'], [28, '#38bdf8'], [50, '#9aa3b4'], [74, '#fb923c'], [100, '#ef4444']],
+  dim:   [[0, '#3a6478'], [28, '#4f93b0'], [50, '#8892a4'], [74, '#c46a2a'], [100, '#c0392b']],
+};
+function _gradAt(stops, pct) {
+  const p = Math.max(0, Math.min(100, pct));
+  for (let i = 1; i < stops.length; i++) {
+    if (p <= stops[i][0]) {
+      const [p0, c0] = stops[i - 1], [p1, c1] = stops[i];
+      return _lerpHex(c0, c1, (p - p0) / (p1 - p0 || 1));
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+// Steeper z→position so a genuine hot/cold stretch reaches the ends of the dial.
+// z 0 = 50 (even/center); z ~±2 maxes out. Was z×16.7 (needed z≈3 — too tame).
 function formPct(hc) {
   if (!hc) return 50;
-  return hc.z != null ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
-    : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
+  return hc.z != null ? Math.max(0, Math.min(100, 50 + hc.z * 24))
+    : ({ hot: 92, warm: 70, neutral: 50, cool: 30, cold: 8 }[hc.bucket] ?? 50);
 }
 function formTint(pct, dim) {
-  const cold = dim ? '#3f7e96' : '#38bdf8';
-  const mid  = dim ? '#8892a4' : '#9aa3b4';
-  const hot  = dim ? '#c46a2a' : '#fb923c';
-  const p = Math.max(0, Math.min(100, pct));
-  return p <= 50 ? _lerpHex(cold, mid, p / 50) : _lerpHex(mid, hot, (p - 50) / 50);
+  return _gradAt(dim ? FORM_STOPS.dim : FORM_STOPS.vivid, pct);
 }
 
 function histFormCell(hc) {
