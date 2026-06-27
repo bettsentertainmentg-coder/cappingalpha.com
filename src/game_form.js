@@ -44,7 +44,7 @@ function travelBump(fromState, toState) {
   if (a == null || b == null) return { bump: 0, note: null };
   const tz = Math.abs(a - b);
   if (tz <= 0) return { bump: 0, note: null };
-  return { bump: Math.min(12, tz * 4), note: tz >= 3 ? 'Cross-country trip' : `${tz} time zone${tz > 1 ? 's' : ''} traveled` };
+  return { bump: Math.min(12, tz * 4), note: tz >= 3 ? 'Cross-country' : `${tz} time zone${tz > 1 ? 's' : ''}` };
 }
 
 // "Coming off an injury?" — compare the player's own game dates against the

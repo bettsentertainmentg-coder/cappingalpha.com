@@ -283,6 +283,40 @@ function bucketFromRatio(r) {
   return r >= 1.25 ? 'hot' : r >= 1.10 ? 'warm' : r >= 0.90 ? 'neutral' : r >= 0.75 ? 'cool' : 'cold';
 }
 
+// Plain-English stat names so the "why" never leans on abbreviations.
+const PRIMARY_DESC = {
+  PRA: 'points, rebounds & assists',
+  SOG: 'shots on goal',
+  'TB+': 'bases (hits + walks)',
+  'K-BB': 'strikeouts vs walks',
+  YDS: 'yards',
+};
+
+// Build a short, plain explanation for the Form reading — the real drivers
+// (recent vs his own norm, and vs a typical regular) without exposing the math.
+// EVEN stays a one-liner; hot/cold/sharp/wild get the fuller multi-reason read.
+function formReasons(bucket, recent, baseline, shortN, primaryName, lf) {
+  if (!bucket || bucket === 'na' || recent == null || baseline == null) return [];
+  const label  = PRIMARY_DESC[primaryName] || (primaryName || 'production').toLowerCase();
+  const r = +recent.toFixed(1), b = +baseline.toFixed(1);
+
+  if (bucket === 'neutral') {
+    return [`Producing right around his usual level (~${b} ${label} a game).`];
+  }
+
+  const strong = bucket === 'hot' || bucket === 'cold';
+  const up = bucket === 'hot' || bucket === 'warm';
+  const mag = strong ? 'well' : 'a bit';
+  const reasons = [
+    `His last ${shortN} games (${r} ${label} a game) are ${mag} ${up ? 'above' : 'below'} his season norm (${b}).`,
+  ];
+  if (lf) { // MLB hitters: how he stacks up vs a league-average regular
+    if (recent > lf.mean * 1.05)      reasons.push(`That's also ahead of a typical hitter (~${lf.mean}).`);
+    else if (recent < lf.mean * 0.95) reasons.push(`That's also behind a typical hitter (~${lf.mean}).`);
+  }
+  return reasons;
+}
+
 function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
   const cfg = hotColdCfg(sport, ctx);
   if (!gamelog || !gamelog.series || !cfg) return null;
@@ -310,6 +344,9 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
   const rMean      = ewma(vals.slice(0, cfg.short * 3), decay);
   const shortCount = Math.min(vals.length, cfg.short);
 
+  // League reference (MLB hitters only) — used in both the blend and the "why".
+  const lf = (sport === 'MLB' && ctx.role !== 'pitcher') ? LEAGUE_FORM.MLB : null;
+
   let bucket, z = null;
   if (bSd == null || bSd < 1e-6) {
     bucket = bucketFromRatio(bMean ? rMean / bMean : 1);
@@ -319,14 +356,13 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     z = selfZ;
     // Blend in a league-relative read so production well above (or below) a
     // typical regular registers, not just movement vs the player's own bar.
-    // (MLB hitters for now; self stays the heavier factor.)
-    const lf = (sport === 'MLB' && ctx.role !== 'pitcher') ? LEAGUE_FORM.MLB : null;
     if (lf) {
       const leagueZ = clamp((rMean - lf.mean) / lf.sd, -3, 3);
       z = lf.selfWeight * selfZ + (1 - lf.selfWeight) * leagueZ;
     }
     bucket = bucketFromZ(z);
   }
+
   return {
     bucket,
     z: z != null ? +z.toFixed(2) : null,
@@ -334,6 +370,7 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
     baseline: bMean != null ? +bMean.toFixed(1) : null,
     n: played.length,
     primaryName,
+    reasons: formReasons(bucket, rMean, bMean, cfg.short, primaryName, lf),
   };
 }
 

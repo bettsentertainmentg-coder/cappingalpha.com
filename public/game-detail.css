@@ -1713,6 +1713,12 @@ nav {
 .ca-tf-trendval { font-size: 13px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Offense / defense (stat-group) sub-toggle */
+/* Controls row: Batting/Pitching toggle on the left, team chips (ATS/O-U + travel)
+   on the right so they don't take their own stacked row. */
+.ca-tf-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.ca-tf-controls .ca-tf-blocktoggle { margin-bottom: 0; }
+.ca-tf-teamchips { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
 .ca-tf-blocktoggle { display: inline-flex; gap: 4px; margin-bottom: 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
 .ca-tf-blocktab {
   background: none; border: none; cursor: pointer;
@@ -1723,7 +1729,11 @@ nav {
 .ca-tf-blocktab.active { background: var(--accent); color: #fff; }
 
 /* Forward grid reuses .ca-hp-table; these style the extra columns */
-.ca-tf-table { min-width: 620px; }
+.ca-tf-table { min-width: 760px; }
+/* "Why" column — left-aligned plain-English explanation of the Form reading. */
+.ca-tf-why-th { text-align: left !important; }
+.ca-tf-cell.ca-tf-why { text-align: left !important; vertical-align: middle; min-width: 190px; max-width: 240px; }
+.ca-tf-why-text { display: block; font-size: 11px; line-height: 1.35; color: var(--text-secondary); white-space: normal; }
 /* "Starting pitcher" / "Bullpen" group separators inside the pitching block */
 .ca-tf-grouprow td {
   text-align: left !important; padding: 8px 10px !important; vertical-align: middle;

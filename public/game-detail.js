@@ -2625,15 +2625,16 @@ function paintTeamForm(data) {
   if (_tfBlockIdx >= blocks.length) _tfBlockIdx = 0;
   const injMap = tfInjuryMap(_tfTeam);
   const blk = blocks[_tfBlockIdx];
-  const travelChip = data.travel
-    ? `<div class="ca-tf-trends"><span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">Travel</span><span class="ca-tf-trendval">${esc(data.travel)}</span></span></div>`
+  // Toggle on the left, team chips (ATS/O-U + travel) on the right of one row.
+  const toggle = tfBlockToggleHtml(blocks);
+  const chips  = tfTeamChips(data);
+  const controls = (toggle || chips)
+    ? `<div class="ca-tf-controls">${toggle || '<span></span>'}<div class="ca-tf-teamchips">${chips}</div></div>`
     : '';
   body.innerHTML =
-    tfBettingHtml(data.betting) +
-    travelChip +
-    tfBlockToggleHtml(blocks) +
+    controls +
     (blk ? tfBlockTable(blk, injMap) : `<div class="ca-hist-empty">No players to show.</div>`) +
-    `<div class="ca-hist-caption">Form is recent production vs the player's own baseline. Load blends rest and recent workload (not injury risk). Trends and splits use recent games only.</div>`;
+    `<div class="ca-hist-caption">Form is recent production vs the player's own baseline. Load blends rest and recent workload (not injury risk). Splits use recent games only.</div>`;
 
   body.querySelectorAll('.ca-tf-blocktab').forEach(b => b.addEventListener('click', () => {
     const i = parseInt(b.dataset.idx, 10);
@@ -2656,14 +2657,18 @@ function tfInjuryMap(team) {
   return map;
 }
 
-function tfBettingHtml(b) {
-  if (!b) return '';
+// Team-level chips (ATS / O-U trend + travel), shown to the right of the
+// Batting/Pitching toggle so they don't take their own stacked row.
+function tfTeamChips(data) {
+  const b = data.betting;
   const chips = [];
-  if (b.ats) { const { w, l, p, n } = b.ats; chips.push(
+  if (b && b.ats) { const { w, l, p, n } = b.ats; chips.push(
     `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">ATS · last ${n}</span><span class="ca-tf-trendval ca-num">${w}-${l}${p ? '-' + p : ''}</span></span>`); }
-  if (b.ou)  { const { over, under, push, n } = b.ou; chips.push(
+  if (b && b.ou)  { const { over, under, push, n } = b.ou; chips.push(
     `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">O/U · last ${n}</span><span class="ca-tf-trendval ca-num">${over}-${under}${push ? '-' + push : ''}</span></span>`); }
-  return chips.length ? `<div class="ca-tf-trends">${chips.join('')}</div>` : '';
+  if (data.travel) chips.push(
+    `<span class="ca-tf-trendchip"><span class="ca-tf-trendlbl">Travel</span><span class="ca-tf-trendval">${esc(data.travel)}</span></span>`);
+  return chips.join('');
 }
 
 function tfBlockLabel(b) {
@@ -2685,7 +2690,7 @@ function tfBlockTable(blk, injMap) {
   const isMlb = (_data.game.sport || '').toUpperCase() === 'MLB';
   const isBat = blk.role === 'batter';
   const has4  = isMlb && blk.role === 'pitcher';
-  const cols  = has4 ? 6 : 5;
+  const cols  = (has4 ? 6 : 5) + 1; // +1 for the "Why" explanation column
 
   const sorted = blk.rows.slice().sort((a, b) => (b.starter ? 1 : 0) - (a.starter ? 1 : 0));
   const grp = label => `<tr class="ca-tf-grouprow"><td colspan="${cols}">${esc(label)}</td></tr>`;
@@ -2706,6 +2711,7 @@ function tfBlockTable(blk, injMap) {
   const head = `<tr>` +
     `<th class="ca-hp-th-name">${nameHdr}</th>` +
     `<th class="ca-hp-th-ours">Form</th>` +
+    `<th class="ca-tf-th ca-tf-why-th">Why</th>` +
     `<th class="ca-hp-th-ours">Load</th>` +
     col4Hdr +
     `<th class="ca-tf-th">Splits</th>` +
@@ -2720,11 +2726,19 @@ function tfPlayerRow(r, injMap, has4) {
   return `<tr class="ca-hp-row">` +
     `<td class="ca-hp-name">${tfNameCell(r)}</td>` +
     `<td class="ca-hp-formcell">${histFormCell(r.form)}</td>` +
+    `<td class="ca-tf-cell ca-tf-why">${tfWhyCell(r.form)}</td>` +
     `<td class="ca-hp-loadcell">${histLoadCell(r.load)}</td>` +
     col4 +
     `<td class="ca-tf-cell">${tfSplitCell(r.splits)}</td>` +
     `<td class="ca-tf-cell">${tfStatusCell(r, injMap)}</td>` +
     `</tr>`;
+}
+
+// Plain explanation of the Form reading (from the engine's `reasons`).
+function tfWhyCell(hc) {
+  const reasons = (hc && hc.reasons) || [];
+  if (!reasons.length) return `<span class="ca-tf-dash">—</span>`;
+  return `<span class="ca-tf-why-text">${reasons.map(esc).join(' ')}</span>`;
 }
 
 function tfRecentCell(rec) {
