@@ -2457,24 +2457,43 @@ function histNameCell(r, f) {
 
 // Form dial: you're hot or you're cold. The needle leans toward fire (playing
 // well vs the player's baseline) or ice (slumping). Label reads HOT / EVEN / COLD.
+// Continuous cold→hot tint for the form word + explanation, so a slight lean
+// (even-but-warming) reads slightly warm. `dim` = the body-text variant; vivid is
+// for the dial word. 0 = cold (ice), 50 = even (grey), 100 = hot (fire).
+function _lerpHex(a, b, t) {
+  const n = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const ca = n(a), cb = n(b);
+  return '#' + ca.map((v, i) => Math.round(v + (cb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function formPct(hc) {
+  if (!hc) return 50;
+  return hc.z != null ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
+    : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
+}
+function formTint(pct, dim) {
+  const cold = dim ? '#3f7e96' : '#38bdf8';
+  const mid  = dim ? '#8892a4' : '#9aa3b4';
+  const hot  = dim ? '#c46a2a' : '#fb923c';
+  const p = Math.max(0, Math.min(100, pct));
+  return p <= 50 ? _lerpHex(cold, mid, p / 50) : _lerpHex(mid, hot, (p - 50) / 50);
+}
+
 function histFormCell(hc) {
   if (!hc || !hc.bucket || hc.bucket === 'na') {
     return miniHeatGauge({ pct: null, kind: 'form', label: '—', tip: 'Not enough games yet' });
   }
-  const pct = hc.z != null
-    ? Math.max(0, Math.min(100, 50 + hc.z * 16.7))
-    : ({ hot: 86, warm: 68, neutral: 50, cool: 32, cold: 14 }[hc.bucket] ?? 50);
+  const pct = formPct(hc);
   // Pitchers read command (K-BB) as sharp ↔ wild; everyone else hot ↔ cold.
   const isPitcher = hc.primaryName === 'K-BB';
   const hi = hc.bucket === 'hot' || hc.bucket === 'warm';
   const lo = hc.bucket === 'cold' || hc.bucket === 'cool';
-  let label, color;
+  let label;
   if (isPitcher) {
     label = ({ hot: 'SHARP', warm: 'SEMI-SHARP', neutral: 'EVEN', cool: 'SEMI-WILD', cold: 'WILD' })[hc.bucket] || 'EVEN';
   } else {
     label = hi ? 'HOT' : lo ? 'COLD' : 'EVEN';
   }
-  color = hi ? '#fb923c' : lo ? '#38bdf8' : 'var(--text-tertiary)';
+  const color = formTint(pct, false); // continuous tint → "even" leans warm/cool
   const low = hc.n != null && hc.n < 10; // few recent games → noted in tooltip
   const tip = `${hc.primaryName} ${isPitcher ? 'command' : 'form'}: recent vs trailing avg${hc.z != null ? ` (z ${hc.z})` : ''}${low ? ` · limited sample (${hc.n} g)` : ''}`;
   return miniHeatGauge({ pct, kind: 'form', label, labelColor: color, tip });
@@ -2740,8 +2759,8 @@ function tfPlayerRow(r, injMap, has4) {
 function tfWhyCell(hc) {
   const reasons = (hc && hc.reasons) || [];
   if (!reasons.length) return `<span class="ca-tf-dash">—</span>`;
-  const tone = ['hot', 'warm', 'neutral', 'cool', 'cold'].includes(hc.bucket) ? hc.bucket : 'neutral';
-  return `<span class="ca-tf-why-text ca-tf-why--${tone}">${reasons.map(esc).join(' ')}</span>`;
+  const color = formTint(formPct(hc), true); // dim continuous tint, matches the lean
+  return `<span class="ca-tf-why-text" style="color:${color}">${reasons.map(esc).join(' ')}</span>`;
 }
 
 function tfRecentCell(rec) {

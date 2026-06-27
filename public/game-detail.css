@@ -1631,7 +1631,7 @@ nav {
    Load are columns to the right (the explanation reads a touch bigger here). */
 .ca-hp-avgline { display: flex; align-items: baseline; gap: 5px; margin-top: 3px; }
 .ca-hp-avg-lbl { font-size: 9px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-tertiary); }
-.ca-hp-avg-val { font-size: 13px; font-weight: 800; color: var(--text); }
+.ca-hp-avg-val { font-size: 11px; font-weight: 700; color: var(--text-secondary); }
 .ca-hp-avg-sub { font-size: 9px; color: var(--text-disabled); }
 .ca-hp-blockwrap .ca-tf-why-text { font-size: 11px; }
 .ca-hp-starter { color: var(--accent-mvp); font-size: 9px; }
