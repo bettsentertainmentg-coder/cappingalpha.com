@@ -814,13 +814,14 @@ const CONV_TEASER = [
 function convictionHeaderHtml(p, timelineVisible, hasTimeline) {
   const head = `<span class="ca-dp-hdr-conv-lbl"><img src="/ca-logo.png" alt="CA" class="ca-dp-hdr-conv-logo" onerror="this.style.display='none'">Conviction</span>`;
   let body;
-  if (!p) {
-    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
-  } else if (!timelineVisible) {
+  if (!timelineVisible) {
+    // Non-paid: blurred teaser on EVERY slot (so it never reveals which sides have picks).
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--locked" onclick="openSignup()" title="Full access only">
       <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER)}</div>
       <div class="ca-dp-hdr-conv-lockover"><i class="fa-solid fa-lock"></i><span>Full access</span></div>
     </div>`;
+  } else if (!p) {
+    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
   } else {
     body = (hasTimeline && p.timeline.length > 0)
       ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline)}</div>`

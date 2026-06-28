@@ -226,19 +226,15 @@ function pulseCellHtml(pulse) {
     <div class="ca-lc-pulse-note" title="Our model rates this pick's live value from the score, inning, outs, baserunners and count versus where it locked. A probabilistic read, not a promise.">What this means</div>`;
 }
 
-// Start / scheduled time: top-right of the live card (app-generated HTML, has a <span>).
-function metaHtml() {
-  const start = (_ctx && _ctx.startLabel) || '';
-  return start ? `<div class="ca-lc-meta">${start}</div>` : '';
-}
-
-// Footer is just the tracked bets list, inside the card so it never sits flush-left.
+// Footer: tracked bets (left) + start / scheduled time (right), inside the card so
+// neither sits flush against the panel edge. No top border (keeps the card clean).
 function footHtml() {
-  const bets = (_ctx && _ctx.betsHtml) || '';
-  if (!bets) return '';
+  const bets  = (_ctx && _ctx.betsHtml) || '';
+  const start = (_ctx && _ctx.startLabel) || '';   // app-generated HTML (has a <span>)
+  if (!bets && !start) return '';
   return `<div class="ca-lc-foot">
-    <span class="ca-lc-foot-lbl">Your tracked bets</span>
-    <div class="ca-lc-foot-bets">${bets}</div>
+    ${bets ? `<div class="ca-lc-foot-left"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : '<span></span>'}
+    ${start ? `<div class="ca-lc-foot-time">${start}</div>` : ''}
   </div>`;
 }
 
@@ -247,7 +243,6 @@ function render(el, data) {
   const pulse = pickPulse(data.pulses);
   el.innerHTML = `
     <div class="ca-lc">
-      ${metaHtml()}
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
           <div class="ca-lc-cell-hd">Live <span class="ca-lc-livedot"></span></div>

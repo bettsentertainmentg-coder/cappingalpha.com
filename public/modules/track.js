@@ -322,33 +322,82 @@ function sheetMenuHtml() {
     </button>`;
 }
 
-let _trackGames = [];
+let _trackGames = [];   // today's games (verified-capable, from /api/games)
 let _trackSport = '';
 let _trackQuery = '';
+let _trackDay   = 0;    // 0 = today; 1..6 = future days (custom-only)
+let _dayChips   = [];   // [{ offset, dateStr, label }]
+let _dayCache   = {};   // offset -> games[] for future days (lazy-loaded)
+
+// Build the day buttons locally (Today, Tomorrow, then weekday short names). Future
+// days are fetched lazily on click from the separate /api/track/schedule endpoint.
+function buildDayChips() {
+  const out = [{ offset: 0, dateStr: '', label: 'Today' }];
+  const now = new Date();
+  for (let i = 1; i <= 6; i++) {
+    const d = new Date(now); d.setDate(d.getDate() + i);
+    const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    out.push({ offset: i, dateStr, label: i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' }) });
+  }
+  return out;
+}
 
 export async function trackFromGame() {
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
   body.innerHTML = `
     <div class="track-game-search">
+      <div class="tg-filter-row" id="tg-days" style="margin-bottom:8px;"></div>
       <div class="tg-filter-row" id="tg-sports"></div>
       <input type="text" id="tg-search" placeholder="Search a game or team..." oninput="filterTrackGames(this.value)" autocomplete="off" />
       <div id="tg-results" class="tg-results"><div style="padding:14px;color:var(--muted);font-size:13px;">Loading games...</div></div>
     </div>`;
+  _trackSport = ''; _trackQuery = ''; _trackDay = 0; _dayCache = {};
+  _dayChips = buildDayChips();
+  renderDayChips();
   try {
     const res = await fetch('/api/games');
     _trackGames = res.ok ? await res.json() : [];
   } catch (_) { _trackGames = []; }
-  _trackSport = ''; _trackQuery = '';
   renderSportChips();
   renderTrackGames();
   document.getElementById('tg-search')?.focus();
 }
 
+function currentDayGames() {
+  return _trackDay === 0 ? _trackGames : (_dayCache[_trackDay] || []);
+}
+
+function renderDayChips() {
+  const el = document.getElementById('tg-days');
+  if (!el) return;
+  el.innerHTML = _dayChips
+    .map(c => `<button class="tg-chip${_trackDay === c.offset ? ' active' : ''}" onclick="setTrackDay(${c.offset})">${c.label}</button>`)
+    .join('');
+}
+
+// Switch the active day. Today uses the verified-capable /api/games set already loaded;
+// a future day lazily fetches its schedule (custom-only) the first time it's opened.
+export async function setTrackDay(offset) {
+  _trackDay = offset; _trackSport = ''; _trackQuery = '';
+  const s = document.getElementById('tg-search'); if (s) s.value = '';
+  renderDayChips();
+  if (offset === 0 || _dayCache[offset]) { renderSportChips(); renderTrackGames(); return; }
+  const el = document.getElementById('tg-results');
+  if (el) el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">Loading games...</div>`;
+  const chip = _dayChips.find(c => c.offset === offset);
+  try {
+    const r = await fetch(`/api/track/schedule?date=${chip.dateStr}`);
+    const d = r.ok ? await r.json() : null;
+    _dayCache[offset] = (d && d.games) || [];
+  } catch (_) { _dayCache[offset] = []; }
+  if (_trackDay === offset) { renderSportChips(); renderTrackGames(); } // ignore if the user already moved on
+}
+
 function renderSportChips() {
   const el = document.getElementById('tg-sports');
   if (!el) return;
-  const present = [...new Set(_trackGames.map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
+  const present = [...new Set(currentDayGames().map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
   el.innerHTML = ['', ...present]
     .map(s => `<button class="tg-chip${_trackSport === s ? ' active' : ''}" onclick="setTrackSport('${s}')">${s || 'All'}</button>`)
     .join('');
@@ -356,29 +405,51 @@ function renderSportChips() {
 export function setTrackSport(s) { _trackSport = s; renderSportChips(); renderTrackGames(); }
 export function filterTrackGames(q) { _trackQuery = q; renderTrackGames(); }
 
+// Future-day game tapped: open the custom-bet form with the sport preset and the
+// matchup as a hint. No odds board / verified tracking for future games (no lines).
+export function trackFutureGame(sport, matchup) {
+  showCustomForm();
+  const sportSel = document.getElementById('cf-sport');
+  if (sportSel && sport) sportSel.value = sport;
+  const sel = document.getElementById('cf-selection');
+  if (sel && matchup) sel.placeholder = `Your pick for ${matchup}`;
+}
+
 function renderTrackGames() {
   const el = document.getElementById('tg-results');
   if (!el) return;
+  const future = _trackDay !== 0;
   const q = (_trackQuery || '').trim().toLowerCase();
-  let games = _trackGames;
+  let games = currentDayGames();
   if (_trackSport) games = games.filter(g => (g.sport || '').toUpperCase() === _trackSport);
   if (q.length >= 1) games = games.filter(g => `${g.away_team} ${g.home_team} ${g.sport}`.toLowerCase().includes(q));
   // Live first, then upcoming by time, then finals.
   const rank = g => g.status === 'in' ? 0 : g.status === 'post' ? 2 : 1;
   games = games.slice().sort((a, b) => rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || '')));
-  games = games.slice(0, 40);
+  games = games.slice(0, 60);
   if (!games.length) {
-    el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">${_trackGames.length ? 'No games match.' : 'No games on the board right now.'}</div>`;
+    const msg = future ? 'No games scheduled for this day yet.' : (_trackGames.length ? 'No games match.' : 'No games on the board right now.');
+    el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">${msg}</div>`;
     return;
   }
-  el.innerHTML = games.map(g => {
+  const note = future
+    ? `<div style="padding:0 2px 8px;color:var(--muted);font-size:11.5px;">Future games are custom only. Verified tracking opens once the game is on today's board.</div>`
+    : '';
+  el.innerHTML = note + games.map(g => {
     const away = (g.away_team || '').split(' ').pop();
     const home = (g.home_team || '').split(' ').pop();
-    const status = g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
+    const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
+    const status = future ? time
+      : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
-      : (g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '');
-    return `<button class="tg-row" onclick="pickTrackGame('${g.espn_game_id}')">
-      <span class="tg-matchup">${away} @ ${home} ${sportBadge(g.sport)}</span>
+      : time;
+    const matchup = `${away} @ ${home}`;
+    const onclick = future
+      ? `trackFutureGame('${(g.sport || '').toUpperCase()}','${matchup.replace(/'/g, "\\'")}')`
+      : `pickTrackGame('${g.espn_game_id}')`;
+    const tag = future ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
+    return `<button class="tg-row" onclick="${onclick}">
+      <span class="tg-matchup">${matchup} ${sportBadge(g.sport)}${tag}</span>
       <span class="tg-status">${status} ›</span>
     </button>`;
   }).join('');
@@ -668,6 +739,7 @@ Object.assign(window, {
   setBetFilter, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet,
+  setTrackDay, trackFutureGame,
 });
 
 // Escape closes the track sheet / bet detail (Backlog P2 #24).

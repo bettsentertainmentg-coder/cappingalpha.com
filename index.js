@@ -144,6 +144,7 @@ app.use('/auth/signup', loginRateLimit);
 app.use('/admin', admin);
 app.use('/auth', auth);
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
+app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
