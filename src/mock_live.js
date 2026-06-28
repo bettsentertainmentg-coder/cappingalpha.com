@@ -46,10 +46,16 @@ const FRAMES = [
   { detail: 'Bot 7th', inning: 7, half: 'bot', outs: 1, bases: 0, balls: 0, strikes: 1, home: 5, away: 4, hh: 10, ah: 10, he: 1, ae: 1, bat: 'E. De La Cruz', batLine: '1-3',      pit: 'A. Abbott',    pitLine: '1.2 IP',            lastPlay: 'Reds cling to a 5-4 lead' },
   { detail: 'Bot 8th', inning: 8, half: 'bot', outs: 1, bases: 4, balls: 1, strikes: 2, home: 6, away: 4, hh: 11, ah: 10, he: 1, ae: 1, bat: 'S. Steer',    batLine: '2-4',       pit: 'D. Bednar',    pitLine: '0.1 IP, 1 ER',      lastPlay: 'Insurance run, CIN 6-4' },
 ];
-const FRAME_SECS = 7;
+// Progress forward through the game at ~8x real time: a ~3h game plays out over ~22
+// minutes, advancing one frame at a time (~75s each), then loops to a fresh game. This
+// makes it feel like a real game ticking through innings rather than a frantic loop.
+const GAME_SPEED   = 8;
+const REAL_GAME_MS = 3 * 60 * 60 * 1000;             // baseline ~3h game
+const CYCLE_MS     = Math.round(REAL_GAME_MS / GAME_SPEED);   // ~22.5 min compressed
 
 function currentFrameIndex() {
-  return Math.floor(((Date.now() / 1000) % (FRAMES.length * FRAME_SECS)) / FRAME_SECS);
+  const pos = Date.now() % CYCLE_MS;
+  return Math.min(FRAMES.length - 1, Math.floor((pos / CYCLE_MS) * FRAMES.length));
 }
 
 // Per-inning runs (line score) up to the current frame, derived by replaying the

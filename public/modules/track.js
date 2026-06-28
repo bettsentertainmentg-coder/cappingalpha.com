@@ -547,6 +547,30 @@ export async function pickTrackGame(id) {
 const _odds = o => (o == null || o === '' ? '—' : (o > 0 ? '+' + o : '' + o));
 const _sp   = s => (s == null || s === '' ? '—' : (s > 0 ? '+' + s : '' + s));
 
+// Win probability -> American odds (mirror of src/implied_lines.js).
+function pmToAmerican(p) {
+  const x = Number(p);
+  if (!isFinite(x) || x <= 0 || x >= 1) return null;
+  return x >= 0.5 ? Math.round(-(x / (1 - x)) * 100) : Math.round(((1 - x) / x) * 100);
+}
+// Derive a line from the board's cached prediction-market data (Polymarket, then Kalshi).
+function impliedFromBoard(board) {
+  const source = board.polymarket ? 'polymarket' : (board.kalshi ? 'kalshi' : null);
+  const raw = board.polymarket || board.kalshi;
+  if (!raw || !raw.markets_json) return null;
+  let m; try { m = JSON.parse(raw.markets_json); } catch (_) { return null; }
+  const ml = m.moneyline || {}, sp = m.spread || {}, tot = m.total || {};
+  const o = {
+    source,
+    ml_home: pmToAmerican(ml.home_prob), ml_away: pmToAmerican(ml.away_prob),
+    spread_home: sp.line != null ? +sp.line : null, spread_away: sp.line != null ? -sp.line : null,
+    over_under: tot.line != null ? +tot.line : null,
+    ou_over_odds: pmToAmerican(tot.over_prob), ou_under_odds: pmToAmerican(tot.under_prob),
+  };
+  if (o.ml_home == null && o.over_under == null && o.spread_home == null) return null;
+  return o;
+}
+
 function renderOddsBoard() {
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
@@ -557,6 +581,13 @@ function renderOddsBoard() {
     return;
   }
   const g = _board.game;
+  // No sportsbook line? Fall back to the free prediction-market implied line (Polymarket
+  // first, then Kalshi). In prod the server already fills this; locally the dev mirror
+  // serves the old /api/game, so we derive it here from the market data in the payload.
+  if (g.ml_home == null && g.ml_away == null && g.over_under == null && g.spread_home == null) {
+    const imp = impliedFromBoard(_board);
+    if (imp) { Object.assign(g, imp); g.line_source = g.line_source || imp.source; }
+  }
   const id = g.espn_game_id;
   const started = g.status === 'in' || g.status === 'post';
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
@@ -607,7 +638,7 @@ function renderOddsBoard() {
     <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
     <div class="track-form-note">${started
       ? 'This game has started, so verified tracking is closed. Use Custom bet to log it.'
-      : 'Tap a line to track it. Verified, locked at this number, graded automatically.'}</div>
+      : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
     ${started ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
       <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>

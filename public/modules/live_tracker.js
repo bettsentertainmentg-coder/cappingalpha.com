@@ -78,7 +78,7 @@ function boxscoreHtml(s) {
 
 function diamondSvg(bases = 0) {
   const on = (m) => (bases & m) ? 'ca-lc-base--on' : '';
-  return `<svg class="ca-lc-diamond" viewBox="0 0 60 60" width="44" height="44" aria-hidden="true">
+  return `<svg class="ca-lc-diamond" viewBox="0 0 60 60" width="58" height="58" aria-hidden="true">
     <rect class="ca-lc-base ${on(2)}" x="24" y="6"  width="12" height="12" rx="2.5" transform="rotate(45 30 12)"/>
     <rect class="ca-lc-base ${on(1)}" x="42" y="24" width="12" height="12" rx="2.5" transform="rotate(45 48 30)"/>
     <rect class="ca-lc-base ${on(4)}" x="6"  y="24" width="12" height="12" rx="2.5" transform="rotate(45 12 30)"/>

@@ -57,6 +57,7 @@ const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHist
 const { liveWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
 const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive } = require('./src/mock_live');
 const { computeValuePulse } = require('./src/live_value');
+const { impliedLineForGame } = require('./src/implied_lines');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
 const { seedDummyAccounts, runDummyVotes, runDummyComments } = require('./src/dummy_accounts');
@@ -196,8 +197,10 @@ if (MIRROR_URL) {
   });
 }
 
-// Local-dev mock live game (no-op unless UI_ONLY). Inert in production.
+// Local-dev mock live game (no-op unless UI_ONLY). Inert in production. Re-install on
+// a timer so it survives the daily wipe that clears today_games (idempotent upsert).
 installMockLive(db);
+if (mockActive()) setInterval(() => installMockLive(db), 60 * 1000).unref();
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -626,7 +629,7 @@ app.get('/api/games/top', (req, res) => {
   // Scope to the current board day so a matchup's future-dated rows don't replace
   // today's. Each game's ET cycle date (start_time → cycleDateForInstant) must
   // equal the board day.
-  candidates = candidates.filter(g => cycleDateForInstant(g.start_time) === boardDate);
+  candidates = candidates.filter(g => isMockId(g.espn_game_id) || cycleDateForInstant(g.start_time) === boardDate);
 
   if (sportFilter) {
     const want = sportFilter.map(s => s.toUpperCase());
@@ -1055,6 +1058,20 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
 
+  // No sportsbook line (common for tennis + niche games)? Fall back to the free
+  // prediction-market implied line (Polymarket first, then Kalshi) so the odds board can
+  // still show it and a side can be tracked verified, locked at that number.
+  if (game.ml_home == null && game.ml_away == null && game.over_under == null && game.spread_home == null) {
+    const implied = impliedLineForGame(espn_game_id);
+    if (implied) {
+      game.ml_home = implied.ml_home;   game.ml_away = implied.ml_away;
+      game.spread_home = implied.spread_home; game.spread_away = implied.spread_away;
+      game.over_under = implied.over_under;
+      game.ou_over_odds = implied.ou_over_odds; game.ou_under_odds = implied.ou_under_odds;
+      game.line_source = implied.source; // 'polymarket' | 'kalshi'
+    }
+  }
+
   const picks = db.prepare(`
     SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC
   `).all(espn_game_id);
@@ -1337,6 +1354,16 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   if (!game) return res.status(404).json({ error: 'Game not found' });
   if (game.status === 'in' || game.status === 'post') {
     return res.status(409).json({ error: 'Voting closed — game has started' });
+  }
+  // Same prediction-market fallback as /api/game: a side tracked off the Polymarket line
+  // gets locked + graded at that number rather than null.
+  if (game.ml_home == null && game.ml_away == null && game.over_under == null && game.spread_home == null) {
+    const implied = impliedLineForGame(espn_game_id);
+    if (implied) Object.assign(game, {
+      ml_home: implied.ml_home, ml_away: implied.ml_away,
+      spread_home: implied.spread_home, spread_away: implied.spread_away,
+      over_under: implied.over_under, ou_over_odds: implied.ou_over_odds, ou_under_odds: implied.ou_under_odds,
+    });
   }
 
   // Remove any vote on the opposing side of the same bet type
