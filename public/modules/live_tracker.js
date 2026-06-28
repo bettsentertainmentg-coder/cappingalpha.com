@@ -209,12 +209,12 @@ function pickPulse(pulses) {
   return keys.length ? pulses[keys[0]] : null;
 }
 
-function pulseCellHtml(pulse) {
+function pulseCellHtml(pulse, isFinal) {
   if (!pulse) return `<div class="ca-lc-pulse-empty">No CA pick tracked on this game.</div>`;
   if (pulse.locked) {
     return `<div class="ca-lc-pulse-locked" onclick="openSignup()" title="Members only">
-      <div class="ca-vp-wrap ca-blurred">${valuePulseSvg([12, -8, 24, -16, 30, 5, -12, 22], '#FFD700')}</div>
-      <div class="ca-lc-pulse-lock"><i class="fa-solid fa-lock"></i> Unlock the live value read</div>
+      <div class="ca-vp-wrap ca-blurred">${valuePulseSvg([12, -8, 24, -16, 30, 5, -12, 22], '#FFD700', !isFinal)}</div>
+      <div class="ca-lc-pulse-lock"><i class="fa-solid fa-lock"></i> Unlock the ${isFinal ? 'value read' : 'live value read'}</div>
       <div class="ca-lc-pulse-sub"><a onclick="event.stopPropagation();openLogin()">Log in</a> or <a onclick="event.stopPropagation();openSignup()">create a free account</a></div>
     </div>`;
   }
@@ -223,9 +223,10 @@ function pulseCellHtml(pulse) {
   const caret = pulse.sign > 0 ? '▲' : pulse.sign < 0 ? '▼' : '•';
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
   const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx">approx</span>` : '';
+  const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `
-    <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color)}</div>
-    <div class="ca-lc-pulse-label"><span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> ${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}</div>
+    <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color, !isFinal)}</div>
+    <div class="ca-lc-pulse-label">${lead}${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}</div>
     <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the score, inning, outs, baserunners and count versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
 }
 
@@ -241,24 +242,44 @@ function footHtml() {
   </div>`;
 }
 
+// Finished game: the matchup cell becomes a result summary (no live at-bat).
+function resultHtml(s) {
+  const t = (_ctx && _ctx.teams) || {};
+  const aN = esc(t.awayName || s.awayAbbr || 'Away'), hN = esc(t.homeName || s.homeAbbr || 'Home');
+  const aR = s.awayScore ?? 0, hR = s.homeScore ?? 0;
+  const winName = s.winner === 'home' ? hN : (s.winner === 'away' ? aN : null);
+  const top = winName
+    ? `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Final</span><span class="ca-lc-mname">${winName} win ${Math.max(aR, hR)}-${Math.min(aR, hR)}</span></div>`
+    : `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Final</span><span class="ca-lc-mname">${aR}-${hR}</span></div>`;
+  const last = s.lastPlay ? `<div class="ca-lc-mrow ca-lc-mrow--ondeck"><span class="ca-lc-mlbl">Last</span><span class="ca-lc-mname">${esc(s.lastPlay)}</span></div>` : '';
+  return top + last;
+}
+
 function render(el, data) {
   const s = data.state;
+  const isFinal = s.status === 'post';
   const pulse = pickPulse(data.pulses);
+  const scoreHd = isFinal
+    ? `<div class="ca-lc-cell-hd ca-lc-hd-final">Final</div>`
+    : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>`;
+  const pulseHd = isFinal
+    ? `<div class="ca-lc-cell-hd">Value pulse</div>`
+    : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>`;
   el.innerHTML = `
     <div class="ca-lc">
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
-          <div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>
+          ${scoreHd}
           ${boxscoreHtml(s)}
-          ${stateLineHtml(s)}
+          ${isFinal ? '' : stateLineHtml(s)}
         </div>
         <div class="ca-lc-cell ca-lc-cell--matchup">
-          <div class="ca-lc-cell-hd">At the plate</div>
-          ${matchupHtml(s)}
+          <div class="ca-lc-cell-hd">${isFinal ? 'Result' : 'At the plate'}</div>
+          ${isFinal ? resultHtml(s) : matchupHtml(s)}
         </div>
         <div class="ca-lc-cell ca-lc-cell--pulse">
-          <div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>
-          ${pulseCellHtml(pulse)}
+          ${pulseHd}
+          ${pulseCellHtml(pulse, isFinal)}
         </div>
       </div>
       ${footHtml()}

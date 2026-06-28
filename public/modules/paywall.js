@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isViewer, isAccount, isPaying } from './auth.js';
-import { LOCK_SVG } from './utils.js';
+import { LOCK_SVG } from './utils.js?v=1';
 
 const PRICE_IDS = {
   day:  'price_1TMhkAB0ohior8iouVKseqmk',

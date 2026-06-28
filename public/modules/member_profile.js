@@ -5,7 +5,7 @@
 // Privacy is enforced server-side (a private member returns 403 to others).
 
 import { state } from './state.js';
-import { avatarFor, sportBadge } from './utils.js';
+import { avatarFor, sportBadge } from './utils.js?v=1';
 
 let _picks = [];           // recent picks for the open profile (for sport filtering)
 let _sportFilter = 'all';
