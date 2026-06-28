@@ -922,25 +922,29 @@ function renderDetailPanel() {
   // Live games drop the bottom paywall banner in favor of a clickable unlock badge in
   // the header (top-right), for logged-out / non-paid users.
   const liveUnlockBadge = (liveNow && !isPaying() && scoreHidden)
-    ? `<div class="ca-dp-hdr-unlock" onclick="openSignup()" title="Scores beyond #1 are unlocked for members">
+    ? `<div class="ca-dp-hdr-unlock" onclick="location.href='/#unlock'" title="Unlock CappingAlpha">
          <span class="ca-dp-hdr-unlock-1"><i class="fa-solid fa-lock"></i> Members only</span>
-         <span class="ca-dp-hdr-unlock-2">Get access from $1</span>
+         <span class="ca-dp-hdr-unlock-2">Unlock full scores + the live value pulse</span>
+         <span class="ca-dp-hdr-unlock-3">Get access from $1</span>
        </div>`
     : '';
 
   const headerHtml = `<div class="ca-dp-header${hdrMod}${liveNow ? ' ca-dp-header--live' : ''}">
-    <div class="ca-dp-hdr-left">
-      <div class="ca-dp-hdr-eyebrow-row">
-        ${showRealScore && isMvp ? `<span class="ca-dp-hdr-star">★</span>` : ''}
-        <span class="ca-dp-hdr-eyebrow">${esc(eyebrow)}</span>
+    <div class="ca-dp-hdr-lead">
+      <div class="ca-dp-hdr-left">
+        <div class="ca-dp-hdr-eyebrow-row">
+          ${showRealScore && isMvp ? `<span class="ca-dp-hdr-star">★</span>` : ''}
+          <span class="ca-dp-hdr-eyebrow">${esc(eyebrow)}</span>
+        </div>
+        <div class="ca-dp-hdr-pick-row">
+          <span class="ca-dp-hdr-side">${esc(sideLabel)}</span>
+          ${line && _activeSlot !== 'over' && _activeSlot !== 'under' ? `<span class="${slot.type === 'ml' ? 'ca-dp-hdr-juice' : 'ca-dp-hdr-line-val'} ca-num">${esc(line)}</span>` : ''}
+          ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
+        </div>
       </div>
-      <div class="ca-dp-hdr-pick-row">
-        <span class="ca-dp-hdr-side">${esc(sideLabel)}</span>
-        ${line && _activeSlot !== 'over' && _activeSlot !== 'under' ? `<span class="${slot.type === 'ml' ? 'ca-dp-hdr-juice' : 'ca-dp-hdr-line-val'} ca-num">${esc(line)}</span>` : ''}
-        ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
-      </div>
+      ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline) : ''}
     </div>
-    ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline) : ''}
+    ${liveUnlockBadge}
     <div class="ca-dp-hdr-right">
       <div class="ca-dp-hdr-score-label">CappingAlpha Score</div>
       <div class="ca-dp-hdr-score-row">
@@ -949,7 +953,6 @@ function renderDetailPanel() {
       </div>
       ${rankBadge}
       ${resultBadge}
-      ${liveUnlockBadge}
     </div>
   </div>`;
 

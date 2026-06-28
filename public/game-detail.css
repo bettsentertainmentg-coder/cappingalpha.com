@@ -1897,6 +1897,14 @@ nav {
 .ca-vp-grid { stroke: #2a3344; stroke-width: 1; }
 .ca-vp-zero { stroke: #4a5568; stroke-width: 1; stroke-dasharray: 3 3; }
 .ca-vp-xgrid { stroke: #232a38; stroke-width: 1; }
+.ca-vp-line { stroke-dasharray: 1; animation: ca-vp-draw 0.9s ease-out; }
+@keyframes ca-vp-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.ca-vp-ping { transform-box: fill-box; transform-origin: center; animation: ca-vp-ping 1.8s ease-out infinite; }
+@keyframes ca-vp-ping { 0% { transform: scale(1); opacity: 0.5; } 70%, 100% { transform: scale(3); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ca-vp-line { animation: none; stroke-dasharray: none; }
+  .ca-vp-ping { animation: none; opacity: 0; }
+}
 .ca-vp-axis { fill: var(--text-tertiary); font-size: 9px; font-weight: 600; font-family: 'Inter', system-ui, sans-serif; }
 .ca-vp-axis--zero { fill: var(--text-secondary); font-weight: 700; }
 .ca-vp-xaxis { fill: var(--text-tertiary); font-size: 9px; font-weight: 700; font-family: 'Inter', system-ui, sans-serif; }
@@ -1928,17 +1936,19 @@ nav {
 .ca-live-tag { font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 4px 11px; }
 .ca-live-tag--none { color: var(--text-tertiary); font-weight: 600; }
 
-/* Header unlock badge (live games, non-paid): clickable pay prompt, top-right. */
+/* Header unlock badge (live games, non-paid): clickable pay prompt that centers in the
+   gap between the conviction graph and the score, vertically centered in the header. */
 .ca-dp-hdr-unlock {
-  display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px;
-  margin-top: 8px; cursor: pointer; padding: 6px 10px; border-radius: 8px;
+  display: inline-flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
+  align-self: center; cursor: pointer; padding: 8px 14px; border-radius: 9px;
   background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.30);
   transition: background 0.15s;
 }
 .ca-dp-hdr-unlock:hover { background: rgba(59,130,246,0.18); }
-.ca-dp-hdr-unlock-1 { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gold, #facc15); white-space: nowrap; }
+.ca-dp-hdr-unlock-1 { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gold, #facc15); white-space: nowrap; }
 .ca-dp-hdr-unlock-1 i { margin-right: 3px; }
-.ca-dp-hdr-unlock-2 { font-size: 11px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.ca-dp-hdr-unlock-2 { font-size: 11.5px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.ca-dp-hdr-unlock-3 { font-size: 11px; font-weight: 800; color: var(--accent); white-space: nowrap; }
 
 /* CA logo on the conviction-curve label */
 .ca-dp-col-label--conv { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
@@ -1948,12 +1958,15 @@ nav {
    pick name takes its natural width; the score is pushed to the far right. */
 .ca-dp-header--live { align-items: flex-start; min-height: 122px; box-sizing: border-box; }
 .ca-dp-header--live .ca-dp-hdr-left { flex: 0 1 auto; }
+/* Lead group = pick name + conviction together; the score sits at the far right and
+   (when present) the unlock badge centers in the gap between them. */
+.ca-dp-hdr-lead { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
 
 /* In-header conviction widget (per-pick): a self-contained bubble with the CA-branded
    annotated curve, placed in the empty header space right of the pick name. Fixed
    footprint keeps the header bar solid across picks. */
 .ca-dp-hdr-conv {
-  flex: 0 0 auto; width: 244px; margin-right: auto;
+  flex: 0 0 auto; width: 244px;
   display: flex; flex-direction: column; gap: 3px;
   background: var(--bg-tertiary, #11151e); border: 1px solid var(--border);
   border-radius: 12px; padding: 7px 10px 5px;
@@ -1988,7 +2001,9 @@ nav {
 }
 @media (max-width: 720px) {
   .ca-dp-header--live { flex-wrap: wrap; min-height: 0; }
-  .ca-dp-hdr-conv { width: 100%; order: 3; margin-right: 0; }
+  .ca-dp-hdr-lead { flex-wrap: wrap; width: 100%; }
+  .ca-dp-hdr-conv { width: 100%; }
+  .ca-dp-hdr-unlock { align-self: flex-start; margin-top: 4px; }
   .ca-lc-grid { grid-template-columns: 1fr; gap: 14px; }
   .ca-lc-cell--matchup { order: 3; }
   .ca-lc-cell--pulse { order: 2; }

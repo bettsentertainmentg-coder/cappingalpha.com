@@ -322,27 +322,33 @@ function sheetMenuHtml() {
     </button>`;
 }
 
+const TRACK_DAY_MIN = -7;   // a week back (past games = custom)
+const TRACK_DAY_MAX = 7;    // a week ahead
+
 let _trackGames    = [];   // today's games (verified-capable, from /api/games)
 let _trackSport    = '';
 let _trackQuery    = '';
-let _trackDay      = 0;     // 0 = today; 1..6 = future days (custom-only)
-let _dayMeta       = [];    // [{ offset, dateStr }] for lazy future fetches
-let _dayCache      = {};    // offset -> games[] for future days
+let _trackDay      = 0;     // 0 = today; +/- = other days (custom-only until lines ship)
+let _dayMeta       = [];    // [{ offset, dateStr }] for lazy day fetches
+let _dayCache      = {};    // offset -> games[] for non-today days
 let _sportMenuOpen = false;
 
-// Date strings (YYYYMMDD) for today..today+6, for lazy future fetches.
+function ymd(d) { return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`; }
+
+// Date strings (YYYYMMDD) for today-7 .. today+7, for lazy per-day fetches.
 function buildDayMeta() {
-  const out = [{ offset: 0, dateStr: '' }];
+  const out = [];
   const now = new Date();
-  for (let i = 1; i <= 6; i++) {
+  for (let i = TRACK_DAY_MIN; i <= TRACK_DAY_MAX; i++) {
     const d = new Date(now); d.setDate(d.getDate() + i);
-    const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-    out.push({ offset: i, dateStr });
+    out.push({ offset: i, dateStr: i === 0 ? '' : ymd(d) });
   }
   return out;
 }
 function dateLabel(offset) {
-  if (offset === 0) return 'Today';
+  if (offset === 0)  return 'Today';
+  if (offset === -1) return 'Yesterday';
+  if (offset === 1)  return 'Tomorrow';
   const d = new Date(); d.setDate(d.getDate() + offset);
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); // e.g. "Mon Jun 29"
 }
@@ -397,12 +403,12 @@ function renderDateStep() {
   const el = document.getElementById('tg-datestep');
   if (!el) return;
   el.innerHTML =
-    `<button class="tg-datestep-btn" onclick="stepTrackDay(-1)" ${_trackDay <= 0 ? 'disabled' : ''} aria-label="Previous day">‹</button>`
+    `<button class="tg-datestep-btn" onclick="stepTrackDay(-1)" ${_trackDay <= TRACK_DAY_MIN ? 'disabled' : ''} aria-label="Previous day">‹</button>`
     + `<span class="tg-datestep-label">${dateLabel(_trackDay)}</span>`
-    + `<button class="tg-datestep-btn" onclick="stepTrackDay(1)" ${_trackDay >= 6 ? 'disabled' : ''} aria-label="Next day">›</button>`;
+    + `<button class="tg-datestep-btn" onclick="stepTrackDay(1)" ${_trackDay >= TRACK_DAY_MAX ? 'disabled' : ''} aria-label="Next day">›</button>`;
 }
 export function stepTrackDay(delta) {
-  const next = Math.max(0, Math.min(6, _trackDay + delta));
+  const next = Math.max(TRACK_DAY_MIN, Math.min(TRACK_DAY_MAX, _trackDay + delta));
   if (next !== _trackDay) setTrackDay(next);
 }
 
@@ -437,7 +443,7 @@ export function trackFutureGame(sport, matchup) {
 function renderTrackGames() {
   const el = document.getElementById('tg-results');
   if (!el) return;
-  const future = _trackDay !== 0;
+  const otherDay = _trackDay !== 0;   // any day that isn't today -> custom-only (until lines ship)
   const q = (_trackQuery || '').trim().toLowerCase();
   let games = currentDayGames();
   if (_trackSport) games = games.filter(g => (g.sport || '').toUpperCase() === _trackSport);
@@ -447,26 +453,27 @@ function renderTrackGames() {
   games = games.slice().sort((a, b) => rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || '')));
   games = games.slice(0, 60);
   if (!games.length) {
-    const msg = future ? 'No games scheduled for this day yet.' : (_trackGames.length ? 'No games match.' : 'No games on the board right now.');
+    const msg = otherDay ? 'No games scheduled for this day.' : (_trackGames.length ? 'No games match.' : 'No games on the board right now.');
     el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">${msg}</div>`;
     return;
   }
-  const note = future
-    ? `<div style="padding:0 2px 8px;color:var(--muted);font-size:11.5px;">Future games are custom only. Verified tracking opens once the game is on today's board.</div>`
+  const note = otherDay
+    ? `<div style="padding:0 2px 8px;color:var(--muted);font-size:11.5px;">Only today's games support verified tracking right now. Other days are logged as custom bets.</div>`
     : '';
   el.innerHTML = note + games.map(g => {
     const away = (g.away_team || '').split(' ').pop();
     const home = (g.home_team || '').split(' ').pop();
     const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
-    const status = future ? time
+    const status = otherDay
+      ? (g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}` : time)
       : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
       : time;
     const matchup = `${away} @ ${home}`;
-    const onclick = future
+    const onclick = otherDay
       ? `trackFutureGame('${(g.sport || '').toUpperCase()}','${matchup.replace(/'/g, "\\'")}')`
       : `pickTrackGame('${g.espn_game_id}')`;
-    const tag = future ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
+    const tag = otherDay ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
     return `<button class="tg-row" onclick="${onclick}">
       <span class="tg-matchup">${matchup} ${sportBadge(g.sport)}${tag}</span>
       <span class="tg-status">${status} ›</span>

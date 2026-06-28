@@ -72,8 +72,9 @@ router.get('/schedule', async (req, res) => {
   if (!/^\d{8}$/.test(raw)) return res.status(400).json({ error: 'Provide ?date=YYYYMMDD.' });
   try {
     const per = await Promise.all(Object.keys(LEAGUE_PATH).map(s => fetchSportDate(s, raw)));
+    // Keep finished games too: past days are for logging custom bets on games that
+    // already happened (the user knows the result and settles it themselves).
     const games = per.flat()
-      .filter(g => g.status !== 'post') // upcoming/live only; finished games are not trackable as a new bet
       .sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
     res.json({ date: raw, games });
   } catch (_) {

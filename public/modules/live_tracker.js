@@ -193,9 +193,10 @@ function valuePulseSvg(history, color) {
   return `<svg class="ca-vp" viewBox="0 0 ${W} ${H}">
     ${grid}${xaxis}
     <polygon points="${area}" fill="${color}" fill-opacity="0.10"/>
-    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline class="ca-vp-line" pathLength="1" points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
-    <circle cx="${lx}" cy="${ly}" r="3.5" fill="${color}" stroke="#11151e" stroke-width="1.5"/>
+    <circle class="ca-vp-ping" cx="${lx}" cy="${ly}" r="3.5" fill="${color}"/>
+    <circle cx="${lx}" cy="${ly}" r="3.5" fill="${color}" stroke="#0d1117" stroke-width="1.5"/>
   </svg>`;
 }
 
@@ -223,7 +224,7 @@ function pulseCellHtml(pulse) {
   return `
     <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color)}</div>
     <div class="ca-lc-pulse-label"><span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> ${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}</div>
-    <div class="ca-lc-pulse-note" title="Our model rates this pick's live value from the score, inning, outs, baserunners and count versus where it locked. A probabilistic read, not a promise.">What this means</div>`;
+    <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the score, inning, outs, baserunners and count versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
 }
 
 // Footer: tracked bets (left) + start / scheduled time (right), inside the card so
@@ -254,7 +255,7 @@ function render(el, data) {
           ${matchupHtml(s)}
         </div>
         <div class="ca-lc-cell ca-lc-cell--pulse">
-          <div class="ca-lc-cell-hd">Value pulse</div>
+          <div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>
           ${pulseCellHtml(pulse)}
         </div>
       </div>

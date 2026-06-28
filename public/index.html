@@ -358,7 +358,7 @@
     .track-submit:hover:not(:disabled) { filter: brightness(1.05); }
 
     .track-game-search #tg-search { width: 100%; padding: 11px 14px; font-size: 14px; margin-bottom: 10px; }
-    .tg-results { max-height: 46vh; overflow-y: auto; }
+    .tg-results { height: 46vh; overflow-y: auto; } /* fixed height so day-stepping never collapses/flickers the sheet */
     .tg-row {
       display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px;
       background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
@@ -2670,6 +2670,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=31"></script>
+  <script type="module" src="app.js?v=32"></script>
 </body>
 </html>

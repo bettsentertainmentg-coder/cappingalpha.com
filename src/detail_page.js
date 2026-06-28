@@ -100,7 +100,8 @@ function buildNav(user) {
         <div style="padding:8px 12px 10px;border-bottom:1px solid #252c3b;margin-bottom:6px;font-weight:700;font-size:14px;color:#e2e8f0;">@${esc(nm)}</div>
         ${ddItem('/#tracking', 'fa-solid fa-chart-line', 'My Tracking')}
         ${ddItem('/#settings', 'fa-solid fa-gear', 'Settings')}
-        ${ddItem('/#about', 'fa-regular fa-circle-question', 'Support')}
+        ${ddItem('/faq', 'fa-regular fa-circle-question', 'FAQ')}
+        ${ddItem('/#about', 'fa-regular fa-life-ring', 'Support')}
         <div style="height:1px;background:#252c3b;margin:6px 4px;"></div>
         <a onclick="doLogout()" style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#ef4444;cursor:pointer;"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;text-align:center;color:#ef4444;"></i> Logout</a>
       </div>
@@ -118,6 +119,7 @@ function buildNav(user) {
         ${tab('esports', 'Esports')}
         ${tab('leaderboard', 'Leaderboard')}
         ${tab('about', 'About')}
+        <a href="/faq" class="tab-btn" style="text-decoration:none;">FAQ</a>
       </div>
     </div>
     <div class="nav-actions">
@@ -134,6 +136,7 @@ function buildNav(user) {
     <a href="/#esports">Esports</a>
     <a href="/#leaderboard">Leaderboard</a>
     <a href="/#about">About</a>
+    <a href="/faq">FAQ</a>
     <a href="/#account">My Account</a>
   </div>`;
 }

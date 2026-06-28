@@ -101,6 +101,14 @@
           "@type": "Answer",
           "text": "Every CA pick is recorded and graded once its game ends, and the running win, loss, and push record is published on the public track record page. Picks stay on the board whether they win or lose."
         }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the Live Value Pulse?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The Live Value Pulse is a real time read on how much betting value a pick holds while its game is live, updated every few seconds. The graph plots a single signed number from +100 (high value) at the top to -100 (low value) at the bottom, with a zero line through the middle. Gold (positive) means buy low value is building: the pick is trading below where it started but our live model still gives it a real chance. Slate (near zero) means it is roughly where it began. Blue (negative) means the value is fading, either because the pick is now priced up or because the deficit is getting hard to recover. It reacts to the full game state (score, inning, outs, baserunners and the count), and the x axis is labeled by period and builds out as the game goes. It is a probabilistic read, not a guarantee, and it never tells you how to bet."
+        }
       }
     ]
   }
@@ -164,6 +172,12 @@
 
     <h2>How is the track record kept?</h2>
     <p>Every CA pick is recorded and graded once its game ends, and the running record is published on the public <a href="/results">track record page</a>. Picks stay on the board whether they win or lose.</p>
+
+    <h2 id="value-pulse">What is the Live Value Pulse?</h2>
+    <p>The Live Value Pulse is a real time read on how much betting value a pick holds while its game is being played. It only appears once a game goes live, and it updates every few seconds as the game changes.</p>
+    <p>The graph plots a single signed number from +100 (high value) at the top to -100 (low value) at the bottom, with a zero line through the middle. Gold and above the line means buy low value is building: the pick is trading below where it started, but our live model still gives it a real chance. Near the zero line (slate) means the pick is roughly where it began. Blue and below the line means the value is fading, either because the pick is now priced up or because the deficit is getting hard to recover.</p>
+    <p>The reading moves with the whole game state, not just the score. Runs, the inning, outs, baserunners and even the count all nudge it, so it twitches play by play. The bottom axis is labeled by period (innings for baseball, quarters or halves for other sports) and builds out as the game goes, while the vertical window zooms in to keep the recent swings readable.</p>
+    <p>It is a probabilistic read, not a promise. It does not tell you to bet and it is not a guarantee of any outcome. It is simply one more piece of live information for your own decision.</p>
 
     <a class="cta" href="/">See today's number one pick free</a>
 
