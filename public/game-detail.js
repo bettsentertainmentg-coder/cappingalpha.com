@@ -919,6 +919,15 @@ function renderDetailPanel() {
   const convVisible     = isPaying();                     // live conviction: paid only (blurred otherwise, incl. #1)
   const hasTimeline     = !!(p?.timeline && p.timeline.length > 0);
 
+  // Live games drop the bottom paywall banner in favor of a clickable unlock badge in
+  // the header (top-right), for logged-out / non-paid users.
+  const liveUnlockBadge = (liveNow && !isPaying() && scoreHidden)
+    ? `<div class="ca-dp-hdr-unlock" onclick="openSignup()" title="Scores beyond #1 are unlocked for members">
+         <span class="ca-dp-hdr-unlock-1"><i class="fa-solid fa-lock"></i> Members only</span>
+         <span class="ca-dp-hdr-unlock-2">Get access from $1</span>
+       </div>`
+    : '';
+
   const headerHtml = `<div class="ca-dp-header${hdrMod}${liveNow ? ' ca-dp-header--live' : ''}">
     <div class="ca-dp-hdr-left">
       <div class="ca-dp-hdr-eyebrow-row">
@@ -940,6 +949,7 @@ function renderDetailPanel() {
       </div>
       ${rankBadge}
       ${resultBadge}
+      ${liveUnlockBadge}
     </div>
   </div>`;
 
@@ -1072,12 +1082,12 @@ function renderDetailPanel() {
   });
   else unmountLiveCommand();
 
-  // Paywall banner
-  if (!isPaying() && p && scoreHidden) {
+  // Paywall banner (non-live only — live games show the unlock badge in the header)
+  if (!isPaying() && p && scoreHidden && !liveNow) {
     el.insertAdjacentHTML('beforeend', `
       <div class="ca-dp-unlock-row">
         <span class="ca-dp-unlock-text">Scores beyond #1 are unlocked for members.</span>
-        <span class="ca-dp-unlock-link" onclick="openSignup()">Get access, from $1/day</span>
+        <span class="ca-dp-unlock-link" onclick="openSignup()">Get access, from $1</span>
       </div>`);
   }
 }

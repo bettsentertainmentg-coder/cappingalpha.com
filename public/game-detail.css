@@ -1839,20 +1839,21 @@ nav {
 }
 
 /* ── Live command bar (MLB v1) ─────────────────────────────────────────────── */
-.ca-live-command { margin: 14px 0 16px; }
+.ca-live-command { margin: 0; }
 .ca-lc-loading { color: var(--text-tertiary); font-size: 13px; padding: 14px; text-align: center; }
-/* Card wrapper: everything (meta time, cells, tracked bets) lives INSIDE the padded
-   card so nothing sits flush against the panel edge. */
+/* Live portion: a flat dark-gray band that fills the panel (no bordered "bubble"),
+   butting cleanly under the header. Everything lives inside its padding. */
 .ca-lc {
   display: flex; flex-direction: column; gap: 8px;
-  background: var(--bg-tertiary, #11151e); border: 1px solid var(--border); border-radius: 14px; padding: 10px 16px 12px;
+  background: var(--bg-secondary, #0d1117); padding: 14px 22px 16px;
 }
 .ca-lc-grid {
   display: grid; grid-template-columns: minmax(240px, 1.5fr) minmax(108px, 0.8fr) minmax(200px, 1.2fr); gap: 18px;
 }
 .ca-lc-cell { min-width: 0; }
 .ca-lc-cell-hd { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; white-space: nowrap; }
-.ca-lc-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-live, #FFD700); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink: 0; }
+.ca-lc-hd-live { color: var(--accent-live-score, #38bdf8); }
+.ca-lc-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-live-score, #38bdf8); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink: 0; }
 
 /* Line score: team name + per-inning runs (builds out) + R / H / E */
 .ca-ls { display: flex; flex-direction: column; gap: 1px; font-variant-numeric: tabular-nums; }
@@ -1926,6 +1927,18 @@ nav {
 .ca-live-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .ca-live-tag { font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 4px 11px; }
 .ca-live-tag--none { color: var(--text-tertiary); font-weight: 600; }
+
+/* Header unlock badge (live games, non-paid): clickable pay prompt, top-right. */
+.ca-dp-hdr-unlock {
+  display: inline-flex; flex-direction: column; align-items: flex-end; gap: 1px;
+  margin-top: 8px; cursor: pointer; padding: 6px 10px; border-radius: 8px;
+  background: rgba(59,130,246,0.10); border: 1px solid rgba(59,130,246,0.30);
+  transition: background 0.15s;
+}
+.ca-dp-hdr-unlock:hover { background: rgba(59,130,246,0.18); }
+.ca-dp-hdr-unlock-1 { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--gold, #facc15); white-space: nowrap; }
+.ca-dp-hdr-unlock-1 i { margin-right: 3px; }
+.ca-dp-hdr-unlock-2 { font-size: 11px; font-weight: 700; color: var(--accent); white-space: nowrap; }
 
 /* CA logo on the conviction-curve label */
 .ca-dp-col-label--conv { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }

@@ -245,7 +245,7 @@ function render(el, data) {
     <div class="ca-lc">
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
-          <div class="ca-lc-cell-hd">Live <span class="ca-lc-livedot"></span></div>
+          <div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>
           ${boxscoreHtml(s)}
           ${stateLineHtml(s)}
         </div>

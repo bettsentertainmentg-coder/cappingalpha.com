@@ -375,6 +375,25 @@
     .tg-chip:hover { color: var(--text); }
     .tg-chip.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
 
+    /* AN-style betslip controls: sport dropdown + date stepper */
+    .tg-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .tg-sportdd { position: relative; flex-shrink: 0; }
+    .tg-sportdd-btn { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-width: 132px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit; font-weight: 700; font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+    .tg-sportdd-btn:hover { border-color: var(--accent); }
+    .tg-sportdd-btn .tg-caret { color: var(--muted); font-size: 10px; }
+    .tg-sportdd-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; min-width: 168px; max-height: 290px; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; box-shadow: 0 14px 34px rgba(0,0,0,.45); }
+    .tg-sportdd-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
+      background: none; border: none; color: var(--text); font-family: inherit; font-weight: 600; font-size: 13px; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+    .tg-sportdd-item:hover { background: var(--bg); }
+    .tg-sportdd-item .tg-check { color: var(--accent); font-weight: 800; }
+    .tg-datestep { display: flex; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+    .tg-datestep-btn { background: none; border: none; color: var(--text); font-family: inherit; font-size: 15px; cursor: pointer; padding: 5px 10px; border-radius: 6px; line-height: 1; }
+    .tg-datestep-btn:hover:not(:disabled) { background: var(--surface); }
+    .tg-datestep-btn:disabled { color: var(--muted); opacity: .4; cursor: default; }
+    .tg-datestep-label { font-weight: 700; font-size: 13px; min-width: 96px; text-align: center; color: var(--text); }
+
     /* Odds board (tap a line to track verified) */
     .ob-back { background: none; border: none; color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 0 8px; }
     .ob-head { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -2651,6 +2670,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=30"></script>
+  <script type="module" src="app.js?v=31"></script>
 </body>
 </html>

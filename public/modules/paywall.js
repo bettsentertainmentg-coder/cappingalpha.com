@@ -150,7 +150,7 @@ export function renderPaywallDefault() {
   if (!card) return;
   card.innerHTML = `
     <h3>Unlock CappingAlpha</h3>
-    <p>$1/day &middot; $4/week &middot; $75/year</p>
+    <p>$1 day pass &middot; $4/week &middot; $75/year</p>
     <div class="inline-paywall-btns">
       <button class="btn btn-gold" onclick="startCheckout('day')">Day $1</button>
       <button class="btn btn-primary" onclick="startCheckout('week')">Week $4</button>

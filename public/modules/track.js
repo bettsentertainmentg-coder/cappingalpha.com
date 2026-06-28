@@ -322,24 +322,29 @@ function sheetMenuHtml() {
     </button>`;
 }
 
-let _trackGames = [];   // today's games (verified-capable, from /api/games)
-let _trackSport = '';
-let _trackQuery = '';
-let _trackDay   = 0;    // 0 = today; 1..6 = future days (custom-only)
-let _dayChips   = [];   // [{ offset, dateStr, label }]
-let _dayCache   = {};   // offset -> games[] for future days (lazy-loaded)
+let _trackGames    = [];   // today's games (verified-capable, from /api/games)
+let _trackSport    = '';
+let _trackQuery    = '';
+let _trackDay      = 0;     // 0 = today; 1..6 = future days (custom-only)
+let _dayMeta       = [];    // [{ offset, dateStr }] for lazy future fetches
+let _dayCache      = {};    // offset -> games[] for future days
+let _sportMenuOpen = false;
 
-// Build the day buttons locally (Today, Tomorrow, then weekday short names). Future
-// days are fetched lazily on click from the separate /api/track/schedule endpoint.
-function buildDayChips() {
-  const out = [{ offset: 0, dateStr: '', label: 'Today' }];
+// Date strings (YYYYMMDD) for today..today+6, for lazy future fetches.
+function buildDayMeta() {
+  const out = [{ offset: 0, dateStr: '' }];
   const now = new Date();
   for (let i = 1; i <= 6; i++) {
     const d = new Date(now); d.setDate(d.getDate() + i);
     const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-    out.push({ offset: i, dateStr, label: i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-US', { weekday: 'short' }) });
+    out.push({ offset: i, dateStr });
   }
   return out;
+}
+function dateLabel(offset) {
+  if (offset === 0) return 'Today';
+  const d = new Date(); d.setDate(d.getDate() + offset);
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); // e.g. "Mon Jun 29"
 }
 
 export async function trackFromGame() {
@@ -347,63 +352,77 @@ export async function trackFromGame() {
   if (!body) return;
   body.innerHTML = `
     <div class="track-game-search">
-      <div class="tg-filter-row" id="tg-days" style="margin-bottom:8px;"></div>
-      <div class="tg-filter-row" id="tg-sports"></div>
+      <div class="tg-controls">
+        <div class="tg-sportdd" id="tg-sportdd"></div>
+        <div class="tg-datestep" id="tg-datestep"></div>
+      </div>
       <input type="text" id="tg-search" placeholder="Search a game or team..." oninput="filterTrackGames(this.value)" autocomplete="off" />
       <div id="tg-results" class="tg-results"><div style="padding:14px;color:var(--muted);font-size:13px;">Loading games...</div></div>
     </div>`;
-  _trackSport = ''; _trackQuery = ''; _trackDay = 0; _dayCache = {};
-  _dayChips = buildDayChips();
-  renderDayChips();
+  _trackSport = ''; _trackQuery = ''; _trackDay = 0; _dayCache = {}; _sportMenuOpen = false;
+  _dayMeta = buildDayMeta();
+  renderDateStep();
+  renderSportDropdown();
   try {
     const res = await fetch('/api/games');
     _trackGames = res.ok ? await res.json() : [];
   } catch (_) { _trackGames = []; }
-  renderSportChips();
+  renderSportDropdown();
   renderTrackGames();
-  document.getElementById('tg-search')?.focus();
 }
 
 function currentDayGames() {
   return _trackDay === 0 ? _trackGames : (_dayCache[_trackDay] || []);
 }
 
-function renderDayChips() {
-  const el = document.getElementById('tg-days');
+// ── Sport dropdown (AN-style popup menu) ─────────────────────────────────────
+function renderSportDropdown() {
+  const el = document.getElementById('tg-sportdd');
   if (!el) return;
-  el.innerHTML = _dayChips
-    .map(c => `<button class="tg-chip${_trackDay === c.offset ? ' active' : ''}" onclick="setTrackDay(${c.offset})">${c.label}</button>`)
-    .join('');
+  const present = [...new Set(currentDayGames().map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
+  const opts = ['', ...present];
+  const menu = _sportMenuOpen
+    ? `<div class="tg-sportdd-menu">${opts.map(s =>
+        `<button class="tg-sportdd-item" onclick="setTrackSport('${s}')">${s || 'All Sports'}${_trackSport === s ? '<span class="tg-check">✓</span>' : ''}</button>`
+      ).join('')}</div>`
+    : '';
+  el.innerHTML = `<button class="tg-sportdd-btn" onclick="toggleSportMenu(event)">${_trackSport || 'All Sports'}<span class="tg-caret">▾</span></button>${menu}`;
+}
+export function toggleSportMenu(e) { if (e) e.stopPropagation(); _sportMenuOpen = !_sportMenuOpen; renderSportDropdown(); }
+export function setTrackSport(s) { _trackSport = s; _sportMenuOpen = false; renderSportDropdown(); renderTrackGames(); }
+export function filterTrackGames(q) { _trackQuery = q; renderTrackGames(); }
+
+// ── Date stepper (< Today / Mon Jun 29 >) ────────────────────────────────────
+function renderDateStep() {
+  const el = document.getElementById('tg-datestep');
+  if (!el) return;
+  el.innerHTML =
+    `<button class="tg-datestep-btn" onclick="stepTrackDay(-1)" ${_trackDay <= 0 ? 'disabled' : ''} aria-label="Previous day">‹</button>`
+    + `<span class="tg-datestep-label">${dateLabel(_trackDay)}</span>`
+    + `<button class="tg-datestep-btn" onclick="stepTrackDay(1)" ${_trackDay >= 6 ? 'disabled' : ''} aria-label="Next day">›</button>`;
+}
+export function stepTrackDay(delta) {
+  const next = Math.max(0, Math.min(6, _trackDay + delta));
+  if (next !== _trackDay) setTrackDay(next);
 }
 
 // Switch the active day. Today uses the verified-capable /api/games set already loaded;
 // a future day lazily fetches its schedule (custom-only) the first time it's opened.
 export async function setTrackDay(offset) {
-  _trackDay = offset; _trackSport = ''; _trackQuery = '';
+  _trackDay = offset; _trackSport = ''; _trackQuery = ''; _sportMenuOpen = false;
   const s = document.getElementById('tg-search'); if (s) s.value = '';
-  renderDayChips();
-  if (offset === 0 || _dayCache[offset]) { renderSportChips(); renderTrackGames(); return; }
+  renderDateStep();
+  if (offset === 0 || _dayCache[offset]) { renderSportDropdown(); renderTrackGames(); return; }
   const el = document.getElementById('tg-results');
   if (el) el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">Loading games...</div>`;
-  const chip = _dayChips.find(c => c.offset === offset);
+  const meta = _dayMeta.find(c => c.offset === offset);
   try {
-    const r = await fetch(`/api/track/schedule?date=${chip.dateStr}`);
+    const r = await fetch(`/api/track/schedule?date=${meta.dateStr}`);
     const d = r.ok ? await r.json() : null;
     _dayCache[offset] = (d && d.games) || [];
   } catch (_) { _dayCache[offset] = []; }
-  if (_trackDay === offset) { renderSportChips(); renderTrackGames(); } // ignore if the user already moved on
+  if (_trackDay === offset) { renderSportDropdown(); renderTrackGames(); } // ignore if the user already moved on
 }
-
-function renderSportChips() {
-  const el = document.getElementById('tg-sports');
-  if (!el) return;
-  const present = [...new Set(currentDayGames().map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
-  el.innerHTML = ['', ...present]
-    .map(s => `<button class="tg-chip${_trackSport === s ? ' active' : ''}" onclick="setTrackSport('${s}')">${s || 'All'}</button>`)
-    .join('');
-}
-export function setTrackSport(s) { _trackSport = s; renderSportChips(); renderTrackGames(); }
-export function filterTrackGames(q) { _trackQuery = q; renderTrackGames(); }
 
 // Future-day game tapped: open the custom-bet form with the sport preset and the
 // matchup as a hint. No odds board / verified tracking for future games (no lines).
@@ -739,7 +758,12 @@ Object.assign(window, {
   setBetFilter, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet,
-  setTrackDay, trackFutureGame,
+  setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
+});
+
+// Close the sport dropdown when clicking outside it.
+document.addEventListener('click', (e) => {
+  if (_sportMenuOpen && !e.target.closest('#tg-sportdd')) { _sportMenuOpen = false; renderSportDropdown(); }
 });
 
 // Escape closes the track sheet / bet detail (Backlog P2 #24).
