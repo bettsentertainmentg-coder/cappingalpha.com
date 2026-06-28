@@ -13,6 +13,7 @@
 const B0 = 0.08;   // slight generic home-field baseline (log-odds)
 const B1 = 1.10;   // run-differential sensitivity
 const B2 = 0.15;   // small bottom-inning (home batting) nudge
+const B3 = 0.10;   // per-pitch count-leverage nudge (zero at an 0-0 count)
 
 // Run expectancy by base state (bitmask 1=1st, 2=2nd, 4=3rd) and outs (0,1,2).
 // League-average-ish RE24 (expected runs remaining this inning). Used only as a
@@ -57,7 +58,21 @@ function tableHomeWP(st) {
   const re         = (RE24[bases] || RE24[0])[outs] || 0;
   const inningEdge = half === 'bot' ? re : -re;          // batting team gets the RE nudge
   const halvesLeft = Math.max(0.5, 18 - ((inning - 1) * 2 + (half === 'bot' ? 1 : 0)));
-  const z = B0 + B1 * (scoreDiff + inningEdge) / Math.sqrt(halvesLeft) + B2 * (half === 'bot' ? 1 : 0);
+
+  // Per-pitch count leverage: a hitter's count (more balls) favors the batting team,
+  // a pitcher's count (two strikes) favors the defense. Zero at 0-0, scaled by how
+  // much is at stake (RE) and by how little time is left. This is what makes the
+  // value pulse twitch on every pitch without distorting the score-driven backbone.
+  const balls    = clamp(parseInt(st.balls, 10) || 0, 0, 3);
+  const strikes  = clamp(parseInt(st.strikes, 10) || 0, 0, 2);
+  const countBias = (balls / 3) - (strikes / 2);         // -1 (0-2) .. +1 (3-0), 0 at 0-0
+  const leverage  = clamp(re / 1.5, 0.15, 1.2);
+  const countEdge = (half === 'bot' ? countBias : -countBias) * leverage;
+
+  const z = B0
+    + B1 * (scoreDiff + inningEdge) / Math.sqrt(halvesLeft)
+    + B2 * (half === 'bot' ? 1 : 0)
+    + B3 * countEdge / Math.sqrt(halvesLeft);
   return sigmoid(z);
 }
 

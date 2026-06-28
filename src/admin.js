@@ -917,30 +917,47 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <!-- DUMMY ACCOUNTS PANEL -->
     <div class="apanel${ta('dummy')}" id="panel-dummy">
       <h1>Dummy Accounts</h1>
-      <p style="color:#8892a4;max-width:820px;">Seed members that auto-vote the day's <strong>35+ point</strong> picks (pre-game only) to keep the public leaderboard populated. They look like real accounts and build a record as games resolve (no backfill — they start from now). Per account you can set the daily pick range, which sports they bet (blank = all), pause them, and hide them from the public board.</p>
-      <div style="overflow-x:auto;">
-      <table style="margin-top:14px;min-width:880px;">
-        <thead><tr>
-          <th>Username</th><th>Picks/day</th><th>Sports (blank = all)</th><th>Active</th><th>On board</th><th>Votes / Record</th><th></th>
-        </tr></thead>
-        <tbody>
-          ${dummyAccountsList.length === 0
-            ? '<tr><td colspan="7" style="color:#8892a4;">No dummy accounts yet — they seed on the next server start.</td></tr>'
-            : dummyAccountsList.map(d => {
-              const inp = 'padding:5px 7px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;';
-              return `<tr>
-              <td><input id="dn-${d.id}" value="${escHtml(d.username)}" maxlength="20" style="${inp}width:150px;" /></td>
-              <td style="white-space:nowrap;"><input id="dmin-${d.id}" type="number" min="0" max="50" value="${d.min_picks}" style="${inp}width:48px;" /> – <input id="dmax-${d.id}" type="number" min="0" max="50" value="${d.max_picks}" style="${inp}width:48px;" /></td>
-              <td><input id="dsp-${d.id}" value="${escHtml((d.sports || []).join(', '))}" placeholder="all" style="${inp}width:150px;" /></td>
-              <td style="text-align:center;"><input type="checkbox" id="dact-${d.id}" ${d.active ? 'checked' : ''} /></td>
-              <td style="text-align:center;"><input type="checkbox" id="dpub-${d.id}" ${d.is_public ? 'checked' : ''} /></td>
-              <td style="white-space:nowrap;">${d.total_votes} · ${d.wins}-${d.losses}${d.pushes ? '-' + d.pushes : ''} <span style="color:#64748b;">(${d.pending} pend)</span></td>
-              <td><button class="btn-sm btn-primary" onclick="saveDummy(${d.id})">Save</button></td>
-            </tr>`; }).join('')}
-        </tbody>
-      </table>
-      </div>
-      <p id="dummy-msg" style="color:#8892a4;font-size:13px;margin-top:10px;"></p>
+      <p style="color:#8892a4;max-width:860px;">Seed members with editable <strong>personalities</strong>. They auto-bet the day's picks and chat on the games they bet, so the leaderboard and game pages aren't empty. They look like real accounts and build a record as games resolve (no backfill). Each personality is independently tunable below: bet volume, which sports, how much comes from the CA rankings, whether they fade the MVPs, and how/when they comment.</p>
+      ${dummyAccountsList.length === 0
+        ? '<p style="color:#8892a4;">No dummy accounts yet — they seed on the next server start.</p>'
+        : `<div style="display:flex;flex-direction:column;gap:14px;margin-top:14px;">
+          ${dummyAccountsList.map(d => {
+            const inp = 'padding:5px 7px;border-radius:6px;border:1px solid #252c3b;background:#0f1218;color:#e2e8f0;font-size:13px;';
+            const lbl = 'display:block;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;';
+            const grp = 'display:flex;flex-direction:column;';
+            const card = 'background:#11141b;border:1px solid #252c3b;border-radius:10px;padding:14px 16px;';
+            const rec = `${d.total_votes} bets · ${d.wins}-${d.losses}${d.pushes ? '-' + d.pushes : ''} <span style="color:#64748b;">(${d.pending} pend)</span> · ${d.comment_count} comments`;
+            return `<div style="${card}">
+              <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;justify-content:space-between;margin-bottom:12px;">
+                <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+                  <div style="${grp}"><label style="${lbl}">Username</label><input id="dn-${d.id}" value="${escHtml(d.username)}" maxlength="20" style="${inp}width:150px;" /></div>
+                  <div style="${grp}"><label style="${lbl}">Personality</label><input id="dpers-${d.id}" value="${escHtml(d.personality || '')}" maxlength="60" placeholder="e.g. The Fader" style="${inp}width:180px;" /></div>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#cbd5e1;padding-bottom:6px;"><input type="checkbox" id="dact-${d.id}" ${d.active ? 'checked' : ''} /> Active</label>
+                  <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#cbd5e1;padding-bottom:6px;"><input type="checkbox" id="dpub-${d.id}" ${d.is_public ? 'checked' : ''} /> On board</label>
+                </div>
+                <div style="text-align:right;"><div style="font-size:12px;color:#8892a4;margin-bottom:6px;white-space:nowrap;">${rec}</div><button class="btn-sm btn-primary" onclick="saveDummy(${d.id})">Save</button></div>
+              </div>
+
+              <div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin:4px 0 8px;border-top:1px solid #1c2230;padding-top:10px;">Betting</div>
+              <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
+                <div style="${grp}"><label style="${lbl}">Picks / day</label><span style="white-space:nowrap;"><input id="dmin-${d.id}" type="number" min="0" max="50" value="${d.min_picks}" style="${inp}width:52px;" /> – <input id="dmax-${d.id}" type="number" min="0" max="50" value="${d.max_picks}" style="${inp}width:52px;" /></span></div>
+                <div style="${grp}"><label style="${lbl}">Picks / week (0 = no cap)</label><span style="white-space:nowrap;"><input id="dminw-${d.id}" type="number" min="0" max="300" value="${d.min_week}" style="${inp}width:56px;" /> – <input id="dmaxw-${d.id}" type="number" min="0" max="300" value="${d.max_week}" style="${inp}width:56px;" /></span></div>
+                <div style="${grp}"><label style="${lbl}">% from rankings</label><input id="drank-${d.id}" type="number" min="0" max="100" value="${d.ranking_pct}" style="${inp}width:64px;" /></div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#cbd5e1;padding-bottom:6px;"><input type="checkbox" id="dfade-${d.id}" ${d.fade_mvp ? 'checked' : ''} /> Fade the MVPs</label>
+                <div style="${grp};flex:1;min-width:180px;"><label style="${lbl}">Bet sports (blank = all)</label><input id="dsp-${d.id}" value="${escHtml((d.sports || []).join(', '))}" placeholder="all" style="${inp}width:100%;" /></div>
+              </div>
+
+              <div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:.5px;margin:14px 0 8px;border-top:1px solid #1c2230;padding-top:10px;">Comments</div>
+              <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
+                <div style="${grp}"><label style="${lbl}">Comment % / game</label><input id="dcpct-${d.id}" type="number" min="0" max="100" value="${d.comment_pct}" style="${inp}width:64px;" /></div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#cbd5e1;padding-bottom:6px;"><input type="checkbox" id="dcpre-${d.id}" ${d.comment_pre ? 'checked' : ''} /> Pre-game</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#cbd5e1;padding-bottom:6px;"><input type="checkbox" id="dcpost-${d.id}" ${d.comment_post ? 'checked' : ''} /> Post-game</label>
+                <div style="${grp};flex:1;min-width:180px;"><label style="${lbl}">Comment sports (blank = all)</label><input id="dcsp-${d.id}" value="${escHtml((d.comment_sports || []).join(', '))}" placeholder="all" style="${inp}width:100%;" /></div>
+              </div>
+              <div style="${grp};margin-top:12px;"><label style="${lbl}">Comment pool — one per line. Tokens: {team} = the side they bet, {sport}. Blank = shared defaults. Post-game uses generic reactions.</label><textarea id="dcomm-${d.id}" rows="3" placeholder="Locked in on {team} tonight." style="${inp}width:100%;resize:vertical;font-family:inherit;">${escHtml((d.comments || []).join('\n'))}</textarea></div>
+            </div>`; }).join('')}
+        </div>`}
+      <p id="dummy-msg" style="color:#8892a4;font-size:13px;margin-top:12px;"></p>
     </div>
 
     <!-- MVP PANEL -->
@@ -1437,14 +1454,26 @@ router.get('/dashboard', requireAuth, (req, res) => {
       // ── Dummy accounts ──────────────────────────────────────────────────────────
       async function saveDummy(id) {
         const msg = document.getElementById('dummy-msg');
+        const v = (p) => document.getElementById(p + '-' + id).value;
+        const c = (p) => document.getElementById(p + '-' + id).checked;
         const body = {
           id,
-          username:  (document.getElementById('dn-' + id).value || '').trim(),
-          min_picks: document.getElementById('dmin-' + id).value,
-          max_picks: document.getElementById('dmax-' + id).value,
-          sports:    document.getElementById('dsp-' + id).value,
-          active:    document.getElementById('dact-' + id).checked,
-          is_public: document.getElementById('dpub-' + id).checked,
+          username:       (v('dn') || '').trim(),
+          personality:    v('dpers'),
+          min_picks:      v('dmin'),
+          max_picks:      v('dmax'),
+          min_week:       v('dminw'),
+          max_week:       v('dmaxw'),
+          ranking_pct:    v('drank'),
+          fade_mvp:       c('dfade'),
+          sports:         v('dsp'),
+          comment_pct:    v('dcpct'),
+          comment_pre:    c('dcpre'),
+          comment_post:   c('dcpost'),
+          comment_sports: v('dcsp'),
+          comments:       v('dcomm'),
+          active:         c('dact'),
+          is_public:      c('dpub'),
         };
         try {
           const r = await fetch('/admin/api/dummy/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });

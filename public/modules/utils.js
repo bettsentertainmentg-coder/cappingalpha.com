@@ -69,6 +69,75 @@ export function gameTime(ts) {
   });
 }
 
+// ── "Today's board" scoping (client mirror of src/cycle.js) ───────────────────
+// today_games can hold the same matchup on several calendar days (tomorrow's slate
+// is seeded ahead of time). The home strip should only show games on TODAY's board.
+// We replicate the server's getCycleDate/cycleDateForInstant pairing here so the
+// strip is correct even in local dev, where /api GETs are mirrored from prod (which
+// may run older code without the ?board=1 server filter). DST handled by the IANA
+// 'America/New_York' zone — no manual offset math.
+function _etParts(date) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const out = {};
+  for (const p of fmt.formatToParts(date)) out[p.type] = p.value;
+  return out; // { year, month, day, hour, minute }
+}
+
+function _addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// The board day rolls at the ~5am ET wipe: before 5am ET it's still yesterday's.
+export function currentBoardDate() {
+  const p = _etParts(new Date());
+  let date = `${p.year}-${p.month}-${p.day}`;
+  if (parseInt(p.hour, 10) < 5) date = _addDays(date, -1);
+  return date;
+}
+
+// A game's ET cycle date. Late games finishing 12:00–12:30am ET belong to the
+// previous cycle (mirror of cycleDateForInstant).
+function _gameBoardDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const p = _etParts(d);
+  let date = `${p.year}-${p.month}-${p.day}`;
+  if (parseInt(p.hour, 10) === 0 && parseInt(p.minute, 10) < 30) date = _addDays(date, -1);
+  return date;
+}
+
+// True when a game's start_time falls on today's board day.
+export function onTodaysBoard(startTime) {
+  const d = _gameBoardDate(startTime);
+  return !!d && d === currentBoardDate();
+}
+
+// Tennis runs on a global clock — early-morning European slates start ~5am ET and
+// land on tomorrow's board date even though they're only hours away. Give tennis a
+// rolling lookahead so those upcoming matches still show on the strip; every other
+// sport stays scoped to today's board.
+const TENNIS_LOOKAHEAD_MS = 10 * 60 * 60 * 1000; // ~10h
+
+export function onBoardForSport(startTime, sport) {
+  if (onTodaysBoard(startTime)) return true;
+  const sp = (sport || '').toUpperCase();
+  if (sp === 'ATP' || sp === 'WTA') {
+    const t = new Date(startTime).getTime();
+    if (!isNaN(t)) {
+      const now = Date.now();
+      return t >= now && (t - now) <= TENNIS_LOOKAHEAD_MS;
+    }
+  }
+  return false;
+}
+
 export function scoreDisplay(p) {
   const status = p.game_status;
   const away   = p.game_away_score ?? 0;
@@ -190,6 +259,19 @@ export function calcVoteReturn(v, unit) {
   const odds = voteOdds(v) || -115;
   if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);
   return +(unit * (odds / 100)).toFixed(2);
+}
+
+// The canonical "selected side" key for a pick/game row. Every clickable surface
+// (picks board, modal, sports schedule, Track-Bet) maps to one of the 6 vote slots
+// via this single helper, so they all agree. ML/spread need the home/away flag.
+export function pickSlotKey(p) {
+  const pt = (p.pick_type || '').toLowerCase();
+  const isHome = p.is_home_team === 1 || p.is_home_team === true;
+  if (pt === 'over')   return 'over';
+  if (pt === 'under')  return 'under';
+  if (pt === 'ml')     return isHome ? 'home_ml'     : 'away_ml';
+  if (pt === 'spread') return isHome ? 'home_spread' : 'away_spread';
+  return '';
 }
 
 // ── Generated avatar ──────────────────────────────────────────────────────────

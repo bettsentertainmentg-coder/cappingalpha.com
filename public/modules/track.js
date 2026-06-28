@@ -1,0 +1,676 @@
+// modules/track.js — Track-Bet sheet, custom bet entry, and the user's bet history.
+//
+// Two ways to track a bet:
+//   - Verified: "Track this side" on a real game (writes a vote; auto-graded; counts
+//     on the leaderboard). Handled in modal.js / game-detail.js.
+//   - Custom:   a manual bet you log yourself (this module). Personal only, you
+//     settle it yourself, never on the leaderboard.
+
+import { state } from './state.js';
+import { sportBadge } from './utils.js';
+
+const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
+const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+
+let _bets    = [];
+let _filters = { sport: '', status: 'all' };
+
+// Payout preview — mirror of src/odds_math.americanProfit (manual default -110).
+function americanProfit(odds, stake) {
+  const o = (odds == null || isNaN(parseFloat(odds))) ? -110 : parseFloat(odds);
+  return o < 0 ? stake * (100 / Math.abs(o)) : stake * (o / 100);
+}
+function unitSize() { return Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20; }
+
+// Lightweight toast for tracked/settled/error feedback (Backlog P0 #1).
+export function showToast(msg, kind) {
+  let host = document.getElementById('ca-toast-host');
+  if (!host) { host = document.createElement('div'); host.id = 'ca-toast-host'; document.body.appendChild(host); }
+  const t = document.createElement('div');
+  t.className = 'ca-toast' + (kind === 'err' ? ' err' : '');
+  t.textContent = msg;
+  host.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('in'));
+  setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 260); }, 2600);
+}
+
+// ── Bet history (renders into #track-bets-content on the My Tracking page) ─────
+export async function loadUserBets() {
+  const el = document.getElementById('track-bets-content');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/bets?limit=300');
+    if (!res.ok) { el.innerHTML = ''; return; }
+    _bets = (await res.json()).bets || [];
+    renderBets();
+  } catch (_) { el.innerHTML = ''; }
+}
+
+function betResultPill(r) {
+  r = (r || 'pending').toLowerCase();
+  if (r === 'win')  return `<span class="result-win">W</span>`;
+  if (r === 'loss') return `<span class="result-loss">L</span>`;
+  if (r === 'push') return `<span class="result-push">P</span>`;
+  if (r === 'void') return `<span style="color:var(--muted);">Void</span>`;
+  return `<span style="color:var(--muted);">Pending</span>`;
+}
+
+// A settled bet's P/L. Push/Void return the stake, so render a neutral $0.00 rather
+// than a green "+$0.00", which reads like a small win.
+function payoutCell(b) {
+  if (b.payout == null) return `<span style="color:var(--muted);">—</span>`;
+  if (b.result === 'push' || b.result === 'void')
+    return `<span style="color:var(--muted);font-weight:700;">$0.00</span>`;
+  const c = b.payout >= 0 ? '#4ade80' : '#f87171';
+  return `<span style="color:${c};font-weight:700;">${b.payout >= 0 ? '+' : ''}$${Math.abs(b.payout).toFixed(2)}</span>`;
+}
+
+function renderBets() {
+  const el = document.getElementById('track-bets-content');
+  if (!el) return;
+
+  const filtered = _bets.filter(b => {
+    if (_filters.sport && (b.sport || '').toUpperCase() !== _filters.sport) return false;
+    if (_filters.status === 'pending' && b.result !== 'pending') return false;
+    if (_filters.status === 'settled' && b.result === 'pending') return false;
+    return true;
+  });
+
+  // Sport filter options come from the sports actually present in the user's bets.
+  const presentSports = [...new Set(_bets.map(b => (b.sport || '').toUpperCase()).filter(Boolean))];
+  // Keep the active sport in the list even if settling/deleting left zero matching
+  // bets, so the dropdown reflects the real filter instead of silently snapping
+  // back to "All sports" while an empty state shows (Backlog P2 #34).
+  if (_filters.sport && !presentSports.includes(_filters.sport)) presentSports.push(_filters.sport);
+  const sportOpts = ['<option value="">All sports</option>']
+    .concat(presentSports.map(s => `<option value="${s}"${_filters.sport === s ? ' selected' : ''}>${s}</option>`))
+    .join('');
+
+  const rowHtml = (b) => {
+    const u = b.units != null ? `${(+b.units).toFixed(2)}u` : '';
+    const stake = b.stake ? `$${(+b.stake).toFixed(0)}` : '';
+    const payout = payoutCell(b);
+    const oddsStr = b.odds > 0 ? `+${b.odds}` : `${b.odds}`;
+    const settleBtns = (b.result === 'pending' && !b.espn_game_id)
+      ? `<div class="bet-settle-row">
+           <button class="bet-settle-btn win"  onclick="event.stopPropagation();settleBetUI(${b.id},'win')">Won</button>
+           <button class="bet-settle-btn loss" onclick="event.stopPropagation();settleBetUI(${b.id},'loss')">Lost</button>
+           <button class="bet-settle-btn push" onclick="event.stopPropagation();settleBetUI(${b.id},'push')">Push</button>
+           <button class="bet-settle-btn push" onclick="event.stopPropagation();settleBetUI(${b.id},'void')">Void</button>
+         </div>`
+      : '';
+    return `
+      <div class="bet-row" onclick="openBetDetail(${b.id})" style="cursor:pointer;">
+        <div class="bet-row-main">
+          <div class="bet-row-sel">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}</div>
+          <div class="bet-row-sub">${oddsStr}${stake ? ' · ' + stake : ''}${u ? ' · ' + u : ''}${b.book ? ' · ' + b.book : ''}</div>
+          ${b.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;">${b.notes}</div>` : ''}
+          ${settleBtns}
+        </div>
+        <div class="bet-row-right">
+          <div>${betResultPill(b.result)}</div>
+          <div style="margin-top:3px;">${payout}</div>
+        </div>
+        <i class="fa-solid fa-chevron-right bet-chevron" aria-hidden="true"></i>
+      </div>`;
+  };
+
+  // Day-grouped feed with a per-day net (Backlog P1 #25).
+  const dayLabel = (s) => {
+    if (!s) return 'Earlier';
+    const t = Date.parse(String(s).replace(' ', 'T') + 'Z');
+    return isNaN(t) ? 'Earlier' : new Date(t).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' });
+  };
+  let rows;
+  if (filtered.length === 0) {
+    rows = `<div style="padding:26px 20px;color:var(--muted);font-size:14px;">${_bets.length === 0
+      ? 'No custom bets yet. Tap "Track a Bet" to log one.'
+      : 'No bets match this filter.'}</div>`;
+  } else {
+    const groups = []; const idx = new Map();
+    for (const b of filtered) {
+      const k = dayLabel(b.settled_at || b.placed_at);
+      if (!idx.has(k)) { idx.set(k, groups.length); groups.push({ k, bets: [] }); }
+      groups[idx.get(k)].bets.push(b);
+    }
+    rows = groups.map(g => {
+      const net = g.bets.reduce((s, b) => s + (b.result !== 'pending' && b.payout != null ? b.payout : 0), 0);
+      const hasSettled = g.bets.some(b => b.result !== 'pending');
+      const netStr = hasSettled ? `<span style="color:${net >= 0 ? '#4ade80' : '#f87171'};font-weight:700;">${net >= 0 ? '+' : ''}$${Math.abs(net).toFixed(2)}</span>` : '';
+      return `<div class="bet-day-head"><span>${g.k}</span>${netStr}</div>${g.bets.map(rowHtml).join('')}`;
+    }).join('');
+  }
+
+  el.innerHTML = `
+    <div class="bet-filter-row">
+      <select class="bet-filter" onchange="setBetFilter('sport', this.value)">${sportOpts}</select>
+      <select class="bet-filter" onchange="setBetFilter('status', this.value)">
+        <option value="all"${_filters.status === 'all' ? ' selected' : ''}>All</option>
+        <option value="pending"${_filters.status === 'pending' ? ' selected' : ''}>Pending</option>
+        <option value="settled"${_filters.status === 'settled' ? ' selected' : ''}>Settled</option>
+      </select>
+    </div>
+    <div class="bet-list">${rows}</div>`;
+}
+
+export function setBetFilter(key, val) { _filters[key] = val; renderBets(); }
+
+// Render the custom-bets list from data already fetched by loadTracking (avoids a
+// second /api/bets round-trip).
+export function setBetsData(bets) { _bets = bets || []; renderBets(); }
+
+export async function settleBetUI(id, result) {
+  try {
+    const res = await fetch(`/api/bets/${id}/settle`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result }),
+    });
+    // Settling works on already-settled custom bets too (the API re-grades), so this
+    // doubles as the "fix a mis-settled result" path from the bet detail. Close the
+    // sheet on success so it never lingers showing the old result.
+    if (res.ok) { showToast('Result updated'); closeTrackSheet(); refreshTracking(); }
+    else showToast('Could not update the result.', 'err');
+  } catch (_) { showToast('Network error. Try again.', 'err'); }
+}
+
+// Delete is gated by an in-app inline confirm (confirmDeleteBet) in the detail
+// sheet, so this just performs the delete (no native confirm() — Backlog P2 #27).
+export async function deleteBetUI(id) {
+  try {
+    const res = await fetch(`/api/bets/${id}`, { method: 'DELETE' });
+    if (res.ok) { showToast('Bet deleted'); closeTrackSheet(); refreshTracking(); }
+    else showToast('Could not delete.', 'err');
+  } catch (_) { showToast('Network error. Try again.', 'err'); }
+}
+// Inline two-step confirm (no native dialog).
+export function confirmDeleteBet(id) {
+  const el = document.getElementById('bd-delete-area');
+  if (!el) { deleteBetUI(id); return; }
+  el.outerHTML = `<div class="bd-confirm" id="bd-delete-area">
+    <span>Delete this bet?</span>
+    <button class="bet-settle-btn loss" onclick="deleteBetUI(${id})">Delete</button>
+    <button class="bet-settle-btn push" onclick="openBetDetail(${id})">Cancel</button>
+  </div>`;
+}
+
+// Re-pull the whole tracking view after a mutation so stats + lists stay in sync.
+function refreshTracking() {
+  if (window.loadTracking) window.loadTracking();
+  else loadUserBets();
+}
+
+// ── Bet detail / edit (tap a bet row) — Backlog P1 #9 ─────────────────────────
+function ensureSheetHost() {
+  let host = document.getElementById('track-sheet-host');
+  if (!host) { host = document.createElement('div'); host.id = 'track-sheet-host'; document.body.appendChild(host); }
+  return host;
+}
+export function openBetDetail(id) {
+  const b = _bets.find(x => x.id === id);
+  if (!b) return;
+  const pending = b.result === 'pending';
+  const oddsStr = b.odds > 0 ? '+' + b.odds : '' + b.odds;
+  const host = ensureSheetHost();
+  host.innerHTML = `
+    <div class="track-overlay" id="track-overlay" onclick="if(event.target===this)closeTrackSheet()">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="Bet detail">
+        <div class="track-sheet-grab"></div>
+        <div class="track-sheet-head"><span>Bet detail</span><button class="track-sheet-x" onclick="closeTrackSheet()" aria-label="Close">✕</button></div>
+        <div class="track-form">
+          <div class="ob-head" style="margin-bottom:2px;">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${betResultPill(b.result)} · ${b.verified ? 'Verified' : 'Custom'}${b.book ? ' · ' + b.book : ''}</div>
+          ${pending ? `
+            <div style="display:flex;gap:12px;">
+              <div class="settings-field" style="flex:1;"><label for="bd-odds">Odds</label><input type="number" id="bd-odds" value="${b.odds}" step="5" /></div>
+              <div class="settings-field" style="flex:1;"><label for="bd-stake">Stake</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="bd-stake" value="${b.stake}" min="0" step="1" /></div></div>
+            </div>
+            <div class="settings-field"><label for="bd-notes">Note</label><input type="text" id="bd-notes" value="${(b.notes || '').replace(/"/g, '&quot;')}" maxlength="200" /></div>
+            <button class="track-submit" onclick="saveBetEdit(${b.id})">Save changes</button>
+            ${!b.espn_game_id ? `<div class="bet-settle-row" style="margin-top:12px;">
+              <button class="bet-settle-btn win"  onclick="settleBetUI(${b.id},'win')">Won</button>
+              <button class="bet-settle-btn loss" onclick="settleBetUI(${b.id},'loss')">Lost</button>
+              <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'push')">Push</button>
+              <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'void')">Void</button>
+            </div>` : `<div class="track-form-note">This is a game-linked bet — it grades automatically when the game finishes.</div>`}
+          ` : `
+            <div class="bd-rows">
+              <div class="bd-row"><span>Odds</span><span>${oddsStr}</span></div>
+              <div class="bd-row"><span>Stake</span><span>$${(b.stake || 0).toFixed(2)}</span></div>
+              <div class="bd-row"><span>Result</span><span>${b.result}</span></div>
+              <div class="bd-row"><span>P/L</span>${payoutCell(b)}</div>
+            </div>
+            ${b.notes ? `<div class="track-form-note" style="font-style:italic;">${b.notes}</div>` : ''}
+            ${!b.espn_game_id ? `
+            <div class="track-form-note" style="margin-top:12px;margin-bottom:6px;">Marked it wrong? Update the result:</div>
+            <div class="bet-settle-row">
+              <button class="bet-settle-btn win"  onclick="settleBetUI(${b.id},'win')">Won</button>
+              <button class="bet-settle-btn loss" onclick="settleBetUI(${b.id},'loss')">Lost</button>
+              <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'push')">Push</button>
+              <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'void')">Void</button>
+            </div>` : ''}
+          `}
+          ${b.espn_game_id ? `<button class="track-opt" style="margin-top:12px;" onclick="closeTrackSheet();openGameModal('${b.espn_game_id}')">
+            <span class="track-opt-ic" style="background:rgba(34,197,94,.14);color:#22c55e;"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>
+            <span><span class="track-opt-t">View game</span><span class="track-opt-d">Open the matchup, lines, and live score.</span></span>
+          </button>` : ''}
+          <button class="track-opt" id="bd-delete-area" style="margin-top:12px;" onclick="confirmDeleteBet(${b.id})">
+            <span class="track-opt-ic" style="background:rgba(239,68,68,.14);color:#ef4444;"><i class="fa-solid fa-trash"></i></span>
+            <span><span class="track-opt-t" style="color:#ef4444;">Delete bet</span><span class="track-opt-d">Remove it from your tracking.</span></span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+  requestAnimationFrame(() => document.getElementById('track-overlay')?.classList.add('open'));
+}
+export async function saveBetEdit(id) {
+  const odds  = parseFloat(document.getElementById('bd-odds')?.value);
+  const stake = parseFloat(document.getElementById('bd-stake')?.value);
+  const notes = (document.getElementById('bd-notes')?.value || '').trim() || null;
+  try {
+    const res = await fetch(`/api/bets/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ odds, stake, notes }),
+    });
+    if (res.ok) { showToast('Bet updated'); closeTrackSheet(); refreshTracking(); }
+    else { const d = await res.json().catch(() => ({})); showToast(d.error || 'Could not update.', 'err'); }
+  } catch (_) { showToast('Network error. Try again.', 'err'); }
+}
+
+// ── Track-Bet sheet ───────────────────────────────────────────────────────────
+export function openTrackSheet() {
+  if (!state.currentUser) { window.openLogin && window.openLogin(); return; }
+  let host = document.getElementById('track-sheet-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'track-sheet-host';
+    document.body.appendChild(host);
+  }
+  host.innerHTML = `
+    <div class="track-overlay" id="track-overlay" onclick="if(event.target===this)closeTrackSheet()">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="Track a bet">
+        <div class="track-sheet-grab"></div>
+        <div class="track-sheet-head">
+          <span>Track a Bet</span>
+          <button class="track-sheet-x" onclick="closeTrackSheet()" aria-label="Close">✕</button>
+        </div>
+        <div id="track-sheet-body">${sheetMenuHtml()}</div>
+      </div>
+    </div>`;
+  requestAnimationFrame(() => document.getElementById('track-overlay')?.classList.add('open'));
+}
+
+export function closeTrackSheet() {
+  const ov = document.getElementById('track-overlay');
+  if (!ov) return;
+  ov.classList.remove('open');
+  setTimeout(() => { const h = document.getElementById('track-sheet-host'); if (h) h.innerHTML = ''; }, 180);
+}
+
+function sheetMenuHtml() {
+  return `
+    <button class="track-opt" onclick="trackFromGame()">
+      <span class="track-opt-ic" style="background:rgba(34,197,94,.14);color:#22c55e;"><i class="fa-solid fa-magnifying-glass"></i></span>
+      <span><span class="track-opt-t">From a game</span><span class="track-opt-d">Pick a side on a real game. Verified, counts on the leaderboard.</span></span>
+    </button>
+    <button class="track-opt" onclick="showCustomForm()">
+      <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
+      <span><span class="track-opt-t">Custom bet</span><span class="track-opt-d">Log any bet yourself (props, parlays, anything). Personal tracking only.</span></span>
+    </button>
+    <button class="track-opt track-opt-soon" disabled>
+      <span class="track-opt-ic" style="background:var(--surface2);color:var(--muted);"><i class="fa-regular fa-image"></i></span>
+      <span><span class="track-opt-t">Upload betslip <span class="track-soon">Soon</span></span><span class="track-opt-d">Snap a betslip and we'll read it for you.</span></span>
+    </button>`;
+}
+
+let _trackGames = [];
+let _trackSport = '';
+let _trackQuery = '';
+
+export async function trackFromGame() {
+  const body = document.getElementById('track-sheet-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="track-game-search">
+      <div class="tg-filter-row" id="tg-sports"></div>
+      <input type="text" id="tg-search" placeholder="Search a game or team..." oninput="filterTrackGames(this.value)" autocomplete="off" />
+      <div id="tg-results" class="tg-results"><div style="padding:14px;color:var(--muted);font-size:13px;">Loading games...</div></div>
+    </div>`;
+  try {
+    const res = await fetch('/api/games');
+    _trackGames = res.ok ? await res.json() : [];
+  } catch (_) { _trackGames = []; }
+  _trackSport = ''; _trackQuery = '';
+  renderSportChips();
+  renderTrackGames();
+  document.getElementById('tg-search')?.focus();
+}
+
+function renderSportChips() {
+  const el = document.getElementById('tg-sports');
+  if (!el) return;
+  const present = [...new Set(_trackGames.map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
+  el.innerHTML = ['', ...present]
+    .map(s => `<button class="tg-chip${_trackSport === s ? ' active' : ''}" onclick="setTrackSport('${s}')">${s || 'All'}</button>`)
+    .join('');
+}
+export function setTrackSport(s) { _trackSport = s; renderSportChips(); renderTrackGames(); }
+export function filterTrackGames(q) { _trackQuery = q; renderTrackGames(); }
+
+function renderTrackGames() {
+  const el = document.getElementById('tg-results');
+  if (!el) return;
+  const q = (_trackQuery || '').trim().toLowerCase();
+  let games = _trackGames;
+  if (_trackSport) games = games.filter(g => (g.sport || '').toUpperCase() === _trackSport);
+  if (q.length >= 1) games = games.filter(g => `${g.away_team} ${g.home_team} ${g.sport}`.toLowerCase().includes(q));
+  // Live first, then upcoming by time, then finals.
+  const rank = g => g.status === 'in' ? 0 : g.status === 'post' ? 2 : 1;
+  games = games.slice().sort((a, b) => rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || '')));
+  games = games.slice(0, 40);
+  if (!games.length) {
+    el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">${_trackGames.length ? 'No games match.' : 'No games on the board right now.'}</div>`;
+    return;
+  }
+  el.innerHTML = games.map(g => {
+    const away = (g.away_team || '').split(' ').pop();
+    const home = (g.home_team || '').split(' ').pop();
+    const status = g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
+      : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
+      : (g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '');
+    return `<button class="tg-row" onclick="pickTrackGame('${g.espn_game_id}')">
+      <span class="tg-matchup">${away} @ ${home} ${sportBadge(g.sport)}</span>
+      <span class="tg-status">${status} ›</span>
+    </button>`;
+  }).join('');
+}
+
+// ── Odds board: tap a real line to track it (verified) ────────────────────────
+let _board = null;
+let _lastBoardId = null;
+
+export async function pickTrackGame(id) {
+  _lastBoardId = id;
+  const body = document.getElementById('track-sheet-body');
+  if (body) body.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:13px;">Loading lines...</div>`;
+  try {
+    const res = await fetch(`/api/game/${id}`);
+    _board = res.ok ? await res.json() : null;
+  } catch (_) { _board = null; }
+  renderOddsBoard();
+}
+
+const _odds = o => (o == null || o === '' ? '—' : (o > 0 ? '+' + o : '' + o));
+const _sp   = s => (s == null || s === '' ? '—' : (s > 0 ? '+' + s : '' + s));
+
+function renderOddsBoard() {
+  const body = document.getElementById('track-sheet-body');
+  if (!body) return;
+  if (!_board || !_board.game) {
+    body.innerHTML = `<button class="ob-back" onclick="trackFromGame()">‹ Games</button>
+      <div style="padding:18px 0;color:var(--muted);font-size:14px;">Could not load this game's lines.</div>
+      <button class="track-submit" style="width:auto;padding:10px 18px;" onclick="pickTrackGame('${_lastBoardId}')">Retry</button>`;
+    return;
+  }
+  const g = _board.game;
+  const id = g.espn_game_id;
+  const started = g.status === 'in' || g.status === 'post';
+  const away = g.away_team || 'Away', home = g.home_team || 'Home';
+  const awayN = away.split(' ').pop(), homeN = home.split(' ').pop();
+
+  const line = (slot, label, odds, disabled, books) => `
+    <button class="ob-line${disabled ? ' ob-line-off' : ''}" ${disabled ? 'disabled' : `onclick="trackLine('${id}','${slot}','${String(label).replace(/'/g, "\\'")}')"`}>
+      <span style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0;">
+        <span class="ob-line-label">${label}</span>
+        ${books ? `<span class="ob-books">${books}</span>` : ''}
+      </span>
+      <span class="ob-line-odds">${odds}</span>
+    </button>`;
+
+  // Line-shopping context (Backlog P1 #7): show DK + FD prices under ML/Total, the
+  // better price in green. The tap still tracks our consensus number (verifiable);
+  // this just shows where the value is.
+  const dk = (_board.lines || {}).draftkings, fd = (_board.lines || {}).fanduel;
+  const dec = o => (o == null ? -Infinity : (o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o)));
+  const bookCtx = (field) => {
+    const a = dk ? dk[field] : null, b = fd ? fd[field] : null;
+    if (a == null && b == null) return '';
+    const bothBest = (a != null && b != null);
+    const best = dec(a) >= dec(b) ? 'dk' : 'fd';
+    const fmt = (o, isBest) => o == null ? '—' : `<span style="${isBest && bothBest ? 'color:#4ade80;font-weight:700;' : ''}">${o > 0 ? '+' + o : o}</span>`;
+    return `DK ${fmt(a, best === 'dk')} · FD ${fmt(b, best === 'fd')}`;
+  };
+
+  // Disable a line when its underlying number is missing — tracking a "—" line
+  // creates an ungradeable / mis-priced vote (Backlog P0 #2).
+  const hasML = g.ml_home != null || g.ml_away != null;
+  const hasSpread = g.spread_home != null || g.spread_away != null;
+  const noLines = !hasML && !hasSpread && g.over_under == null;
+  const lines = started ? '' : `
+    ${hasML ? `<div class="ob-section">Moneyline</div>
+    ${line('away_ml', `${awayN}`, _odds(g.ml_away), g.ml_away == null, bookCtx('ml_away'))}
+    ${line('home_ml', `${homeN}`, _odds(g.ml_home), g.ml_home == null, bookCtx('ml_home'))}` : ''}
+    ${hasSpread ? `<div class="ob-section">Spread</div>
+    ${line('away_spread', `${awayN} ${_sp(g.spread_away)}`, _odds(-110), g.spread_away == null)}
+    ${line('home_spread', `${homeN} ${_sp(g.spread_home)}`, _odds(-110), g.spread_home == null)}` : ''}
+    ${g.over_under != null ? `<div class="ob-section">Total</div>
+    ${line('over',  `Over ${g.over_under}`,  _odds(g.ou_over_odds), false, bookCtx('ou_over_odds'))}
+    ${line('under', `Under ${g.over_under}`, _odds(g.ou_under_odds), false, bookCtx('ou_under_odds'))}` : ''}
+    ${noLines ? `<div class="track-form-note" style="margin-top:4px;">No betting lines posted for this game yet. Use Custom bet to log it.</div>` : ''}`;
+
+  body.innerHTML = `
+    <button class="ob-back" onclick="trackFromGame()">‹ Games</button>
+    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
+    <div class="track-form-note">${started
+      ? 'This game has started, so verified tracking is closed. Use Custom bet to log it.'
+      : 'Tap a line to track it. Verified, locked at this number, graded automatically.'}</div>
+    ${started ? '' : `<div class="ob-grid">${lines}</div>`}
+    <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
+      <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
+      <span><span class="track-opt-t">Log it as a custom bet instead</span><span class="track-opt-d">Set your own stake, odds, and book.</span></span>
+    </button>`;
+}
+
+let _trackingLine = false;
+export async function trackLine(id, slot, label) {
+  if (_trackingLine) return;            // guard against double-tap (Backlog P0 #4)
+  _trackingLine = true;
+  document.querySelectorAll('.ob-line').forEach(b => { b.disabled = true; });
+  try {
+    const res = await fetch(`/api/game/${id}/vote`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slot }),
+    });
+    if (res.status === 401) { window.openLogin && window.openLogin(); return; }
+    if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
+    if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
+    showToast('Tracked' + (label ? ': ' + label : '') + ' (verified)');
+    closeTrackSheet();
+    refreshTracking();
+  } catch (_) {
+    showToast('Network error. Try again.', 'err');
+  } finally {
+    _trackingLine = false;
+    document.querySelectorAll('.ob-line').forEach(b => { b.disabled = false; });
+  }
+}
+
+let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
+
+export function showCustomForm() {
+  _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
+  const body = document.getElementById('track-sheet-body');
+  if (body) body.innerHTML = customFormHtml();
+  updatePayoutPreview();
+}
+
+function seg(name, value, current, label) {
+  return `<button type="button" class="bet-seg${value === current ? ' active' : ''}" onclick="setFormField('${name}','${value}')">${label}</button>`;
+}
+
+function customFormHtml() {
+  const needsLine = _form.bet_type === 'spread' || _form.bet_type === 'total';
+  return `
+    <div class="track-form">
+      <div class="settings-field">
+        <label>Bet type</label>
+        <div class="bet-seg-row">
+          ${seg('bet_type', 'ml', _form.bet_type, 'Moneyline')}
+          ${seg('bet_type', 'spread', _form.bet_type, 'Spread')}
+          ${seg('bet_type', 'total', _form.bet_type, 'Total')}
+          ${seg('bet_type', 'prop', _form.bet_type, 'Prop')}
+        </div>
+      </div>
+      <div class="settings-field" id="cf-ou-wrap" style="${_form.bet_type === 'total' ? '' : 'display:none;'}">
+        <label>Over / Under</label>
+        <div class="bet-seg-row">
+          ${seg('totalSide', 'over', _form.totalSide || 'over', 'Over')}
+          ${seg('totalSide', 'under', _form.totalSide || 'over', 'Under')}
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="cf-selection">Your pick</label>
+        <input type="text" id="cf-selection" placeholder='e.g. "Yankees ML" or "Judge 2+ HR"' maxlength="80" />
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="settings-field" style="flex:1;">
+          <label for="cf-sport">Sport</label>
+          <select id="cf-sport" style="width:100%;padding:9px 12px;font-size:14px;">
+            <option value="">—</option>
+            ${SPORTS.map(s => `<option value="${s}">${s}</option>`).join('')}
+          </select>
+        </div>
+        <div class="settings-field" style="flex:1;${needsLine ? '' : 'display:none;'}" id="cf-line-wrap">
+          <label for="cf-line">Line</label>
+          <input type="number" id="cf-line" step="0.5" placeholder="e.g. -1.5 or 8.5" />
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="settings-field" style="flex:1;">
+          <label for="cf-odds">Odds</label>
+          <input type="number" id="cf-odds" value="-110" step="5" oninput="updatePayoutPreview()" />
+        </div>
+        <div class="settings-field" style="flex:1;">
+          <label for="cf-stake">Stake</label>
+          <div class="field-prefix-wrap"><span class="field-prefix">$</span>
+            <input type="number" id="cf-stake" value="${unitSize()}" min="0" step="1" oninput="updatePayoutPreview()" />
+          </div>
+        </div>
+      </div>
+      <div class="track-payout" id="cf-payout"></div>
+      <div class="settings-field">
+        <label>Book (optional)</label>
+        <div class="bet-seg-row" style="flex-wrap:wrap;">
+          ${BOOKS.map(b => `<button type="button" class="bet-seg" onclick="setFormBook('${b}',this)">${b}</button>`).join('')}
+        </div>
+      </div>
+      <div class="settings-field">
+        <label>Result</label>
+        <div class="bet-seg-row">
+          ${seg('result', 'pending', _form.result, 'Pending')}
+          ${seg('result', 'win', _form.result, 'Won')}
+          ${seg('result', 'loss', _form.result, 'Lost')}
+          ${seg('result', 'push', _form.result, 'Push')}
+          ${seg('result', 'void', _form.result, 'Void')}
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="cf-notes">Note (optional)</label>
+        <input type="text" id="cf-notes" placeholder="e.g. tailed @capper, group-chat play" maxlength="200" />
+      </div>
+      <div class="track-form-note">Custom bets show on your own tracking. They are not added to the verified leaderboard.</div>
+      <button class="track-submit" id="cf-submit" onclick="submitCustomBet()">Track bet</button>
+      <div class="form-error" id="cf-error" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+}
+
+export function setFormField(name, value) {
+  _form[name] = value;
+  if (name === 'bet_type') {
+    const wrap = document.getElementById('cf-line-wrap');
+    if (wrap) wrap.style.display = (value === 'spread' || value === 'total') ? '' : 'none';
+    const ou = document.getElementById('cf-ou-wrap');
+    if (ou) ou.style.display = (value === 'total') ? '' : 'none';
+  }
+  if (name === 'result') updatePayoutPreview(); // hide "to win" when Lost/Void
+  // Re-highlight the segmented group this control belongs to.
+  document.querySelectorAll(`.bet-seg[onclick*="'${name}'"]`).forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${value}'`));
+  });
+}
+
+export function setFormBook(book, btn) {
+  const on = _form.book === book;
+  _form.book = on ? '' : book;
+  // Toggle just the book chips (the row after the Book label).
+  const row = btn.parentElement;
+  row.querySelectorAll('.bet-seg').forEach(b => b.classList.remove('active'));
+  if (!on) btn.classList.add('active');
+}
+
+export function updatePayoutPreview() {
+  const odds  = parseFloat(document.getElementById('cf-odds')?.value);
+  const stake = parseFloat(document.getElementById('cf-stake')?.value) || 0;
+  const el = document.getElementById('cf-payout');
+  if (!el) return;
+  // Flag a $0 stake — it tracks the result but contributes nothing to P/L (Backlog P2 #30).
+  if (!stake) { el.innerHTML = `<span style="color:var(--muted);">No stake set, so this won't affect your P/L.</span>`; return; }
+  // Respect the chosen result (Backlog P0 #5): don't show a "to win" for a Lost/Void bet.
+  if (_form.result === 'loss') { el.innerHTML = `Risk <strong>$${stake.toFixed(2)}</strong> · marked Lost (−$${stake.toFixed(2)})`; return; }
+  if (_form.result === 'push' || _form.result === 'void') { el.innerHTML = `Stake returned · $0.00`; return; }
+  const win = americanProfit(odds, stake);
+  el.innerHTML = `Risk <strong>$${stake.toFixed(2)}</strong> to win <strong>$${win.toFixed(2)}</strong> · returns <strong>$${(win + stake).toFixed(2)}</strong>`;
+}
+
+export async function submitCustomBet() {
+  const errEl = document.getElementById('cf-error');
+  const btn   = document.getElementById('cf-submit');
+  if (errEl) errEl.textContent = '';
+  const selection = (document.getElementById('cf-selection')?.value || '').trim();
+  const odds  = parseFloat(document.getElementById('cf-odds')?.value);
+  const stake = parseFloat(document.getElementById('cf-stake')?.value) || 0;
+  const sport = document.getElementById('cf-sport')?.value || '';
+  const lineV = document.getElementById('cf-line')?.value;
+  // DB enum has over/under, not "total". A self-settled custom total is stored in the
+  // 'over' bucket (the selection text carries "Over 8.5" / "Under 8.5"); the breakdown
+  // labels over/under as "Total".
+  const bet_type = _form.bet_type === 'total' ? (_form.totalSide === 'under' ? 'under' : 'over') : _form.bet_type;
+  if (!selection) { if (errEl) errEl.textContent = 'Add what you bet on.'; return; }
+  if (!Number.isFinite(odds) || odds === 0) { if (errEl) errEl.textContent = 'Enter valid odds (e.g. -110).'; return; }
+
+  if (btn) btn.disabled = true;
+  try {
+    // Pass the chosen result on CREATE so it's atomic — no fire-and-forget settle
+    // that could leave a "pending" row while the sheet closed as graded (P0 #3).
+    const res = await fetch('/api/bets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bet_type, selection, sport,
+        line: (lineV === '' || lineV == null) ? null : Number(lineV),
+        odds, stake, book: _form.book || null,
+        notes: (document.getElementById('cf-notes')?.value || '').trim() || null,
+        result: _form.result || 'pending',
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { if (errEl) errEl.textContent = data.error || 'Could not save.'; if (btn) btn.disabled = false; return; }
+    showToast('Tracked: ' + selection);
+    closeTrackSheet();
+    refreshTracking();
+  } catch (_) {
+    if (errEl) errEl.textContent = 'Network error. Try again.';
+    if (btn) btn.disabled = false;
+  }
+}
+
+Object.assign(window, {
+  openTrackSheet, closeTrackSheet, trackFromGame, showCustomForm,
+  setFormField, setFormBook, updatePayoutPreview, submitCustomBet,
+  setBetFilter, settleBetUI, deleteBetUI, loadUserBets,
+  filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
+  openBetDetail, saveBetEdit, confirmDeleteBet,
+});
+
+// Escape closes the track sheet / bet detail (Backlog P2 #24).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('track-overlay')) closeTrackSheet();
+});

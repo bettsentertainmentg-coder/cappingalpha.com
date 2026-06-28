@@ -53,8 +53,9 @@ const { syncEsportsMarkets, getTopEsportsGames } = require('./src/esports_market
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
-const { getLiveState, prevPulseMag, savePulseMag } = require('./src/live_tracker');
+const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory } = require('./src/live_tracker');
 const { liveWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
+const { MOCK_ID, isMockId, mockActive, mockLiveState, mockPulseHistory, installMockLive } = require('./src/mock_live');
 const { computeValuePulse } = require('./src/live_value');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
@@ -142,6 +143,7 @@ app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 app.use('/admin', admin);
 app.use('/auth', auth);
+app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
@@ -174,6 +176,9 @@ if (MIRROR_URL) {
     // context from the mirror itself) so the live UI is testable in UI_ONLY. The
     // main /api/game/:id stays mirrored.
     if (/^\/api\/game\/[^/]+\/live$/.test(req.path)) return next();
+    // Local mock live game (dev only): serve Top Games + its detail/pick data
+    // locally so the mock surfaces and the real prod top games aren't needed.
+    if (mockActive() && (req.path === '/api/games/top' || req.path.startsWith('/api/game/' + MOCK_ID))) return next();
     const target = MIRROR_URL + req.originalUrl;
     fetch(target, { headers: { accept: 'application/json' } })
       .then(async (r) => {
@@ -189,6 +194,9 @@ if (MIRROR_URL) {
       });
   });
 }
+
+// Local-dev mock live game (no-op unless UI_ONLY). Inert in production.
+installMockLive(db);
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -883,11 +891,12 @@ app.get('/api/account', (req, res) => {
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
   const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
   const unitSize = prefs && prefs.unit_size != null ? prefs.unit_size : 20;
   const startingBankroll = prefs && prefs.starting_bankroll != null ? prefs.starting_bankroll : 0;
+  const defaultOdds = prefs && prefs.default_odds ? prefs.default_odds : 'consensus';
   const avatarUrl = user.avatar_path ? `/avatars/${user.avatar_path}` : null;
 
   // Votes joined to today_games + picks. Snapshot columns (gv.*) take priority —
@@ -905,6 +914,7 @@ app.get('/api/account', (req, res) => {
            COALESCE(p.score, gv.score) AS score, p.mention_count,
            COALESCE(p.result, gv.result) AS result,
            p.pick_type, p.team,
+           gv.closing_odds, gv.closing_line,
            COALESCE(gv.spread, p.spread) AS spread
     FROM game_votes gv
     LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
@@ -921,7 +931,7 @@ app.get('/api/account', (req, res) => {
     ORDER BY gv.voted_at ASC
   `).all(userId);
 
-  res.json({ user, favoriteSports, isPublic, unitSize, startingBankroll, avatarUrl, votes });
+  res.json({ user, favoriteSports, isPublic, unitSize, startingBankroll, defaultOdds, avatarUrl, votes });
 });
 
 // DELETE /api/game/:espn_game_id/vote — remove a vote while game is still pre-game
@@ -950,12 +960,13 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
 app.put('/api/account/preferences', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
-  const { favorite_sports, is_public, unit_size, starting_bankroll } = req.body || {};
+  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+  const ODDS_SOURCES = ['consensus', 'draftkings', 'fanduel', 'kalshi', 'polymarket'];
 
   // Read the current row so a partial update preserves the untouched fields.
-  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll FROM user_preferences WHERE user_id = ?`).get(userId);
+  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds FROM user_preferences WHERE user_id = ?`).get(userId);
 
   const sports = favorite_sports !== undefined
     ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
@@ -978,18 +989,23 @@ app.put('/api/account/preferences', (req, res) => {
     ? clampNum(starting_bankroll, 0, 0, 100_000_000)
     : (cur && cur.starting_bankroll != null ? cur.starting_bankroll : 0);
 
+  const odds = default_odds !== undefined
+    ? (ODDS_SOURCES.includes(String(default_odds)) ? String(default_odds) : 'consensus')
+    : (cur && cur.default_odds ? cur.default_odds : 'consensus');
+
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, updated_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       favorite_sports   = excluded.favorite_sports,
       is_public         = excluded.is_public,
       unit_size         = excluded.unit_size,
       starting_bankroll = excluded.starting_bankroll,
+      default_odds      = excluded.default_odds,
       updated_at        = datetime('now')
-  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll);
+  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds);
 
-  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds });
 });
 
 // POST /api/account/avatar — upload a profile photo as a base64 data URL.
@@ -1167,7 +1183,11 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
       outs: game.live_outs ?? null, bases: game.live_bases ?? null,
       balls: null, strikes: null, batter: null, batterLine: null, pitcher: null, pitcherLine: null, dueUp: [], lastPlay: null,
     };
-    const state = (await getLiveState(sport, espn_game_id)) || fallbackState;
+    // Local-dev mock uses an evolving synthesized state (no ESPN); real games use
+    // the cached ESPN scoreboard, falling back to the stored row.
+    const state = isMockId(espn_game_id)
+      ? mockLiveState()
+      : ((await getLiveState(sport, espn_game_id)) || fallbackState);
 
     // Pulse magnitude is paid-gated (mirrors /api/picks). In local UI_ONLY dev we
     // treat the viewer as paid so the real bar is reviewable without a local paid
@@ -1207,8 +1227,17 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
           gameProgress: gp, prevMagnitude: prevPulseMag(key), mvpThreshold: MVP_THRESHOLD,
         });
         savePulseMag(key, pulse.magnitude);
+        // Value-over-game series for the sparkline: the mock synthesizes a full
+        // arc; real games accumulate one point per poll.
+        let history;
+        if (isMockId(espn_game_id)) {
+          history = mockPulseHistory(pre, p.score || 0, MVP_THRESHOLD);
+        } else {
+          pushPulseHistory(key, pulse.magnitude, state.period);
+          history = getPulseHistory(key);
+        }
         pulses[slot] = {
-          ...pulse, pickType: type,
+          ...pulse, pickType: type, history,
           approx: type === 'spread' || type === 'over' || type === 'under',
           winPct: Math.round(now * 100),
         };
@@ -1954,6 +1983,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   stampActualEnds();
   await resolveResults().catch(err => console.error('[cron] resolveResults error:', err.message));
   await resolveVotes().catch(err => console.error('[cron] resolveVotes error:', err.message));
+  await require('./src/user_bets').gradePendingBets().catch(err => console.error('[cron] gradePendingBets error:', err.message));
   // Freeze the detail bundle for any MVP game that just started — the enrichment
   // caches still hold the final pre-game values (market syncs stop at 'pre').
   try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] mvp snapshot:', e.message); }
@@ -1989,6 +2019,7 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
     stampActualEnds();
     await resolveResults();
     await resolveVotes();
+    await require('./src/user_bets').gradePendingBets();
   } catch (err) {
     console.error('[cron] live30 error:', err.message);
   } finally {

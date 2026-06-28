@@ -2,70 +2,76 @@
 // Pure live "value pulse" for a held CA pick. Honest buy-low read, computed
 // server-side so the model + CA weighting never ship to non-paid clients.
 //
-// Signal (non-circular): our anchored live win prob (win_prob.js) still rates the
-// pick highly WHILE the scoreboard has knocked it down from where it locked, with
-// game left. Peaks when a believed-in pick is down but alive; ~0 when cruising
-// (nothing to recover) or hopeless (no resilience) or late (no game left).
+// Output is a SIGNED value in [-100, +100] that twitches with the game:
+//   + (toward gold)  = comeback / buy-low value — the pick is BELOW its locked price
+//                      but our live model still gives it a real shot.
+//   ~0 (slate)       = the pick is roughly where it locked; no edge either way.
+//   - (toward blue)  = low value — the pick is priced UP from where it locked (you
+//                      missed the value) or it is fading toward hopeless.
 //
-//   trailing   = max(0, pickWP_pre - pickWP_now)   // how far the scoreboard knocked us
-//   resilience = pickWP_now                        // still believable?
-//   buyLow     = trailing * resilience
-//   value      = buyLow * convictionWeight * progressDamp   (then scaled + EMA-smoothed)
+//   dz    = logit(now) - logit(pre)        // live read vs locked price (log-odds)
+//   alive = ramp(now)                      // still believable? kills hopeless spots
+//   raw   = (-dz)*alive - (1-alive)*HOPELESS, progress-damped on the positive side
+//   value = clamp(raw * SCALE, -100, 100), lightly EMA-smoothed (stays volatile)
 //
-// CA conviction is a SMALL, deliberately un-surfaced nudge. No market-vs-line leg
-// in v1 (free in-game odds are too stale to trust). Constants are tunable on
-// localhost before any magnitude goes user-facing.
+// CA conviction is a SMALL, deliberately un-surfaced nudge. No market-vs-line leg in
+// v1 (free in-game odds are too stale). Constants are tunable on localhost.
 
-const SCALE     = 3.5;    // map raw buy-low (~0..0.3) onto a 0..1 bar
-const EMA_ALPHA  = 0.4;   // smoothing across ~12s polls (3-4 samples settle)
-const DEAD_BAND  = 0.10;  // below this reads as "steady"
-const STRONG     = 0.30;  // strong band threshold
-const TREND_EPS  = 0.012; // min change to call it rising/falling vs holding
+const SCALE     = 55;     // map raw signed buy-low onto ~[-100, 100]
+const EMA_ALPHA  = 0.6;   // light smoothing — keep it reactive per play
+const ALIVE_LO   = 0.10;  // at/below this live WP the pick is ~hopeless
+const ALIVE_HI   = 0.50;  // at/above this live WP the pick is fully "alive"
+const HOPELESS   = 0.60;  // how negative a hopeless spot reads (pre-scale)
 const CA_K       = 0.25;  // small hidden conviction nudge
+const NEUTRAL    = 12;    // |value| below this reads as "holding"
+const STRONG     = 40;    // |value| above this is the strong band
 
 const COLORS = { gold: '#FFD700', slate: '#8892a4', blue: '#3b82f6' };
-const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
-const round3 = (x) => Math.round(x * 1000) / 1000;
+const clamp  = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+const logit  = (p) => { const q = clamp(p, 1e-3, 1 - 1e-3); return Math.log(q / (1 - q)); };
+const round1 = (x) => Math.round(x * 10) / 10;
 
 // inputs:
-//  pickWP_now   live win prob for the picked side (0..1)
-//  pickWP_pre   pre-game win prob for the picked side (0..1; falls back to now)
-//  caScore      pick's CA score (small hidden weight)
-//  gameProgress 0..1 fraction of regulation elapsed
-//  prevMagnitude previous EMA magnitude (for smoothing + trend); null on first sample
-//  mvpThreshold CA MVP threshold (default 50)
+//  pickWP_now    live win prob for the picked side (0..1)
+//  pickWP_pre    locked pre-game win prob for the picked side (0..1; falls back to now)
+//  caScore       pick's CA score (small hidden weight)
+//  gameProgress  0..1 fraction of regulation elapsed
+//  prevMagnitude previous signed value (for EMA + trend); null on first sample
+//  mvpThreshold  CA MVP threshold (default 50)
 function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress = 0, prevMagnitude = null, mvpThreshold = 50 } = {}) {
-  const now = clamp(Number(pickWP_now) || 0, 0, 1);
+  const now  = clamp(Number(pickWP_now) || 0, 0, 1);
   const preN = Number(pickWP_pre);
-  const pre = clamp((preN == null || isNaN(preN)) ? now : preN, 0, 1);
-  const gp  = clamp(Number(gameProgress) || 0, 0, 1);
+  const pre  = clamp((preN == null || isNaN(preN)) ? now : preN, 0, 1);
+  const gp   = clamp(Number(gameProgress) || 0, 0, 1);
 
-  const trailing   = Math.max(0, pre - now);
-  const resilience = now;
-  const buyLow     = trailing * resilience;                 // 0 when cruising or hopeless
-  const Cw          = clamp(1 + CA_K * ((Number(caScore) || 0) / (mvpThreshold || 50) - 1), 0.85, 1.25);
-  const progressDamp = Math.pow(1 - gp, 0.75);              // less game left = less opportunity
-  const target = clamp(buyLow * Cw * progressDamp * SCALE, 0, 1);
+  const dz    = logit(now) - logit(pre);                       // <0 worse than locked, >0 better
+  const alive = clamp((now - ALIVE_LO) / (ALIVE_HI - ALIVE_LO), 0, 1);
+  let raw = (-dz) * alive - (1 - alive) * HOPELESS;            // behind+alive -> +, ahead -> -, hopeless -> -
+  if (raw > 0) raw *= (0.40 + 0.60 * (1 - gp));               // late comeback value is worth less
+  const Cw = clamp(1 + CA_K * ((Number(caScore) || 0) / (mvpThreshold || 50) - 1), 0.85, 1.25);
+  raw *= Cw;
+
+  const target = clamp(raw * SCALE, -100, 100);
 
   const prevN = Number(prevMagnitude);
-  const prev = (prevMagnitude == null || isNaN(prevN)) ? target : clamp(prevN, 0, 1);
-  const magnitude = prev + EMA_ALPHA * (target - prev);
-  const trend = magnitude - prev;
+  const prev = (prevMagnitude == null || isNaN(prevN)) ? target : clamp(prevN, -100, 100);
+  const value = round1(prev + EMA_ALPHA * (target - prev));
+  const trend = round1(value - prev);
 
-  let band, sign, color, label;
-  if (magnitude < DEAD_BAND) {
-    band = 'steady'; sign = 0; color = COLORS.slate; label = 'Steady';
-  } else if (trend < -TREND_EPS) {
-    band = magnitude >= STRONG ? 'fading-strong' : 'fading'; sign = -1; color = COLORS.blue;
-    label = 'Value fading';
-  } else if (trend > TREND_EPS) {
-    band = magnitude >= STRONG ? 'building-strong' : 'building'; sign = 1; color = COLORS.gold;
-    label = magnitude >= STRONG ? 'Strong comeback value' : 'Comeback value building';
+  let sign, color, label;
+  if (value > NEUTRAL) {
+    sign = 1; color = COLORS.gold;
+    label = value >= STRONG ? 'Strong comeback value' : 'Comeback value building';
+  } else if (value < -NEUTRAL) {
+    sign = -1; color = COLORS.blue;
+    label = value <= -STRONG ? 'Little value here' : 'Value fading';
   } else {
-    band = 'holding'; sign = 1; color = COLORS.gold; label = 'Value holding';
+    sign = 0; color = COLORS.slate; label = 'Value holding';
   }
 
-  return { magnitude: round3(magnitude), target: round3(target), trend: round3(trend), band, sign, color, label };
+  // `magnitude` is kept as an alias of the signed value so the EMA + history stores
+  // (savePulseMag / pushPulseHistory) and existing callers keep working unchanged.
+  return { value, magnitude: value, target: round1(target), trend, sign, color, label };
 }
 
 module.exports = { computeValuePulse, COLORS };

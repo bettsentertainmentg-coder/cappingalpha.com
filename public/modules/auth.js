@@ -1,6 +1,7 @@
 // modules/auth.js — Auth state, tier helpers, login/signup/logout
 
 import { state } from './state.js';
+import { avatarFor } from './utils.js';
 
 // ── Tier helpers ──────────────────────────────────────────────────────────────
 export function isViewer()  { return !state.currentUser; }
@@ -31,7 +32,8 @@ export function updateNavAuth() {
   const btnSignup  = document.getElementById('btn-signup');
   const btnLogout  = document.getElementById('btn-logout');
   const userInfo   = document.getElementById('nav-user-info');
-  const tabAccount = document.getElementById('tab-account');
+  const navAvatar  = document.getElementById('nav-avatar-btn');    // desktop trigger
+  const mNavAvatar = document.getElementById('m-nav-avatar-btn');  // mobile trigger
   // Mobile drawer mirrors the same auth state. It previously never updated, so the
   // phone always showed "Log In / Get Access" (and the upgrade prompt) even when
   // signed in and subscribed.
@@ -40,7 +42,6 @@ export function updateNavAuth() {
   const drawerFooter = document.getElementById('ca-drawer-footer');
   // Mobile top-bar action: Unlock (logged out) vs My Account (signed in).
   const mUnlock  = document.getElementById('m-nav-unlock');
-  const mAccount = document.getElementById('m-nav-account');
 
   const loggedIn = !!state.currentUser;
   const paying   = loggedIn && state.currentUser.tier !== 'free';
@@ -49,9 +50,25 @@ export function updateNavAuth() {
   show(btnLogin,  !loggedIn);
   show(btnSignup, !loggedIn);
   show(btnLogout, loggedIn);
-  show(tabAccount, loggedIn);
-  show(userInfo, loggedIn);
-  if (loggedIn && userInfo) userInfo.textContent = state.currentUser.username || state.currentUser.email;
+  // The avatar dropdown replaces the old "My Account" button + username span: it
+  // carries the identity, so the standalone username span stays hidden. Both the
+  // desktop and mobile avatars open the same dropdown; CSS shows whichever fits the
+  // current width, so we just fill both.
+  show(navAvatar, loggedIn);
+  show(mNavAvatar, loggedIn);
+  show(userInfo, false);
+  if (loggedIn) {
+    const u = state.currentUser;
+    const av = avatarFor(u.username || u.email, 30, u.avatar_url || null);
+    const s1 = document.getElementById('nav-avatar-slot');
+    const s2 = document.getElementById('m-nav-avatar-slot');
+    if (s1) s1.innerHTML = av;
+    if (s2) s2.innerHTML = av;
+    const nameEl  = document.getElementById('account-dd-name');
+    const emailEl = document.getElementById('account-dd-email');
+    if (nameEl)  nameEl.textContent  = u.username ? '@' + u.username : (u.email || '');
+    if (emailEl) emailEl.textContent = u.email || '';
+  }
 
   show(dLogout, loggedIn);
   // Drop the "Premium Access" upgrade shortcut once they already pay.
@@ -61,9 +78,12 @@ export function updateNavAuth() {
 
   // Unlock CTA (desktop nav): show to anyone not already paying.
   show(document.getElementById('btn-unlock'), !paying);
-  // Mobile top-bar: one button only — Unlock when logged out, My Account when signed in.
+  // Mobile top-bar: Unlock when logged out; the avatar (handled above) when signed in.
   show(mUnlock,  !loggedIn);
-  show(mAccount, loggedIn);
+  // Track-Bet FAB: floating, only for logged-in users. Set 'flex' explicitly (not
+  // via show(), whose '' would fall back to the CSS display:none default).
+  const fab = document.getElementById('track-fab');
+  if (fab) fab.style.display = loggedIn ? 'flex' : 'none';
 
   // Identify user in PostHog so sessions are linked to accounts.
   if (loggedIn && window.posthog) {

@@ -78,6 +78,34 @@ function buildNav(user) {
   // Tabs deep-link to the SPA via hash so they actually switch (the old /?tab=
   // links just landed on home). Leaderboard included to match the main bar.
   const tab = (h, l) => `<a href="/#${h}" class="tab-btn" style="text-decoration:none;">${l}</a>`;
+  // Avatar dropdown — matches the SPA's account menu so the top-right is consistent
+  // when you land on a detail page (and the dropdown still works here).
+  const initialsOf = (s) => {
+    s = String(s || '').trim(); if (!s) return '?';
+    const p = s.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean);
+    return (p.length >= 2 ? (p[0][0] + p[1][0]) : s.slice(0, 2)).toUpperCase();
+  };
+  // Exact same palette + hash + sizing as public/modules/utils.js avatarFor(), so
+  // the detail-page avatar is identical to the SPA nav avatar (color AND size).
+  const AVATAR_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#d97706', '#16a34a', '#0891b2', '#0d9488', '#4f46e5', '#9333ea', '#c026d3'];
+  const avatarBg = (s) => { s = String(s || 'user'); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AVATAR_COLORS[h % AVATAR_COLORS.length]; };
+  const nm = on ? (user.username || user.email || '') : '';
+  const ddItem = (href, icon, label, extra = '') => `<a ${href ? `href="${href}"` : ''} ${extra} style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#e2e8f0;text-decoration:none;cursor:pointer;"><i class="${icon}" style="width:16px;text-align:center;color:#8892a4;"></i> ${label}</a>`;
+  const navAccount = on ? `
+    <div style="position:relative;" id="ca-acct">
+      <button onclick="event.stopPropagation();var d=document.getElementById('ca-acct-dd');d.style.display=d.style.display==='block'?'none':'block';" aria-label="Account menu" style="background:none;border:none;padding:0;cursor:pointer;border-radius:50%;display:inline-flex;">
+        <span style="width:30px;height:30px;border-radius:50%;background:${avatarBg(nm)};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;letter-spacing:.01em;">${initialsOf(nm)}</span>
+      </button>
+      <div id="ca-acct-dd" style="display:none;position:absolute;top:calc(100% + 8px);right:0;min-width:210px;background:#171b24;border:1px solid #252c3b;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);padding:6px;z-index:200;">
+        <div style="padding:8px 12px 10px;border-bottom:1px solid #252c3b;margin-bottom:6px;font-weight:700;font-size:14px;color:#e2e8f0;">@${esc(nm)}</div>
+        ${ddItem('/#tracking', 'fa-solid fa-chart-line', 'My Tracking')}
+        ${ddItem('/#settings', 'fa-solid fa-gear', 'Settings')}
+        ${ddItem('/#about', 'fa-regular fa-circle-question', 'Support')}
+        <div style="height:1px;background:#252c3b;margin:6px 4px;"></div>
+        <a onclick="doLogout()" style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#ef4444;cursor:pointer;"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;text-align:center;color:#ef4444;"></i> Logout</a>
+      </div>
+    </div>
+    <script>document.addEventListener('click',function(e){var dd=document.getElementById('ca-acct-dd'),w=document.getElementById('ca-acct');if(dd&&w&&!w.contains(e.target))dd.style.display='none';});</script>` : '';
   return `<nav>
     <div class="nav-left">
       <button class="ca-hamburger" aria-label="Menu" onclick="document.getElementById('ca-detail-menu').classList.toggle('open')">
@@ -93,10 +121,9 @@ function buildNav(user) {
       </div>
     </div>
     <div class="nav-actions">
-      <span id="nav-user-info" style="${on ? '' : hide}">${acct}</span>
       <button class="btn" id="btn-unlock" style="${paying ? hide : ''}" onclick="location.href='/#unlock'">Unlock CappingAlpha</button>
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()" style="${on ? hide : ''}">Login</button>
-      <a href="/#account" class="tab-btn" id="tab-account" style="${on ? '' : hide}text-decoration:none;border-bottom:none;padding:0 4px;">My Account</a>
+      ${navAccount}
     </div>
   </nav>
   <!-- Mobile dropdown menu (matches the home hamburger) -->

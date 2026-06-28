@@ -332,6 +332,10 @@ try { db.exec(`ALTER TABLE game_votes ADD COLUMN ou_under_odds REAL`);  } catch 
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN spread REAL`);         } catch (_) {}
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN result TEXT NOT NULL DEFAULT 'pending'`); } catch (_) {}
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN score REAL`);          } catch (_) {}
+// Closing line/odds for the voted slot, snapshotted at grade time from today_games
+// (the last pre-game values; markets stop updating at 'pre'). Powers CLV.
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN closing_odds REAL`);   } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN closing_line REAL`);   } catch (_) {}
 
 // prev_ columns for book_lines line-movement tracking
 try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_home REAL`); } catch (_) {}
@@ -373,6 +377,9 @@ try {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_game_messages_game ON game_messages (espn_game_id, created_at)`);
 } catch (_) {}
+// Dummy-comment phase tag (NULL for real users). 'pre' / 'post' lets the dummy
+// commenter cap itself at one pre-game and one post-game message per game.
+try { db.exec(`ALTER TABLE game_messages ADD COLUMN comment_phase TEXT`); } catch (_) {}
 
 // Permanent per-game detail snapshot for MVP picks. Captures the free-but-wiped
 // enrichment (public betting, line history, Polymarket, Kalshi, book lines + the
@@ -405,6 +412,72 @@ try { db.exec(`ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT`); } cat
 // Default 1 (public by default); an absent user_preferences row is also treated as
 // public via COALESCE(up.is_public, 1) in the ranking queries.
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN is_public INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
+// Per-user bet-tracking config: unit size (dollars per 1 unit) + starting bankroll.
+// Powers the "My Tracking" page — net units, dollar P/L, and bankroll-over-time.
+// unit_size replaces the throwaway UI-only default that used to live in account.js.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN unit_size REAL NOT NULL DEFAULT 20`); } catch (_) {}
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN starting_bankroll REAL NOT NULL DEFAULT 0`); } catch (_) {}
+// Default odds source shown to the user (consensus | draftkings | kalshi | polymarket).
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN default_odds TEXT NOT NULL DEFAULT 'consensus'`); } catch (_) {}
+
+// ── user_bets (Phase B) — free-entry + game-linked personal bet tracking ──────
+// The MANUAL counterpart to game_votes. A bet may be game-linked (espn_game_id set
+// -> auto-graded by results.evaluateVote in the cron) or purely manual (no game id
+// -> the user self-settles). `verified` = can this count on ranked boards; only
+// vote/scanned/synced are verifiable, manual is personal-tracking only (the trust
+// moat). Snapshot columns let a settled bet keep its P/L + CLV after the daily wipe.
+// NEVER wiped (not in wipe.js FULL_WIPE_TABLES).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_bets (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       INTEGER NOT NULL,
+      bet_type      TEXT    NOT NULL,
+      sport         TEXT,
+      selection     TEXT    NOT NULL,
+      side          TEXT,
+      line          REAL,
+      odds          REAL    NOT NULL,
+      stake         REAL    NOT NULL DEFAULT 0,
+      units         REAL,
+      espn_game_id  TEXT,
+      game_date     TEXT,
+      closing_odds  REAL,
+      closing_line  REAL,
+      result        TEXT    NOT NULL DEFAULT 'pending',
+      payout        REAL,
+      verified      INTEGER NOT NULL DEFAULT 0,
+      source        TEXT    NOT NULL DEFAULT 'manual',
+      home_team     TEXT,
+      away_team     TEXT,
+      book          TEXT,
+      notes         TEXT,
+      placed_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      settled_at    TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_user        ON user_bets (user_id, placed_at DESC)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_user_result ON user_bets (user_id, result)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_grade       ON user_bets (result, espn_game_id) WHERE espn_game_id IS NOT NULL`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_verified    ON user_bets (verified, result, settled_at)`);
+} catch (_) {}
+
+// ── bankroll_ledger (Phase B) — append-only bankroll adjustments. NEVER wiped. ──
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bankroll_ledger (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL,
+      amount      REAL    NOT NULL,
+      kind        TEXT    NOT NULL DEFAULT 'adjustment',
+      note        TEXT,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bankroll_ledger_user ON bankroll_ledger (user_id, created_at)`);
+} catch (_) {}
 // Optional uploaded avatar (stored under the data volume; null = generated initials).
 try { db.exec(`ALTER TABLE users ADD COLUMN avatar_path TEXT`); } catch (_) {}
 // Seed/dummy member accounts (look like real members; auto-vote 35+ picks to seed
@@ -425,6 +498,26 @@ try {
     )
   `);
 } catch (_) {}
+// ── Personality upgrade (additive migrations; safe to re-run) ──────────────────
+// personality   : free-text label shown in admin (e.g. "Chalk Chaser").
+// min_week/max_week : weekly bet range — caps total picks placed in the cycle week.
+// ranking_pct   : 0-100, share of daily picks drawn from the 35+ CA rankings; the
+//                 remainder are random games on today's board (independent-looking).
+// fade_mvp      : 1 = bet the OPPOSITE side of every 50+ MVP pick (contrarian).
+// comment_pct   : 0-100, chance to drop a chat comment on an eligible game.
+// comment_pre / comment_post : whether they comment before / after a game.
+// comment_sports: JSON array, sports they'll comment on ([] = same as bet sports).
+// comments      : JSON array of comment template strings ([] = shared default pool).
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN personality TEXT NOT NULL DEFAULT ''`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN min_week INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN max_week INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN ranking_pct INTEGER NOT NULL DEFAULT 100`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN fade_mvp INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comment_pct INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comment_pre INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comment_post INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comment_sports TEXT NOT NULL DEFAULT '[]'`); } catch (_) {}
+try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comments TEXT NOT NULL DEFAULT '[]'`); } catch (_) {}
 // Speeds up per-window leaderboard aggregates (filter by result + voted_at, group by user).
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_result_voted ON game_votes (user_id, result, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_votes (result, voted_at)`); } catch (_) {}

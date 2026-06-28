@@ -1841,17 +1841,36 @@ nav {
 /* ── Live command bar (MLB v1) ─────────────────────────────────────────────── */
 .ca-live-command { margin: 14px 0 16px; }
 .ca-lc-loading { color: var(--text-tertiary); font-size: 13px; padding: 14px; text-align: center; }
+/* Card wrapper: everything (meta time, cells, tracked bets) lives INSIDE the padded
+   card so nothing sits flush against the panel edge. */
 .ca-lc {
-  display: grid; grid-template-columns: auto 1fr minmax(190px, 1.1fr); gap: 16px;
-  background: var(--bg-tertiary, #11151e); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 10px; position: relative;
+  background: var(--bg-tertiary, #11151e); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px;
 }
+.ca-lc-grid {
+  display: grid; grid-template-columns: minmax(240px, 1.5fr) minmax(108px, 0.8fr) minmax(200px, 1.2fr); gap: 18px;
+}
+.ca-lc-meta { align-self: flex-end; font-size: 11px; color: var(--text-tertiary); white-space: nowrap; line-height: 1; }
+.ca-lc-meta .ca-dp-timeline-sched { color: var(--text-disabled, #6b7280); }
 .ca-lc-cell { min-width: 0; }
 .ca-lc-cell-hd { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; white-space: nowrap; }
-.ca-lc-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-live); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink: 0; }
-.ca-lc-score { font-weight: 800; font-size: 15px; color: var(--text); margin-left: auto; }
-.ca-lc-score-dash { color: var(--text-tertiary); margin: 0 3px; }
+.ca-lc-livedot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-live, #FFD700); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink: 0; }
 
-.ca-lc-state { display: flex; align-items: center; gap: 12px; }
+/* Line score: team name + per-inning runs (builds out) + R / H / E */
+.ca-ls { display: flex; flex-direction: column; gap: 1px; font-variant-numeric: tabular-nums; }
+.ca-ls-row { display: flex; align-items: center; padding: 3px 6px; margin: 0 -6px; border-radius: 6px; }
+.ca-ls-team { flex: 1 1 auto; min-width: 46px; font-size: 13px; font-weight: 800; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ca-ls-inns { display: flex; flex: none; }
+.ca-ls-i { width: 13px; text-align: center; font-size: 10.5px; color: var(--text-secondary); }
+.ca-ls-r, .ca-ls-c { flex: none; text-align: center; }
+.ca-ls-r { width: 19px; font-size: 15px; font-weight: 800; color: var(--text); border-left: 1px solid var(--border); margin-left: 5px; }
+.ca-ls-c { width: 17px; font-size: 11px; color: var(--text-tertiary); }
+.ca-ls-hd .ca-ls-i, .ca-ls-hd .ca-ls-r, .ca-ls-hd .ca-ls-c { font-size: 9px; font-weight: 800; color: var(--text-tertiary); }
+.ca-ls-hd .ca-ls-r { color: var(--text-tertiary); }
+.ca-ls-row--lead { background: rgba(255, 215, 0, 0.07); }
+.ca-ls-row--lead .ca-ls-r { color: var(--accent-live, #FFD700); }
+
+.ca-lc-stateline { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .ca-lc-diamond { flex-shrink: 0; }
 .ca-lc-base { fill: none; stroke: #475569; stroke-width: 1.5; }
 .ca-lc-base--on { fill: #FFD700; stroke: #FFD700; }
@@ -1872,28 +1891,90 @@ nav {
 .ca-lc-mline { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
 .ca-lc-mrow--empty, .ca-lc-mrow--ondeck { color: var(--text-tertiary); }
 
+/* Value pulse: signed windowed line chart (-100..+100) */
 .ca-lc-cell--pulse { display: flex; flex-direction: column; }
-.ca-lc-pulse { display: flex; flex-direction: column; gap: 7px; }
-.ca-lc-pulse-bar { height: 9px; border-radius: 6px; background: var(--surface2, #1e2330); overflow: visible; }
-.ca-lc-pulse-fill { height: 100%; width: 4%; border-radius: 6px; background: #8892a4; transition: width .35s ease, background .35s ease; position: relative; }
-.ca-lc-pulse-fill--pulsing::after { content: ''; position: absolute; right: 0; top: 50%; transform: translate(50%, -50%); width: 9px; height: 9px; border-radius: 50%; background: inherit; animation: ca-live-dot 2.4s ease-in-out infinite; }
-.ca-lc-pulse-label { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.ca-vp-wrap { width: 100%; line-height: 0; }
+.ca-vp { width: 100%; height: auto; display: block; }
+.ca-vp-grid { stroke: #2a3344; stroke-width: 1; }
+.ca-vp-zero { stroke: #4a5568; stroke-width: 1; stroke-dasharray: 3 3; }
+.ca-vp-xgrid { stroke: #232a38; stroke-width: 1; }
+.ca-vp-axis { fill: var(--text-tertiary); font-size: 9px; font-weight: 600; font-family: 'Inter', system-ui, sans-serif; }
+.ca-vp-axis--zero { fill: var(--text-secondary); font-weight: 700; }
+.ca-vp-xaxis { fill: var(--text-tertiary); font-size: 9px; font-weight: 700; font-family: 'Inter', system-ui, sans-serif; }
+.ca-vp-val { font-weight: 800; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.ca-blurred { filter: blur(3px); opacity: 0.65; pointer-events: none; }
+.ca-lc-pulse-label { font-size: 12.5px; font-weight: 700; color: var(--text); margin-top: 7px; }
 .ca-lc-pulse-caret { font-size: 11px; }
 .ca-lc-pulse-approx { font-size: 9px; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
-.ca-lc-pulse-note { font-size: 10px; color: var(--text-tertiary); text-decoration: underline dotted; cursor: help; align-self: flex-start; }
+.ca-lc-pulse-note { font-size: 10px; color: var(--text-tertiary); text-decoration: underline dotted; cursor: help; align-self: flex-start; margin-top: 4px; }
 .ca-lc-pulse-empty { font-size: 12px; color: var(--text-tertiary); }
-.ca-lc-pulse-locked { cursor: pointer; display: flex; flex-direction: column; gap: 7px; }
+.ca-lc-pulse-locked { cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
 .ca-lc-pulse-lock { font-size: 12px; font-weight: 700; color: var(--text-secondary); }
+.ca-lc-pulse-lock i { color: var(--accent-live, #FFD700); margin-right: 4px; }
 .ca-lc-pulse-sub { font-size: 11px; color: var(--text-tertiary); }
 .ca-lc-pulse-sub a { color: var(--accent); cursor: pointer; }
 
-/* Conviction curve minimized once the game is live (kept visible per spec). */
-.ca-dp-timeline-wrap.is-live { height: 74px; opacity: 0.9; }
+/* Live command bar footer: just the tracked-bets list (compact, single row). */
+.ca-lc-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+  margin-top: 2px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.ca-lc-foot-lbl { flex: none; white-space: nowrap; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-tertiary); }
+.ca-lc-foot-bets { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.ca-live-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.ca-live-tag { font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 4px 11px; }
+.ca-live-tag--none { color: var(--text-tertiary); font-weight: 600; }
+
+/* CA logo on the conviction-curve label */
+.ca-dp-col-label--conv { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ca-dp-conv-logo { height: 14px; width: auto; aspect-ratio: 440 / 305; object-fit: contain; border-radius: 3px; flex: none; }
+
+/* Live header: fixed height so the bar never resizes as the pick is flipped. The
+   pick name takes its natural width; the score is pushed to the far right. */
+.ca-dp-header--live { align-items: flex-start; min-height: 122px; box-sizing: border-box; }
+.ca-dp-header--live .ca-dp-hdr-left { flex: 0 1 auto; }
+
+/* In-header conviction widget (per-pick): a self-contained bubble with the CA-branded
+   annotated curve, placed in the empty header space right of the pick name. Fixed
+   footprint keeps the header bar solid across picks. */
+.ca-dp-hdr-conv {
+  flex: 0 0 auto; width: 244px; margin-right: auto;
+  display: flex; flex-direction: column; gap: 3px;
+  background: var(--bg-tertiary, #11151e); border: 1px solid var(--border);
+  border-radius: 12px; padding: 7px 10px 5px;
+}
+.ca-dp-hdr-conv-top { display: flex; align-items: center; gap: 8px; height: 14px; }
+.ca-dp-hdr-conv-lbl { display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
+.ca-dp-hdr-conv-logo { height: 13px; width: auto; aspect-ratio: 440 / 305; object-fit: contain; border-radius: 3px; flex: none; }
+.ca-dp-hdr-conv-graph { height: 58px; width: 100%; }
+.ca-cc { display: block; width: 100%; height: 100%; }
+.ca-cc-mvp { stroke: #3a4456; stroke-width: 1; stroke-dasharray: 3 3; }
+.ca-cc-delta { fill: #d4af37; font-size: 7px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+.ca-cc-time { fill: var(--text-disabled, #6b7280); font-size: 7px; font-weight: 700; }
+.ca-dp-hdr-conv-graph--msg { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-tertiary); font-style: italic; }
+/* Non-paid: real curve replaced by a blurred synthetic teaser + lock, same treatment
+   as the pre-game conviction chart (.ca-dp-timeline-wrap.is-locked). */
+.ca-dp-hdr-conv-graph--locked { position: relative; cursor: pointer; }
+.ca-dp-hdr-conv-blur { height: 100%; filter: blur(2px); opacity: 0.85; }
+.ca-dp-hdr-conv-blur .ca-cc { height: 100%; }
+.ca-dp-hdr-conv-lockover {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 5px;
+  color: var(--gold, #facc15); text-shadow: 0 1px 6px rgba(0,0,0,0.6);
+}
+.ca-dp-hdr-conv-lockover i { font-size: 13px; }
+.ca-dp-hdr-conv-lockover span { font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* Conviction curve minimized once the game is live (non-MLB live games only). */
+.ca-dp-timeline-wrap.is-live { height: 56px; opacity: 0.85; }
+.ca-dp-grid--live .ca-dp-timeline-footer { font-size: 10px; opacity: 0.8; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ca-lc-livedot, .ca-lc-pulse-fill--pulsing::after { animation: none; }
-  .ca-lc-pulse-fill { transition: none; }
+  .ca-lc-livedot { animation: none; }
 }
 @media (max-width: 720px) {
-  .ca-lc { grid-template-columns: 1fr; gap: 12px; }
+  .ca-dp-header--live { flex-wrap: wrap; min-height: 0; }
+  .ca-dp-hdr-conv { width: 100%; order: 3; margin-right: 0; }
+  .ca-lc-grid { grid-template-columns: 1fr; gap: 14px; }
+  .ca-lc-cell--matchup { order: 3; }
+  .ca-lc-cell--pulse { order: 2; }
 }

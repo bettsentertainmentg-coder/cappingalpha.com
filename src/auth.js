@@ -447,10 +447,23 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
 // ── Paid-tier check ───────────────────────────────────────────────────────────
 // Single source of truth for "is this request from a paying user". A logged-in
-// user counts as paid when their tier is anything other than 'free' (paid / code).
+// user counts as paid when their tier is anything other than 'free' AND their
+// access hasn't lapsed. The session `tier` can be stale (a one-time day pass or a
+// missed Stripe webhook would otherwise read as paid forever), so re-check the DB
+// and honor subscription_expires. NULL expiry = lifetime / comp access.
 function isPaid(req) {
   const u = req?.session?.user;
-  return !!u && u.tier !== 'free';
+  if (!u || u.tier === 'free') return false;
+  try {
+    const row = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(u.id);
+    if (!row || row.subscription_tier === 'free') return false;
+    if (!row.subscription_expires) return true; // lifetime / comp
+    const exp = new Date(row.subscription_expires);
+    if (isNaN(exp.getTime())) return true;       // unparseable -> fail open, don't lock out
+    return exp.getTime() > Date.now();
+  } catch (_) {
+    return u.tier !== 'free'; // DB error -> fall back to session tier
+  }
 }
 
 // True for any logged-in user (free account, code, or paid). The #1 ranked pick

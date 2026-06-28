@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>CappingAlpha | Daily Ranked Sports Betting Picks</title>
 
   <!-- ── Favicon / app icons ── -->
@@ -11,6 +11,14 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
   <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/site.webmanifest" />
+
+  <!-- ── Theme: apply the saved light/dark choice before first paint (no flash). Default: dark. ── -->
+  <script>
+    try {
+      var __t = localStorage.getItem('ca_theme');
+      document.documentElement.setAttribute('data-theme', __t === 'light' ? 'light' : 'dark');
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+  </script>
 
   <!-- ── SEO ── -->
   <meta name="description" content="CappingAlpha ranks and scores daily sports betting picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. Top-rated plays are tracked over time for transparency. The Seeking Alpha for sports gambling." />
@@ -104,6 +112,30 @@
       --gold:      #FFD700;
       --green:     #22c55e;
       --red:       #ef4444;
+      /* Translucent overlays tuned per theme so cards/hairlines/shadows read on
+         either background. Dark theme: light overlays on a dark base. */
+      --overlay-1:    rgba(255,255,255,0.04);
+      --overlay-2:    rgba(255,255,255,0.07);
+      --shadow-soft:  rgba(0,0,0,0.35);
+      --grid-line:    rgba(255,255,255,0.05);
+    }
+
+    /* ── Light theme ── default stays dark; this only applies when the user opts in. ── */
+    html[data-theme="light"] {
+      --bg:        #f3f5f9;
+      --surface:   #ffffff;
+      --surface2:  #eef1f6;
+      --border:    #dde3ec;
+      --text:      #18202e;
+      --muted:     #5c6a82;
+      --accent:    #2563eb;
+      --gold:      #b07d00;
+      --green:     #15a34a;
+      --red:       #dc2626;
+      --overlay-1:    rgba(15,23,42,0.03);
+      --overlay-2:    rgba(15,23,42,0.06);
+      --shadow-soft:  rgba(15,23,42,0.12);
+      --grid-line:    rgba(15,23,42,0.08);
     }
 
     html, body {
@@ -125,7 +157,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 24px;
+      /* env() is 0 in normal browsers (so this stays 24px); respects the notch on an installed app. */
+      padding: 0 max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
       height: 56px;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
@@ -148,6 +181,270 @@
     .nav-account-m {
       background: none; border: 1px solid var(--border); color: var(--text); white-space: nowrap;
       font-weight: 700; font-family: inherit; border-radius: 8px; padding: 6px 13px; font-size: 13px; cursor: pointer;
+    }
+
+    /* ── Account dropdown (top-right avatar menu) ── */
+    .nav-avatar-btn {
+      background: none; border: none; padding: 0; cursor: pointer; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .15s;
+    }
+    .nav-avatar-btn:hover, .nav-avatar-btn[aria-expanded="true"] { outline-color: var(--accent); }
+    /* Anchored to <nav> (position:sticky) so the one menu serves both the desktop and
+       mobile avatar, opening under the top-right corner on every width. */
+    .account-dropdown {
+      position: absolute; top: calc(100% + 6px); right: max(12px, env(safe-area-inset-right)); min-width: 210px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 12px 32px var(--shadow-soft); padding: 6px; z-index: 200;
+      transform-origin: top right; animation: ddIn .12s ease;
+    }
+    .account-dropdown.hidden { display: none; }
+    @keyframes ddIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+    .account-dropdown-head { padding: 8px 12px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    .account-dropdown-head .add-name  { font-weight: 700; font-size: 14px; color: var(--text); }
+    .account-dropdown-head .add-email { font-size: 12px; color: var(--muted); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .account-dropdown-item {
+      display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 8px;
+      font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer; text-decoration: none;
+      transition: background .12s;
+    }
+    .account-dropdown-item i { width: 16px; text-align: center; color: var(--muted); font-size: 14px; }
+    .account-dropdown-item:hover { background: var(--surface2); }
+    .account-dropdown-item:hover i { color: var(--accent); }
+    .account-dropdown-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+    .account-dropdown-logout { color: var(--red); }
+    .account-dropdown-logout i { color: var(--red); }
+    .account-dropdown-logout:hover { background: rgba(239,68,68,0.12); }
+
+    /* ── Appearance theme toggle (Settings) ── */
+    .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 3px; }
+    .theme-opt {
+      background: none; border: none; color: var(--muted); font-family: inherit; font-weight: 600; font-size: 13px;
+      padding: 7px 18px; border-radius: 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: background .12s, color .12s;
+    }
+    .theme-opt:hover { color: var(--text); }
+    .theme-opt.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px var(--shadow-soft); }
+
+    /* ── My Tracking — stat strip (Action-Network-style) ── */
+    .track-stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+    }
+    @media (max-width: 640px) { .track-stats { grid-template-columns: repeat(2, 1fr); } }
+    .track-extra-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .track-range-row { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+    .track-range-btn {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-weight: 600; font-size: 12.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+    }
+    .track-range-btn:hover { color: var(--text); }
+    .track-range-btn.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+    .track-stat {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+    }
+    .track-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+    .track-stat-val { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-family: 'Space Grotesk', 'Inter', sans-serif; }
+    .track-stat-val.pos { color: var(--green); }
+    .track-stat-val.neg { color: var(--red); }
+    .track-stat-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .track-verified-note {
+      display: flex; align-items: center; gap: 9px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 14px; font-size: 13px; color: var(--muted); margin-bottom: 20px;
+    }
+    .track-verified-note .tvn-badge {
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #08260f;
+      background: var(--green); padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+    }
+
+    /* ── "Track this side (verified)" caption in the game modal / detail page ── */
+    .track-side-cap { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--text); }
+    .track-verified-pill { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #08260f; background: var(--green); padding: 2px 6px; border-radius: 999px; }
+    .track-side-note { font-size: 11.5px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+
+    /* ── Settings — bankroll / unit inputs ── */
+    .settings-field { margin-bottom: 14px; }
+    .settings-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+    .settings-field .field-prefix-wrap { position: relative; display: flex; align-items: center; }
+    .settings-field .field-prefix { position: absolute; left: 12px; color: var(--muted); font-size: 14px; pointer-events: none; }
+    .settings-field input[type="number"] { width: 100%; padding: 9px 12px 9px 26px; font-size: 14px; }
+    .settings-field .field-hint { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .settings-field select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; }
+
+    /* ── Settings — Default Odds picker ── */
+    .odds-source-list { display: flex; flex-direction: column; gap: 8px; }
+    .odds-source {
+      display: flex; align-items: center; justify-content: space-between; width: 100%;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      font-family: inherit; font-weight: 600; font-size: 14px; padding: 12px 14px; border-radius: 10px; cursor: pointer;
+      transition: border-color .12s, background .12s;
+    }
+    .odds-source:hover { border-color: var(--accent); }
+    .odds-source.active { border-color: var(--green); background: rgba(34,197,94,0.08); }
+    .odds-source .odds-check { color: var(--green); font-weight: 800; }
+
+    /* ── Track-Bet sheet + custom form + bet history (Phase B) ── */
+    .track-fab {
+      position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom));
+      z-index: 150; display: none; align-items: center; gap: 8px; cursor: pointer;
+      background: var(--green); color: #06230f; font-family: inherit; font-weight: 800; font-size: 14px;
+      border: none; border-radius: 999px; padding: 12px 18px; box-shadow: 0 8px 22px var(--shadow-soft);
+    }
+    .track-fab i { font-size: 13px; }
+    .track-fab:hover { filter: brightness(1.05); }
+
+    /* ── Mobile bottom tab bar ── */
+    .ca-tabbar { display: none; }
+    @media (max-width: 768px) {
+      .ca-tabbar {
+        /* Override the generic `nav` rule (this is a <nav>): it sets sticky/top:0/
+           height:56px/border-bottom, which would pin this to the TOP. */
+        display: flex; position: fixed; left: 0; right: 0; top: auto; bottom: 0; z-index: 140;
+        height: auto; padding: 0; padding-bottom: env(safe-area-inset-bottom);
+        background: var(--surface); border-top: 1px solid var(--border); border-bottom: none;
+      }
+      .ca-tabbar-item {
+        flex: 1; background: none; border: none; color: var(--muted); font-family: inherit;
+        display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 9px 0 8px;
+        cursor: pointer; font-size: 10px; font-weight: 700; min-height: 48px;
+      }
+      .ca-tabbar-item i { font-size: 18px; }
+      .ca-tabbar-item.active { color: var(--accent); }
+      /* Lift the FAB above the tab bar; keep page content clear of the fixed bar. */
+      .track-fab { bottom: calc(60px + env(safe-area-inset-bottom)); padding: 11px 16px; }
+      body { padding-bottom: 56px; }
+    }
+
+    .track-overlay {
+      position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .18s ease;
+    }
+    .track-overlay.open { opacity: 1; }
+    .track-sheet {
+      width: 440px; max-width: calc(100vw - 24px); max-height: 90vh; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 8px 18px 20px;
+      transform: translateY(10px); transition: transform .18s ease;
+    }
+    .track-overlay.open .track-sheet { transform: none; }
+    .track-sheet-grab { display: none; width: 40px; height: 4px; border-radius: 999px; background: var(--border); margin: 8px auto 4px; }
+    .track-sheet-head { display: flex; align-items: center; justify-content: space-between; font-size: 17px; font-weight: 800; padding: 8px 0 12px; }
+    .track-sheet-x { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+    .track-opt {
+      display: flex; align-items: center; gap: 13px; width: 100%; text-align: left; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 10px;
+      font-family: inherit; transition: border-color .12s, background .12s;
+    }
+    .track-opt:hover:not(:disabled) { border-color: var(--accent); }
+    .track-opt-soon { opacity: 0.6; cursor: default; }
+    .track-opt-ic { width: 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    .track-opt-t { display: block; font-weight: 700; font-size: 14px; color: var(--text); }
+    .track-opt-d { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+    .track-soon { font-size: 9px; font-weight: 800; text-transform: uppercase; background: var(--surface2); color: var(--muted); padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
+
+    .track-form { padding-top: 4px; }
+    .bet-seg-row { display: flex; gap: 6px; }
+    .bet-seg {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-weight: 600; font-size: 12.5px; padding: 8px 6px; border-radius: 8px; cursor: pointer;
+      white-space: nowrap; transition: background .12s, color .12s, border-color .12s;
+    }
+    .bet-seg:hover { color: var(--text); }
+    .bet-seg.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+    .track-payout { font-size: 13px; color: var(--muted); margin: 2px 0 12px; }
+    .track-payout strong { color: var(--text); }
+    .track-form-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin: 6px 0 12px; }
+    .track-submit { width: 100%; background: var(--green); color: #06230f; border: none; border-radius: 10px; padding: 12px; font-family: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+    .track-submit:disabled { opacity: 0.6; cursor: default; }
+    .track-submit:hover:not(:disabled) { filter: brightness(1.05); }
+
+    .track-game-search #tg-search { width: 100%; padding: 11px 14px; font-size: 14px; margin-bottom: 10px; }
+    .tg-results { max-height: 46vh; overflow-y: auto; }
+    .tg-row {
+      display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
+      padding: 12px 14px; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .12s;
+    }
+    .tg-row:hover { border-color: var(--accent); }
+    .tg-matchup { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+    .tg-status { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+    .tg-filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; -webkit-overflow-scrolling: touch; }
+    .tg-chip {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-family: inherit;
+      font-weight: 700; font-size: 12px; padding: 6px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    }
+    .tg-chip:hover { color: var(--text); }
+    .tg-chip.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+
+    /* Odds board (tap a line to track verified) */
+    .ob-back { background: none; border: none; color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 0 8px; }
+    .ob-head { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .ob-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+    .ob-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
+    .ob-line {
+      display: flex; align-items: center; justify-content: space-between; width: 100%;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
+      padding: 13px 16px; border-radius: 10px; cursor: pointer; transition: border-color .12s, background .12s;
+    }
+    .ob-line:hover { border-color: var(--green); background: rgba(34,197,94,0.06); }
+    .ob-line-label { font-weight: 600; font-size: 14px; }
+    .ob-line-odds { font-weight: 800; font-size: 15px; font-family: 'Space Grotesk','Inter',sans-serif; }
+    .ob-books { font-size: 11px; color: var(--muted); }
+    .ob-line-off { opacity: 0.5; cursor: default; }
+
+    /* Toast (tracked / settled / error feedback) */
+    #ca-toast-host { position: fixed; left: 0; right: 0; bottom: 0; z-index: 400; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); pointer-events: none; }
+    .ca-toast {
+      background: var(--green); color: #06230f; font-weight: 700; font-size: 14px;
+      padding: 11px 18px; border-radius: 10px; box-shadow: 0 10px 26px var(--shadow-soft);
+      opacity: 0; transform: translateY(12px); transition: opacity .2s ease, transform .2s ease; max-width: 90vw; text-align: center;
+    }
+    .ca-toast.in { opacity: 1; transform: none; }
+    .ca-toast.err { background: var(--red); color: #fff; }
+
+    .bet-filter-row { display: flex; gap: 8px; padding: 0 0 12px; }
+    .bet-filter { background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit; font-size: 13px; border-radius: 8px; padding: 7px 10px; }
+    .bet-list { display: flex; flex-direction: column; }
+    .bet-day-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border-bottom: 1px solid var(--border); }
+    .bet-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--border); }
+    .bet-row-main { flex: 1; min-width: 0; }
+    .bet-row-sel { font-weight: 600; font-size: 14px; color: var(--text); }
+    .bet-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .bet-row-right { text-align: right; font-size: 13px; flex-shrink: 0; }
+    .bet-del { background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 4px; flex-shrink: 0; }
+    .bet-del:hover { color: var(--red); }
+    .bet-chevron { color: var(--muted); font-size: 11px; align-self: center; margin-left: 2px; flex-shrink: 0; }
+    .bd-confirm { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--text); flex-wrap: wrap; }
+
+    /* Mobile: 44px tap targets (Backlog P2 #26) */
+    @media (max-width: 768px) {
+      .ob-line, .track-submit, .odds-source { min-height: 48px; }
+      .bet-seg, .track-range-btn, .tg-chip, .theme-opt, .bet-settle-btn, .bet-filter { min-height: 40px; }
+      .track-opt { min-height: 56px; }
+    }
+    .bet-settle-row { display: flex; gap: 6px; margin-top: 8px; }
+    .bet-settle-btn { background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+    .bet-settle-btn.win:hover  { color: var(--green); border-color: var(--green); }
+    .bet-settle-btn.loss:hover { color: var(--red); border-color: var(--red); }
+    .bet-settle-btn.push:hover { color: var(--text); border-color: var(--muted); }
+
+    /* My Tracking — per-sport / per-bet-type breakdown */
+    .brk-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+    .brk-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .brk-row:last-child { border-bottom: none; }
+    .brk-label { flex: 1; font-weight: 600; display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .brk-rec { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .brk-units { font-weight: 700; width: 66px; text-align: right; flex-shrink: 0; }
+
+    /* Bet detail rows */
+    .bd-rows { display: flex; flex-direction: column; margin: 4px 0; }
+    .bd-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .bd-row:last-child { border-bottom: none; }
+    .bd-row span:first-child { color: var(--muted); }
+
+    @media (max-width: 560px) {
+      .track-overlay { align-items: flex-end; }
+      .track-sheet { width: 100%; max-width: 100%; border-radius: 16px 16px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+      .track-sheet-grab { display: block; }
     }
 
     /* ── Logo-as-tab ── */
@@ -1745,11 +2042,37 @@
       <span id="nav-user-info" style="display:none;"></span>
       <button class="btn" id="btn-unlock" style="display:none;" onclick="switchTab('unlock')">Unlock CappingAlpha</button>
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()">Login</button>
-      <button class="tab-btn" data-tab="account" onclick="switchTab('account')" id="tab-account" style="display:none;border-bottom:none;padding:0 4px;">My Account</button>
+      <button class="nav-avatar-btn account-trigger" id="nav-avatar-btn" onclick="toggleAccountMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Account menu" style="display:none;">
+        <span id="nav-avatar-slot"></span>
+      </button>
     </div>
     <div class="nav-actions-mobile">
       <button class="nav-unlock-m" id="m-nav-unlock" onclick="switchTab('unlock')">Unlock<img src="/ca-logo.png" alt="" class="nav-unlock-m-logo" onerror="this.style.display='none'"></button>
-      <button class="nav-account-m" id="m-nav-account" onclick="switchTab('account')" style="display:none;">My Account</button>
+      <button class="nav-avatar-btn account-trigger" id="m-nav-avatar-btn" onclick="toggleAccountMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Account menu" style="display:none;">
+        <span id="m-nav-avatar-slot"></span>
+      </button>
+    </div>
+
+    <!-- Account dropdown — one menu shared by the desktop + mobile avatar triggers,
+         so the profile button is ALWAYS a dropdown, never a direct jump. -->
+    <div class="account-dropdown hidden" id="account-dropdown" role="menu">
+      <div class="account-dropdown-head">
+        <div class="add-name"  id="account-dd-name"></div>
+        <div class="add-email" id="account-dd-email"></div>
+      </div>
+      <a class="account-dropdown-item" role="menuitem" onclick="switchTab('tracking');closeAccountMenu();">
+        <i class="fa-solid fa-chart-line"></i> My Tracking
+      </a>
+      <a class="account-dropdown-item" role="menuitem" onclick="switchTab('settings');closeAccountMenu();">
+        <i class="fa-solid fa-gear"></i> Settings
+      </a>
+      <a class="account-dropdown-item" role="menuitem" onclick="goSupport();">
+        <i class="fa-regular fa-circle-question"></i> Support
+      </a>
+      <div class="account-dropdown-sep"></div>
+      <a class="account-dropdown-item account-dropdown-logout" role="menuitem" onclick="doLogout();">
+        <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+      </a>
     </div>
   </nav>
 
@@ -2092,13 +2415,27 @@
   </div>
 
   <!-- ── Tab 6: My Account ── -->
-  <div id="panel-account" class="tab-panel">
+  <!-- ── My Tracking ── -->
+  <div id="panel-tracking" class="tab-panel">
     <div class="hero" style="padding-bottom:16px;">
-      <h1>My Account</h1>
-      <p>Your profile, preferences, and pick vote history.</p>
+      <h1>My Tracking</h1>
+      <p>Your units, returns, and tracked-pick history.</p>
     </div>
     <div class="container">
-      <div id="account-content">
+      <div id="tracking-content">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Settings ── -->
+  <div id="panel-settings" class="tab-panel">
+    <div class="hero" style="padding-bottom:16px;">
+      <h1>Settings</h1>
+      <p>Your profile, access, appearance, and preferences.</p>
+    </div>
+    <div class="container">
+      <div id="settings-content">
         <div class="spinner-wrap"><div class="spinner"></div></div>
       </div>
     </div>
@@ -2269,8 +2606,14 @@
       <a class="ca-drawer-sub-item" id="drawer-upgrade" onclick="drawerPremium();closeDrawer();">
         Premium Access <span>›</span>
       </a>
-      <a class="ca-drawer-sub-item" onclick="switchTab('account');closeDrawer();">
-        My Account <span>›</span>
+      <a class="ca-drawer-sub-item" onclick="switchTab('tracking');closeDrawer();">
+        My Tracking <span>›</span>
+      </a>
+      <a class="ca-drawer-sub-item" onclick="switchTab('settings');closeDrawer();">
+        Settings <span>›</span>
+      </a>
+      <a class="ca-drawer-sub-item" onclick="goSupport();">
+        Support <span>›</span>
       </a>
       <a class="ca-drawer-sub-item" id="drawer-btn-logout" style="display:none;" onclick="doLogout()">
         Logout <span>›</span>
@@ -2296,6 +2639,18 @@
 
   </div>
 
-  <script type="module" src="app.js?v=8"></script>
+  <!-- Mobile bottom tab bar (≤768px). Primary nav in the thumb zone; the drawer
+       becomes the secondary overflow (About / Leaderboard / Settings / Support). -->
+  <nav class="ca-tabbar" id="ca-tabbar" aria-label="Primary">
+    <button class="ca-tabbar-item active" data-tabbar="home"     onclick="switchTab('home')"><i class="fa-solid fa-house"></i><span>Home</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="mvp"      onclick="switchTab('mvp')"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="switchTab('sports')"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></button>
+  </nav>
+
+  <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
+  <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
+
+  <script type="module" src="app.js?v=29"></script>
 </body>
 </html>

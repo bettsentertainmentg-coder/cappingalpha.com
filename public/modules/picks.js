@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG } from './utils.js';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js';
 import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
 
 export async function loadPicks() {
@@ -46,16 +46,6 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
 
   const activePicks = picks.filter(p => p.result !== 'push');
   const pushPicks   = picks.filter(p => p.result === 'push');
-
-  const pickSlotKey = (p) => {
-    const pt = (p.pick_type || '').toLowerCase();
-    const isHome = p.is_home_team === 1 || p.is_home_team === true;
-    if (pt === 'over')   return 'over';
-    if (pt === 'under')  return 'under';
-    if (pt === 'ml')     return isHome ? 'home_ml'     : 'away_ml';
-    if (pt === 'spread') return isHome ? 'home_spread' : 'away_spread';
-    return '';
-  };
 
   const makeRow = (p, rank, locked = false) => {
     const score      = p.score || 0;

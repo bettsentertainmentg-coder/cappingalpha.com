@@ -7,8 +7,9 @@ import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=6';
-import { loadAccount } from './modules/account.js?v=3';
-import './modules/modal.js';
+import { loadTracking, loadSettings } from './modules/account.js?v=17';
+import './modules/track.js?v=14';
+import './modules/modal.js?v=1';
 import './modules/member_profile.js?v=4';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
@@ -18,6 +19,10 @@ import { mountAds } from './modules/ads.js';
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {
+  // "My Account" split into "My Tracking" + "Settings". Keep old #account links /
+  // callers working by routing them to the tracking view.
+  if (tabName === 'account') tabName = 'tracking';
+
   // Analytics: this SPA never changes the URL on a tab switch, so PostHog's
   // automatic pageview can't see which tab people land on. Emit it explicitly.
   if (window.posthog) {
@@ -40,6 +45,8 @@ export function switchTab(tabName) {
   if (logo) logo.classList.toggle('active', tabName === 'home');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
+  // Mobile bottom tab bar active state (home/mvp/sports/tracking).
+  document.querySelectorAll('.ca-tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.tabbar === tabName));
 
   // Land at the top of the page on every tab switch. Without this the page keeps
   // its prior scroll position (e.g. opening Unlock from mid-Home dropped you into
@@ -62,20 +69,22 @@ export function switchTab(tabName) {
     loadLeaderboard(state.leaderboardWindow);
   }
   if (tabName === 'unlock') renderUnlock();
-  if (tabName === 'account') {
-    if (state.currentUser) {
-      loadAccount();
-    } else if (state.authReady) {
-      // Definitely logged out — bounce to home and prompt login.
-      switchTab('home'); window.openLogin(); return;
-    }
-    // else: auth still resolving (a /#account reload can beat checkAuth) — leave the
-    // panel active; the post-checkAuth re-sync resolves it instead of bouncing a
-    // logged-in member to the login popup.
+  // My Tracking + Settings are auth-gated. If auth is still resolving (a /#tracking
+  // reload can beat checkAuth), leave the panel active — the post-checkAuth re-sync
+  // resolves it instead of bouncing a logged-in member to the login popup.
+  if (tabName === 'tracking') {
+    if (state.currentUser) loadTracking();
+    else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
+  }
+  if (tabName === 'settings') {
+    if (state.currentUser) loadSettings();
+    else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
   }
 
   // Close mobile drawer when navigating
   closeDrawer();
+  // Close the account dropdown on any navigation
+  closeAccountMenu();
 }
 
 window.switchTab = switchTab;
@@ -142,7 +151,7 @@ window.sendSupport = sendSupport;
 // Honor a hash like #about / #mvp / #sports on initial load and on subsequent
 // hashchange events (e.g. someone clicks "Learn how" on the standalone game
 // detail page, which links back to /#about).
-const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'unlock']);
+const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'tracking', 'settings', 'unlock']);
 function applyHashTab() {
   const h = (location.hash || '').replace('#', '').trim().toLowerCase();
   if (HASH_TABS.has(h)) switchTab(h);
@@ -185,8 +194,66 @@ export function toggleDrawerAccount() {
 
 Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
 
+// ── Account dropdown (desktop avatar menu) ────────────────────────────────────
+export function toggleAccountMenu(e) {
+  if (e) e.stopPropagation();
+  const dd  = document.getElementById('account-dropdown');
+  const btn = document.getElementById('nav-avatar-btn');
+  if (!dd) return;
+  const willOpen = dd.classList.contains('hidden');
+  dd.classList.toggle('hidden', !willOpen);
+  if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+export function closeAccountMenu() {
+  const dd  = document.getElementById('account-dropdown');
+  const btn = document.getElementById('nav-avatar-btn');
+  if (dd && !dd.classList.contains('hidden')) dd.classList.add('hidden');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+// Close the menu on any outside click (ignore clicks on either avatar trigger or
+// inside the menu itself).
+document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('#account-dropdown, .account-trigger')) return;
+  closeAccountMenu();
+});
+// Close on Escape.
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAccountMenu(); });
+
+// Support menu item → go to the About page AND scroll to the Contact & Support
+// section at the bottom, rather than dropping the user at the top of About.
+export function goSupport() {
+  switchTab('about');
+  setTimeout(() => {
+    document.getElementById('support')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 90);
+}
+window.goSupport = goSupport;
+
+// ── Theme (light / dark) ──────────────────────────────────────────────────────
+// Default is dark. The pre-paint inline script in index.html sets the initial
+// attribute; this keeps it in sync, persists the choice, and updates the toggle UI.
+export function getTheme() {
+  try { return localStorage.getItem('ca_theme') === 'light' ? 'light' : 'dark'; }
+  catch (_) { return 'dark'; }
+}
+export function setTheme(theme) {
+  const t = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem('ca_theme', t); } catch (_) {}
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'light' ? '#ffffff' : '#0f1117');
+  // Reflect on any theme-toggle controls currently on screen.
+  document.querySelectorAll('[data-theme-opt]').forEach(b => b.classList.toggle('active', b.dataset.themeOpt === t));
+}
+
+Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme });
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 (async () => {
+  // Sync theme-color meta + any toggle UI to the saved choice (attribute is already
+  // set pre-paint by the inline script in index.html).
+  setTheme(getTheme());
+
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
   if (cfg) {
     state.CONFIG = cfg;
@@ -206,7 +273,8 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
   // "Log in to rank" on the leaderboard, or an account bounce to the login popup.
   if (state.mvpLoaded) loadMvpTab();
   if (state.leaderboardLoaded) loadLeaderboard(state.leaderboardWindow);
-  if (document.getElementById('panel-account')?.classList.contains('active')) switchTab('account');
+  if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
+  if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
 
   // Handle Stripe redirect back to site
   const params = new URLSearchParams(location.search);

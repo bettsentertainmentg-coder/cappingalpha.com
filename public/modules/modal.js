@@ -840,7 +840,7 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
   if (locked) {
     voteSection = `<div class="vote-closed">Voting closed. Game started.</div>`;
   } else if (!state.currentUser) {
-    voteSection = `<div style="font-size:12px;color:var(--muted);margin-top:8px;"><a onclick="openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a> or <a onclick="openSignup()" style="color:var(--accent);cursor:pointer;">sign up free</a> to vote</div>`;
+    voteSection = `<div style="font-size:12px;color:var(--muted);margin-top:8px;"><a onclick="openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a> or <a onclick="openSignup()" style="color:var(--accent);cursor:pointer;">sign up free</a> to track a pick</div>`;
   } else {
     // Vote buttons follow the active slot pair (not necessarily the gauge's home/away axis).
     let aKey, bKey, aLabel, bLabel;
@@ -855,15 +855,21 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
     }
     const aVoted = userVote && userVote[aKey];
     const bVoted = userVote && userVote[bKey];
+    const anyVoted = aVoted || bVoted;
     voteSection = `
-      <div style="display:flex;gap:8px;margin-top:10px;">
+      <div class="track-side-cap">
+        <span>Track this side</span>
+        <span class="track-verified-pill" title="A verified pick is a side tracked on a real game at our recorded line. It grades automatically and is the only kind that counts on the leaderboard. Custom bets are personal only." style="cursor:help;">Verified</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
         <button class="vote-btn${aVoted ? ' voted' : ''}" onclick="voteOnSlot('${game.espn_game_id}','${aKey}')">
           ${aVoted ? '✓ ' : ''}${aLabel}
         </button>
         <button class="vote-btn${bVoted ? ' voted' : ''}" onclick="voteOnSlot('${game.espn_game_id}','${bKey}')">
           ${bVoted ? '✓ ' : ''}${bLabel}
         </button>
-      </div>`;
+      </div>
+      <div class="track-side-note">${anyVoted ? 'Tracked. It counts on the leaderboard once the game finishes.' : 'One tap tracks it, locked at the current line, graded automatically.'}</div>`;
   }
 
   const totalLine = total > 0
@@ -887,7 +893,7 @@ export async function voteOnSlot(espn_game_id, slot) {
       body: JSON.stringify({ slot }),
     });
     if (res.status === 401) { window.openLogin(); return; }
-    if (res.status === 409) { alert('Voting is now closed. Game has started.'); return; }
+    if (res.status === 409) { window.showToast && window.showToast('Voting is closed, the game has started.', 'err'); return; }
 
     const data = await res.json();
     if (!_modalData) return;

@@ -172,6 +172,18 @@ function lineForVote(slot, row) {
   return null; // moneyline
 }
 
+// Closing odds/line for the voted slot from today_games at grade time (markets stop
+// updating at 'pre', so these are the last pre-game = closing values). Powers CLV.
+function voteClosingForSlot(slot, row) {
+  if (slot === 'home_ml')     return { odds: row.ml_home ?? null,       line: null };
+  if (slot === 'away_ml')     return { odds: row.ml_away ?? null,       line: null };
+  if (slot === 'over')        return { odds: row.ou_over_odds ?? null,  line: row.over_under ?? null };
+  if (slot === 'under')       return { odds: row.ou_under_odds ?? null, line: row.over_under ?? null };
+  if (slot === 'home_spread') return { odds: -110,                      line: row.spread_home ?? null };
+  if (slot === 'away_spread') return { odds: -110,                      line: row.spread_away ?? null };
+  return { odds: null, line: null };
+}
+
 // ── Resolve ALL votes independently of cappers ────────────────────────────────
 // Grades game_votes straight from final scores so a user's voted P/L is complete
 // whether or not a capper picked the same slot. Writes result back into
@@ -184,6 +196,7 @@ async function resolveVotes() {
     SELECT DISTINCT gv.espn_game_id, gv.pick_slot, gv.spread AS vote_spread,
            tg.sport, tg.status, tg.home_score, tg.away_score,
            tg.spread_home, tg.spread_away, tg.over_under,
+           tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
            tg.tennis_home_games, tg.tennis_away_games
     FROM game_votes gv
     JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
@@ -193,8 +206,9 @@ async function resolveVotes() {
   for (const v of liveVotes) {
     const result = evaluateVote(v.pick_slot, lineForVote(v.pick_slot, v), v);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
-      .run(result, v.espn_game_id, v.pick_slot);
+    const closing = voteClosingForSlot(v.pick_slot, v);
+    db.prepare(`UPDATE game_votes SET result = ?, closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+      .run(result, closing.odds, closing.line, v.espn_game_id, v.pick_slot);
     resolved++;
   }
 
@@ -644,4 +658,4 @@ async function resolveResults() {
   return resolved;
 }
 
-module.exports = { resolveResults, resolveVotes };
+module.exports = { resolveResults, resolveVotes, evaluateVote, fetchGameResult };

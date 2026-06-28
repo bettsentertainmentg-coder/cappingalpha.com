@@ -26,6 +26,8 @@ const EMA_TTL   = 30 * 60_000;   // forget a pick's pulse state after 30 min idl
 const _sb       = new Map();     // sport -> { ts, events }
 const _inflight = new Map();     // sport -> Promise (collapse concurrent fetches)
 const _ema      = new Map();     // `${gameId}:${pickId}` -> { m, ts }
+const _hist     = new Map();     // `${gameId}:${pickId}` -> [magnitude, ...] (value over the game)
+const HIST_MAX  = 80;
 
 async function fetchScoreboard(sport) {
   const url = SCOREBOARD[sport];
@@ -68,6 +70,7 @@ async function getLiveState(sport, espnGameId) {
   const awayC = competitors.find(c => c.homeAway === 'away');
   const detail = stType.shortDetail || stType.detail || null;
 
+  const intOr = (v, d = null) => { const n = parseInt(v, 10); return Number.isNaN(n) ? d : n; };
   const out = {
     status:    stType.state || null,        // 'pre' | 'in' | 'post'
     detail,
@@ -75,10 +78,16 @@ async function getLiveState(sport, espnGameId) {
     clock:     comp.status?.displayClock ?? null,
     homeScore: homeC ? (parseInt(homeC.score, 10) || 0) : null,
     awayScore: awayC ? (parseInt(awayC.score, 10) || 0) : null,
+    homeAbbr:  homeC?.team?.abbreviation || null,
+    awayAbbr:  awayC?.team?.abbreviation || null,
   };
 
   if (sp === 'MLB') {
     const sit = comp.situation || {};
+    out.homeHits   = intOr(homeC?.hits);
+    out.awayHits   = intOr(awayC?.hits);
+    out.homeErrors = intOr(homeC?.errors);
+    out.awayErrors = intOr(awayC?.errors);
     out.inning     = comp.status?.period ?? null;
     out.half       = /bot/i.test(detail || '') ? 'bot' : (/top/i.test(detail || '') ? 'top' : null);
     out.outs       = (typeof sit.outs === 'number') ? sit.outs : null;
@@ -91,6 +100,10 @@ async function getLiveState(sport, espnGameId) {
     out.pitcherLine = sit.pitcher?.summary || null;
     out.dueUp      = Array.isArray(sit.dueUp) ? sit.dueUp.map(athleteName).filter(Boolean).slice(0, 3) : [];
     out.lastPlay   = sit.lastPlay?.text || null;
+    // Per-inning runs (the line score), so the client can show when runs scored.
+    const lineOf = (c) => Array.isArray(c?.linescores) ? c.linescores.map(l => intOr(l.value, 0)) : [];
+    out.homeLine  = lineOf(homeC);
+    out.awayLine  = lineOf(awayC);
   }
   return out;
 }
@@ -102,11 +115,25 @@ function prevPulseMag(key) {
 }
 function savePulseMag(key, m) { _ema.set(key, { m, ts: Date.now() }); }
 
+// Value-over-game history (drives the pulse chart). Each sample carries the period
+// (inning / quarter) it was taken in, so the client can label the x-axis and have it
+// build out as the game advances. Built poll-by-poll for real games; the mock
+// synthesizes a full arc itself.
+function pushPulseHistory(key, mag, period) {
+  let a = _hist.get(key);
+  if (!a) { a = []; _hist.set(key, a); }
+  const p = (period == null) ? null : (parseInt(period, 10) || null);
+  a.push({ v: Math.round(mag * 1000) / 1000, p });
+  if (a.length > HIST_MAX) a.shift();
+}
+function getPulseHistory(key) { return (_hist.get(key) || []).slice(); }
+
 // Periodic prune (unref so it never holds the process open).
 setInterval(() => {
   const now = Date.now();
   for (const [k, e] of _ema) if (now - e.ts > EMA_TTL) _ema.delete(k);
   for (const [k, e] of _sb)  if (now - e.ts > 60 * 60_000) _sb.delete(k);
+  for (const k of _hist.keys()) if (!_ema.has(k)) _hist.delete(k);
 }, EMA_TTL).unref();
 
-module.exports = { getLiveState, prevPulseMag, savePulseMag, SCOREBOARD };
+module.exports = { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, SCOREBOARD };

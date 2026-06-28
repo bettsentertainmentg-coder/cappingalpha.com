@@ -9,6 +9,7 @@
 
 const db = require('./db');
 const { MVP_THRESHOLD } = require('./scoring');
+const { settledProfit } = require('./odds_math');
 
 // Minimum decided (win+loss) votes to qualify per window. Longer windows demand a
 // bigger sample so a hot week can't fluke onto the all-time board.
@@ -26,12 +27,11 @@ function voteOdds(v) {
   return -115; // spreads: no juice stored, default -115
 }
 
+// Routed through the shared odds_math.settledProfit. Behavior-preserving: we pass
+// `voteOdds(v) || -115` so votes keep their -115 missing-odds default (their graded
+// history was scored that way), rather than odds_math's -110 manual default.
 function voteReturn(v, unit = 1) {
-  const r = (v.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
-  if (r === 'loss') return -unit;
-  const odds = voteOdds(v) || -115;
-  return odds < 0 ? unit * (100 / Math.abs(odds)) : unit * (odds / 100);
+  return settledProfit(v.result, voteOdds(v) || -115, unit);
 }
 
 // ── Window clauses ────────────────────────────────────────────────────────────

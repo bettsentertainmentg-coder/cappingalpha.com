@@ -150,6 +150,33 @@ async function init() {
 
   // Countdown for pre-game
   if (_data.game.status === 'pre') startCountdown();
+
+  // The payload status can lag ESPN (it's mirrored from prod in local dev, and on
+  // a fresh start the cron hasn't flipped 'pre' -> 'in' yet). Probe the live
+  // endpoint and activate the live treatment the moment ESPN says it's in progress.
+  _maybeActivateLive();
+}
+
+async function _maybeActivateLive() {
+  const g = _data && _data.game;
+  if (!g || g.status === 'post') return;
+  const started = !g.start_time || new Date(g.start_time).getTime() <= Date.now();
+  if (g.status === 'in' || !started) return;   // already live, or not started yet
+  try {
+    const r = await fetch(`/api/game/${encodeURIComponent(g.espn_game_id)}/live`);
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.state && d.state.status === 'in') {
+      g.status = 'in';
+      if (d.state.homeScore != null) g.home_score = d.state.homeScore;
+      if (d.state.awayScore != null) g.away_score = d.state.awayScore;
+      if (d.state.period   != null)  g.period     = d.state.period;
+      if (d.state.detail)            g.live_detail = d.state.detail;
+      if (_countdownId) { clearInterval(_countdownId); _countdownId = null; }
+      renderStatusPill();
+      renderDetailPanel();   // re-render: closes votes, minimizes curve, mounts the command bar (MLB)
+    }
+  } catch (_) {}
 }
 
 // ── Back navigation ───────────────────────────────────────────────────────────
@@ -717,6 +744,94 @@ function userVotesBarHtml() {
   return `<div class="ca-live-votes"><span class="ca-live-votes-lbl">Your pick${voted.length > 1 ? 's' : ''}</span>${chips}</div>`;
 }
 
+// The tracked-bets list for the live command bar footer (game-level, so it does not
+// change as the user flips slots). The footer label is added by the live module.
+function liveBetsInlineHtml() {
+  const { game, userVote } = _data;
+  const voted = buildSlots(game).filter(s => userVote && userVote[s.key]);
+  if (!voted.length) return `<span class="ca-live-tag ca-live-tag--none">None tracked</span>`;
+  return voted.map(s => {
+    const label = s.team ? teamNick(s.team) : s.label.replace(/\s+\d.*/, '');
+    const line  = slotLineCurrent(s.key, game) || '';
+    return `<span class="ca-live-tag">${esc(label)}${line ? ` <span class="ca-num">${esc(line)}</span>` : ''}</span>`;
+  }).join('');
+}
+
+// Time label (ET) for the conviction curve axis.
+function ccTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
+}
+
+// Annotated conviction curve (image-2 style, compact): the score steps over time, the
+// y-window framed to the data so the line fills the box (no dead space). Each step is
+// labelled with the points it added (+35, +5, +10) above and its time below, plus a
+// dashed MVP line when it falls in view. Accurate to the pick's real timeline.
+function convCurveSvg(timeline) {
+  const W = 232, H = 58, padL = 4, padR = 4, padT = 12, padB = 12;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const scores = timeline.map(e => e.score);
+  const n = scores.length;
+  const smin = Math.min(...scores), smax = Math.max(...scores);
+  const padv = Math.max(4, (smax - smin) * 0.18);
+  const lo = smin - padv, hi = smax + padv, span = Math.max(1, hi - lo);
+  const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+  const y = (v) => padT + (1 - (v - lo) / span) * innerH;
+  const anchor = (i) => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+  const baseY = (padT + innerH).toFixed(1);
+  const pts = scores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const area = `${x(0).toFixed(1)},${baseY} ${pts} ${x(n - 1).toFixed(1)},${baseY}`;
+  const mvp = (MVP_THRESHOLD > lo && MVP_THRESHOLD < hi)
+    ? `<line x1="${padL}" y1="${y(MVP_THRESHOLD).toFixed(1)}" x2="${W - padR}" y2="${y(MVP_THRESHOLD).toFixed(1)}" class="ca-cc-mvp"/>` : '';
+  const dots = scores.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2" fill="#FFD700"/>`).join('');
+  const deltas = timeline.map((e, i) => e.label
+    ? `<text x="${x(i).toFixed(1)}" y="${(y(e.score) - 4).toFixed(1)}" class="ca-cc-delta" text-anchor="${anchor(i)}">${esc(e.label)}</text>` : '').join('');
+  const times = timeline.map((e, i) => {
+    const t = ccTime(e.ts).replace(/\s?[AP]M$/, '');   // compact "8:47", no meridiem
+    return t ? `<text x="${x(i).toFixed(1)}" y="${(H - 2).toFixed(1)}" class="ca-cc-time" text-anchor="${anchor(i)}">${esc(t)}</text>` : '';
+  }).join('');
+  return `<svg class="ca-cc" viewBox="0 0 ${W} ${H}">
+    ${mvp}
+    <polygon points="${area}" fill="#FFD700" fill-opacity="0.10"/>
+    <polyline points="${pts}" fill="none" stroke="#FFD700" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${deltas}${times}
+  </svg>`;
+}
+
+// Synthetic teaser curve for non-paid users (never the real timeline — same approach
+// as the pre-game drawLockedTeaser, so a blurred curve can't be read off the wire).
+const CONV_TEASER = [
+  { score: 30, label: '+30' }, { score: 35, label: '+5' },
+  { score: 45, label: '+10' }, { score: 50, label: '+5' },
+];
+
+// Self-contained conviction widget for the live header (per-pick): a bordered bubble
+// with the CA-branded annotated curve. No score (already on the far right), no "Learn
+// how" (that lives on pre-game cards). Non-paid users get the curve blurred behind a
+// lock, exactly like the pre-game conviction chart.
+function convictionHeaderHtml(p, timelineVisible, hasTimeline) {
+  const head = `<span class="ca-dp-hdr-conv-lbl"><img src="/ca-logo.png" alt="CA" class="ca-dp-hdr-conv-logo" onerror="this.style.display='none'">Conviction</span>`;
+  let body;
+  if (!p) {
+    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
+  } else if (!timelineVisible) {
+    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--locked" onclick="openSignup()" title="Full access only">
+      <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER)}</div>
+      <div class="ca-dp-hdr-conv-lockover"><i class="fa-solid fa-lock"></i><span>Full access</span></div>
+    </div>`;
+  } else {
+    body = (hasTimeline && p.timeline.length > 0)
+      ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline)}</div>`
+      : `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
+  }
+  return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score evolves all day as more cappers weigh in.">
+    <div class="ca-dp-hdr-conv-top">${head}</div>
+    ${body}
+  </div>`;
+}
+
 function renderDetailPanel() {
   const el = document.getElementById('ca-detail-panel');
   if (!el) return;
@@ -796,7 +911,14 @@ function renderDetailPanel() {
 
   const hdrMod = isGoldMvp ? ' ca-dp-header--mvp-gold' : isSilverMvp ? ' ca-dp-header--mvp-silver' : '';
 
-  const headerHtml = `<div class="ca-dp-header${hdrMod}">
+  // Once live, the conviction curve collapses into a fixed-size graph inside the
+  // header (right of the pick name). liveNow drives the fixed-height header layout.
+  const liveNow         = game.status === 'in' && (game.sport || '').toUpperCase() === 'MLB';
+  const timelineVisible = isPaying() || rank === 1;       // pre-game chart: #1 stays a free reveal
+  const convVisible     = isPaying();                     // live conviction: paid only (blurred otherwise, incl. #1)
+  const hasTimeline     = !!(p?.timeline && p.timeline.length > 0);
+
+  const headerHtml = `<div class="ca-dp-header${hdrMod}${liveNow ? ' ca-dp-header--live' : ''}">
     <div class="ca-dp-hdr-left">
       <div class="ca-dp-hdr-eyebrow-row">
         ${showRealScore && isMvp ? `<span class="ca-dp-hdr-star">★</span>` : ''}
@@ -808,6 +930,7 @@ function renderDetailPanel() {
         ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
       </div>
     </div>
+    ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline) : ''}
     <div class="ca-dp-hdr-right">
       <div class="ca-dp-hdr-score-label">CappingAlpha Score</div>
       <div class="ca-dp-hdr-score-row">
@@ -824,9 +947,7 @@ function renderDetailPanel() {
   // Col 1: Conviction curve chart. Paywall mirrors score visibility: free users
   // see the real chart only on the #1 pick. For everything else we still render
   // the canvas, but it's blurred behind a lock icon to drive the upgrade.
-  const timelineVisible = isPaying() || rank === 1;
-  const hasTimeline = !!(p?.timeline && p.timeline.length > 0);
-  let pubHtml = `<div class="ca-dp-col-label" style="margin-bottom:8px;">Conviction curve</div>`;
+  let pubHtml = `<div class="ca-dp-col-label ca-dp-col-label--conv"><img src="/ca-logo.png" alt="CA" class="ca-dp-conv-logo" onerror="this.style.display='none'">Conviction curve</div>`;
   const wrapMods = [
     hasTimeline ? '' : 'is-empty',
     timelineVisible ? '' : 'is-locked',
@@ -881,17 +1002,19 @@ function renderDetailPanel() {
   // The feed is game-level, identical no matter which bet slot is selected.
   let voteHtml;
   if (gameStarted) {
+    // Live MLB renders the command bar instead of this grid (handled below), so this
+    // branch only runs for finals + non-MLB live games, which keep the feed.
     voteHtml = liveFeedHtml() + userVotesBarHtml();
   } else if (isViewer()) {
-    voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>` +
-      `<div class="ca-dp-vote-sub"><a onclick="openSignup()">Make an account</a> to vote on this game.</div>
+    voteHtml = `<div class="ca-dp-vote-title">Track this side</div>` +
+      `<div class="ca-dp-vote-sub"><a onclick="openSignup()">Make an account</a> to track a verified pick on this game.</div>
     <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, false, true)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, false, true) : ''}
     </div>`;
   } else {
-    voteHtml = `<div class="ca-dp-vote-title">Vote your pick</div>` +
-      `<div class="ca-dp-vote-sub">Cast your vote on this game. Voting locks at tip-off.</div>
+    voteHtml = `<div class="ca-dp-vote-title">Track this side <span style="font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#08260f;background:#22c55e;padding:2px 6px;border-radius:999px;margin-left:6px;vertical-align:middle;">Verified</span></div>` +
+      `<div class="ca-dp-vote-sub">One tap tracks it at the current line. Locks at tip-off, graded automatically.</div>
     <div class="ca-vc-pair">
       ${mkVcBtn(_activeSlot, thisLabel, thisLineDisp, thisVotes, userOnThis, false)}
       ${oppKey ? mkVcBtn(oppKey, oppLabel, oppLineDisp, oppVotes, userOnOpp, false) : ''}
@@ -900,20 +1023,27 @@ function renderDetailPanel() {
 
   destroyPickTimeline();
 
-  const isMlbLive = game.status === 'in' && (game.sport || '').toUpperCase() === 'MLB';
-  el.innerHTML = headerHtml +
-    (isMlbLive ? `<div id="ca-live-command" class="ca-live-command"></div>` : '') +
-    `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
-    <div class="ca-dp-col">${pubHtml}</div>
-    <div class="ca-dp-divider"></div>
-    <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
-  </div>`;
+  const isMlbLive = liveNow;
+  if (isMlbLive) {
+    // Live MLB: the command bar takes over the body. The conviction curve already
+    // lives in the header (per-pick); votes + start time ride in the command bar.
+    el.innerHTML = headerHtml +
+      `<div id="ca-live-command" class="ca-live-command"></div>`;
+  } else {
+    el.innerHTML = headerHtml +
+      `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
+      <div class="ca-dp-col">${pubHtml}</div>
+      <div class="ca-dp-divider"></div>
+      <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
+    </div>`;
+  }
 
   // Render the chart after innerHTML has settled. Always draw, even when
   // locked or empty, so the chart frame is visible with the overlay. Locked
   // users get a synthetic teaser (no real data on the canvas), not the real
-  // curve blurred — that used to be legible through the blur.
-  if (typeof Chart !== 'undefined') {
+  // curve blurred — that used to be legible through the blur. Skipped when live
+  // (no chart canvas — the conviction bubble carries it instead).
+  if (!isMlbLive && typeof Chart !== 'undefined') {
     requestAnimationFrame(() => {
       if (timelineVisible) {
         drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart');
@@ -926,8 +1056,19 @@ function renderDetailPanel() {
 
   // Live command bar (MLB v1): mount + start the ~12s visibility-gated poll once
   // the game is live; tear it down otherwise. Re-runs on every slot change so the
-  // pulse tracks the slot the user is viewing.
-  if (isMlbLive) mountLiveCommand({ gameId, activeSlot: _activeSlot });
+  // pulse tracks the slot the user is viewing. Votes + start time are game-level, so
+  // they ride along unchanged as the slot flips.
+  if (isMlbLive) mountLiveCommand({
+    gameId, activeSlot: _activeSlot,
+    teams: {
+      awayAbbr: (game.away_abbr || game.away_short || teamNick(game.away_team) || 'AWY').toUpperCase(),
+      homeAbbr: (game.home_abbr || game.home_short || teamNick(game.home_team) || 'HOM').toUpperCase(),
+      awayName: teamNick(game.away_team) || game.away_short || '',
+      homeName: teamNick(game.home_team) || game.home_short || '',
+    },
+    betsHtml: liveBetsInlineHtml(),
+    startLabel,
+  });
   else unmountLiveCommand();
 
   // Paywall banner

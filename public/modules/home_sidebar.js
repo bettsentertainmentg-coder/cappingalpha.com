@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml } from './utils.js';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -37,21 +37,27 @@ async function _renderTopPick() {
       viewer ? Promise.resolve(null) : fetch('/api/picks/top').then(r => r.ok ? r.json() : null).catch(() => null),
       fetch('/api/mvp/public').then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
-    if (!viewer && (!pick || !pick.team)) throw new Error('empty');
+    // Logged in but today's #1 isn't posted yet: DON'T collapse the whole widget.
+    // Keep the rankings P/L graph + record below (public data, still available) and
+    // show a small placeholder where the pick would be. Previously this threw, so the
+    // entire rankings card vanished for signed-in users while logged-out visitors
+    // still saw it — which read as "the rankings are gone."
+    const hasPick = !!(pick && pick.team);
+    const noPick  = !viewer && !hasPick;
 
-    const score = viewer ? 65 : (pick.score || 0);
-    const sport = viewer ? ' · MLB' : (pick.sport ? ` · ${pick.sport}` : '');
+    const score = viewer ? 65 : (hasPick ? (pick.score || 0) : 0);
+    const sport = viewer ? ' · MLB' : (hasPick && pick.sport ? ` · ${pick.sport}` : '');
 
     // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
     // than a bare team name. Logged-out visitors get blurred placeholders.
-    const betText = viewer ? 'Yankees Win' : (pickLabel(pick) || pick.team || '—');
-    const away = (!viewer && pick.away_team) ? teamNickname(pick.away_team) : '';
-    const home = (!viewer && pick.home_team) ? teamNickname(pick.home_team) : '';
+    const betText = viewer ? 'Yankees Win' : (hasPick ? (pickLabel(pick) || pick.team || '—') : '');
+    const away = (hasPick && pick.away_team) ? teamNickname(pick.away_team) : '';
+    const home = (hasPick && pick.home_team) ? teamNickname(pick.home_team) : '';
     const matchupText = viewer ? 'New York @ Boston' : ((away && home) ? `${away} @ ${home}` : '');
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).
     // A win turns the whole card green with a checkmark; loss/push stay honest.
-    const result = viewer ? '' : (pick.result || '').toLowerCase();
+    const result = (viewer || !hasPick) ? '' : (pick.result || '').toLowerCase();
     const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
     const X_SVG     = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
     let resultBadge = '', cardState = '';
@@ -64,7 +70,7 @@ async function _renderTopPick() {
     // Kept on its own left-aligned line so the card stays its original size and the
     // bet row isn't pushed lopsided. Gate on resultBadge (set only for win/loss/push)
     // — pick.result is 'pending' while live, which is truthy.
-    const isLive = !viewer && (pick.game_status || '') === 'in' && !resultBadge;
+    const isLive = hasPick && (pick.game_status || '') === 'in' && !resultBadge;
     let liveLine = '';
     if (isLive) {
       const aScore = pick.game_away_score ?? 0;
@@ -130,7 +136,9 @@ async function _renderTopPick() {
             <div style="margin-top:6px;font-size:10px;color:var(--muted);">No account? <a class="ca-tp-signup-link" onclick="event.stopPropagation();openSignup()">Sign up free</a></div>
           </div>
         </div>`
-      : pickBlock;
+      : noPick
+        ? `<div class="ca-tp-nopick" style="padding:16px 8px;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.45;">No #1 ranked play posted yet today.<br>Check back soon, or view past rankings below.</div>`
+        : pickBlock;
 
     el.innerHTML = `
       <div class="ca-top-pick-card ca-tp-clickable${cardState}" onclick="switchTab('mvp')" title="View CA Rankings ›">
@@ -286,9 +294,13 @@ async function _loadSidebarGames() {
   if (!listEl) return;
 
   try {
-    const res = await fetch('/api/games');
+    const res = await fetch('/api/games?board=1');
     if (!res.ok) return;
     _sidebarGames = await res.json();
+    // Keep today's board (tennis gets a ~10h lookahead for early global slates). The
+    // ?board=1 server filter handles this in prod, but local dev mirrors /api GETs
+    // from prod (possibly older code), so scope here too — idempotent when matched.
+    _sidebarGames = (_sidebarGames || []).filter(g => onBoardForSport(g.start_time, g.sport));
     if (!_sidebarGames || _sidebarGames.length === 0) {
       listEl.innerHTML = `<div style="padding:12px 16px;color:var(--muted);font-size:13px;">No games today.</div>`;
       return;
@@ -352,7 +364,7 @@ function _renderSidebarGames(sport) {
     const away = awayFull.split(' ').pop();
     const home = homeFull.split(' ').pop();
 
-    return `<div class="ca-sidebar-game-row" onclick="openGameModal('${g.espn_game_id}')">
+    return `<div class="ca-sidebar-game-row" onclick="window.location.href='/game/${g.espn_game_id}'">
       <span class="ca-sidebar-game-matchup">${away} @ ${home}</span>
       <span class="ca-sidebar-game-time">${timeOrScore}</span>
     </div>`;
