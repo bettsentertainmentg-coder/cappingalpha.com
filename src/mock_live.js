@@ -90,6 +90,38 @@ function mockLiveState() {
   return frameToState(FRAMES[idx] || FRAMES[0], idx);
 }
 
+// Completed-game snapshot (status 'post') for previewing the finished tracker — open
+// the live URL with ?final=1. Final score + full line score, no live situation.
+function mockFinalState() {
+  const i = FRAMES.length - 1, f = FRAMES[i], ls = mockLineScore(i);
+  return {
+    status: 'post', detail: 'Final', period: f.inning, clock: null,
+    homeScore: f.home, awayScore: f.away, homeAbbr: HOME.abbr, awayAbbr: AWAY.abbr,
+    homeHits: f.hh, awayHits: f.ah, homeErrors: f.he, awayErrors: f.ae,
+    homeLine: ls.home, awayLine: ls.away,
+    inning: f.inning, half: f.half, outs: 2, bases: null, balls: null, strikes: null,
+    batter: null, batterLine: null, pitcher: null, pitcherLine: null, dueUp: [],
+    lastPlay: f.lastPlay, winner: f.home > f.away ? 'home' : (f.away > f.home ? 'away' : null),
+  };
+}
+
+// The complete value arc across every frame (for the finished view).
+function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold) {
+  let prev = null;
+  const out = [];
+  for (let i = 0; i < FRAMES.length; i++) {
+    const st = frameToState(FRAMES[i], i);
+    const now = liveWinProb(st, pregameHomeProb, 'home');
+    const pulse = computeValuePulse({
+      pickWP_now: now, pickWP_pre: pregameHomeProb, caScore,
+      gameProgress: gameProgress(st), prevMagnitude: prev, mvpThreshold,
+    });
+    prev = pulse.magnitude;
+    out.push({ v: pulse.magnitude, p: FRAMES[i].inning });
+  }
+  return out;
+}
+
 // Full value arc from the first frame through the current one, run through the real
 // win-prob + value engine (sequential EMA) so the sparkline shows how value built.
 function mockPulseHistory(pregameHomeProb, caScore, mvpThreshold) {
@@ -159,4 +191,4 @@ function installMockLive(db) {
   }
 }
 
-module.exports = { MOCK_ID, isMockId, mockActive, mockLiveState, mockPulseHistory, installMockLive };
+module.exports = { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive };

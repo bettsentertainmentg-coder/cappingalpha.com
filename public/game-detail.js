@@ -913,8 +913,10 @@ function renderDetailPanel() {
   const hdrMod = isGoldMvp ? ' ca-dp-header--mvp-gold' : isSilverMvp ? ' ca-dp-header--mvp-silver' : '';
 
   // Once live, the conviction curve collapses into a fixed-size graph inside the
-  // header (right of the pick name). liveNow drives the fixed-height header layout.
-  const liveNow         = game.status === 'in' && (game.sport || '').toUpperCase() === 'MLB';
+  // header (right of the pick name). isMlbCmd drives the command-bar layout for BOTH
+  // live ('in') and finished ('post') MLB games — the finished view is the same tracker,
+  // completed. The client adapts each cell by the live state's status.
+  const liveNow         = ((game.status === 'in') || (game.status === 'post')) && (game.sport || '').toUpperCase() === 'MLB';
   const timelineVisible = isPaying() || rank === 1;       // pre-game chart: #1 stays a free reveal
   const convVisible     = isPaying();                     // live conviction: paid only (blurred otherwise, incl. #1)
   const hasTimeline     = !!(p?.timeline && p.timeline.length > 0);

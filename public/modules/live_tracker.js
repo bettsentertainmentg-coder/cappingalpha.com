@@ -36,13 +36,14 @@ async function tick() {
   if (!el) { unmountLiveCommand(); return; }
   let data;
   try {
-    const r = await fetch(`/api/game/${encodeURIComponent(_ctx.gameId)}/live`);
+    const q = (location.search.indexOf('final=1') !== -1) ? '?final=1' : '';   // local finished-game preview
+    const r = await fetch(`/api/game/${encodeURIComponent(_ctx.gameId)}/live${q}`);
     if (!r.ok) return;            // keep last render on a transient error
     data = await r.json();
   } catch (_) { return; }
   if (!data || !data.state) return;
   render(el, data);
-  if (data.state.status !== 'in') unmountLiveCommand();   // game ended -> stop polling
+  if (data.state.status !== 'in') unmountLiveCommand();   // game ended/final -> stop polling
 }
 
 // ── Scoreboard cell: line score (innings build out) + R / H / E ───────────────
@@ -122,7 +123,7 @@ function matchupHtml(s) {
 // High value at the top, low at the bottom, a zero reference line, and a y-window
 // that frames the recent swings (min 50 points tall) instead of the full range, so
 // per-play moves are legible. Default preserveAspectRatio so the axis text stays crisp.
-function valuePulseSvg(history, color) {
+function valuePulseSvg(history, color, live = true) {
   const W = 260, H = 100, padL = 28, padR = 8, padT = 8, padB = 16;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   // Accept either a plain number[] (locked teaser) or [{v, p}] (live, p = period).
@@ -190,12 +191,13 @@ function valuePulseSvg(history, color) {
   const area = `${x(0).toFixed(1)},${baseY} ${pts} ${x(n - 1).toFixed(1)},${baseY}`;
   const dots = hist.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.3" fill="${color}" fill-opacity="0.8"/>`).join('');
   const lx = x(n - 1).toFixed(1), ly = y(hist[n - 1]).toFixed(1);
+  const ping = live ? `<circle class="ca-vp-ping" cx="${lx}" cy="${ly}" r="3.5" fill="${color}"/>` : '';
   return `<svg class="ca-vp" viewBox="0 0 ${W} ${H}">
     ${grid}${xaxis}
     <polygon points="${area}" fill="${color}" fill-opacity="0.10"/>
-    <polyline class="ca-vp-line" pathLength="1" points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <polyline class="${live ? 'ca-vp-line' : ''}" pathLength="1" points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}
-    <circle class="ca-vp-ping" cx="${lx}" cy="${ly}" r="3.5" fill="${color}"/>
+    ${ping}
     <circle cx="${lx}" cy="${ly}" r="3.5" fill="${color}" stroke="#0d1117" stroke-width="1.5"/>
   </svg>`;
 }

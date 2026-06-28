@@ -55,7 +55,7 @@ const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
 const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory } = require('./src/live_tracker');
 const { liveWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
-const { MOCK_ID, isMockId, mockActive, mockLiveState, mockPulseHistory, installMockLive } = require('./src/mock_live');
+const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive } = require('./src/mock_live');
 const { computeValuePulse } = require('./src/live_value');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
@@ -1186,17 +1186,21 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
     };
     // Local-dev mock uses an evolving synthesized state (no ESPN); real games use
     // the cached ESPN scoreboard, falling back to the stored row.
-    const state = isMockId(espn_game_id)
-      ? mockLiveState()
-      : ((await getLiveState(sport, espn_game_id)) || fallbackState);
+    const wantFinal = isMockId(espn_game_id) && req.query.final === '1';
+    const state = wantFinal
+      ? mockFinalState()
+      : (isMockId(espn_game_id)
+          ? mockLiveState()
+          : ((await getLiveState(sport, espn_game_id)) || fallbackState));
 
     // Pulse magnitude is paid-gated (mirrors /api/picks). In local UI_ONLY dev we
     // treat the viewer as paid so the real bar is reviewable without a local paid
     // login. UI_ONLY is never set on Railway, so prod gating is unaffected.
     const paid = auth.isPaid(req) || !!process.env.UI_ONLY;
     const pulses = {};
-    // Value pulse is MLB-only in v1; other sports return live state with no pulse.
-    if (state.status === 'in' && sport === 'MLB') {
+    // Value pulse is MLB-only in v1; computed while live AND on the finished game (the
+    // completed curve). Other sports return live state with no pulse.
+    if ((state.status === 'in' || state.status === 'post') && sport === 'MLB') {
       const gp = gameProgress({ inning: state.inning, half: state.half, outs: state.outs });
       const totalRuns = (state.homeScore || 0) + (state.awayScore || 0);
       const preOverRaw = (() => {
@@ -1232,7 +1236,9 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         // arc; real games accumulate one point per poll.
         let history;
         if (isMockId(espn_game_id)) {
-          history = mockPulseHistory(pre, p.score || 0, MVP_THRESHOLD);
+          history = wantFinal
+            ? mockFullPulseHistory(pre, p.score || 0, MVP_THRESHOLD)
+            : mockPulseHistory(pre, p.score || 0, MVP_THRESHOLD);
         } else {
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);
@@ -1708,6 +1714,9 @@ app.get('/:sport/:slug', async (req, res) => {
   `).get(`%${homeSlug}%`, `%${awaySlug}%`, date));
 
   if (!game) return res.status(404).send('Game not found');
+
+  // Local preview: ?final=1 renders the mock game as finished (completed tracker).
+  if (isMockId(game.espn_game_id) && req.query.final === '1') game.status = 'post';
 
   return renderGameDetail(req, res, game);
 });

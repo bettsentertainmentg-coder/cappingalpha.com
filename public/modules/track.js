@@ -10,7 +10,7 @@ import { state } from './state.js';
 import { sportBadge } from './utils.js';
 
 const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
-const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'WCBB', 'Boxing'];
 
 let _bets    = [];
 let _filters = { sport: '', status: 'all' };
@@ -323,7 +323,7 @@ function sheetMenuHtml() {
 }
 
 const TRACK_DAY_MIN = -7;   // a week back (past games = custom)
-const TRACK_DAY_MAX = 7;    // a week ahead
+const TRACK_DAY_MAX = 14;   // two weeks ahead (UFC/soccer cards are often 1-2 weeks out)
 
 let _trackGames    = [];   // today's games (verified-capable, from /api/games)
 let _trackSport    = '';
@@ -353,6 +353,25 @@ function dateLabel(offset) {
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); // e.g. "Mon Jun 29"
 }
 
+// CappingAlpha core sports (we track them with game detail pages + lines). These sort
+// to the TOP of the sport dropdown by our betting volume. Every other sport ESPN gives
+// us (UFC, Soccer, WCBB, ...) is offered too but sorts to the bottom and is custom-only.
+const CORE_SPORTS = ['MLB', 'NBA', 'NHL', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'GOLF'];
+function sortSports(arr) {
+  return arr.slice().sort((a, b) => {
+    const ia = CORE_SPORTS.indexOf(a), ib = CORE_SPORTS.indexOf(b);
+    if (ia >= 0 && ib >= 0) return ia - ib;   // both core: by our order
+    if (ia >= 0) return -1;                    // core before extra
+    if (ib >= 0) return 1;
+    return a.localeCompare(b);                  // extras alphabetical
+  });
+}
+// A game is custom-only (no verified/odds-board tracking) if it's not today, or it's a
+// non-core sport (no line / no detail page), or it has no line yet.
+function isCustomGame(g) {
+  return _trackDay !== 0 || !CORE_SPORTS.includes((g.sport || '').toUpperCase());
+}
+
 export async function trackFromGame() {
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
@@ -375,6 +394,19 @@ export async function trackFromGame() {
   } catch (_) { _trackGames = []; }
   renderSportDropdown();
   renderTrackGames();
+  // Merge in today's EXTRA-sport games (UFC, Soccer, etc.) from the separate schedule
+  // feed so they show today too. They are custom-only. Core sports already came from
+  // /api/games (verified-capable); skip those to avoid duplicates.
+  const todayStr = ymd(new Date());
+  fetch(`/api/track/schedule?date=${todayStr}`).then(r => r.ok ? r.json() : null).then(d => {
+    if (!d || !Array.isArray(d.games) || _trackDay !== 0) return;
+    const have = new Set(_trackGames.map(g => String(g.espn_game_id)));
+    const extras = d.games.filter(g => !CORE_SPORTS.includes((g.sport || '').toUpperCase()) && !have.has(String(g.espn_game_id)));
+    if (!extras.length) return;
+    _trackGames = _trackGames.concat(extras);
+    renderSportDropdown();
+    if (_trackDay === 0) renderTrackGames();
+  }).catch(() => {});
 }
 
 function currentDayGames() {
@@ -385,7 +417,7 @@ function currentDayGames() {
 function renderSportDropdown() {
   const el = document.getElementById('tg-sportdd');
   if (!el) return;
-  const present = [...new Set(currentDayGames().map(g => (g.sport || '').toUpperCase()).filter(Boolean))];
+  const present = sortSports([...new Set(currentDayGames().map(g => (g.sport || '').toUpperCase()).filter(Boolean))]);
   const opts = ['', ...present];
   const menu = _sportMenuOpen
     ? `<div class="tg-sportdd-menu">${opts.map(s =>
@@ -460,20 +492,24 @@ function renderTrackGames() {
   const note = otherDay
     ? `<div style="padding:0 2px 8px;color:var(--muted);font-size:11.5px;">Only today's games support verified tracking right now. Other days are logged as custom bets.</div>`
     : '';
+  // Core team sports read better as the mascot (last word); fighters/soccer clubs need
+  // the full name ("Toronto FC", "Jefferson Nascimento").
+  const nameOf = (full, sport) => CORE_SPORTS.includes((sport || '').toUpperCase()) ? (full || '').split(' ').pop() : (full || '');
   el.innerHTML = note + games.map(g => {
-    const away = (g.away_team || '').split(' ').pop();
-    const home = (g.home_team || '').split(' ').pop();
+    const cust = isCustomGame(g);
+    const away = nameOf(g.away_team, g.sport);
+    const home = nameOf(g.home_team, g.sport);
     const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
-    const status = otherDay
+    const status = cust
       ? (g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}` : time)
       : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
       : time;
     const matchup = `${away} @ ${home}`;
-    const onclick = otherDay
+    const onclick = cust
       ? `trackFutureGame('${(g.sport || '').toUpperCase()}','${matchup.replace(/'/g, "\\'")}')`
       : `pickTrackGame('${g.espn_game_id}')`;
-    const tag = otherDay ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
+    const tag = cust ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
     return `<button class="tg-row" onclick="${onclick}">
       <span class="tg-matchup">${matchup} ${sportBadge(g.sport)}${tag}</span>
       <span class="tg-status">${status} ›</span>
