@@ -106,14 +106,15 @@ function mockFinalState() {
 }
 
 // The complete value arc across every frame (for the finished view).
-function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold) {
+function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home') {
+  const pre = side === 'away' ? 1 - pregameHomeProb : pregameHomeProb;
   let prev = null;
   const out = [];
   for (let i = 0; i < FRAMES.length; i++) {
     const st = frameToState(FRAMES[i], i);
-    const now = liveWinProb(st, pregameHomeProb, 'home');
+    const now = liveWinProb(st, pregameHomeProb, side);
     const pulse = computeValuePulse({
-      pickWP_now: now, pickWP_pre: pregameHomeProb, caScore,
+      pickWP_now: now, pickWP_pre: pre, caScore,
       gameProgress: gameProgress(st), prevMagnitude: prev, mvpThreshold,
     });
     prev = pulse.magnitude;
@@ -124,15 +125,16 @@ function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold) {
 
 // Full value arc from the first frame through the current one, run through the real
 // win-prob + value engine (sequential EMA) so the sparkline shows how value built.
-function mockPulseHistory(pregameHomeProb, caScore, mvpThreshold) {
-  const idx = currentFrameIndex();
+function mockPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home') {
+  const idx = Math.max(1, currentFrameIndex());   // always >= 2 points so the chart draws
+  const pre = side === 'away' ? 1 - pregameHomeProb : pregameHomeProb;
   let prev = null;
   const out = [];
   for (let i = 0; i <= idx; i++) {
     const st = frameToState(FRAMES[i], i);
-    const now = liveWinProb(st, pregameHomeProb, 'home');   // mock pick is the home ML
+    const now = liveWinProb(st, pregameHomeProb, side);
     const pulse = computeValuePulse({
-      pickWP_now: now, pickWP_pre: pregameHomeProb, caScore,
+      pickWP_now: now, pickWP_pre: pre, caScore,
       gameProgress: gameProgress(st), prevMagnitude: prev, mvpThreshold,
     });
     prev = pulse.magnitude;

@@ -1848,7 +1848,7 @@ nav {
   background: var(--bg-secondary, #0d1117); padding: 14px 22px 16px;
 }
 .ca-lc-grid {
-  display: grid; grid-template-columns: minmax(240px, 1.5fr) minmax(108px, 0.8fr) minmax(200px, 1.2fr); gap: 18px;
+  display: grid; grid-template-columns: minmax(210px, 1.3fr) minmax(165px, 1fr) minmax(200px, 1.2fr); gap: 18px;
 }
 .ca-lc-cell { min-width: 0; }
 .ca-lc-cell-hd { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; margin-bottom: 6px; white-space: nowrap; }
@@ -1870,13 +1870,13 @@ nav {
 .ca-ls-row--lead { background: rgba(255, 215, 0, 0.07); }
 .ca-ls-row--lead .ca-ls-r { color: var(--accent-live, #FFD700); }
 
-.ca-lc-stateline { display: flex; align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.ca-lc-stateline { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .ca-lc-diamond { flex-shrink: 0; }
 .ca-lc-base { fill: none; stroke: #475569; stroke-width: 1.5; }
 .ca-lc-base--on { fill: #FFD700; stroke: #FFD700; }
 .ca-lc-home { fill: #475569; }
 .ca-lc-state-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.ca-lc-half { font-weight: 700; font-size: 13px; color: var(--text); white-space: nowrap; }
+.ca-lc-half { font-weight: 800; font-size: 15px; color: var(--text); white-space: nowrap; }
 .ca-lc-count { display: flex; align-items: center; gap: 5px; }
 .ca-lc-count-lbl { font-size: 9px; font-weight: 800; color: var(--text-tertiary); text-transform: uppercase; margin-right: 1px; }
 .ca-lc-pip { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #475569; display: inline-block; box-sizing: border-box; }
@@ -1893,6 +1893,9 @@ nav {
 
 /* Value pulse: signed windowed line chart (-100..+100) */
 .ca-lc-cell--pulse { display: flex; flex-direction: column; }
+/* Column alignment: score = scoreboard top + tracked bets bottom; matchup = centered. */
+.ca-lc-cell--score { display: flex; flex-direction: column; }
+.ca-lc-cell--matchup { display: flex; flex-direction: column; justify-content: center; }
 .ca-vp-wrap { width: 100%; line-height: 0; }
 .ca-vp { width: 100%; height: auto; display: block; }
 .ca-vp-grid { stroke: #2a3344; stroke-width: 1; }
@@ -1923,17 +1926,13 @@ nav {
 .ca-lc-pulse-sub { font-size: 11px; color: var(--text-tertiary); }
 .ca-lc-pulse-sub a { color: var(--accent); cursor: pointer; }
 
-/* Live command bar footer: tracked bets (left) + start / scheduled time (right).
-   No top border — the card outline is enough (avoids a stray line at the bottom). */
-.ca-lc-foot {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 14px;
-  margin-top: 6px;
-}
-.ca-lc-foot-left { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+/* Tracked bets pinned to the bottom of the score column. */
+.ca-lc-bets { margin-top: auto; padding-top: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .ca-lc-foot-lbl { flex: none; white-space: nowrap; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-tertiary); }
 .ca-lc-foot-bets { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
-.ca-lc-foot-time { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; margin-left: auto; }
-.ca-lc-foot-time .ca-dp-timeline-sched { color: var(--text-disabled, #6b7280); }
+/* Start / scheduled time pinned to the bottom of the value pulse column. */
+.ca-lc-time { margin-top: auto; padding-top: 10px; font-size: 11px; color: var(--text-tertiary); white-space: nowrap; }
+.ca-lc-time .ca-dp-timeline-sched { color: var(--text-disabled, #6b7280); }
 .ca-live-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .ca-live-tag { font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 4px 11px; }
 .ca-live-tag--none { color: var(--text-tertiary); font-weight: 600; }

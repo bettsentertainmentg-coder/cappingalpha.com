@@ -556,7 +556,7 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
-  const cols = `espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases`;
+  const cols = `espn_game_id, sport, home_team, away_team, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
@@ -1236,9 +1236,10 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         // arc; real games accumulate one point per poll.
         let history;
         if (isMockId(espn_game_id)) {
+          const mside = home ? 'home' : 'away';
           history = wantFinal
-            ? mockFullPulseHistory(pre, p.score || 0, MVP_THRESHOLD)
-            : mockPulseHistory(pre, p.score || 0, MVP_THRESHOLD);
+            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside)
+            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside);
         } else {
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);
@@ -1957,9 +1958,11 @@ cron.schedule('*/30 8-23 * * *', async () => {
   }
 }, { timezone: 'America/New_York' });
 
-// Every 3 hours — refresh DraftKings lines from ESPN (free, no API credits)
-if (!UI_ONLY) cron.schedule('0 */3 * * *', async () => {
-  console.log('[cron] 3hr ESPN DK odds refresh');
+// Hourly (active hours) — refresh DraftKings lines from ESPN (free, no Odds API credits).
+// This is the "current line" people see and the line the algorithm captures when a pick
+// crosses 35 points, so we keep it as fresh as is reasonable without hammering ESPN.
+if (!UI_ONLY) cron.schedule('0 6-23 * * *', async () => {
+  console.log('[cron] hourly ESPN DK odds refresh');
   await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
 }, { timezone: 'America/New_York' });
 

@@ -232,16 +232,6 @@ function pulseCellHtml(pulse, isFinal) {
 
 // Footer: tracked bets (left) + start / scheduled time (right), inside the card so
 // neither sits flush against the panel edge. No top border (keeps the card clean).
-function footHtml() {
-  const bets  = (_ctx && _ctx.betsHtml) || '';
-  const start = (_ctx && _ctx.startLabel) || '';   // app-generated HTML (has a <span>)
-  if (!bets && !start) return '';
-  return `<div class="ca-lc-foot">
-    ${bets ? `<div class="ca-lc-foot-left"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : '<span></span>'}
-    ${start ? `<div class="ca-lc-foot-time">${start}</div>` : ''}
-  </div>`;
-}
-
 // Finished game: the matchup cell becomes a result summary (no live at-bat).
 function resultHtml(s) {
   const t = (_ctx && _ctx.teams) || {};
@@ -259,29 +249,34 @@ function render(el, data) {
   const s = data.state;
   const isFinal = s.status === 'post';
   const pulse = pickPulse(data.pulses);
+  const bets  = (_ctx && _ctx.betsHtml) || '';
+  const start = (_ctx && _ctx.startLabel) || '';   // app-generated HTML (has a <span>)
   const scoreHd = isFinal
     ? `<div class="ca-lc-cell-hd ca-lc-hd-final">Final</div>`
     : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>`;
   const pulseHd = isFinal
     ? `<div class="ca-lc-cell-hd">Value pulse</div>`
     : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>`;
+  // Score column: scoreboard top, tracked bets pinned to the bottom. Matchup column:
+  // vertically centered. Pulse column: chart at top, start time pinned to the bottom.
   el.innerHTML = `
     <div class="ca-lc">
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
           ${scoreHd}
           ${boxscoreHtml(s)}
-          ${isFinal ? '' : stateLineHtml(s)}
+          ${bets ? `<div class="ca-lc-bets"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : ''}
         </div>
         <div class="ca-lc-cell ca-lc-cell--matchup">
+          ${isFinal ? '' : stateLineHtml(s)}
           <div class="ca-lc-cell-hd">${isFinal ? 'Result' : 'At the plate'}</div>
-          ${isFinal ? resultHtml(s) : matchupHtml(s)}
+          <div class="ca-lc-matchup">${isFinal ? resultHtml(s) : matchupHtml(s)}</div>
         </div>
         <div class="ca-lc-cell ca-lc-cell--pulse">
           ${pulseHd}
           ${pulseCellHtml(pulse, isFinal)}
+          ${start ? `<div class="ca-lc-time">${start}</div>` : ''}
         </div>
       </div>
-      ${footHtml()}
     </div>`;
 }

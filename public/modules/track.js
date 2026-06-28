@@ -366,10 +366,22 @@ function sortSports(arr) {
     return a.localeCompare(b);                  // extras alphabetical
   });
 }
-// A game is custom-only (no verified/odds-board tracking) if it's not today, or it's a
-// non-core sport (no line / no detail page), or it has no line yet.
+// Does this game have a usable line we can verify-track against? If the odds columns
+// aren't in the payload at all (an older /api/games, or the local dev mirror), we can't
+// tell from here, so treat it as line-available and let the odds board make the call.
+function hasLine(g) {
+  if (!g) return false;
+  const oddsKnown = ('ml_home' in g) || ('over_under' in g) || ('spread_home' in g);
+  if (!oddsKnown) return true;
+  return g.ml_home != null || g.ml_away != null || g.over_under != null || g.spread_home != null;
+}
+// A game is custom-only unless it's today, a core sport we run detail pages for, and we
+// have a line for it (Jack: "verified on any game with a line"). Other days come from the
+// schedule feed (no odds-board path) and non-core sports are always custom.
 function isCustomGame(g) {
-  return _trackDay !== 0 || !CORE_SPORTS.includes((g.sport || '').toUpperCase());
+  if (!CORE_SPORTS.includes((g.sport || '').toUpperCase())) return true;
+  if (_trackDay !== 0) return true;
+  return !hasLine(g);
 }
 
 export async function trackFromGame() {
