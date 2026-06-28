@@ -552,6 +552,44 @@ function trackExtraHtml(items, clv) {
     <div class="track-stat"><div class="track-stat-label">Best Week</div><div class="track-stat-val ${best >= 0 ? 'pos' : ''}">${best >= 0 ? '+' : ''}$${Math.abs(best).toFixed(2)}</div><div class="track-stat-sub">best 7-day profit</div></div>
     <div class="track-stat"><div class="track-stat-label">Closing Line Value</div><div class="track-stat-val">${clv && clv.n ? clv.pct + '%' : '—'}</div><div class="track-stat-sub">${clv && clv.n ? `beat the close (${clv.good}/${clv.n})` : 'on graded verified picks'}</div></div>`;
 }
+
+// ── Net Units cards (AN-style): net units at a glance across 4 timeframes ──────
+function startOfTodayTs() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function netUnitsCardsHtml(items) {
+  const sToday = startOfTodayTs();
+  const yest = items.filter(it => it.ts >= sToday - 864e5 && it.ts < sToday);
+  const defs = [
+    ['Yesterday', statsOf(yest)],
+    ['Last 7',    statsOf(itemsInRange(items, 'week'))],
+    ['Last 30',   statsOf(itemsInRange(items, 'month'))],
+    ['All Time',  statsOf(items)],
+  ];
+  return defs.map(([label, s]) => {
+    const cls = s.netUnits >= 0 ? 'pos' : 'neg';
+    const rec = `${s.wins}-${s.losses}${s.pushes ? '-' + s.pushes : ''}`;
+    return `<div class="nu-card">
+      <div class="nu-label">${label}</div>
+      <div class="nu-val ${cls}">${s.netUnits >= 0 ? '+' : ''}${s.netUnits.toFixed(2)}u</div>
+      <div class="nu-sub">${s.netD >= 0 ? '+' : ''}$${Math.abs(s.netD).toFixed(2)} · ${rec}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Performance card body (headline P/L + ROI / Record / Win% for a timeframe) ──
+function performanceHtml(items, pending) {
+  const s = statsOf(items);
+  const dCls = s.netD >= 0 ? 'pos' : 'neg';
+  const m = (label, val, cls) => `<div class="perf-metric"><span class="perf-m-label">${label}</span><span class="perf-m-val ${cls || ''}">${val}</span></div>`;
+  return `
+    <div class="perf-headline ${dCls}">${s.netD >= 0 ? '+' : ''}$${Math.abs(s.netD).toFixed(2)}</div>
+    <div class="perf-metrics">
+      ${m('Net Units', `${s.netUnits >= 0 ? '+' : ''}${s.netUnits.toFixed(2)}u`, s.netUnits >= 0 ? 'pos' : 'neg')}
+      ${m('ROI', s.roi == null ? '—' : `${s.roi >= 0 ? '+' : ''}${s.roi.toFixed(1)}%`, s.roi == null ? '' : (s.roi >= 0 ? 'pos' : 'neg'))}
+      ${m('Record', `${s.wins}-${s.losses}${s.pushes ? '-' + s.pushes : ''}`)}
+      ${m('Win %', s.winPct !== null ? `${s.winPct}%` : '—')}
+    </div>
+    <div class="perf-note">Your custom + verified bets together${pending ? ` · ${pending} pending` : ''}. Custom bets are personal and do not count on the leaderboard.</div>`;
+}
 // Cumulative P/L from the unified items (sorted by time), in the chosen metric.
 let trackChart = null;
 let _trackMetric = 'dollars'; // 'dollars' | 'units'
@@ -597,16 +635,22 @@ export function recomputeTrackStats() {
   const votes = window._trackingVotes || [];
   const bets  = window._trackingBets || [];
   const unit  = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
-  const all   = buildItems(votes, bets, unit);
-  const items = itemsInRange(all, _trackRange);
-  const pend  = pendingCount(votes, bets);
-  const strip = document.getElementById('track-strip');
-  if (strip) strip.innerHTML = trackStripHtml(items, pend);
+  const all    = buildItems(votes, bets, unit);
+  const ranged = itemsInRange(all, _trackRange);
+  const pend   = pendingCount(votes, bets);
+  // Net Units cards show all 4 fixed timeframes (data-driven, not the dropdown).
+  const nu = document.getElementById('track-nu');
+  if (nu) nu.innerHTML = netUnitsCardsHtml(all);
+  // Performance card follows the dropdown timeframe.
+  const perf = document.getElementById('track-perf');
+  if (perf) perf.innerHTML = performanceHtml(ranged, pend);
+  // Hot streak / best week / CLV are all-time concepts.
   const extra = document.getElementById('track-extra');
-  if (extra) extra.innerHTML = trackExtraHtml(items, clvOf(votesInRange(votes, _trackRange)));
+  if (extra) extra.innerHTML = trackExtraHtml(all, clvOf(votes));
+  // Breakdown + graph follow the dropdown timeframe.
   const brk = document.getElementById('track-breakdown');
-  if (brk) brk.innerHTML = breakdownHtml(items);
-  drawTrackGraph(items);
+  if (brk) brk.innerHTML = breakdownHtml(ranged);
+  drawTrackGraph(ranged);
 }
 export function setTrackRange(r) {
   _trackRange = r;
@@ -691,11 +735,19 @@ function renderTracking(data) {
       }).join('');
 
   el.innerHTML = `
-    <div class="track-range-row account-reveal">
-      ${[['today', 'Today'], ['week', 'Last 7'], ['month', 'Last 30'], ['all', 'All time']].map(([r, lbl]) =>
-        `<button class="track-range-btn${r === 'all' ? ' active' : ''}" data-track-range="${r}" onclick="setTrackRange('${r}')">${lbl}</button>`).join('')}
+    <div class="nu-row account-reveal" id="track-nu">${netUnitsCardsHtml(items)}</div>
+    <div class="perf-card account-reveal">
+      <div class="perf-head">
+        <span class="perf-title">Performance</span>
+        <select class="perf-range" onchange="setTrackRange(this.value)" aria-label="Performance timeframe">
+          <option value="all" selected>All Time</option>
+          <option value="month">Last 30</option>
+          <option value="week">Last 7</option>
+          <option value="today">Today</option>
+        </select>
+      </div>
+      <div class="perf-body" id="track-perf">${performanceHtml(items, pend)}</div>
     </div>
-    <div class="track-stats account-reveal" id="track-strip">${trackStripHtml(items, pend)}</div>
     <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
 
     <div class="account-reveal" style="display:flex;gap:14px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
