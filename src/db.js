@@ -869,6 +869,24 @@ try {
 } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_game   ON pick_history (espn_game_id)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_date   ON pick_history (game_date)`);    } catch (_) {}
+
+// ── Live-line capture at the 35-point threshold ──────────────────────────────
+// The line locked the moment a pick first crosses 35 points is THE tracked line
+// (graph + MVP history). Captured once from the free DraftKings feed (book_lines)
+// onto the picks row, then reused by pick_history + mvp_picks so all three agree.
+try { db.exec(`ALTER TABLE picks ADD COLUMN captured_ml       REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN captured_spread   REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN captured_total    REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN captured_ou_odds  REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN line_captured_at  TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN live_ml          REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN live_spread      REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN live_total       REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN live_ou_odds     REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN line_captured_at TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN captured_spread   REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN captured_total    REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN line_captured_at  TEXT`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_result ON pick_history (result)`);        } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_pick_history_sport  ON pick_history (sport)`);         } catch (_) {}
 

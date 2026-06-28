@@ -7,6 +7,45 @@ const db            = require('./db');
 const { scorePick } = require('./scoring');
 const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
 const { cycleDateForInstant } = require('./cycle');
+const { getLinesForGame } = require('./lines_scraper');
+
+// ── Live-line capture at the 35-point threshold ──────────────────────────────
+// Read the CURRENT DraftKings line (from the free book_lines feed) for the side the
+// capper picked. This is "the line" the moment a pick qualifies.
+function liveDkForSide(espn_game_id, team, pick_type) {
+  const empty = { ml: null, spread: null, total: null, ou_odds: null };
+  if (!espn_game_id) return empty;
+  let dk = null;
+  try { dk = getLinesForGame(espn_game_id).draftkings; } catch (_) {}
+  if (!dk) return empty;
+  const game = db.prepare(`SELECT home_team FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+  const isHome = game && (game.home_team || '').toLowerCase() === (team || '').toLowerCase();
+  const type = (pick_type || '').toLowerCase();
+  return {
+    ml:      type === 'ml'      ? (isHome ? dk.ml_home : dk.ml_away)         : null,
+    spread:  type === 'spread'  ? (isHome ? dk.spread_home : dk.spread_away) : null,
+    total:   (type === 'over' || type === 'under') ? dk.over_under           : null,
+    ou_odds: type === 'over'    ? dk.ou_over_odds : type === 'under' ? dk.ou_under_odds : null,
+  };
+}
+
+// Capture the live DK line ONCE, the first time a pick crosses 35 points, and lock it
+// onto the picks row. Later mentions return the already-locked line so MVP + pick_history
+// all use the same number. Returns { ml, spread, total, ou_odds, at }.
+function captureLineAtThreshold(pick_id, espn_game_id, team, pick_type) {
+  const row = db.prepare(
+    `SELECT captured_ml, captured_spread, captured_total, captured_ou_odds, line_captured_at FROM picks WHERE id = ?`
+  ).get(pick_id);
+  if (row && row.line_captured_at) {
+    return { ml: row.captured_ml, spread: row.captured_spread, total: row.captured_total, ou_odds: row.captured_ou_odds, at: row.line_captured_at };
+  }
+  const line = liveDkForSide(espn_game_id, team, pick_type);
+  const at = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  db.prepare(
+    `UPDATE picks SET captured_ml = ?, captured_spread = ?, captured_total = ?, captured_ou_odds = ?, line_captured_at = ? WHERE id = ?`
+  ).run(line.ml, line.spread, line.total, line.ou_odds, at, pick_id);
+  return { ...line, at };
+}
 
 // ── Capper name normalization + alias resolution ──────────────────────────────
 function normalizeCapper(name) {
@@ -353,6 +392,11 @@ function updateSlot(slot, pick) {
   upsertScoreBreakdown(slot.id, scored);
   saveRawMessage(slot.id, pick);
 
+  // Lock the live line the moment the pick crosses 35 (captured once, reused by MVP).
+  const cap = scored.total >= 35
+    ? captureLineAtThreshold(slot.id, slot.espn_game_id, slot.team, slot.pick_type)
+    : null;
+
   if (scored.is_mvp) {
     saveMvpPick({
       team:        slot.team,
@@ -362,10 +406,11 @@ function updateSlot(slot, pick) {
       game_date:   slot.game_date,
       espn_game_id: slot.espn_game_id,
       score:       scored.total,
+      cap,
     });
   }
 
-  if (scored.total >= 35) upsertPickHistory(slot.id, scored);
+  if (scored.total >= 35) upsertPickHistory(slot.id, scored, cap);
 
   return slot.id;
 }
@@ -419,11 +464,15 @@ function insertNewPick(pick) {
   upsertScoreBreakdown(pick_id, scored);
   saveRawMessage(pick_id, pick);
 
+  const cap = scored.total >= 35
+    ? captureLineAtThreshold(pick_id, espn_game_id, team, pick_type)
+    : null;
+
   if (scored.is_mvp) {
-    saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id, score: scored.total });
+    saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id, score: scored.total, cap });
   }
 
-  if (scored.total >= 35) upsertPickHistory(pick_id, scored);
+  if (scored.total >= 35) upsertPickHistory(pick_id, scored, cap);
 
   return pick_id;
 }
@@ -517,8 +566,8 @@ function upsertScoreBreakdown(pick_id, scored) {
   }
 }
 
-function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score }) {
-  // Capture odds + team names from today_games at save time
+function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null }) {
+  // today_games gives team names + the opening line (used as a fallback only).
   let ml_odds = null, ou_odds = null, home_team = null, away_team = null;
   if (espn_game_id) {
     const game = db.prepare(
@@ -534,6 +583,16 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       if (type === 'under') ou_odds = game.ou_under_odds ?? null;
     }
   }
+  // Prefer the live line locked the moment the pick crossed 35 (Jack: that's THE tracked
+  // line, on the graph + MVP). Fall back to the today_games opening line if the free DK
+  // feed had nothing at capture time.
+  if (cap) {
+    if (cap.ml != null)      ml_odds = cap.ml;
+    if (cap.ou_odds != null) ou_odds = cap.ou_odds;
+  }
+  const capSpread = cap ? cap.spread : null;
+  const capTotal  = cap ? cap.total  : null;
+  const capAt     = cap ? cap.at     : null;
 
   const exists = db.prepare(
     `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`
@@ -541,9 +600,9 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
 
   if (!exists) {
     db.prepare(`
-      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team);
+      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt);
   } else {
     db.prepare(`
       UPDATE mvp_picks
@@ -552,16 +611,19 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
           ml_odds      = COALESCE(ml_odds, ?),
           ou_odds      = COALESCE(ou_odds, ?),
           home_team    = COALESCE(home_team, ?),
-          away_team    = COALESCE(away_team, ?)
+          away_team    = COALESCE(away_team, ?),
+          captured_spread  = COALESCE(captured_spread, ?),
+          captured_total   = COALESCE(captured_total, ?),
+          line_captured_at = COALESCE(line_captured_at, ?)
       WHERE team = ? AND game_date = ? AND pick_type = ?
-    `).run(score, espn_game_id, ml_odds, ou_odds, home_team, away_team, team, game_date, pick_type ?? null);
+    `).run(score, espn_game_id, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, team, game_date, pick_type ?? null);
   }
 }
 
 // ── Upsert pick into permanent archive when it first hits ≥35pts ─────────────
 // Called live from updateSlot() + insertNewPick() — not at wipe time.
 // INSERT OR IGNORE creates the row; UPDATE keeps score/count/messages fresh.
-function upsertPickHistory(pick_id, scored) {
+function upsertPickHistory(pick_id, scored, cap = null) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pick_id);
   if (!pick) return;
 
@@ -583,8 +645,9 @@ function upsertPickHistory(pick_id, scored) {
          home_team, away_team, home_abbr, away_abbr,
          team, pick_type, spread, ml_odds, ou_odds, is_home_team,
          score, mention_count, channel, channel_points, sport_bonus, home_bonus,
-         capper_name, messages_json, result, home_score, away_score, first_seen_at)
-      VALUES (?,?,?,?, ?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?)
+         capper_name, messages_json, result, home_score, away_score, first_seen_at,
+         live_ml, live_spread, live_total, live_ou_odds, line_captured_at)
+      VALUES (?,?,?,?, ?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?)
     `).run(
       pick.id,            pick.espn_game_id ?? null, pick.sport ?? null, pick.game_date ?? null,
       game?.home_team ?? null, game?.away_team ?? null, game?.home_abbr ?? null, game?.away_abbr ?? null,
@@ -593,7 +656,8 @@ function upsertPickHistory(pick_id, scored) {
       pick.score,         pick.mention_count ?? 1, pick.channel ?? null,
       bd.channel_points ?? null, bd.sport_bonus ?? null, bd.home_bonus ?? null,
       pick.capper_name ?? null, JSON.stringify(msgs), pick.result ?? 'pending',
-      game?.home_score ?? null, game?.away_score ?? null, pick.parsed_at ?? null
+      game?.home_score ?? null, game?.away_score ?? null, pick.parsed_at ?? null,
+      cap?.ml ?? null, cap?.spread ?? null, cap?.total ?? null, cap?.ou_odds ?? null, cap?.at ?? null
     );
     // Refresh mutable fields — score/mention_count/messages change on each new mention
     db.prepare(`
@@ -609,4 +673,4 @@ function upsertPickHistory(pick_id, scored) {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper };
+module.exports = { savePick, normalizeCapper, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory };
