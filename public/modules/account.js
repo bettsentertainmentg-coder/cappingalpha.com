@@ -753,7 +753,7 @@ function renderTracking(data) {
     <div class="account-reveal" style="display:flex;gap:14px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
       <div class="track-verified-note" style="margin-bottom:0;flex:1;min-width:240px;">
         <span class="tvn-badge" title="A verified pick is a side tracked on a real game at our recorded line. It grades automatically and is the only kind that counts on the leaderboard. Custom bets are personal only." style="cursor:help;">Verified</span>
-        <span>Verified picks (a side tracked on a real game) are graded automatically and count on the leaderboard. Custom bets are personal only.</span>
+        <span>Verified picks (a side tracked on a real game) are graded automatically and count on the <span class="ca-link" onclick="showLeaderboardInfo()">leaderboard</span>. Custom bets are personal only.</span>
       </div>
       <button class="track-submit" style="width:auto;white-space:nowrap;padding:11px 18px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
     </div>
@@ -1100,8 +1100,28 @@ function initReveal(rootId) {
   });
 }
 
+// Explainer popup for how the leaderboard works (linked from the verified note).
+export function showLeaderboardInfo() {
+  let host = document.getElementById('lb-info-host');
+  if (!host) { host = document.createElement('div'); host.id = 'lb-info-host'; document.body.appendChild(host); }
+  const close = `document.getElementById('lb-info-host').innerHTML=''`;
+  host.innerHTML = `
+    <div class="track-overlay open" onclick="if(event.target===this){${close}}">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="About the leaderboard">
+        <div class="track-sheet-head"><span>The leaderboard</span><button class="track-sheet-x" onclick="${close}" aria-label="Close">✕</button></div>
+        <div class="track-form" style="padding-top:2px;">
+          <p style="font-size:14px;line-height:1.55;margin:0 0 10px;">The leaderboard ranks members by their <b>verified</b> picks.</p>
+          <p style="font-size:14px;line-height:1.55;color:var(--muted);margin:0 0 10px;">Every verified pick counts as <b style="color:var(--text);">one unit at the CappingAlpha line</b>, the same number for everyone, so it is a fair, side-by-side comparison no matter your stake or which book you use. Your record and units there track you against every other member.</p>
+          <p style="font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 14px;">Custom bets (your own odds, or off-platform bets) are personal only and never touch the leaderboard.</p>
+          <button class="track-submit" onclick="${close}; window.switchTab && window.switchTab('leaderboard');">View leaderboard</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 Object.assign(window, {
   deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
+  showLeaderboardInfo,
 });
