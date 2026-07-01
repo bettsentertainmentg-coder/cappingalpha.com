@@ -590,17 +590,32 @@ function renderOddsBoard() {
     if (imp) { Object.assign(g, imp); g.line_source = g.line_source || imp.source; }
   }
   const id = g.espn_game_id;
-  const started = g.status === 'in' || g.status === 'post';
+  const finished = g.status === 'post';        // only a FINAL game closes tracking
+  const live     = g.status === 'in';          // live games stay open, tracked at the live line
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const awayN = away.split(' ').pop(), homeN = home.split(' ').pop();
 
-  // Tap a line -> the confirmation slide (no longer an instant track). The board shows
-  // only our CA Line; per-book prices live on the confirmation slide. `numOdds` is the
-  // raw number (or null); we format for display and pass the number to the slide.
+  // Live game: prefer the current DraftKings line (freshest) for the numbers we show +
+  // lock, so the live bolt reflects the price right now, not the morning open.
+  if (live) {
+    const dk = (_board.lines || {}).draftkings;
+    if (dk) {
+      if (dk.ml_home != null) g.ml_home = dk.ml_home;
+      if (dk.ml_away != null) g.ml_away = dk.ml_away;
+      if (dk.spread_home != null) g.spread_home = dk.spread_home;
+      if (dk.spread_away != null) g.spread_away = dk.spread_away;
+      if (dk.over_under != null) g.over_under = dk.over_under;
+      if (dk.ou_over_odds != null) g.ou_over_odds = dk.ou_over_odds;
+      if (dk.ou_under_odds != null) g.ou_under_odds = dk.ou_under_odds;
+    }
+  }
+  const bolt = live ? '<i class="fa-solid fa-bolt ob-bolt" title="Live odds right now"></i>' : '';
+
+  // Tap a line -> the confirmation slide. `numOdds` is the raw number (or null).
   const line = (slot, label, numOdds, disabled) => `
     <button class="ob-line${disabled ? ' ob-line-off' : ''}" ${disabled ? 'disabled' : `onclick="openLineConfirm('${id}','${slot}','${String(label).replace(/'/g, "\\'")}',${numOdds == null ? 'null' : numOdds})"`}>
       <span class="ob-line-label">${label}</span>
-      <span class="ob-line-odds">${_odds(numOdds)}</span>
+      <span class="ob-line-odds">${bolt}${_odds(numOdds)}</span>
     </button>`;
 
   // Disable a line when its underlying number is missing — tracking a "—" line
@@ -608,7 +623,7 @@ function renderOddsBoard() {
   const hasML = g.ml_home != null || g.ml_away != null;
   const hasSpread = g.spread_home != null || g.spread_away != null;
   const noLines = !hasML && !hasSpread && g.over_under == null;
-  const lines = started ? '' : `
+  const lines = finished ? '' : `
     ${hasML ? `<div class="ob-section">Moneyline</div>
     ${line('away_ml', `${awayN}`, g.ml_away, g.ml_away == null)}
     ${line('home_ml', `${homeN}`, g.ml_home, g.ml_home == null)}` : ''}
@@ -622,12 +637,14 @@ function renderOddsBoard() {
 
   body.innerHTML = `
     <button class="ob-back" onclick="trackFromGame()">‹ Games</button>
-    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
-    <div class="track-form-note">${started
-      ? 'This game has started, so verified tracking is closed. Use Custom bet to log it.'
-      : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
-    ${started || noLines ? '' : `<div class="ob-caline-row" title="CappingAlpha's line, estimated from the books we track">CA Line</div>`}
-    ${started ? '' : `<div class="ob-grid">${lines}</div>`}
+    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}${live ? ' <span class="ob-live">LIVE</span>' : ''}</div>
+    <div class="track-form-note">${finished
+      ? 'This game is final, so tracking is closed. Use Custom bet to log it.'
+      : live
+        ? `<i class="fa-solid fa-bolt ob-bolt"></i> Live odds — tap a line to track it at the live number, graded automatically.`
+        : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
+    ${finished || noLines ? '' : `<div class="ob-caline-row"${live ? ' style="color:#38bdf8;"' : ''} title="${live ? 'Live line right now' : "CappingAlpha's line, estimated from the books we track"}">${live ? 'Live Line' : 'CA Line'}</div>`}
+    ${finished ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
       <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Log it as a custom bet instead</span><span class="track-opt-d">Set your own stake, odds, and book.</span></span>
