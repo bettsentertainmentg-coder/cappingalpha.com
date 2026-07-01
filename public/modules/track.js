@@ -777,7 +777,6 @@ export function openLineConfirm(id, slot, label, caOdds) {
   };
 
   const body = document.getElementById('track-sheet-body'); if (!body) return;
-  const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const caTxt = _confirm.caOdds != null ? (_confirm.caOdds > 0 ? '+' + _confirm.caOdds : '' + _confirm.caOdds) : '—';
   const lineTxt = _confirm.caLine != null ? (isSpread && _confirm.caLine > 0 ? '+' + _confirm.caLine : '' + _confirm.caLine) : '—';
   const lineLeg = isTotal ? sideName : 'Spread'; // AN labels the total box by its side (Over/Under)
@@ -792,8 +791,7 @@ export function openLineConfirm(id, slot, label, caOdds) {
 
   body.innerHTML = `
     <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
-    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
-    <div class="lc-sel" id="lc-sel">${lcSelLabel()}</div>
+    <div class="lc-sel"><span id="lc-sel">${lcSelLabel()}</span> ${sportBadge(g.sport)}</div>
     <div class="track-form">
       <div class="lc-fields ${hasLine ? 'four' : 'three'}">${fields}</div>
       <div class="lc-caref">CA Line ${caTxt}${hasLine ? ` · ${lineLeg} ${lineTxt}` : ''}</div>
@@ -819,16 +817,21 @@ export function openLineConfirm(id, slot, label, caOdds) {
 function renderConfirmBooks() {
   const c = _confirm; if (!c) return '';
   const fmtO = o => (o > 0 ? '+' + o : '' + o);
-  const lineTag = (ln) => {
+  const lineStr = (ln) => {
     if (ln == null) return '';
-    if (c.isSpread) return ' ' + (ln > 0 ? '+' + ln : ln);
-    if (c.isTotal)  return ' ' + (c.slot === 'over' ? 'o' : 'u') + ln;
+    if (c.isSpread) return ln > 0 ? '+' + ln : '' + ln;
+    if (c.isTotal)  return (c.slot === 'over' ? 'o' : 'u') + ln;
     return '';
   };
+  // The line/total goes first, a separator, then the odds (e.g. "+1.5 · -110", "o9 · -117").
+  const nums = (odds, line) => {
+    const ls = lineStr(line);
+    return `<span class="lc-bk">${ls ? `<span class="lc-bk-line">${ls}</span><span class="lc-bk-sep">·</span>` : ''}<span class="lc-bk-odds">${fmtO(odds)}</span></span>`;
+  };
   const chips = c.books.map((b, i) =>
-    `<button type="button" class="lc-book" data-book="${b.book}" onclick="pickConfirmBook(${i})">${b.book}<span>${fmtO(b.odds)}${lineTag(b.line)}</span></button>`
+    `<button type="button" class="lc-book" data-book="${b.book}" onclick="pickConfirmBook(${i})">${b.book}${nums(b.odds, b.line)}</button>`
   );
-  if (c.imp) chips.push(`<button type="button" class="lc-book" data-book="${c.imp.book}" onclick="pickConfirmBook('imp')">${c.imp.book}<span>${fmtO(c.imp.odds)}${lineTag(c.imp.line)}</span></button>`);
+  if (c.imp) chips.push(`<button type="button" class="lc-book" data-book="${c.imp.book}" onclick="pickConfirmBook('imp')">${c.imp.book}${nums(c.imp.odds, c.imp.line)}</button>`);
   chips.push(`<button type="button" class="lc-book lc-book-plain" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`);
   return chips.join('');
 }
@@ -903,7 +906,7 @@ function updateConfirmMode() {
   if (mode) {
     mode.className = 'lc-mode' + (c.verified ? '' : ' lc-mode-custom');
     mode.innerHTML = c.verified
-      ? '<i class="fa-solid fa-circle-check"></i> Verified — 1 unit at the CA line on the leaderboard. Your risk is tracked just for you.'
+      ? '<i class="fa-solid fa-circle-check"></i> Verified — 1 unit at the CA line on the leaderboard.'
       : c.freeBet
         ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
         : 'Off the book range — tracked as a personal bet only, not on the leaderboard.';
