@@ -1224,6 +1224,7 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         const o = _americanToProb(game.ou_over_odds), u = _americanToProb(game.ou_under_odds);
         return (o != null && u != null && o + u > 0) ? o / (o + u) : 0.5;
       })();
+      const pb = getPublicBettingForGame(espn_game_id);   // public lean at game start (conviction blend)
       for (const p of picks) {
         const slot = _slotKey(p);
         if (!slot) continue;
@@ -1243,9 +1244,23 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
 
         if (!paid) { pulses[slot] = { locked: true, pickType: type }; continue; }
 
+        // Is the pick's side behind on the scoreboard? (gates the "comeback" wording)
+        const trailing = (type === 'ml' || type === 'spread')
+          ? (home ? (state.homeScore < state.awayScore) : (state.awayScore < state.homeScore))
+          : false;
+        // Public lean on the pick's side at game start (0..1), for the conviction blend.
+        let publicPct = null;
+        if (pb) {
+          const raw = type === 'ml'     ? (home ? pb.home_ml_pct     : pb.away_ml_pct)
+                    : type === 'spread' ? (home ? pb.home_spread_pct : pb.away_spread_pct)
+                    : type === 'over'   ? pb.over_pct
+                    : type === 'under'  ? pb.under_pct : null;
+          publicPct = (raw == null) ? null : raw / 100;
+        }
+
         const key = `${espn_game_id}:${p.id}`;
         const pulse = computeValuePulse({
-          pickWP_now: now, pickWP_pre: pre, caScore: p.score || 0,
+          pickWP_now: now, pickWP_pre: pre, caScore: p.score || 0, trailing, publicPct,
           gameProgress: gp, prevMagnitude: prevPulseMag(key), mvpThreshold: MVP_THRESHOLD,
         });
         savePulseMag(key, pulse.magnitude);
@@ -1255,8 +1270,8 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         if (isMockId(espn_game_id)) {
           const mside = home ? 'home' : 'away';
           history = wantFinal
-            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside)
-            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside);
+            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct)
+            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct);
         } else {
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);

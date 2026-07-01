@@ -593,28 +593,14 @@ function renderOddsBoard() {
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const awayN = away.split(' ').pop(), homeN = home.split(' ').pop();
 
-  const line = (slot, label, odds, disabled, books) => `
-    <button class="ob-line${disabled ? ' ob-line-off' : ''}" ${disabled ? 'disabled' : `onclick="trackLine('${id}','${slot}','${String(label).replace(/'/g, "\\'")}')"`}>
-      <span style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;min-width:0;">
-        <span class="ob-line-label">${label}</span>
-        ${books ? `<span class="ob-books">${books}</span>` : ''}
-      </span>
-      <span class="ob-line-odds">${odds}</span>
+  // Tap a line -> the confirmation slide (no longer an instant track). The board shows
+  // only our CA Line; per-book prices live on the confirmation slide. `numOdds` is the
+  // raw number (or null); we format for display and pass the number to the slide.
+  const line = (slot, label, numOdds, disabled) => `
+    <button class="ob-line${disabled ? ' ob-line-off' : ''}" ${disabled ? 'disabled' : `onclick="openLineConfirm('${id}','${slot}','${String(label).replace(/'/g, "\\'")}',${numOdds == null ? 'null' : numOdds})"`}>
+      <span class="ob-line-label">${label}</span>
+      <span class="ob-line-odds">${_odds(numOdds)}</span>
     </button>`;
-
-  // Line-shopping context (Backlog P1 #7): show DK + FD prices under ML/Total, the
-  // better price in green. The tap still tracks our consensus number (verifiable);
-  // this just shows where the value is.
-  const dk = (_board.lines || {}).draftkings, fd = (_board.lines || {}).fanduel;
-  const dec = o => (o == null ? -Infinity : (o > 0 ? 1 + o / 100 : 1 + 100 / Math.abs(o)));
-  const bookCtx = (field) => {
-    const a = dk ? dk[field] : null, b = fd ? fd[field] : null;
-    if (a == null && b == null) return '';
-    const bothBest = (a != null && b != null);
-    const best = dec(a) >= dec(b) ? 'dk' : 'fd';
-    const fmt = (o, isBest) => o == null ? '—' : `<span style="${isBest && bothBest ? 'color:#4ade80;font-weight:700;' : ''}">${o > 0 ? '+' + o : o}</span>`;
-    return `DK ${fmt(a, best === 'dk')} · FD ${fmt(b, best === 'fd')}`;
-  };
 
   // Disable a line when its underlying number is missing — tracking a "—" line
   // creates an ungradeable / mis-priced vote (Backlog P0 #2).
@@ -623,14 +609,14 @@ function renderOddsBoard() {
   const noLines = !hasML && !hasSpread && g.over_under == null;
   const lines = started ? '' : `
     ${hasML ? `<div class="ob-section">Moneyline</div>
-    ${line('away_ml', `${awayN}`, _odds(g.ml_away), g.ml_away == null, bookCtx('ml_away'))}
-    ${line('home_ml', `${homeN}`, _odds(g.ml_home), g.ml_home == null, bookCtx('ml_home'))}` : ''}
+    ${line('away_ml', `${awayN}`, g.ml_away, g.ml_away == null)}
+    ${line('home_ml', `${homeN}`, g.ml_home, g.ml_home == null)}` : ''}
     ${hasSpread ? `<div class="ob-section">Spread</div>
-    ${line('away_spread', `${awayN} ${_sp(g.spread_away)}`, _odds(-110), g.spread_away == null)}
-    ${line('home_spread', `${homeN} ${_sp(g.spread_home)}`, _odds(-110), g.spread_home == null)}` : ''}
+    ${line('away_spread', `${awayN} ${_sp(g.spread_away)}`, -110, g.spread_away == null)}
+    ${line('home_spread', `${homeN} ${_sp(g.spread_home)}`, -110, g.spread_home == null)}` : ''}
     ${g.over_under != null ? `<div class="ob-section">Total</div>
-    ${line('over',  `Over ${g.over_under}`,  _odds(g.ou_over_odds), false, bookCtx('ou_over_odds'))}
-    ${line('under', `Under ${g.over_under}`, _odds(g.ou_under_odds), false, bookCtx('ou_under_odds'))}` : ''}
+    ${line('over',  `Over ${g.over_under}`,  g.ou_over_odds, false)}
+    ${line('under', `Under ${g.over_under}`, g.ou_under_odds, false)}` : ''}
     ${noLines ? `<div class="track-form-note" style="margin-top:4px;">No betting lines posted for this game yet. Use Custom bet to log it.</div>` : ''}`;
 
   body.innerHTML = `
@@ -639,6 +625,7 @@ function renderOddsBoard() {
     <div class="track-form-note">${started
       ? 'This game has started, so verified tracking is closed. Use Custom bet to log it.'
       : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
+    ${started || noLines ? '' : `<div class="ob-caline-row" title="CappingAlpha's line, estimated from the books we track">CA Line</div>`}
     ${started ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
       <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
@@ -668,6 +655,117 @@ export async function trackLine(id, slot, label) {
     _trackingLine = false;
     document.querySelectorAll('.ob-line').forEach(b => { b.disabled = false; });
   }
+}
+
+// ── Confirmation slide (tap a line -> configure -> Track Bet) ─────────────────
+// Default = the CA line, tracked verified (1 unit on the leaderboard). Editing the odds
+// (typing your own, or tapping a book price) flips it to a personal custom bet.
+let _confirm = null;
+
+function slotToBet(slot) {
+  if (slot === 'home_ml' || slot === 'away_ml') return 'ml';
+  if (slot === 'home_spread' || slot === 'away_spread') return 'spread';
+  return slot; // 'over' | 'under'
+}
+function bookOddsForSlot(slot) {
+  const field = { home_ml: 'ml_home', away_ml: 'ml_away', home_spread: 'spread_home', away_spread: 'spread_away', over: 'ou_over_odds', under: 'ou_under_odds' }[slot];
+  const L = (_board && _board.lines) || {};
+  const out = [];
+  if (L.draftkings && L.draftkings[field] != null) out.push({ book: 'DraftKings', odds: L.draftkings[field] });
+  if (L.fanduel   && L.fanduel[field]   != null) out.push({ book: 'FanDuel',    odds: L.fanduel[field] });
+  return out;
+}
+
+export function openLineConfirm(id, slot, label, caOdds) {
+  const g = _board && _board.game; if (!g) return;
+  _confirm = { id, slot, label, caOdds: caOdds == null ? null : Number(caOdds), book: '' };
+  const body = document.getElementById('track-sheet-body'); if (!body) return;
+  const away = g.away_team || 'Away', home = g.home_team || 'Home';
+  const bookRows = bookOddsForSlot(slot).map(b =>
+    `<button type="button" class="lc-book" onclick="setConfirmOdds(${b.odds})">${b.book}<span>${b.odds > 0 ? '+' + b.odds : b.odds}</span></button>`
+  ).join('');
+  const caTxt = _confirm.caOdds != null ? (_confirm.caOdds > 0 ? '+' + _confirm.caOdds : '' + _confirm.caOdds) : '—';
+  body.innerHTML = `
+    <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
+    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
+    <div class="lc-sel">${label}</div>
+    <div class="track-form">
+      <div class="settings-field">
+        <label for="lc-odds">Odds</label>
+        <div class="lc-odds-row">
+          <input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmOddsChange()" />
+          <span class="lc-caline">CA Line ${caTxt}</span>
+        </div>
+        ${bookRows ? `<div class="lc-books">${bookRows}</div>` : ''}
+        <div class="lc-mode" id="lc-mode">Verified pick. Tracks 1 unit at the CA line on the leaderboard.</div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="settings-field" style="flex:1;"><label for="lc-stake">Risk</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-stake" value="${unitSize()}" min="0" step="1" disabled oninput="lcPayout()" /></div></div>
+        <div class="settings-field" style="flex:1;"><label>To win</label><div class="lc-towin" id="lc-towin">—</div></div>
+      </div>
+      <div class="settings-field">
+        <label>Book (optional)</label>
+        <div class="bet-seg-row" style="flex-wrap:wrap;">${BOOKS.map(b => `<button type="button" class="bet-seg" onclick="setConfirmBook('${b}',this)">${b}</button>`).join('')}</div>
+      </div>
+      <div class="settings-field"><label for="lc-note">Note (optional)</label><input type="text" id="lc-note" placeholder="e.g. tailed @capper" maxlength="200" /></div>
+      <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
+      <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+  lcPayout();
+}
+export function setConfirmBook(book, btn) {
+  _confirm.book = _confirm.book === book ? '' : book;
+  btn.parentElement.querySelectorAll('.bet-seg').forEach(x => x.classList.remove('active'));
+  if (_confirm.book) btn.classList.add('active');
+}
+export function setConfirmOdds(o) { const el = document.getElementById('lc-odds'); if (el) { el.value = o; onConfirmOddsChange(); } }
+export function onConfirmOddsChange() {
+  const v = parseFloat(document.getElementById('lc-odds')?.value);
+  const isCa = _confirm.caOdds != null && v === _confirm.caOdds;
+  const mode = document.getElementById('lc-mode');
+  const stake = document.getElementById('lc-stake');
+  if (mode) {
+    mode.className = 'lc-mode' + (isCa ? '' : ' lc-mode-custom');
+    mode.textContent = isCa
+      ? 'Verified pick. Tracks 1 unit at the CA line on the leaderboard.'
+      : 'Custom odds — tracked as a personal bet only, not on the leaderboard.';
+  }
+  if (stake) { stake.disabled = isCa; if (isCa) stake.value = unitSize(); } // verified = flat 1 unit
+  lcPayout();
+}
+export function lcPayout() {
+  const odds = parseFloat(document.getElementById('lc-odds')?.value);
+  const stake = parseFloat(document.getElementById('lc-stake')?.value) || 0;
+  const el = document.getElementById('lc-towin');
+  if (el) el.textContent = stake ? `$${americanProfit(odds, stake).toFixed(2)}` : '—';
+}
+export async function confirmTrackBet() {
+  const errEl = document.getElementById('lc-error'); if (errEl) errEl.textContent = '';
+  const odds  = parseFloat(document.getElementById('lc-odds')?.value);
+  const stake = parseFloat(document.getElementById('lc-stake')?.value) || 0;
+  const note  = (document.getElementById('lc-note')?.value || '').trim() || null;
+  const isCa  = _confirm.caOdds != null && odds === _confirm.caOdds;
+  const btn   = document.getElementById('lc-submit'); if (btn) btn.disabled = true;
+  try {
+    if (isCa) {
+      const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot }) });
+      if (res.status === 401) { window.openLogin && window.openLogin(); return; }
+      if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
+      if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
+      showToast('Tracked: ' + _confirm.label + ' (verified)');
+    } else {
+      if (!Number.isFinite(odds) || odds === 0) { if (errEl) errEl.textContent = 'Enter valid odds (e.g. -110).'; return; }
+      const g = _board.game;
+      const res = await fetch('/api/bets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        bet_type: slotToBet(_confirm.slot), selection: _confirm.label, sport: g.sport,
+        odds, stake, book: _confirm.book || null, notes: note, result: 'pending', espn_game_id: _confirm.id,
+      }) });
+      if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
+      showToast('Tracked: ' + _confirm.label + ' (custom)');
+    }
+    closeTrackSheet(); refreshTracking();
+  } catch (_) { showToast('Network error. Try again.', 'err'); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
@@ -845,6 +943,7 @@ Object.assign(window, {
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
+  openLineConfirm, setConfirmBook, setConfirmOdds, onConfirmOddsChange, lcPayout, confirmTrackBet,
 });
 
 // Close the sport dropdown when clicking outside it.

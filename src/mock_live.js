@@ -112,39 +112,43 @@ function mockFinalState() {
 }
 
 // The complete value arc across every frame (for the finished view).
-function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home') {
+function mockFullPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home', publicPct = null) {
   const pre = side === 'away' ? 1 - pregameHomeProb : pregameHomeProb;
   let prev = null;
   const out = [];
   for (let i = 0; i < FRAMES.length; i++) {
-    const st = frameToState(FRAMES[i], i);
+    const f = FRAMES[i];
+    const st = frameToState(f, i);
     const now = liveWinProb(st, pregameHomeProb, side);
+    const trailing = side === 'home' ? (f.home < f.away) : (f.away < f.home);
     const pulse = computeValuePulse({
-      pickWP_now: now, pickWP_pre: pre, caScore,
+      pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
       gameProgress: gameProgress(st), prevMagnitude: prev, mvpThreshold,
     });
     prev = pulse.magnitude;
-    out.push({ v: pulse.magnitude, p: FRAMES[i].inning });
+    out.push({ v: pulse.magnitude, p: f.inning });
   }
   return out;
 }
 
 // Full value arc from the first frame through the current one, run through the real
 // win-prob + value engine (sequential EMA) so the sparkline shows how value built.
-function mockPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home') {
+function mockPulseHistory(pregameHomeProb, caScore, mvpThreshold, side = 'home', publicPct = null) {
   const idx = Math.max(1, currentFrameIndex());   // always >= 2 points so the chart draws
   const pre = side === 'away' ? 1 - pregameHomeProb : pregameHomeProb;
   let prev = null;
   const out = [];
   for (let i = 0; i <= idx; i++) {
-    const st = frameToState(FRAMES[i], i);
+    const f = FRAMES[i];
+    const st = frameToState(f, i);
     const now = liveWinProb(st, pregameHomeProb, side);
+    const trailing = side === 'home' ? (f.home < f.away) : (f.away < f.home);
     const pulse = computeValuePulse({
-      pickWP_now: now, pickWP_pre: pre, caScore,
+      pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
       gameProgress: gameProgress(st), prevMagnitude: prev, mvpThreshold,
     });
     prev = pulse.magnitude;
-    out.push({ v: pulse.magnitude, p: FRAMES[i].inning });   // carry the inning for the x-axis
+    out.push({ v: pulse.magnitude, p: f.inning });   // carry the inning for the x-axis
   }
   return out;
 }
@@ -193,6 +197,13 @@ function installMockLive(db) {
       VALUES (@id,@mj,@mj,9999999,datetime('now'))
       ON CONFLICT(espn_game_id) DO UPDATE SET markets_json=@mj, morning_markets_json=@mj, volume_usd=9999999, updated_at=datetime('now')
     `).run({ id: MOCK_ID, mj });
+    // Public betting (game start): the public leans on the Reds (home favorite). Feeds
+    // the value pulse conviction blend (CA + line + public).
+    db.prepare(`
+      INSERT INTO public_betting (espn_game_id, home_ml_pct, away_ml_pct, home_ml_money_pct, away_ml_money_pct)
+      VALUES (@id, 61, 39, 64, 36)
+      ON CONFLICT(espn_game_id) DO UPDATE SET home_ml_pct=61, away_ml_pct=39
+    `).run({ id: MOCK_ID });
     console.log(`[mock_live] installed mock live MLB game id=${MOCK_ID} (UI_ONLY dev only — never deploys)`);
   } catch (e) {
     console.warn('[mock_live] install failed:', e.message);
