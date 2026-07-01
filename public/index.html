@@ -450,6 +450,13 @@
     .lc-mode { font-size: 12px; color: var(--green); margin-top: 8px; }
     .lc-mode-custom { color: #f87171; }
     .lc-towin { font-size: 18px; font-weight: 800; padding-top: 6px; font-family: 'Space Grotesk','Inter',sans-serif; }
+    .lc-freebet-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 6px; }
+    .lc-freebet { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border);
+      color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+    .lc-freebet i { color: #38bdf8; }
+    .lc-freebet.active { background: rgba(56,189,248,.14); border-color: #38bdf8; color: var(--text); }
+    .free-tag { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 5px; white-space: nowrap; }
+    .free-tag i { font-size: 8px; }
 
     /* Toast (tracked / settled / error feedback) */
     #ca-toast-host { position: fixed; left: 0; right: 0; bottom: 0; z-index: 400; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); pointer-events: none; }
@@ -2711,6 +2718,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=40"></script>
+  <script type="module" src="app.js?v=41"></script>
 </body>
 </html>

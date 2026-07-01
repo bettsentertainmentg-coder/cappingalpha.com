@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=23';
+import { loadUserBets, setBetsData } from './track.js?v=24';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
@@ -449,6 +449,7 @@ function buildItems(votes, bets, unit) {
   }
   for (const b of (bets || [])) {
     const r = (b.result || '').toLowerCase();
+    if (b.free_bet && r === 'loss') continue; // a free-bet loss doesn't count
     if (r === 'win' || r === 'loss' || r === 'push') {
       const d = b.payout != null ? b.payout : 0;
       items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type) });

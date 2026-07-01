@@ -11,6 +11,12 @@ const { settledProfit } = require('./odds_math');
 const { evaluateVote, fetchGameResult } = require('./results');
 
 const BET_TYPES = new Set(['ml', 'spread', 'over', 'under', 'prop', 'parlay', 'future']);
+
+// P/L for a settled bet. A free bet's loss costs nothing (payout 0); a win pays normally.
+function betProfit(result, odds, stake, freeBet) {
+  if (freeBet && result === 'loss') return 0;
+  return settledProfit(result, odds, stake);
+}
 const GRADABLE  = new Set(['ml', 'spread', 'over', 'under']);
 
 function httpErr(status, message) { const e = new Error(message); e.status = status; return e; }
@@ -88,21 +94,23 @@ function createBet(userId, body = {}) {
 
   // Optional initial result (logging an already-settled bet) — settle atomically on
   // create for non-game-linked bets, so there's no fire-and-forget settle race.
+  const freeBet = body.free_bet ? 1 : 0;
   const r0 = String(body.result || '').toLowerCase();
   const initResult = (!espn_game_id && ['win', 'loss', 'push', 'void'].includes(r0)) ? r0 : 'pending';
-  const initPayout  = initResult !== 'pending' ? settledProfit(initResult, odds, stake) : null;
+  const initPayout  = initResult !== 'pending' ? betProfit(initResult, odds, stake, freeBet) : null;
   const initSettled = initResult !== 'pending' ? new Date().toISOString().slice(0, 19).replace('T', ' ') : null;
 
   const info = db.prepare(`
     INSERT INTO user_bets
       (user_id, bet_type, sport, selection, side, line, odds, stake, units,
-       espn_game_id, game_date, result, payout, settled_at, verified, source, home_team, away_team, book, notes)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       espn_game_id, game_date, result, payout, settled_at, verified, source, home_team, away_team, book, notes, free_bet)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId, bet_type, sport, selection, side, line, odds, stake, units,
     espn_game_id, game_date, initResult, initPayout, initSettled, verified, source, home_team, away_team,
     body.book  ? String(body.book).slice(0, 40)   : null,
     body.notes ? String(body.notes).slice(0, 500) : null,
+    freeBet,
   );
   return getBet(userId, info.lastInsertRowid);
 }
@@ -158,7 +166,7 @@ function settleBet(userId, id, result) {
   if (bet.espn_game_id) throw httpErr(409, 'Game-linked bets are graded automatically.');
   const r = String(result || '').toLowerCase();
   if (!['win', 'loss', 'push', 'void'].includes(r)) throw httpErr(400, 'Invalid result.');
-  const payout = settledProfit(r, bet.odds, bet.stake);
+  const payout = betProfit(r, bet.odds, bet.stake, bet.free_bet);
   db.prepare(`UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now') WHERE id = ? AND user_id = ?`)
     .run(r, payout, id, userId);
   return getBet(userId, id);
@@ -201,7 +209,7 @@ async function gradePendingBets() {
     };
     const result = evaluateVote(slot, b.line, game);
     if (result === 'pending') continue;
-    const payout  = settledProfit(result, b.odds, b.stake);
+    const payout  = betProfit(result, b.odds, b.stake, b.free_bet);
     const closing = closingForSlot(slot, b);
     db.prepare(`
       UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now'),
@@ -234,7 +242,7 @@ async function gradePendingBets() {
     if (!game) continue;
     const result = evaluateVote(slot, b.line, game);
     if (result === 'pending') continue;
-    const payout = settledProfit(result, b.odds, b.stake);
+    const payout = betProfit(result, b.odds, b.stake, b.free_bet);
     db.prepare(`UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now') WHERE id = ? AND result = 'pending'`)
       .run(result, payout, b.id);
     graded++;
@@ -260,9 +268,11 @@ function betSummary(userId, window = 'all') {
 
   for (const b of bets) {
     const r = (b.result || '').toLowerCase();
+    const freeLoss = !!b.free_bet && r === 'loss'; // a free-bet loss doesn't count anywhere
+    if (freeLoss) continue;
     if (r === 'win') wins++; else if (r === 'loss') losses++; else if (r === 'push') pushes++; else if (r === 'pending') pending++;
     if (r === 'win' || r === 'loss') staked += b.stake;
-    const p = b.payout != null ? b.payout : settledProfit(r, b.odds, b.stake);
+    const p = b.payout != null ? b.payout : betProfit(r, b.odds, b.stake, b.free_bet);
     const u = unit_size > 0 ? p / unit_size : 0;
     if (r !== 'pending') {
       profit += p; units += u; settled.push(b);

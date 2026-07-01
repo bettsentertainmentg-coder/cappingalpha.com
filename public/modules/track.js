@@ -59,7 +59,8 @@ function betResultPill(r) {
 // than a green "+$0.00", which reads like a small win.
 function payoutCell(b) {
   if (b.payout == null) return `<span style="color:var(--muted);">—</span>`;
-  if (b.result === 'push' || b.result === 'void')
+  // Push/Void return the stake; a free-bet loss costs nothing -> neutral, not red.
+  if (b.result === 'push' || b.result === 'void' || (b.free_bet && b.result === 'loss'))
     return `<span style="color:var(--muted);font-weight:700;">$0.00</span>`;
   const c = b.payout >= 0 ? '#4ade80' : '#f87171';
   return `<span style="color:${c};font-weight:700;">${b.payout >= 0 ? '+' : ''}$${Math.abs(b.payout).toFixed(2)}</span>`;
@@ -102,7 +103,7 @@ function renderBets() {
     return `
       <div class="bet-row" onclick="openBetDetail(${b.id})" style="cursor:pointer;">
         <div class="bet-row-main">
-          <div class="bet-row-sel">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}</div>
+          <div class="bet-row-sel">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}${b.free_bet ? '<span class="free-tag"><i class="fa-solid fa-bolt"></i> Free</span>' : ''}</div>
           <div class="bet-row-sub">${oddsStr}${stake ? ' · ' + stake : ''}${u ? ' · ' + u : ''}${b.book ? ' · ' + b.book : ''}</div>
           ${b.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;">${b.notes}</div>` : ''}
           ${settleBtns}
@@ -708,10 +709,35 @@ export function openLineConfirm(id, slot, label, caOdds) {
         <div class="bet-seg-row" style="flex-wrap:wrap;">${BOOKS.map(b => `<button type="button" class="bet-seg" onclick="setConfirmBook('${b}',this)">${b}</button>`).join('')}</div>
       </div>
       <div class="settings-field"><label for="lc-note">Note (optional)</label><input type="text" id="lc-note" placeholder="e.g. tailed @capper" maxlength="200" /></div>
+      <div class="lc-freebet-row">
+        <button type="button" class="lc-freebet" id="lc-freebet" onclick="toggleConfirmFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
+        <span class="ca-link" style="font-size:12px;" onclick="freeBetInfo()">What's this?</span>
+      </div>
       <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
       <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
     </div>`;
   lcPayout();
+}
+export function toggleConfirmFreeBet() {
+  _confirm.freeBet = !_confirm.freeBet;
+  const el = document.getElementById('lc-freebet'); if (el) el.classList.toggle('active', _confirm.freeBet);
+  onConfirmOddsChange();
+}
+export function freeBetInfo() {
+  let host = document.getElementById('track-info-host');
+  if (!host) { host = document.createElement('div'); host.id = 'track-info-host'; document.body.appendChild(host); }
+  const close = `document.getElementById('track-info-host').innerHTML=''`;
+  host.innerHTML = `
+    <div class="track-overlay open" onclick="if(event.target===this){${close}}">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="Free bet">
+        <div class="track-sheet-head"><span>Free bet</span><button class="track-sheet-x" onclick="${close}" aria-label="Close">✕</button></div>
+        <div class="track-form" style="padding-top:2px;">
+          <p style="font-size:14px;line-height:1.55;margin:0 0 10px;">A <b>free bet</b> is one where a loss doesn't count against your record, but a win still does.</p>
+          <p style="font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 14px;">Free bets are personal only. They are never counted on the CappingAlpha leaderboard.</p>
+          <button class="track-submit" onclick="${close}">Got it</button>
+        </div>
+      </div>
+    </div>`;
 }
 export function setConfirmBook(book, btn) {
   _confirm.book = _confirm.book === book ? '' : book;
@@ -722,15 +748,18 @@ export function setConfirmOdds(o) { const el = document.getElementById('lc-odds'
 export function onConfirmOddsChange() {
   const v = parseFloat(document.getElementById('lc-odds')?.value);
   const isCa = _confirm.caOdds != null && v === _confirm.caOdds;
+  const verified = isCa && !_confirm.freeBet; // a free bet is always personal-only
   const mode = document.getElementById('lc-mode');
   const stake = document.getElementById('lc-stake');
   if (mode) {
-    mode.className = 'lc-mode' + (isCa ? '' : ' lc-mode-custom');
-    mode.textContent = isCa
+    mode.className = 'lc-mode' + (verified ? '' : ' lc-mode-custom');
+    mode.textContent = verified
       ? 'Verified pick. Tracks 1 unit at the CA line on the leaderboard.'
-      : 'Custom odds — tracked as a personal bet only, not on the leaderboard.';
+      : _confirm.freeBet
+        ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
+        : 'Custom odds — tracked as a personal bet only, not on the leaderboard.';
   }
-  if (stake) { stake.disabled = isCa; if (isCa) stake.value = unitSize(); } // verified = flat 1 unit
+  if (stake) { stake.disabled = verified; if (verified) stake.value = unitSize(); } // verified = flat 1 unit
   lcPayout();
 }
 export function lcPayout() {
@@ -744,10 +773,12 @@ export async function confirmTrackBet() {
   const odds  = parseFloat(document.getElementById('lc-odds')?.value);
   const stake = parseFloat(document.getElementById('lc-stake')?.value) || 0;
   const note  = (document.getElementById('lc-note')?.value || '').trim() || null;
-  const isCa  = _confirm.caOdds != null && odds === _confirm.caOdds;
+  // A free bet is always a personal bet (never on the leaderboard), so it takes the
+  // custom path even at the CA line.
+  const verified = _confirm.caOdds != null && odds === _confirm.caOdds && !_confirm.freeBet;
   const btn   = document.getElementById('lc-submit'); if (btn) btn.disabled = true;
   try {
-    if (isCa) {
+    if (verified) {
       const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot }) });
       if (res.status === 401) { window.openLogin && window.openLogin(); return; }
       if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
@@ -759,9 +790,10 @@ export async function confirmTrackBet() {
       const res = await fetch('/api/bets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
         bet_type: slotToBet(_confirm.slot), selection: _confirm.label, sport: g.sport,
         odds, stake, book: _confirm.book || null, notes: note, result: 'pending', espn_game_id: _confirm.id,
+        free_bet: _confirm.freeBet ? 1 : 0,
       }) });
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
-      showToast('Tracked: ' + _confirm.label + ' (custom)');
+      showToast('Tracked: ' + _confirm.label + (_confirm.freeBet ? ' (free bet)' : ' (custom)'));
     }
     closeTrackSheet(); refreshTracking();
   } catch (_) { showToast('Network error. Try again.', 'err'); }
@@ -944,6 +976,7 @@ Object.assign(window, {
   openBetDetail, saveBetEdit, confirmDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   openLineConfirm, setConfirmBook, setConfirmOdds, onConfirmOddsChange, lcPayout, confirmTrackBet,
+  toggleConfirmFreeBet, freeBetInfo,
 });
 
 // Close the sport dropdown when clicking outside it.

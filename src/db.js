@@ -462,6 +462,8 @@ try {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_grade       ON user_bets (result, espn_game_id) WHERE espn_game_id IS NOT NULL`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_verified    ON user_bets (verified, result, settled_at)`);
 } catch (_) {}
+// Free bet: a loss doesn't count (payout 0, excluded from the record); a win does.
+try { db.exec(`ALTER TABLE user_bets ADD COLUMN free_bet INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 
 // ── bankroll_ledger (Phase B) — append-only bankroll adjustments. NEVER wiped. ──
 try {
