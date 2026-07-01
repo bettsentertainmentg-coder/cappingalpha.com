@@ -251,7 +251,7 @@ export function openBetDetail(id) {
             </div>` : ''}
           `}
           ${b.espn_game_id ? `<button class="track-opt" style="margin-top:12px;" onclick="closeTrackSheet();openGameModal('${b.espn_game_id}')">
-            <span class="track-opt-ic" style="background:rgba(34,197,94,.14);color:#22c55e;"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>
+            <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:var(--accent);"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>
             <span><span class="track-opt-t">View game</span><span class="track-opt-d">Open the matchup, lines, and live score.</span></span>
           </button>` : ''}
           <button class="track-opt" id="bd-delete-area" style="margin-top:12px;" onclick="confirmDeleteBet(${b.id})">
@@ -310,7 +310,7 @@ export function closeTrackSheet() {
 function sheetMenuHtml() {
   return `
     <button class="track-opt" onclick="trackFromGame()">
-      <span class="track-opt-ic" style="background:rgba(34,197,94,.14);color:#22c55e;"><i class="fa-solid fa-magnifying-glass"></i></span>
+      <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:var(--accent);"><i class="fa-solid fa-magnifying-glass"></i></span>
       <span><span class="track-opt-t">From a game</span><span class="track-opt-d">Pick a side on a real game. Verified, counts on the leaderboard.</span></span>
     </button>
     <button class="track-opt" onclick="showCustomForm()">
@@ -623,14 +623,25 @@ function renderOddsBoard() {
   const hasML = g.ml_home != null || g.ml_away != null;
   const hasSpread = g.spread_home != null || g.spread_away != null;
   const noLines = !hasML && !hasSpread && g.over_under == null;
+  // The CA/Live line label rides on the FIRST section header (right side), so it sits
+  // level with "Moneyline" instead of floating above the grid (Jack's image 3).
+  const caText  = live ? 'Live Line' : 'CA Line';
+  const caTitle = live ? 'Live line right now' : "CappingAlpha's line, estimated from the books we track";
+  let _firstSec = true;
+  const secHead = (title) => {
+    const tag = (_firstSec && !finished && !noLines)
+      ? `<span class="ob-caline-tag${live ? ' live' : ''}" title="${caTitle}">${caText}</span>` : '';
+    _firstSec = false;
+    return `<div class="ob-section">${title}${tag}</div>`;
+  };
   const lines = finished ? '' : `
-    ${hasML ? `<div class="ob-section">Moneyline</div>
+    ${hasML ? `${secHead('Moneyline')}
     ${line('away_ml', `${awayN}`, g.ml_away, g.ml_away == null)}
     ${line('home_ml', `${homeN}`, g.ml_home, g.ml_home == null)}` : ''}
-    ${hasSpread ? `<div class="ob-section">Spread</div>
+    ${hasSpread ? `${secHead('Spread')}
     ${line('away_spread', `${awayN} ${_sp(g.spread_away)}`, -110, g.spread_away == null)}
     ${line('home_spread', `${homeN} ${_sp(g.spread_home)}`, -110, g.spread_home == null)}` : ''}
-    ${g.over_under != null ? `<div class="ob-section">Total</div>
+    ${g.over_under != null ? `${secHead('Total')}
     ${line('over',  `Over ${g.over_under}`,  g.ou_over_odds, false)}
     ${line('under', `Under ${g.over_under}`, g.ou_under_odds, false)}` : ''}
     ${noLines ? `<div class="track-form-note" style="margin-top:4px;">No betting lines posted for this game yet. Use Custom bet to log it.</div>` : ''}`;
@@ -643,7 +654,6 @@ function renderOddsBoard() {
       : live
         ? `<i class="fa-solid fa-bolt ob-bolt"></i> Live odds — tap a line to track it at the live number, graded automatically.`
         : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
-    ${finished || noLines ? '' : `<div class="ob-caline-row"${live ? ' style="color:#38bdf8;"' : ''} title="${live ? 'Live line right now' : "CappingAlpha's line, estimated from the books we track"}">${live ? 'Live Line' : 'CA Line'}</div>`}
     ${finished ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
       <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
@@ -676,56 +686,134 @@ export async function trackLine(id, slot, label) {
 }
 
 // ── Confirmation slide (tap a line -> configure -> Track Bet) ─────────────────
-// Default = the CA line, tracked verified (1 unit on the leaderboard). Editing the odds
-// (typing your own, or tapping a book price) flips it to a personal custom bet.
+// AN-style editable slip: Odds, Line (spread/total), Risk, and To Win are all editable
+// and stay in sync. A bet is VERIFIED (1 unit at the CA line, on the leaderboard) while
+// its odds AND its line sit inside the range of the books we track (within 9% on decimal
+// odds) and the risk is left at 1 unit. Move any of those out — or make it a free bet —
+// and it becomes a personal custom bet (still auto-graded off the game).
 let _confirm = null;
+
+const VERIFY_TOL = 0.09; // 9% outside the book range still counts (Jack's rule)
+
+function americanToDecimal(a) { a = Number(a); if (!isFinite(a) || a === 0) return null; return a < 0 ? 1 + 100 / Math.abs(a) : 1 + a / 100; }
+function decimalToAmerican(d) { d = Number(d); if (!(d > 1)) return null; return d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)); }
+function rangeOf(nums) {
+  const v = nums.filter(n => n != null && isFinite(n));
+  if (!v.length) return null;
+  return { lo: Math.min(...v), hi: Math.max(...v) };
+}
 
 function slotToBet(slot) {
   if (slot === 'home_ml' || slot === 'away_ml') return 'ml';
   if (slot === 'home_spread' || slot === 'away_spread') return 'spread';
   return slot; // 'over' | 'under'
 }
-function bookOddsForSlot(slot) {
-  const field = { home_ml: 'ml_home', away_ml: 'ml_away', home_spread: 'spread_home', away_spread: 'spread_away', over: 'ou_over_odds', under: 'ou_under_odds' }[slot];
+// Per-book odds + line for a slot, from the books we scrape. Spread juice isn't stored
+// per book (it's a flat -110); the meaningful spread number is the LINE. Powers the
+// combined book picker AND the verified range.
+function bookInfoForSlot(slot) {
   const L = (_board && _board.lines) || {};
+  const isSpread = slot === 'home_spread' || slot === 'away_spread';
+  const oddsField = { home_ml: 'ml_home', away_ml: 'ml_away', over: 'ou_over_odds', under: 'ou_under_odds' }[slot];
+  const lineField = { home_spread: 'spread_home', away_spread: 'spread_away', over: 'over_under', under: 'over_under' }[slot];
+  const label = { draftkings: 'DraftKings', fanduel: 'FanDuel', espnbet: 'ESPN BET', caesars: 'Caesars', betmgm: 'BetMGM' };
   const out = [];
-  if (L.draftkings && L.draftkings[field] != null) out.push({ book: 'DraftKings', odds: L.draftkings[field] });
-  if (L.fanduel   && L.fanduel[field]   != null) out.push({ book: 'FanDuel',    odds: L.fanduel[field] });
+  const add = (key, obj) => {
+    if (!obj) return;
+    const line = lineField ? obj[lineField] : null;
+    let odds;
+    if (isSpread) { if (line == null) return; odds = -110; }
+    else { odds = obj[oddsField]; if (odds == null) return; }
+    out.push({ book: label[key] || (key.charAt(0).toUpperCase() + key.slice(1)), odds, line: line == null ? null : +line });
+  };
+  add('draftkings', L.draftkings); add('fanduel', L.fanduel);
+  Object.keys(L).forEach(k => { if (k !== 'draftkings' && k !== 'fanduel' && L[k]) add(k, L[k]); });
   return out;
+}
+// Prediction-market implied odds+line for a slot (Polymarket first, then Kalshi).
+function impliedInfoForSlot(slot) {
+  const imp = impliedFromBoard(_board);
+  if (!imp) return null;
+  const odds = { home_ml: imp.ml_home, away_ml: imp.ml_away, over: imp.ou_over_odds, under: imp.ou_under_odds, home_spread: -110, away_spread: -110 }[slot];
+  const line = { home_spread: imp.spread_home, away_spread: imp.spread_away, over: imp.over_under, under: imp.over_under }[slot];
+  if (odds == null && line == null) return null;
+  return { book: imp.source === 'kalshi' ? 'Kalshi' : 'Polymarket', odds: odds == null ? -110 : odds, line: line == null ? null : +line };
+}
+
+// Current selection label, reflecting any edit to the line (e.g. "Angels +2.5", "Over 9").
+function lcSelLabel() {
+  const c = _confirm; if (!c) return '';
+  if (!c.hasLine) return c.sideName;
+  const el = document.getElementById('lc-line');
+  const ln = el && el.value !== '' ? parseFloat(el.value) : c.caLine;
+  if (ln == null || isNaN(ln)) return c.sideName;
+  return c.isSpread ? `${c.sideName} ${ln > 0 ? '+' + ln : ln}` : `${c.sideName} ${ln}`;
 }
 
 export function openLineConfirm(id, slot, label, caOdds) {
   const g = _board && _board.game; if (!g) return;
-  _confirm = { id, slot, label, caOdds: caOdds == null ? null : Number(caOdds), book: '' };
+  const isSpread = slot === 'home_spread' || slot === 'away_spread';
+  const isTotal  = slot === 'over' || slot === 'under';
+  const hasLine  = isSpread || isTotal;
+  const awayN = (g.away_team || 'Away').split(' ').pop(), homeN = (g.home_team || 'Home').split(' ').pop();
+  const sideName = { home_ml: homeN, away_ml: awayN, home_spread: homeN, away_spread: awayN, over: 'Over', under: 'Under' }[slot];
+  const caLine = isSpread ? (slot === 'home_spread' ? g.spread_home : g.spread_away)
+               : isTotal  ? g.over_under : null;
+  const books = bookInfoForSlot(slot);
+  const imp   = impliedInfoForSlot(slot);
+  // Verified bands: decimal-odds range across the books we track (+ the CA number), and,
+  // for spread/total, the line range. 9% of slack outside either edge still counts.
+  const oddsDecs = books.map(b => americanToDecimal(b.odds)).concat(americanToDecimal(caOdds));
+  if (imp) oddsDecs.push(americanToDecimal(imp.odds));
+  const oddsRange = rangeOf(oddsDecs);
+  const lineRange = hasLine ? rangeOf(books.map(b => b.line).concat(caLine, imp ? imp.line : null)) : null;
+
+  _confirm = {
+    id, slot, betKind: slotToBet(slot), label, sideName,
+    caOdds: caOdds == null ? null : Number(caOdds),
+    caLine: caLine == null ? null : Number(caLine),
+    hasLine, isSpread, isTotal, books, imp, oddsRange, lineRange,
+    book: '', freeBet: false, verified: true,
+  };
+
   const body = document.getElementById('track-sheet-body'); if (!body) return;
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
-  const bookRows = bookOddsForSlot(slot).map(b =>
-    `<button type="button" class="lc-book" onclick="setConfirmOdds(${b.odds})">${b.book}<span>${b.odds > 0 ? '+' + b.odds : b.odds}</span></button>`
-  ).join('');
   const caTxt = _confirm.caOdds != null ? (_confirm.caOdds > 0 ? '+' + _confirm.caOdds : '' + _confirm.caOdds) : '—';
+  const lineTxt = _confirm.caLine != null ? (isSpread && _confirm.caLine > 0 ? '+' + _confirm.caLine : '' + _confirm.caLine) : '—';
+  const unit = unitSize();
+
   body.innerHTML = `
     <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
     <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
-    <div class="lc-sel">${label}</div>
+    <div class="lc-sel" id="lc-sel">${lcSelLabel()}</div>
     <div class="track-form">
+      ${hasLine ? `
+      <div class="settings-field">
+        <label for="lc-line">Line</label>
+        <div class="lc-odds-row">
+          <input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" />
+          <span class="lc-caline">${isTotal ? 'Total' : 'Spread'} ${lineTxt}</span>
+        </div>
+      </div>` : ''}
       <div class="settings-field">
         <label for="lc-odds">Odds</label>
         <div class="lc-odds-row">
-          <input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmOddsChange()" />
+          <input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" />
           <span class="lc-caline">CA Line ${caTxt}</span>
         </div>
-        ${bookRows ? `<div class="lc-books">${bookRows}</div>` : ''}
-        <div class="lc-mode" id="lc-mode">Verified pick. Tracks 1 unit at the CA line on the leaderboard.</div>
       </div>
-      <div style="display:flex;gap:12px;">
-        <div class="settings-field" style="flex:1;"><label for="lc-stake">Risk</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-stake" value="${unitSize()}" min="0" step="1" disabled oninput="lcPayout()" /></div></div>
-        <div class="settings-field" style="flex:1;"><label>To win</label><div class="lc-towin" id="lc-towin">—</div></div>
+      <div class="lc-io-row">
+        <div class="settings-field" style="flex:1;margin-bottom:0;"><label for="lc-stake">Risk</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-stake" value="${unit}" min="0" step="1" oninput="onConfirmField('risk')" /></div></div>
+        <div class="settings-field" style="flex:1;margin-bottom:0;"><label for="lc-towin">To win</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-towin" min="0" step="1" oninput="onConfirmField('towin')" /></div></div>
       </div>
+      <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
-        <label>Book (optional)</label>
-        <div class="bet-seg-row" style="flex-wrap:wrap;">${BOOKS.map(b => `<button type="button" class="bet-seg" onclick="setConfirmBook('${b}',this)">${b}</button>`).join('')}</div>
+        <label>Book</label>
+        <div class="lc-books" id="lc-books">${renderConfirmBooks()}</div>
       </div>
-      <div class="settings-field"><label for="lc-note">Note (optional)</label><input type="text" id="lc-note" placeholder="e.g. tailed @capper" maxlength="200" /></div>
+      <div id="lc-note-area">
+        <button type="button" class="lc-addnote" id="lc-addnote" onclick="toggleAddNote()"><i class="fa-solid fa-plus"></i> Add a note</button>
+      </div>
       <div class="lc-freebet-row">
         <button type="button" class="lc-freebet" id="lc-freebet" onclick="toggleConfirmFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
         <span class="ca-link" style="font-size:12px;" onclick="freeBetInfo()">What's this?</span>
@@ -733,12 +821,114 @@ export function openLineConfirm(id, slot, label, caOdds) {
       <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
       <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
     </div>`;
-  lcPayout();
+  onConfirmField('odds'); // seed To Win + verified state
 }
+
+// Combined book picker: every book we know a price for shows its odds; tap it to load
+// that book's odds (and line) onto the ticket and mark it as where you placed the bet.
+function renderConfirmBooks() {
+  const c = _confirm; if (!c) return '';
+  const fmtO = o => (o > 0 ? '+' + o : '' + o);
+  const lineTag = (ln) => {
+    if (ln == null) return '';
+    if (c.isSpread) return ' ' + (ln > 0 ? '+' + ln : ln);
+    if (c.isTotal)  return ' ' + (c.slot === 'over' ? 'o' : 'u') + ln;
+    return '';
+  };
+  const chips = c.books.map((b, i) =>
+    `<button type="button" class="lc-book" data-book="${b.book}" onclick="pickConfirmBook(${i})">${b.book}<span>${fmtO(b.odds)}${lineTag(b.line)}</span></button>`
+  );
+  if (c.imp) chips.push(`<button type="button" class="lc-book" data-book="${c.imp.book}" onclick="pickConfirmBook('imp')">${c.imp.book}<span>${fmtO(c.imp.odds)}${lineTag(c.imp.line)}</span></button>`);
+  chips.push(`<button type="button" class="lc-book lc-book-plain" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`);
+  return chips.join('');
+}
+export function pickConfirmBook(idx) {
+  const c = _confirm; if (!c) return;
+  let info = null, book = 'Other';
+  if (idx === 'other') book = 'Other';
+  else if (idx === 'imp') { info = c.imp; book = c.imp.book; }
+  else { info = c.books[idx]; book = info.book; }
+  // Toggle off if re-tapping the selected book.
+  if (c.book === book) { c.book = ''; refreshBookHighlight(); return; }
+  c.book = book;
+  if (info) {
+    const oddsEl = document.getElementById('lc-odds'); if (oddsEl && info.odds != null) oddsEl.value = info.odds;
+    if (c.hasLine && info.line != null) { const lnEl = document.getElementById('lc-line'); if (lnEl) lnEl.value = info.line; }
+    onConfirmField('odds'); // recompute To Win + verified + selection label
+  } else {
+    refreshBookHighlight();
+  }
+}
+function refreshBookHighlight() {
+  document.querySelectorAll('#lc-books .lc-book').forEach(el =>
+    el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
+}
+
+// Keep Odds / Risk / To Win in sync. Editing To Win back-solves the odds; editing odds or
+// risk recomputes To Win. Editing the line re-labels the selection. Any change re-checks
+// whether the ticket still lands inside the verified band.
+export function onConfirmField(which) {
+  const oddsEl = document.getElementById('lc-odds');
+  const riskEl = document.getElementById('lc-stake');
+  const winEl  = document.getElementById('lc-towin');
+  let odds = parseFloat(oddsEl?.value);
+  const risk = parseFloat(riskEl?.value);
+  const win  = parseFloat(winEl?.value);
+  if (which === 'towin') {
+    if (isFinite(risk) && risk > 0 && isFinite(win) && win > 0) {
+      const a = decimalToAmerican((risk + win) / risk);
+      if (a != null && oddsEl) { oddsEl.value = a; odds = a; }
+    }
+  } else if (which !== 'line') {
+    if (isFinite(odds) && odds !== 0 && isFinite(risk) && risk > 0 && winEl) winEl.value = americanProfit(odds, risk).toFixed(2);
+  }
+  if (which === 'line') { const s = document.getElementById('lc-sel'); if (s) s.textContent = lcSelLabel(); }
+  updateConfirmMode();
+}
+
+function confirmIsVerified() {
+  const c = _confirm; if (!c) return false;
+  if (c.freeBet) return false;                                   // free bets are personal only
+  const odds = parseFloat(document.getElementById('lc-odds')?.value);
+  if (!isFinite(odds) || odds === 0) return false;
+  const risk = parseFloat(document.getElementById('lc-stake')?.value);
+  if (!(Math.abs(risk - unitSize()) < 0.01)) return false;        // verified = flat 1 unit
+  const dec = americanToDecimal(odds);
+  if (!c.oddsRange || dec == null) return false;
+  if (!(dec >= c.oddsRange.lo * (1 - VERIFY_TOL) && dec <= c.oddsRange.hi * (1 + VERIFY_TOL))) return false;
+  if (c.hasLine) {                                                // spread/total: line must be in range too
+    const ln = parseFloat(document.getElementById('lc-line')?.value);
+    if (!isFinite(ln) || !c.lineRange) return false;
+    const pad = v => VERIFY_TOL * Math.abs(v);
+    if (!(ln >= c.lineRange.lo - pad(c.lineRange.lo) && ln <= c.lineRange.hi + pad(c.lineRange.hi))) return false;
+  }
+  return true;
+}
+function updateConfirmMode() {
+  const c = _confirm; if (!c) return;
+  c.verified = confirmIsVerified();
+  const mode = document.getElementById('lc-mode');
+  if (mode) {
+    mode.className = 'lc-mode' + (c.verified ? '' : ' lc-mode-custom');
+    mode.innerHTML = c.verified
+      ? '<i class="fa-solid fa-circle-check"></i> Verified pick. Tracks 1 unit at the CA line on the leaderboard.'
+      : c.freeBet
+        ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
+        : 'Off the book range — tracked as a personal bet only, not on the leaderboard.';
+  }
+  refreshBookHighlight();
+}
+
 export function toggleConfirmFreeBet() {
   _confirm.freeBet = !_confirm.freeBet;
   const el = document.getElementById('lc-freebet'); if (el) el.classList.toggle('active', _confirm.freeBet);
-  onConfirmOddsChange();
+  updateConfirmMode();
+}
+export function toggleAddNote() {
+  const area = document.getElementById('lc-note-area');
+  if (!area) return;
+  area.innerHTML = `<div class="settings-field" style="margin-bottom:0;"><label for="lc-note">Note</label><input type="text" id="lc-note" placeholder="e.g. tailed @capper" maxlength="200" /></div>`;
+  const el = document.getElementById('lc-note'); if (el) el.focus();
 }
 export function freeBetInfo() {
   let host = document.getElementById('track-info-host');
@@ -756,61 +946,36 @@ export function freeBetInfo() {
       </div>
     </div>`;
 }
-export function setConfirmBook(book, btn) {
-  _confirm.book = _confirm.book === book ? '' : book;
-  btn.parentElement.querySelectorAll('.bet-seg').forEach(x => x.classList.remove('active'));
-  if (_confirm.book) btn.classList.add('active');
-}
-export function setConfirmOdds(o) { const el = document.getElementById('lc-odds'); if (el) { el.value = o; onConfirmOddsChange(); } }
-export function onConfirmOddsChange() {
-  const v = parseFloat(document.getElementById('lc-odds')?.value);
-  const isCa = _confirm.caOdds != null && v === _confirm.caOdds;
-  const verified = isCa && !_confirm.freeBet; // a free bet is always personal-only
-  const mode = document.getElementById('lc-mode');
-  const stake = document.getElementById('lc-stake');
-  if (mode) {
-    mode.className = 'lc-mode' + (verified ? '' : ' lc-mode-custom');
-    mode.textContent = verified
-      ? 'Verified pick. Tracks 1 unit at the CA line on the leaderboard.'
-      : _confirm.freeBet
-        ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
-        : 'Custom odds — tracked as a personal bet only, not on the leaderboard.';
-  }
-  if (stake) { stake.disabled = verified; if (verified) stake.value = unitSize(); } // verified = flat 1 unit
-  lcPayout();
-}
-export function lcPayout() {
-  const odds = parseFloat(document.getElementById('lc-odds')?.value);
-  const stake = parseFloat(document.getElementById('lc-stake')?.value) || 0;
-  const el = document.getElementById('lc-towin');
-  if (el) el.textContent = stake ? `$${americanProfit(odds, stake).toFixed(2)}` : '—';
-}
 export async function confirmTrackBet() {
   const errEl = document.getElementById('lc-error'); if (errEl) errEl.textContent = '';
   const odds  = parseFloat(document.getElementById('lc-odds')?.value);
   const stake = parseFloat(document.getElementById('lc-stake')?.value) || 0;
   const note  = (document.getElementById('lc-note')?.value || '').trim() || null;
-  // A free bet is always a personal bet (never on the leaderboard), so it takes the
-  // custom path even at the CA line.
-  const verified = _confirm.caOdds != null && odds === _confirm.caOdds && !_confirm.freeBet;
-  const btn   = document.getElementById('lc-submit'); if (btn) btn.disabled = true;
+  const lineV = _confirm.hasLine ? parseFloat(document.getElementById('lc-line')?.value) : null;
+  const verified = confirmIsVerified();
+  const selLabel = lcSelLabel();
+  const btn = document.getElementById('lc-submit'); if (btn) btn.disabled = true;
   try {
     if (verified) {
       const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot }) });
       if (res.status === 401) { window.openLogin && window.openLogin(); return; }
       if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
-      showToast('Tracked: ' + _confirm.label + ' (verified)');
+      showToast('Tracked: ' + selLabel + ' (verified)');
     } else {
       if (!Number.isFinite(odds) || odds === 0) { if (errEl) errEl.textContent = 'Enter valid odds (e.g. -110).'; return; }
       const g = _board.game;
+      // Pass side so a game-linked ml/spread custom bet can auto-grade off the result.
+      const side = (_confirm.slot === 'home_ml' || _confirm.slot === 'home_spread') ? 'home'
+                 : (_confirm.slot === 'away_ml' || _confirm.slot === 'away_spread') ? 'away' : null;
       const res = await fetch('/api/bets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-        bet_type: slotToBet(_confirm.slot), selection: _confirm.label, sport: g.sport,
+        bet_type: _confirm.betKind, selection: selLabel, sport: g.sport, side,
+        line: (_confirm.hasLine && isFinite(lineV)) ? lineV : null,
         odds, stake, book: _confirm.book || null, notes: note, result: 'pending', espn_game_id: _confirm.id,
         free_bet: _confirm.freeBet ? 1 : 0,
       }) });
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
-      showToast('Tracked: ' + _confirm.label + (_confirm.freeBet ? ' (free bet)' : ' (custom)'));
+      showToast('Tracked: ' + selLabel + (_confirm.freeBet ? ' (free bet)' : ' (custom)'));
     }
     closeTrackSheet(); refreshTracking();
   } catch (_) { showToast('Network error. Try again.', 'err'); }
@@ -992,8 +1157,8 @@ Object.assign(window, {
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
-  openLineConfirm, setConfirmBook, setConfirmOdds, onConfirmOddsChange, lcPayout, confirmTrackBet,
-  toggleConfirmFreeBet, freeBetInfo,
+  openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
+  toggleConfirmFreeBet, toggleAddNote, freeBetInfo,
 });
 
 // Close the sport dropdown when clicking outside it.

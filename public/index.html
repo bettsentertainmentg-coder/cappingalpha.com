@@ -278,13 +278,13 @@
     }
     .ca-link { color: var(--accent); cursor: pointer; text-decoration: underline; font-weight: 600; }
     .track-verified-note .tvn-badge {
-      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #08260f;
-      background: var(--green); padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #fff;
+      background: var(--accent); padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
     }
 
     /* ── "Track this side (verified)" caption in the game modal / detail page ── */
     .track-side-cap { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--text); }
-    .track-verified-pill { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #08260f; background: var(--green); padding: 2px 6px; border-radius: 999px; }
+    .track-verified-pill { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #fff; background: var(--accent); padding: 2px 6px; border-radius: 999px; }
     .track-side-note { font-size: 11.5px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
 
     /* ── Settings — bankroll / unit inputs ── */
@@ -305,14 +305,14 @@
       transition: border-color .12s, background .12s;
     }
     .odds-source:hover { border-color: var(--accent); }
-    .odds-source.active { border-color: var(--green); background: rgba(34,197,94,0.08); }
-    .odds-source .odds-check { color: var(--green); font-weight: 800; }
+    .odds-source.active { border-color: var(--accent); background: rgba(59,130,246,0.08); }
+    .odds-source .odds-check { color: var(--accent); font-weight: 800; }
 
     /* ── Track-Bet sheet + custom form + bet history (Phase B) ── */
     .track-fab {
       position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom));
       z-index: 150; display: none; align-items: center; gap: 8px; cursor: pointer;
-      background: var(--green); color: #06230f; font-family: inherit; font-weight: 800; font-size: 14px;
+      background: var(--accent); color: #fff; font-family: inherit; font-weight: 800; font-size: 14px;
       border: none; border-radius: 999px; padding: 12px 18px; box-shadow: 0 8px 22px var(--shadow-soft);
     }
     .track-fab i { font-size: 13px; }
@@ -379,7 +379,7 @@
     .track-payout { font-size: 13px; color: var(--muted); margin: 2px 0 12px; }
     .track-payout strong { color: var(--text); }
     .track-form-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin: 6px 0 12px; }
-    .track-submit { width: 100%; background: var(--green); color: #06230f; border: none; border-radius: 10px; padding: 12px; font-family: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+    .track-submit { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 12px; font-family: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
     .track-submit:disabled { opacity: 0.6; cursor: default; }
     .track-submit:hover:not(:disabled) { filter: brightness(1.05); }
 
@@ -424,18 +424,21 @@
     .ob-back { background: none; border: none; color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 0 8px; }
     .ob-head { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
     .ob-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-    .ob-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px; }
+    .ob-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px;
+      display: flex; align-items: baseline; justify-content: space-between; }
     .ob-line {
       display: flex; align-items: center; justify-content: space-between; width: 100%;
       background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
       padding: 13px 16px; border-radius: 10px; cursor: pointer; transition: border-color .12s, background .12s;
     }
-    .ob-line:hover { border-color: var(--green); background: rgba(34,197,94,0.06); }
+    .ob-line:hover { border-color: var(--accent); background: rgba(59,130,246,0.06); }
     .ob-line-label { font-weight: 600; font-size: 14px; }
     .ob-line-odds { font-weight: 800; font-size: 15px; font-family: 'Space Grotesk','Inter',sans-serif; }
     .ob-books { font-size: 11px; color: var(--muted); }
     .ob-line-off { opacity: 0.5; cursor: default; }
-    .ob-caline-row { text-align: right; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #a78bfa; margin: 8px 2px 2px; }
+    /* CA/Live line label rides on the first section header (right side) */
+    .ob-caline-tag { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #a78bfa; }
+    .ob-caline-tag.live { color: #38bdf8; }
     .ob-bolt { color: #38bdf8; font-size: 11px; margin-right: 5px; }
     .ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
 
@@ -444,13 +447,21 @@
     .lc-odds-row { display: flex; align-items: center; gap: 12px; }
     .lc-odds-row input { width: 110px; }
     .lc-caline { font-size: 12px; font-weight: 700; color: #a78bfa; }
-    .lc-books { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .lc-io-row { display: flex; gap: 12px; margin-bottom: 14px; }
+    .lc-books { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
     .lc-book { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
-      font-family: inherit; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+      font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 11px; border-radius: 8px; cursor: pointer; }
     .lc-book:hover { border-color: var(--accent); }
     .lc-book span { font-weight: 800; }
-    .lc-mode { font-size: 12px; color: var(--green); margin-top: 8px; }
-    .lc-mode-custom { color: #f87171; }
+    .lc-book.active { border-color: var(--accent); background: rgba(59,130,246,0.12); color: var(--text); }
+    .lc-book-plain span { display: none; }
+    .lc-mode { font-size: 12px; color: var(--accent); margin: 8px 0 4px; display: flex; align-items: center; gap: 6px; }
+    .lc-mode.lc-mode-custom { color: #f87171; }
+    .lc-addnote { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+      background: var(--overlay-1); border: 1px dashed var(--accent); color: var(--accent);
+      border-radius: 10px; padding: 11px; font-family: inherit; font-weight: 700; font-size: 13px; cursor: pointer; margin-bottom: 2px; }
+    .lc-addnote:hover { background: var(--overlay-2); }
+    .lc-addnote i { font-size: 11px; }
     .lc-towin { font-size: 18px; font-weight: 800; padding-top: 6px; font-family: 'Space Grotesk','Inter',sans-serif; }
     .lc-freebet-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 6px; }
     .lc-freebet { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border);
@@ -2720,6 +2731,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=42"></script>
+  <script type="module" src="app.js?v=43"></script>
 </body>
 </html>
