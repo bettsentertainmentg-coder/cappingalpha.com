@@ -314,7 +314,7 @@ function sheetMenuHtml() {
       <span><span class="track-opt-t">From a game</span><span class="track-opt-d">Pick a side on a real game. Verified, counts on the leaderboard.</span></span>
     </button>
     <button class="track-opt" onclick="showCustomForm()">
-      <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
+      <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Custom bet</span><span class="track-opt-d">Log any bet yourself (props, parlays, anything). Personal tracking only.</span></span>
     </button>
     <button class="track-opt track-opt-soon" disabled>
@@ -656,7 +656,7 @@ function renderOddsBoard() {
         : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
     ${finished ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
-      <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:#3b82f6;"><i class="fa-solid fa-pen"></i></span>
+      <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Log it as a custom bet instead</span><span class="track-opt-d">Set your own stake, odds, and book.</span></span>
     </button>`;
 }
@@ -780,32 +780,23 @@ export function openLineConfirm(id, slot, label, caOdds) {
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const caTxt = _confirm.caOdds != null ? (_confirm.caOdds > 0 ? '+' + _confirm.caOdds : '' + _confirm.caOdds) : '—';
   const lineTxt = _confirm.caLine != null ? (isSpread && _confirm.caLine > 0 ? '+' + _confirm.caLine : '' + _confirm.caLine) : '—';
+  const lineLeg = isTotal ? sideName : 'Spread'; // AN labels the total box by its side (Over/Under)
   const unit = unitSize();
+
+  // Action-Network-style row: Risk / To Win / [Line] / Odds side by side (fieldset boxes).
+  const fields = `
+    <fieldset class="lc-field"><legend>Risk</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-stake" value="${unit}" min="0" step="1" oninput="onConfirmField('risk')" /></div></fieldset>
+    <fieldset class="lc-field"><legend>To win</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-towin" min="0" step="1" oninput="onConfirmField('towin')" /></div></fieldset>
+    ${hasLine ? `<fieldset class="lc-field"><legend>${lineLeg}</legend><div class="lc-fin"><input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" /></div></fieldset>` : ''}
+    <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" /></div></fieldset>`;
 
   body.innerHTML = `
     <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
     <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}</div>
     <div class="lc-sel" id="lc-sel">${lcSelLabel()}</div>
     <div class="track-form">
-      ${hasLine ? `
-      <div class="settings-field">
-        <label for="lc-line">Line</label>
-        <div class="lc-odds-row">
-          <input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" />
-          <span class="lc-caline">${isTotal ? 'Total' : 'Spread'} ${lineTxt}</span>
-        </div>
-      </div>` : ''}
-      <div class="settings-field">
-        <label for="lc-odds">Odds</label>
-        <div class="lc-odds-row">
-          <input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" />
-          <span class="lc-caline">CA Line ${caTxt}</span>
-        </div>
-      </div>
-      <div class="lc-io-row">
-        <div class="settings-field" style="flex:1;margin-bottom:0;"><label for="lc-stake">Risk</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-stake" value="${unit}" min="0" step="1" oninput="onConfirmField('risk')" /></div></div>
-        <div class="settings-field" style="flex:1;margin-bottom:0;"><label for="lc-towin">To win</label><div class="field-prefix-wrap"><span class="field-prefix">$</span><input type="number" id="lc-towin" min="0" step="1" oninput="onConfirmField('towin')" /></div></div>
-      </div>
+      <div class="lc-fields ${hasLine ? 'four' : 'three'}">${fields}</div>
+      <div class="lc-caref">CA Line ${caTxt}${hasLine ? ` · ${lineLeg} ${lineTxt}` : ''}</div>
       <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
         <label>Book</label>
@@ -816,7 +807,6 @@ export function openLineConfirm(id, slot, label, caOdds) {
       </div>
       <div class="lc-freebet-row">
         <button type="button" class="lc-freebet" id="lc-freebet" onclick="toggleConfirmFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
-        <span class="ca-link" style="font-size:12px;" onclick="freeBetInfo()">What's this?</span>
       </div>
       <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
       <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
@@ -886,13 +876,15 @@ export function onConfirmField(which) {
   updateConfirmMode();
 }
 
+// A bet is VERIFIED when its odds (and its line, for spread/total) sit inside the range of
+// the books we track (±9% on decimal odds). Risk is NOT a factor: any verified bet counts
+// as a flat 1 unit at the CA line on the leaderboard no matter what you wager — your Risk /
+// To Win are just your own numbers for personal tracking. A free bet is personal-only.
 function confirmIsVerified() {
   const c = _confirm; if (!c) return false;
-  if (c.freeBet) return false;                                   // free bets are personal only
+  if (c.freeBet) return false;
   const odds = parseFloat(document.getElementById('lc-odds')?.value);
   if (!isFinite(odds) || odds === 0) return false;
-  const risk = parseFloat(document.getElementById('lc-stake')?.value);
-  if (!(Math.abs(risk - unitSize()) < 0.01)) return false;        // verified = flat 1 unit
   const dec = americanToDecimal(odds);
   if (!c.oddsRange || dec == null) return false;
   if (!(dec >= c.oddsRange.lo * (1 - VERIFY_TOL) && dec <= c.oddsRange.hi * (1 + VERIFY_TOL))) return false;
@@ -911,7 +903,7 @@ function updateConfirmMode() {
   if (mode) {
     mode.className = 'lc-mode' + (c.verified ? '' : ' lc-mode-custom');
     mode.innerHTML = c.verified
-      ? '<i class="fa-solid fa-circle-check"></i> Verified pick. Tracks 1 unit at the CA line on the leaderboard.'
+      ? '<i class="fa-solid fa-circle-check"></i> Verified — 1 unit at the CA line on the leaderboard. Your risk is tracked just for you.'
       : c.freeBet
         ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
         : 'Off the book range — tracked as a personal bet only, not on the leaderboard.';
@@ -930,22 +922,6 @@ export function toggleAddNote() {
   area.innerHTML = `<div class="settings-field" style="margin-bottom:0;"><label for="lc-note">Note</label><input type="text" id="lc-note" placeholder="e.g. tailed @capper" maxlength="200" /></div>`;
   const el = document.getElementById('lc-note'); if (el) el.focus();
 }
-export function freeBetInfo() {
-  let host = document.getElementById('track-info-host');
-  if (!host) { host = document.createElement('div'); host.id = 'track-info-host'; document.body.appendChild(host); }
-  const close = `document.getElementById('track-info-host').innerHTML=''`;
-  host.innerHTML = `
-    <div class="track-overlay open" onclick="if(event.target===this){${close}}">
-      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="Free bet">
-        <div class="track-sheet-head"><span>Free bet</span><button class="track-sheet-x" onclick="${close}" aria-label="Close">✕</button></div>
-        <div class="track-form" style="padding-top:2px;">
-          <p style="font-size:14px;line-height:1.55;margin:0 0 10px;">A <b>free bet</b> is one where a loss doesn't count against your record, but a win still does.</p>
-          <p style="font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 14px;">Free bets are personal only. They are never counted on the CappingAlpha leaderboard.</p>
-          <button class="track-submit" onclick="${close}">Got it</button>
-        </div>
-      </div>
-    </div>`;
-}
 export async function confirmTrackBet() {
   const errEl = document.getElementById('lc-error'); if (errEl) errEl.textContent = '';
   const odds  = parseFloat(document.getElementById('lc-odds')?.value);
@@ -957,7 +933,9 @@ export async function confirmTrackBet() {
   const btn = document.getElementById('lc-submit'); if (btn) btn.disabled = true;
   try {
     if (verified) {
-      const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot }) });
+      // Leaderboard counts this as 1 unit at the CA line; stake + odds ride along ONLY to
+      // scale the user's private tracking P/L (the server keeps the leaderboard flat 1u).
+      const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot, stake, odds }) });
       if (res.status === 401) { window.openLogin && window.openLogin(); return; }
       if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
@@ -1158,7 +1136,7 @@ Object.assign(window, {
   openBetDetail, saveBetEdit, confirmDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
-  toggleConfirmFreeBet, toggleAddNote, freeBetInfo,
+  toggleConfirmFreeBet, toggleAddNote,
 });
 
 // Close the sport dropdown when clicking outside it.

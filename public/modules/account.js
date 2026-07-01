@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=26';
+import { loadUserBets, setBetsData } from './track.js?v=27';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
@@ -438,13 +438,27 @@ function slotType(slot) {
 function betType(bt) {
   return { ml: 'ML', spread: 'Spread', over: 'Total', under: 'Total', prop: 'Prop', parlay: 'Parlay', future: 'Future' }[bt] || 'Other';
 }
+// Profit on a winning bet at American odds (mirror of the server + betslip math).
+function americanProfit(odds, stake) {
+  const o = (odds == null || isNaN(parseFloat(odds))) ? -110 : parseFloat(odds);
+  return o < 0 ? stake * (100 / Math.abs(o)) : stake * (o / 100);
+}
 function buildItems(votes, bets, unit) {
   const items = [];
   for (const v of (votes || [])) {
     const r = (v.result || '').toLowerCase();
     if (r === 'win' || r === 'loss' || r === 'push') {
-      const u = calcVoteReturn(v, 1);
-      items.push({ units: u, dollars: +(u * unit).toFixed(2), riskedD: unit, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot) });
+      // A verified vote is a flat 1 unit at the CA line on the LEADERBOARD. On the user's
+      // PRIVATE tracking we honor the actual risk + odds they entered on the betslip
+      // (stored on the vote); quick-votes with no wager fall back to 1u at the CA line,
+      // reproducing the prior behavior exactly.
+      const hasWager = v.user_stake != null && v.user_stake > 0;
+      const stakeD = hasWager ? v.user_stake : unit;      // dollars risked
+      let dollars;
+      if (r === 'push') dollars = 0;
+      else if (r === 'loss') dollars = -stakeD;
+      else dollars = (hasWager && v.user_odds != null) ? americanProfit(v.user_odds, stakeD) : calcVoteReturn(v, 1) * unit;
+      items.push({ units: unit > 0 ? dollars / unit : 0, dollars: +dollars.toFixed(2), riskedD: stakeD, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot) });
     }
   }
   for (const b of (bets || [])) {

@@ -292,7 +292,13 @@
     .settings-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
     .settings-field .field-prefix-wrap { position: relative; display: flex; align-items: center; }
     .settings-field .field-prefix { position: absolute; left: 12px; color: var(--muted); font-size: 14px; pointer-events: none; }
-    .settings-field input[type="number"] { width: 100%; padding: 9px 12px 9px 26px; font-size: 14px; }
+    .settings-field input[type="number"], .settings-field input[type="text"] {
+      width: 100%; font-size: 14px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px;
+    }
+    .settings-field input[type="number"] { padding: 9px 12px 9px 26px; }
+    .settings-field input[type="text"] { padding: 9px 12px; }
+    .settings-field input::placeholder { color: var(--muted); }
+    .settings-field input:focus { outline: none; border-color: var(--accent); }
     .settings-field .field-hint { font-size: 12px; color: var(--muted); margin-top: 5px; }
     .settings-field select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; }
 
@@ -443,10 +449,21 @@
     .ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
 
     /* Confirmation slide (tap a line -> configure -> Track Bet) */
-    .lc-sel { font-size: 18px; font-weight: 800; margin: 6px 0 14px; }
+    .lc-sel { font-size: 18px; font-weight: 800; margin: 6px 0 12px; }
     .lc-odds-row { display: flex; align-items: center; gap: 12px; }
     .lc-odds-row input { width: 110px; }
     .lc-caline { font-size: 12px; font-weight: 700; color: #a78bfa; }
+    /* Action-Network-style field row: Risk / To Win / [Line] / Odds side by side */
+    .lc-fields { display: flex; gap: 8px; margin-bottom: 6px; }
+    .lc-field { flex: 1; min-width: 0; min-inline-size: 0; margin: 0; padding: 3px 6px 7px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+    .lc-field legend { font-size: 11px; color: var(--muted); font-weight: 600; padding: 0 5px; margin-left: 2px; }
+    .lc-fin { display: flex; align-items: center; justify-content: center; gap: 1px; }
+    .lc-fpre { color: var(--muted); font-size: 14px; }
+    .lc-field input { width: 100%; min-width: 0; background: transparent; border: none; color: var(--text); text-align: center;
+      font-family: 'Space Grotesk','Inter',sans-serif; font-weight: 800; font-size: 17px; padding: 2px 0; outline: none; -moz-appearance: textfield; }
+    .lc-field input::-webkit-outer-spin-button, .lc-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .lc-caref { text-align: right; font-size: 11.5px; font-weight: 700; color: #a78bfa; margin: 0 2px 6px; }
     .lc-io-row { display: flex; gap: 12px; margin-bottom: 14px; }
     .lc-books { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
     .lc-book { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
@@ -2731,6 +2748,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=43"></script>
+  <script type="module" src="app.js?v=44"></script>
 </body>
 </html>

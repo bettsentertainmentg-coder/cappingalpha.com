@@ -918,7 +918,7 @@ app.get('/api/account', (req, res) => {
            COALESCE(p.score, gv.score) AS score, p.mention_count,
            COALESCE(p.result, gv.result) AS result,
            p.pick_type, p.team,
-           gv.closing_odds, gv.closing_line,
+           gv.closing_odds, gv.closing_line, gv.user_stake, gv.user_odds,
            COALESCE(gv.spread, p.spread) AS spread
     FROM game_votes gv
     LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
@@ -1399,9 +1399,20 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   const VOTE_PAIRS = { home_ml:'away_ml', away_ml:'home_ml', home_spread:'away_spread', away_spread:'home_spread', over:'under', under:'over' };
   const paired = VOTE_PAIRS[slot];
 
+  // Optional per-user wager (from the Track-Bet confirm slide) for the user's PRIVATE
+  // tracking only. The leaderboard ignores these and always counts 1 unit at the CA line.
+  const rawStake = Number(req.body.stake);
+  const rawOdds  = Number(req.body.odds);
+  const userStake = Number.isFinite(rawStake) && rawStake > 0 ? rawStake : null;
+  const userOdds  = Number.isFinite(rawOdds)  && rawOdds !== 0 ? rawOdds  : null;
+
   try {
     db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
       .run(userId, espn_game_id, paired);
+    // Re-voting the SAME slot replaces the prior row so an updated stake/odds sticks
+    // (INSERT OR IGNORE alone would keep the stale wager on the existing row).
+    db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
+      .run(userId, espn_game_id, slot);
     // Snapshot game metadata at vote time so it persists past the daily wipe.
     // `spread` stores the slot-relevant line (spread for spread slots, total for
     // O/U slots) so the vote can grade itself even after today_games is wiped.
@@ -1411,11 +1422,12 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
                    : null;
     db.prepare(`
       INSERT OR IGNORE INTO game_votes
-        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds, spread)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds, spread, user_stake, user_odds)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(userId, espn_game_id, slot,
            game.home_team, game.away_team, game.sport,
-           game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds, voteLine);
+           game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds, voteLine,
+           userStake, userOdds);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

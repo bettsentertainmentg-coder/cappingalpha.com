@@ -336,6 +336,12 @@ try { db.exec(`ALTER TABLE game_votes ADD COLUMN score REAL`);          } catch 
 // (the last pre-game values; markets stop updating at 'pre'). Powers CLV.
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN closing_odds REAL`);   } catch (_) {}
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN closing_line REAL`);   } catch (_) {}
+// The user's OWN wager for personal "My Tracking" P/L (dollars risked + the odds they
+// actually got). NULL for quick-votes cast from the game modal. The LEADERBOARD never
+// reads these — it always counts a vote as a flat 1 unit at the CA line (leaderboard.js
+// voteReturn(v, 1)); these only scale the user's private P/L.
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN user_stake REAL`);     } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN user_odds REAL`);      } catch (_) {}
 
 // prev_ columns for book_lines line-movement tracking
 try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_home REAL`); } catch (_) {}
