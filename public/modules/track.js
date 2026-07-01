@@ -696,7 +696,6 @@ let _confirm = null;
 const VERIFY_TOL = 0.09; // 9% outside the book range still counts (Jack's rule)
 
 function americanToDecimal(a) { a = Number(a); if (!isFinite(a) || a === 0) return null; return a < 0 ? 1 + 100 / Math.abs(a) : 1 + a / 100; }
-function decimalToAmerican(d) { d = Number(d); if (!(d > 1)) return null; return d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1)); }
 function rangeOf(nums) {
   const v = nums.filter(n => n != null && isFinite(n));
   if (!v.length) return null;
@@ -786,8 +785,8 @@ export function openLineConfirm(id, slot, label, caOdds) {
   const fields = `
     <fieldset class="lc-field"><legend>Risk</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-stake" value="${unit}" min="0" step="1" oninput="onConfirmField('risk')" /></div></fieldset>
     <fieldset class="lc-field"><legend>To win</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-towin" min="0" step="1" oninput="onConfirmField('towin')" /></div></fieldset>
-    ${hasLine ? `<fieldset class="lc-field"><legend>${lineLeg}</legend><div class="lc-fin"><input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" /></div></fieldset>` : ''}
-    <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" /></div></fieldset>`;
+    ${hasLine ? `<fieldset class="lc-field"><legend>${lineLeg}</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-linepre" style="display:none;">+</span><input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" /></div></fieldset>` : ''}
+    <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-oddspre" style="display:none;">+</span><input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" /></div></fieldset>`;
 
   body.innerHTML = `
     <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
@@ -857,26 +856,35 @@ function refreshBookHighlight() {
     el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
 }
 
-// Keep Odds / Risk / To Win in sync. Editing To Win back-solves the odds; editing odds or
-// risk recomputes To Win. Editing the line re-labels the selection. Any change re-checks
-// whether the ticket still lands inside the verified band.
+// Keep Odds / Risk / To Win in sync, with the ODDS held fixed. Editing To Win solves for
+// the Risk; editing Risk (or Odds) recomputes To Win. Editing the line re-labels the
+// selection. Any change re-checks whether the ticket still lands inside the verified band.
 export function onConfirmField(which) {
   const oddsEl = document.getElementById('lc-odds');
   const riskEl = document.getElementById('lc-stake');
   const winEl  = document.getElementById('lc-towin');
-  let odds = parseFloat(oddsEl?.value);
+  const odds = parseFloat(oddsEl?.value);
   const risk = parseFloat(riskEl?.value);
   const win  = parseFloat(winEl?.value);
+  const perDollar = (isFinite(odds) && odds !== 0) ? (odds < 0 ? 100 / Math.abs(odds) : odds / 100) : null;
   if (which === 'towin') {
-    if (isFinite(risk) && risk > 0 && isFinite(win) && win > 0) {
-      const a = decimalToAmerican((risk + win) / risk);
-      if (a != null && oddsEl) { oddsEl.value = a; odds = a; }
-    }
+    // Editing To Win adjusts the Risk, keeping the odds where they are.
+    if (perDollar && perDollar > 0 && isFinite(win) && win >= 0 && riskEl) riskEl.value = (win / perDollar).toFixed(2);
   } else if (which !== 'line') {
-    if (isFinite(odds) && odds !== 0 && isFinite(risk) && risk > 0 && winEl) winEl.value = americanProfit(odds, risk).toFixed(2);
+    // Editing Risk or Odds recomputes To Win.
+    if (perDollar && isFinite(risk) && risk > 0 && winEl) winEl.value = (risk * perDollar).toFixed(2);
   }
   if (which === 'line') { const s = document.getElementById('lc-sel'); if (s) s.textContent = lcSelLabel(); }
+  syncSignPrefix();
   updateConfirmMode();
+}
+// A number input can't render a leading "+", so show a "+" prefix element only when the
+// odds (or a spread line) are positive. Negatives keep the input's own "-".
+function syncSignPrefix() {
+  const o = parseFloat(document.getElementById('lc-odds')?.value);
+  const op = document.getElementById('lc-oddspre'); if (op) op.style.display = (isFinite(o) && o > 0) ? '' : 'none';
+  const lp = document.getElementById('lc-linepre');
+  if (lp) { const ln = parseFloat(document.getElementById('lc-line')?.value); lp.style.display = (_confirm && _confirm.isSpread && isFinite(ln) && ln > 0) ? '' : 'none'; }
 }
 
 // A bet is VERIFIED when its odds (and its line, for spread/total) sit inside the range of
