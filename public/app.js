@@ -7,8 +7,8 @@ import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=7';
-import { loadTracking, loadSettings } from './modules/account.js?v=36';
-import './modules/track.js?v=30';
+import { loadTracking, loadSettings } from './modules/account.js?v=37';
+import './modules/track.js?v=31';
 import './modules/modal.js?v=2';
 import './modules/member_profile.js?v=5';
 import { resumePendingCheckout } from './modules/paywall.js';
@@ -16,6 +16,11 @@ import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { renderUnlock } from './modules/unlock.js';
 import { mountAds } from './modules/ads.js';
+
+// ── PWA: service worker (offline shell + push notifications) ──────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+}
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 export function switchTab(tabName) {

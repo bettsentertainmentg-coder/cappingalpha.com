@@ -533,6 +533,19 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_vo
 // bet-history sport filter hits user_bets by (user_id, sport).
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_voted ON game_votes (user_id, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_user_sport ON user_bets (user_id, sport)`); } catch (_) {}
+
+// Web-push subscriptions (one row per device endpoint per user) — never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      endpoint   TEXT NOT NULL UNIQUE,
+      keys_json  TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id)`);
+} catch (_) {}
 // Permanent record of weekly/monthly leaderboard finishes (top 10) → drives profile
 // badges. Never wiped. tier: gold (#1), silver (top 5), bronze (top 10).
 try {

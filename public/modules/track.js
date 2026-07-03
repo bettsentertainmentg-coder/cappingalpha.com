@@ -12,8 +12,9 @@ import { sportBadge } from './utils.js?v=1';
 const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
 const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'WCBB', 'Boxing'];
 
-let _bets    = [];
-let _filters = { sport: '', status: 'all' };
+let _bets      = [];
+let _betsTotal = 0;
+let _filters   = { sport: '', status: 'all', q: '', book: '' };
 
 // Payout preview — mirror of src/odds_math.americanProfit (manual default -110).
 function americanProfit(odds, stake) {
@@ -43,9 +44,27 @@ export async function loadUserBets() {
   try {
     const res = await fetch('/api/bets?limit=300');
     if (!res.ok) { el.innerHTML = ''; return; }
-    _bets = (await res.json()).bets || [];
+    const d = await res.json();
+    _bets = d.bets || [];
+    _betsTotal = d.total != null ? d.total : _bets.length;
     renderBets();
   } catch (_) { el.innerHTML = ''; }
+}
+
+// Fetch the next page past the 300-bet window and append it.
+export async function loadMoreBets(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+  try {
+    const res = await fetch(`/api/bets?limit=300&offset=${_bets.length}`);
+    if (res.ok) {
+      const d = await res.json();
+      _bets = _bets.concat(d.bets || []);
+      if (d.total != null) _betsTotal = d.total;
+      renderBetList();
+      return;
+    }
+  } catch (_) {}
+  if (btn) { btn.disabled = false; btn.textContent = 'Load more'; }
 }
 
 function betResultPill(r) {
@@ -68,16 +87,24 @@ function payoutCell(b) {
   return `<span style="color:${c};font-weight:700;">${b.payout >= 0 ? '+' : ''}$${Math.abs(b.payout).toFixed(2)}</span>`;
 }
 
+// One bet passes when it matches every active filter (sport, status, book, search).
+function betMatchesFilters(b) {
+  if (_filters.sport && (b.sport || '').toUpperCase() !== _filters.sport) return false;
+  if (_filters.status === 'pending' && b.result !== 'pending') return false;
+  if (_filters.status === 'settled' && b.result === 'pending') return false;
+  if (_filters.book && (b.book || '') !== _filters.book) return false;
+  if (_filters.q) {
+    const hay = `${b.selection || ''} ${b.notes || ''} ${b.book || ''} ${b.sport || ''}`.toLowerCase();
+    if (!hay.includes(_filters.q.toLowerCase())) return false;
+  }
+  return true;
+}
+
+// Controls render once; the list re-renders on every filter change so the search
+// box never loses focus mid-keystroke.
 function renderBets() {
   const el = document.getElementById('track-bets-content');
   if (!el) return;
-
-  const filtered = _bets.filter(b => {
-    if (_filters.sport && (b.sport || '').toUpperCase() !== _filters.sport) return false;
-    if (_filters.status === 'pending' && b.result !== 'pending') return false;
-    if (_filters.status === 'settled' && b.result === 'pending') return false;
-    return true;
-  });
 
   // Sport filter options come from the sports actually present in the user's bets.
   const presentSports = [...new Set(_bets.map(b => (b.sport || '').toUpperCase()).filter(Boolean))];
@@ -88,6 +115,32 @@ function renderBets() {
   const sportOpts = ['<option value="">All sports</option>']
     .concat(presentSports.map(s => `<option value="${s}"${_filters.sport === s ? ' selected' : ''}>${s}</option>`))
     .join('');
+  const books = [...new Set(_bets.map(b => b.book).filter(Boolean))].sort();
+  if (_filters.book && !books.includes(_filters.book)) books.push(_filters.book);
+  const bookOpts = ['<option value="">All books</option>']
+    .concat(books.map(b => `<option value="${b.replace(/"/g, '&quot;')}"${_filters.book === b ? ' selected' : ''}>${b}</option>`))
+    .join('');
+
+  el.innerHTML = `
+    <div class="bet-filter-row">
+      <input type="search" class="bet-filter bet-q" id="bet-q" placeholder="Search bets..." autocomplete="off"
+             value="${(_filters.q || '').replace(/"/g, '&quot;')}" oninput="setBetFilter('q', this.value)" />
+      <select class="bet-filter" id="bet-f-sport" onchange="setBetFilter('sport', this.value)">${sportOpts}</select>
+      <select class="bet-filter" id="bet-f-status" onchange="setBetFilter('status', this.value)">
+        <option value="all"${_filters.status === 'all' ? ' selected' : ''}>All</option>
+        <option value="pending"${_filters.status === 'pending' ? ' selected' : ''}>Pending</option>
+        <option value="settled"${_filters.status === 'settled' ? ' selected' : ''}>Settled</option>
+      </select>
+      ${books.length ? `<select class="bet-filter" id="bet-f-book" onchange="setBetFilter('book', this.value)">${bookOpts}</select>` : ''}
+    </div>
+    <div class="bet-list" id="bet-list-box"></div>`;
+  renderBetList();
+}
+
+function renderBetList() {
+  const box = document.getElementById('bet-list-box');
+  if (!box) return;
+  const filtered = _bets.filter(betMatchesFilters);
 
   const rowHtml = (b) => {
     const u = b.units != null ? `${(+b.units).toFixed(2)}u` : '';
@@ -126,14 +179,14 @@ function renderBets() {
   };
   let rows;
   if (filtered.length === 0) {
-    // An active sport filter with zero matches gets a one-tap way out instead of a dead end.
-    const clearBtn = _filters.sport
-      ? ` <button class="bet-settle-btn push" style="margin-left:8px;" onclick="setBetFilter('sport','')">Show all sports</button>`
+    // Zero matches with an active filter gets a one-tap way out instead of a dead end.
+    const anyFilter = _filters.sport || _filters.book || _filters.q;
+    const clearBtn = anyFilter
+      ? ` <button class="bet-settle-btn push" style="margin-left:8px;" onclick="clearBetFilters()">Clear filters</button>`
       : '';
-    const safeSport = String(_filters.sport || '').replace(/[^A-Za-z0-9 ]/g, ''); // never inject markup
     rows = `<div style="padding:26px 20px;color:var(--muted);font-size:14px;">${_bets.length === 0
       ? 'No custom bets yet. Tap "Track a Bet" to log one.'
-      : `No${safeSport ? ' ' + safeSport : ''} bets match this filter.${clearBtn}`}</div>`;
+      : `No bets match these filters.${clearBtn}`}</div>`;
   } else {
     const groups = []; const idx = new Map();
     for (const b of filtered) {
@@ -149,23 +202,35 @@ function renderBets() {
     }).join('');
   }
 
-  el.innerHTML = `
-    <div class="bet-filter-row">
-      <select class="bet-filter" onchange="setBetFilter('sport', this.value)">${sportOpts}</select>
-      <select class="bet-filter" onchange="setBetFilter('status', this.value)">
-        <option value="all"${_filters.status === 'all' ? ' selected' : ''}>All</option>
-        <option value="pending"${_filters.status === 'pending' ? ' selected' : ''}>Pending</option>
-        <option value="settled"${_filters.status === 'settled' ? ' selected' : ''}>Settled</option>
-      </select>
-    </div>
-    <div class="bet-list">${rows}</div>`;
+  // Paging past the first 300: only offer more when unfiltered (offsets and client
+  // filters do not mix cleanly, and 300 bets is months of history for most users).
+  const more = (!_filters.q && !_filters.book && !_filters.sport && _filters.status === 'all' && _bets.length < _betsTotal)
+    ? `<div style="padding:12px 20px;text-align:center;"><button class="bet-settle-btn push" onclick="loadMoreBets(this)">Load more (showing ${_bets.length} of ${_betsTotal})</button></div>`
+    : '';
+  box.innerHTML = rows + more;
 }
 
-export function setBetFilter(key, val) { _filters[key] = val; renderBets(); }
+export function setBetFilter(key, val) {
+  _filters[key] = val;
+  // Keep the visible control in sync when a filter is set programmatically
+  // (e.g. the Clear filters button), then refresh just the list.
+  const ctlId = { sport: 'bet-f-sport', status: 'bet-f-status', book: 'bet-f-book', q: 'bet-q' }[key];
+  const ctl = ctlId && document.getElementById(ctlId);
+  if (ctl && ctl.value !== val) ctl.value = val;
+  renderBetList();
+}
+export function clearBetFilters() {
+  _filters.q = ''; _filters.book = ''; _filters.sport = '';
+  renderBets(); // full rebuild resyncs every control
+}
 
 // Render the custom-bets list from data already fetched by loadTracking (avoids a
 // second /api/bets round-trip).
-export function setBetsData(bets) { _bets = bets || []; renderBets(); }
+export function setBetsData(bets, total) {
+  _bets = bets || [];
+  _betsTotal = total != null ? total : _bets.length;
+  renderBets();
+}
 
 export async function settleBetUI(id, result) {
   try {
@@ -319,6 +384,7 @@ export function openTrackSheet() {
 }
 
 export function closeTrackSheet() {
+  stopBoardPoll();
   const ov = document.getElementById('track-overlay');
   if (!ov) return;
   ov.classList.remove('open');
@@ -335,10 +401,179 @@ function sheetMenuHtml() {
       <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Custom bet</span><span class="track-opt-d">Log any bet yourself (props, parlays, anything). Personal tracking only.</span></span>
     </button>
-    <button class="track-opt track-opt-soon" disabled>
-      <span class="track-opt-ic" style="background:var(--surface2);color:var(--muted);"><i class="fa-regular fa-image"></i></span>
-      <span><span class="track-opt-t">Upload betslip <span class="track-soon">Soon</span></span><span class="track-opt-d">Snap a betslip and we'll read it for you.</span></span>
+    <button class="track-opt" onclick="showBetScan()">
+      <span class="track-opt-ic" style="background:rgba(167,139,250,.16);color:#a78bfa;"><i class="fa-regular fa-image"></i></span>
+      <span><span class="track-opt-t">Upload betslip</span><span class="track-opt-d">Snap your betslip and the form fills itself in. Read on your device.</span></span>
     </button>`;
+}
+
+export function backToTrackMenu() {
+  stopBoardPoll();
+  const body = document.getElementById('track-sheet-body');
+  if (body) body.innerHTML = sheetMenuHtml();
+}
+
+// ── Betslip scan — free OCR, zero API credits ─────────────────────────────────
+// Tesseract.js (vendored under /vendor/tesseract, ~10MB lazy-loaded on first use)
+// reads the screenshot in the user's own browser; the image never leaves their
+// device. A heuristic parser lifts selection/odds/stake/book and prefills the
+// custom form for the user to confirm. A Mac-Ollama structuring pass can slot in
+// later; the paid Haiku path is never used here.
+let _tessWorker = null;
+let _tessIdleTimer = null;
+// Free the ~100MB wasm worker a minute after the last scan; a rescan just reloads it.
+function scheduleTessRelease() {
+  if (_tessIdleTimer) clearTimeout(_tessIdleTimer);
+  _tessIdleTimer = setTimeout(() => {
+    _tessIdleTimer = null;
+    if (_tessWorker) { try { _tessWorker.terminate(); } catch (_) {} _tessWorker = null; }
+  }, 60000);
+}
+async function getTessWorker(onProgress) {
+  if (_tessWorker) return _tessWorker;
+  if (!window.Tesseract) {
+    await new Promise((ok, err) => {
+      const s = document.createElement('script');
+      s.src = '/vendor/tesseract/tesseract.min.js';
+      s.onload = ok; s.onerror = () => err(new Error('tesseract load failed'));
+      document.head.appendChild(s);
+    });
+  }
+  // Absolute URLs: the worker runs from a blob context where relative paths
+  // cannot resolve (importScripts throws on '/vendor/...').
+  const base = location.origin + '/vendor/tesseract';
+  _tessWorker = await window.Tesseract.createWorker('eng', 1, {
+    workerPath: base + '/worker.min.js',
+    corePath:   base,
+    langPath:   base,
+    logger: m => { if (m.status === 'recognizing text' && onProgress) onProgress(Math.round(m.progress * 100)); },
+  });
+  return _tessWorker;
+}
+
+export function showBetScan() {
+  stopBoardPoll();
+  const body = document.getElementById('track-sheet-body');
+  if (!body) return;
+  body.innerHTML = `
+    <button class="ob-back" onclick="backToTrackMenu()">‹ Back</button>
+    <div class="track-form">
+      <div class="ob-head" style="margin-bottom:4px;">Upload a betslip</div>
+      <div class="track-form-note">Screenshot the slip in your sportsbook app, then choose it here. Reading happens on your device; the image is never uploaded anywhere.</div>
+      <label class="track-opt" style="cursor:pointer;">
+        <span class="track-opt-ic" style="background:rgba(167,139,250,.16);color:#a78bfa;"><i class="fa-regular fa-image"></i></span>
+        <span><span class="track-opt-t">Choose screenshot</span><span class="track-opt-d">PNG or JPG. Tighter crops read better.</span></span>
+        <input type="file" accept="image/*" style="display:none;" onchange="scanBetslip(this)" />
+      </label>
+      <div id="scan-status" style="font-size:13px;color:var(--muted);padding:10px 2px;"></div>
+      <button class="track-opt" onclick="showCustomForm()">
+        <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
+        <span><span class="track-opt-t">Type it in instead</span><span class="track-opt-d">The regular custom bet form.</span></span>
+      </button>
+    </div>`;
+}
+
+export async function scanBetslip(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const st = document.getElementById('scan-status');
+  const say = t => { if (st) st.textContent = t; };
+  try {
+    say('Loading the reader (first time can take a few seconds)...');
+    const worker = await getTessWorker(p => say(`Reading your slip... ${p}%`));
+    say('Reading your slip...');
+    const { data } = await worker.recognize(file);
+    const parsed = parseBetslipText(data && data.text || '');
+    if (!parsed.selection && parsed.odds == null && parsed.stake == null) {
+      say('Could not read a bet off that image. Try a tighter screenshot, or type it in below.');
+      return;
+    }
+    openScannedBet(parsed);
+  } catch (_) {
+    say('Could not read that image. You can type the bet in below instead.');
+  } finally {
+    scheduleTessRelease();
+  }
+}
+
+// Heuristics over the OCR text. Betslips are clean digital screenshots, so plain
+// pattern-matching gets the big four (selection, odds, stake, book) most of the time.
+function parseBetslipText(raw) {
+  const text = String(raw || '');
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
+  const lower = text.toLowerCase();
+  const out = { selection: '', odds: null, stake: null, book: '', bet_type: 'ml', totalSide: null, line: null };
+
+  for (const [hint, name] of [
+    ['draftkings', 'DraftKings'], ['fanduel', 'FanDuel'], ['betmgm', 'BetMGM'],
+    ['caesars', 'Caesars'], ['bovada', 'Bovada'], ['betonline', 'BetOnline'],
+    ['hard rock', 'Hard Rock'], ['espn bet', 'ESPN BET'], ['betrivers', 'BetRivers'],
+    ['pinnacle', 'Pinnacle'], ['kalshi', 'Kalshi'], ['polymarket', 'Polymarket'],
+  ]) { if (lower.includes(hint)) { out.book = name; break; } }
+
+  const NOISE = /betslip|bet slip|open bets|settled|cash ?out|share|wager|total|payout|returns|to win|odds|selections?|leg/i;
+
+  // Odds: prefer a candidate sharing a line with real words (the selection line).
+  // No lookbehind assertions here: Safari before 16.4 fails to PARSE the whole
+  // module on (?<!...), which would blank the entire app for those users. Group 1
+  // captures the boundary character instead; group 2 is the odds.
+  const oddsRe = /(^|[^\d.])([+-]\d{3,4})(?!\d)/g;
+  const oddsIn = (s) => { const found = []; let m; oddsRe.lastIndex = 0; while ((m = oddsRe.exec(s))) found.push(parseFloat(m[2])); return found; };
+  const stripOdds = (s) => { oddsRe.lastIndex = 0; return s.replace(oddsRe, (all, p1) => p1); };
+  let firstOdds = null;
+  for (const l of lines) {
+    const found = oddsIn(l);
+    if (!found.length) continue;
+    if (firstOdds == null) firstOdds = found[0];
+    if (/[a-z]{3,}/i.test(stripOdds(l))) { out.odds = found[0]; break; }
+  }
+  if (out.odds == null) out.odds = firstOdds;
+
+  const stakeM = lower.match(/(?:total wager|wager|risk|stake|bet amount|bet)[^\d$]{0,12}\$?\s*(\d+(?:\.\d{1,2})?)/);
+  if (stakeM) out.stake = parseFloat(stakeM[1]);
+  else { const d = text.match(/\$\s*(\d+(?:\.\d{1,2})?)/); if (d) out.stake = parseFloat(d[1]); }
+  const winM = lower.match(/(?:to win|payout|potential winnings|returns)[^\d$]{0,12}\$?\s*(\d+(?:\.\d{1,2})?)/);
+  if (out.odds == null && out.stake > 0 && winM) {
+    const ratio = parseFloat(winM[1]) / out.stake;
+    if (isFinite(ratio) && ratio > 0) out.odds = ratio >= 1 ? Math.round(ratio * 100) : -Math.round(100 / ratio);
+  }
+
+  const ou = text.match(/\b(over|under)\s+(\d+(?:\.\d)?)/i);
+  if (ou) { out.bet_type = 'total'; out.totalSide = ou[1].toLowerCase(); out.line = parseFloat(ou[2]); }
+  else if (/parlay/i.test(lower)) out.bet_type = 'parlay';
+  else if (/spread|run ?line|puck ?line|handicap/i.test(lower)) {
+    out.bet_type = 'spread';
+    const sp = text.match(/(^|[^\d.])([+-]\d{1,2}(?:\.5)?)(?![\d.])/); // no lookbehind (Safari < 16.4)
+    if (sp) out.line = parseFloat(sp[2]);
+  } else if (/money ?line/i.test(lower)) out.bet_type = 'ml';
+
+  // Selection: the line carrying the odds, minus the odds token; else the first
+  // real-word line that isn't slip chrome or the book's own name.
+  const oddsStr = out.odds != null ? (out.odds > 0 ? '+' + out.odds : String(out.odds)) : null;
+  let sel = oddsStr ? lines.find(l => l.includes(oddsStr) && /[a-z]{3,}/i.test(stripOdds(l))) : null;
+  if (sel) sel = stripOdds(sel).replace(/[|•·]+/g, ' ').trim();
+  if (!sel) sel = lines.find(l => /[a-z]{3,}/i.test(l) && !NOISE.test(l) && !(out.book && l.toLowerCase().includes(out.book.toLowerCase()))) || '';
+  out.selection = sel.slice(0, 80);
+  return out;
+}
+
+// Prefill the custom form with whatever the scan found; the user confirms.
+function openScannedBet(p) {
+  showCustomForm();
+  if (p.bet_type === 'total') { setFormField('bet_type', 'total'); if (p.totalSide) setFormField('totalSide', p.totalSide); }
+  else if (p.bet_type && p.bet_type !== 'ml') setFormField('bet_type', p.bet_type);
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  set('cf-selection', p.selection);
+  set('cf-odds', p.odds);
+  set('cf-stake', p.stake);
+  set('cf-line', p.line);
+  if (p.book) {
+    _form.book = p.book;
+    document.querySelectorAll('.bet-seg[onclick^="setFormBook"]').forEach(b => b.classList.toggle('active', b.textContent === p.book));
+  }
+  const form = document.querySelector('#track-sheet-body .track-form');
+  if (form) form.insertAdjacentHTML('afterbegin', `<div class="track-form-note" style="border:1px solid rgba(167,139,250,.4);border-radius:8px;padding:8px 10px;"><i class="fa-regular fa-image" style="color:#a78bfa;margin-right:6px;"></i>Read from your screenshot. Double-check the numbers before tracking.</div>`);
+  updatePayoutPreview();
 }
 
 const TRACK_DAY_MIN = -7;   // a week back (past games = custom)
@@ -404,6 +639,7 @@ function isCustomGame(g) {
 }
 
 export async function trackFromGame() {
+  stopBoardPoll();
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
   body.innerHTML = `
@@ -551,8 +787,54 @@ function renderTrackGames() {
 // ── Odds board: tap a real line to track it (verified) ────────────────────────
 let _board = null;
 let _lastBoardId = null;
+let _boardPoll = null;
+let _boardPollId = null; // which game the live interval belongs to
+const BOARD_POLL_MS = 45000; // stale odds are a top tracker complaint; keep the board honest
+
+function stopBoardPoll() { if (_boardPoll) { clearInterval(_boardPoll); _boardPoll = null; } _boardPollId = null; }
+
+// Text snapshot of the board's lines (label -> odds text) for change flashing.
+function snapshotBoardLines() {
+  const m = {};
+  document.querySelectorAll('#track-sheet-body .ob-line').forEach(b => {
+    const label = b.querySelector('.ob-line-label')?.textContent || '';
+    if (label) m[label] = b.querySelector('.ob-line-odds')?.textContent || '';
+  });
+  return m;
+}
+function flashChangedLines(before) {
+  document.querySelectorAll('#track-sheet-body .ob-line').forEach(b => {
+    const label = b.querySelector('.ob-line-label')?.textContent || '';
+    const now = b.querySelector('.ob-line-odds')?.textContent || '';
+    if (label && before[label] != null && before[label] !== now) b.classList.add('obflash');
+  });
+}
+
+// Refresh the board's numbers while it stays open. Pauses itself the moment the
+// user moves to the confirm slide, the custom form, or the game list; a moved
+// number flashes so the change is impossible to miss.
+function startBoardPoll(id) {
+  stopBoardPoll();
+  _boardPollId = id;
+  _boardPoll = setInterval(async () => {
+    if (_boardPollId !== id) { stopBoardPoll(); return; } // board moved to another game
+    const body = document.getElementById('track-sheet-body');
+    if (!body || !body.querySelector('.ob-grid')) { stopBoardPoll(); return; }
+    try {
+      const res = await fetch(`/api/game/${id}`);
+      if (!res.ok) return;
+      const fresh = await res.json();
+      if (!fresh || !fresh.game) return;
+      const before = snapshotBoardLines();
+      _board = fresh;
+      renderOddsBoard();
+      flashChangedLines(before);
+    } catch (_) {}
+  }, BOARD_POLL_MS);
+}
 
 export async function pickTrackGame(id) {
+  stopBoardPoll(); // switching games: never let the old game's interval outlive its board
   _lastBoardId = id;
   const body = document.getElementById('track-sheet-body');
   if (body) body.innerHTML = `<div style="padding:20px;color:var(--muted);font-size:13px;">Loading lines...</div>`;
@@ -594,6 +876,7 @@ function renderOddsBoard() {
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
   if (!_board || !_board.game) {
+    stopBoardPoll();
     body.innerHTML = `<button class="ob-back" onclick="trackFromGame()">‹ Games</button>
       <div style="padding:18px 0;color:var(--muted);font-size:14px;">Could not load this game's lines.</div>
       <button class="track-submit" style="width:auto;padding:10px 18px;" onclick="pickTrackGame('${_lastBoardId}')">Retry</button>`;
@@ -679,6 +962,8 @@ function renderOddsBoard() {
       <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Log it as a custom bet instead</span><span class="track-opt-d">Set your own stake, odds, and book.</span></span>
     </button>`;
+  if (finished || noLines) stopBoardPoll();
+  else if (!_boardPoll || _boardPollId !== id) startBoardPoll(id);
 }
 
 let _trackingLine = false;
@@ -777,6 +1062,7 @@ function lcSelLabel() {
 
 export function openLineConfirm(id, slot, label, caOdds) {
   const g = _board && _board.game; if (!g) return;
+  stopBoardPoll(); // the confirm slide locks the user's numbers; no background rewrites
   const isSpread = slot === 'home_spread' || slot === 'away_spread';
   const isTotal  = slot === 'over' || slot === 'under';
   const hasLine  = isSpread || isTotal;
@@ -1012,6 +1298,7 @@ export async function confirmTrackBet() {
 let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
 
 export function showCustomForm() {
+  stopBoardPoll();
   _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
   const body = document.getElementById('track-sheet-body');
   if (body) body.innerHTML = customFormHtml();
@@ -1180,10 +1467,11 @@ export async function submitCustomBet() {
 Object.assign(window, {
   openTrackSheet, closeTrackSheet, trackFromGame, showCustomForm,
   setFormField, setFormBook, updatePayoutPreview, submitCustomBet,
-  setBetFilter, settleBetUI, deleteBetUI, loadUserBets,
+  setBetFilter, clearBetFilters, loadMoreBets, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
+  showBetScan, scanBetslip, backToTrackMenu,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
   toggleConfirmFreeBet, toggleAddNote,
 });
@@ -1193,7 +1481,26 @@ document.addEventListener('click', (e) => {
   if (_sportMenuOpen && !e.target.closest('#tg-sportdd')) { _sportMenuOpen = false; renderSportDropdown(); }
 });
 
-// Escape closes the track sheet / bet detail (Backlog P2 #24).
+// Sheet keyboard support: Escape closes, Tab stays trapped inside the sheet, and
+// arrow keys walk the sport dropdown (Backlog P2 #24 + the mobile/a11y pass).
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('track-overlay')) closeTrackSheet();
+  const overlay = document.getElementById('track-overlay');
+  if (e.key === 'Escape' && overlay) { closeTrackSheet(); return; }
+  if (e.key === 'Tab' && overlay) {
+    const list = [...overlay.querySelectorAll('button, input, select, [tabindex]:not([tabindex="-1"])')]
+      .filter(el => !el.disabled && el.offsetParent !== null);
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return;
+  }
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && _sportMenuOpen) {
+    const items = [...document.querySelectorAll('.tg-sportdd-item')];
+    if (!items.length) return;
+    e.preventDefault();
+    const i = items.indexOf(document.activeElement);
+    const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+    items[next].focus();
+  }
 });

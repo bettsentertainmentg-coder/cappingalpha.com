@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=30';
+import { loadUserBets, setBetsData } from './track.js?v=31';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
@@ -19,10 +19,10 @@ export async function loadTracking() {
       fetch('/api/bets?limit=300'),
     ]);
     if (accountRes.status === 401) { window.switchTab('home'); window.openLogin(); return; }
-    const data    = await accountRes.json();
-    const friends = friendsRes.ok ? (await friendsRes.json()).friends || [] : [];
-    const bets    = betsRes.ok ? (await betsRes.json()).bets || [] : [];
-    renderTracking({ ...data, friends, bets });
+    const data     = await accountRes.json();
+    const friends  = friendsRes.ok ? (await friendsRes.json()).friends || [] : [];
+    const betsData = betsRes.ok ? await betsRes.json() : {};
+    renderTracking({ ...data, friends, bets: betsData.bets || [], betsTotal: betsData.total });
   } catch (err) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load tracking</h3><p>${err.message}</p></div>`;
   }
@@ -286,6 +286,65 @@ export async function saveBankroll(btn) {
       }
     } catch (_) {}
   });
+}
+
+// ── Push notifications (Settings) — free web push, per device ─────────────────
+function pushSupported() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+function urlB64ToUint8(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+async function currentPushSub() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    return await reg.pushManager.getSubscription();
+  } catch (_) { return null; }
+}
+export async function togglePush(btn) {
+  if (!pushSupported()) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Working...'; }
+  try {
+    const sub = await currentPushSub();
+    if (sub) {
+      await fetch('/api/push/subscribe', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
+      await sub.unsubscribe();
+      window.showToast && window.showToast('Notifications turned off for this device.');
+    } else {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        window.showToast && window.showToast('Notifications are blocked in your browser settings.', 'err');
+        return;
+      }
+      const keyRes = await fetch('/api/push/key');
+      if (!keyRes.ok) { window.showToast && window.showToast('Push is not available right now.', 'err'); return; }
+      const { key } = await keyRes.json();
+      const reg = await navigator.serviceWorker.ready;
+      const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+      const save = await fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s.toJSON()) });
+      if (!save.ok) { await s.unsubscribe().catch(() => {}); window.showToast && window.showToast('Could not save this device. Try again.', 'err'); return; }
+      window.showToast && window.showToast('Notifications are on for this device.');
+    }
+  } catch (_) {
+    window.showToast && window.showToast('Could not change notifications. Try again.', 'err');
+  } finally {
+    refreshPushCard();
+  }
+}
+async function refreshPushCard() {
+  const el = document.getElementById('push-card-body');
+  if (!el) return;
+  if (!pushSupported()) {
+    el.innerHTML = `<div style="font-size:13px;color:var(--muted);">This browser does not support notifications yet. On iPhone, add CappingAlpha to your Home Screen (Share, then Add to Home Screen), then open it from that icon and turn notifications on here in Settings.</div>`;
+    return;
+  }
+  const sub = await currentPushSub();
+  el.innerHTML = `
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">A ping when your tracked bets and verified picks grade. Per device, off by default.</div>
+    <button class="sport-pill-save" onclick="togglePush(this)">${sub ? 'Turn off on this device' : 'Turn on notifications'}</button>
+    ${sub ? `<div style="font-size:12px;color:var(--green);margin-top:8px;">On for this device.</div>` : ''}`;
 }
 
 // Password reset — sends a reset link to the account email (reuses the existing
@@ -1172,7 +1231,7 @@ function renderTracking(data) {
 
   requestAnimationFrame(() => {
     recomputeTrackStats();      // strip + extra + unified P/L graph (current range)
-    setBetsData(bets);          // custom-bets list from the data we already fetched
+    setBetsData(bets, data.betsTotal); // custom-bets list from the data we already fetched
     initReveal('tracking-content');
   });
 }
@@ -1304,8 +1363,8 @@ function renderSettings(data) {
 
         <div class="card account-reveal">
           <div class="card-header"><span class="card-title">Notifications</span></div>
-          <div style="padding:16px 20px 18px;">
-            <div style="font-size:13px;color:var(--muted);">Alerts for game results, pick grades, and your tracked bets. <span style="color:var(--text);font-weight:600;">Coming soon.</span></div>
+          <div style="padding:16px 20px 18px;" id="push-card-body">
+            <div style="font-size:13px;color:var(--muted);">Checking this device...</div>
           </div>
         </div>
       </div>
@@ -1408,7 +1467,7 @@ function renderSettings(data) {
 
     </div>`;
 
-  requestAnimationFrame(() => initReveal('settings-content'));
+  requestAnimationFrame(() => { initReveal('settings-content'); refreshPushCard(); });
 }
 
 // Fade + rise each card into view as it scrolls in.
@@ -1456,5 +1515,5 @@ Object.assign(window, {
   deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
-  showLeaderboardInfo, setTrackFilter,
+  showLeaderboardInfo, setTrackFilter, togglePush,
 });

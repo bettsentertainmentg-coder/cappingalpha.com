@@ -186,9 +186,16 @@ function closingForSlot(slot, row) {
   return { odds: null, line: null };
 }
 
+// Push payload for a graded custom bet.
+function betPushPayload(bet, result) {
+  const title = result === 'win' ? 'Your bet won' : result === 'loss' ? 'Your bet lost' : 'Your bet pushed';
+  return { title, body: bet.selection || 'Your tracked bet graded', tag: 'bet-grade', url: '/' };
+}
+
 // ── Auto-grade game-linked pending bets (called in the 5-min results cron) ─────
 async function gradePendingBets() {
   let graded = 0;
+  const notify = []; // { user_id, payload } — sent after grading, never blocks it
 
   // Pass A: game still in today_games (same cycle, pre-wipe).
   const liveBets = db.prepare(`
@@ -213,12 +220,13 @@ async function gradePendingBets() {
     if (result === 'pending') continue;
     const payout  = betProfit(result, b.odds, b.stake, b.free_bet);
     const closing = closingForSlot(slot, b);
-    db.prepare(`
+    const upd = db.prepare(`
       UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now'),
         closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line)
       WHERE id = ? AND result = 'pending'
     `).run(result, payout, closing.odds, closing.line, b.id);
-    graded++;
+    // changes = 0 means the bet vanished mid-grade (user deleted it); don't ping.
+    if (upd.changes > 0) { notify.push({ user_id: b.user_id, payload: betPushPayload(b, result) }); graded++; }
   }
 
   // Pass B: game wiped from today_games -> fetch final from ESPN.
@@ -245,9 +253,14 @@ async function gradePendingBets() {
     const result = evaluateVote(slot, b.line, game);
     if (result === 'pending') continue;
     const payout = betProfit(result, b.odds, b.stake, b.free_bet);
-    db.prepare(`UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now') WHERE id = ? AND result = 'pending'`)
+    const upd = db.prepare(`UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now') WHERE id = ? AND result = 'pending'`)
       .run(result, payout, b.id);
-    graded++;
+    if (upd.changes > 0) { notify.push({ user_id: b.user_id, payload: betPushPayload(b, result) }); graded++; }
+  }
+
+  if (notify.length) {
+    const { sendToUser } = require('./push');
+    for (const n of notify) sendToUser(n.user_id, n.payload).catch(() => {});
   }
 
   if (graded > 0) console.log(`[user_bets] graded ${graded} bet(s)`);

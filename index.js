@@ -59,6 +59,8 @@ const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseH
 const { computeValuePulse } = require('./src/live_value');
 const { impliedLineForGame } = require('./src/implied_lines');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
+const push = require('./src/push');
+push.init(); // free web push (VAPID keys auto-generate into settings on first boot)
 const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
 const { seedDummyAccounts, runDummyVotes, runDummyComments } = require('./src/dummy_accounts');
 
@@ -169,8 +171,9 @@ const MIRROR_URL = (process.env.UI_ONLY && process.env.MIRROR_PROD)
 if (MIRROR_URL) {
   console.log(`[mirror] Proxying read-only /api GET requests to ${MIRROR_URL}`);
   // Endpoints that depend on local session (login state) or that don't exist on
-  // prod yet (new features in development) stay local.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form'];
+  // prod yet (new features in development) stay local. The proxy never forwards
+  // cookies, so anything session-scoped MUST be here or it returns logged-out data.
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends'];
   app.use((req, res, next) => {
     if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
     if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
@@ -956,6 +959,26 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
   db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
     .run(req.session.user.id, espn_game_id, slot);
 
+  res.json({ ok: true });
+});
+
+// ── Web push (free VAPID) — device subscriptions for bet-grade alerts ─────────
+app.get('/api/push/key', (req, res) => {
+  const key = push.getPublicKey();
+  if (!key) return res.status(503).json({ error: 'Push is not available right now.' });
+  res.json({ key });
+});
+app.post('/api/push/subscribe', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const ok = push.saveSubscription(req.session.user.id, req.body || {});
+  if (!ok) return res.status(400).json({ error: 'Invalid subscription' });
+  res.json({ ok: true });
+});
+app.delete('/api/push/subscribe', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const endpoint = (req.body || {}).endpoint;
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  push.removeSubscription(req.session.user.id, endpoint);
   res.json({ ok: true });
 });
 

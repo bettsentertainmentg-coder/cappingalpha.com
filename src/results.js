@@ -188,8 +188,21 @@ function voteClosingForSlot(slot, row) {
 // Grades game_votes straight from final scores so a user's voted P/L is complete
 // whether or not a capper picked the same slot. Writes result back into
 // game_votes (which survives the daily wipe via its snapshot columns).
+// Push payload for a graded vote. Copy stays humble and plain.
+function votePushPayload(pickSlot, result, homeTeam, awayTeam) {
+  const home = (homeTeam || 'Home').split(' ').pop(), away = (awayTeam || 'Away').split(' ').pop();
+  const slotLabel = {
+    home_ml: `${home} ML`, away_ml: `${away} ML`,
+    home_spread: `${home} spread`, away_spread: `${away} spread`,
+    over: 'Over', under: 'Under',
+  }[pickSlot] || 'Your pick';
+  const title = result === 'win' ? 'Your pick won' : result === 'loss' ? 'Your pick lost' : 'Your pick pushed';
+  return { title, body: `${slotLabel} · ${away} @ ${home}`, tag: 'pick-grade', url: '/' };
+}
+
 async function resolveVotes() {
   let resolved = 0;
+  const notify = []; // { user_id, payload } — sent after grading finishes
 
   // ── Pass A: game still in today_games (same-day, pre-wipe) ────────────────
   const liveVotes = db.prepare(`
@@ -197,7 +210,8 @@ async function resolveVotes() {
            tg.sport, tg.status, tg.home_score, tg.away_score,
            tg.spread_home, tg.spread_away, tg.over_under,
            tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
-           tg.tennis_home_games, tg.tennis_away_games
+           tg.tennis_home_games, tg.tennis_away_games,
+           tg.home_team AS g_home, tg.away_team AS g_away
     FROM game_votes gv
     JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
     WHERE tg.status = 'post' AND gv.result = 'pending'
@@ -207,8 +221,15 @@ async function resolveVotes() {
     const result = evaluateVote(v.pick_slot, lineForVote(v.pick_slot, v), v);
     if (result === 'pending') continue;
     const closing = voteClosingForSlot(v.pick_slot, v);
-    db.prepare(`UPDATE game_votes SET result = ?, closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+    // Who to notify: capture the users on this slot before the UPDATE flips it.
+    const holders = db.prepare(`SELECT user_id FROM game_votes WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+      .all(v.espn_game_id, v.pick_slot);
+    const upd = db.prepare(`UPDATE game_votes SET result = ?, closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .run(result, closing.odds, closing.line, v.espn_game_id, v.pick_slot);
+    if (upd.changes > 0) {
+      const payload = votePushPayload(v.pick_slot, result, v.g_home, v.g_away);
+      for (const h of holders) notify.push({ user_id: h.user_id, payload });
+    }
     resolved++;
   }
 
@@ -217,7 +238,7 @@ async function resolveVotes() {
   // grade only if the line was captured at vote time; moneyline always grades.
   const staleVotes = db.prepare(`
     SELECT DISTINCT gv.espn_game_id, gv.pick_slot, gv.spread AS vote_spread,
-           gv.sport, gv.voted_at
+           gv.sport, gv.voted_at, gv.home_team AS g_home, gv.away_team AS g_away
     FROM game_votes gv
     LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
     WHERE gv.result = 'pending'
@@ -240,9 +261,21 @@ async function resolveVotes() {
     if (!gameData) continue;
     const result = evaluateVote(v.pick_slot, lineForVote(v.pick_slot, v), gameData);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+    const holders = db.prepare(`SELECT user_id FROM game_votes WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+      .all(v.espn_game_id, v.pick_slot);
+    const upd = db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .run(result, v.espn_game_id, v.pick_slot);
+    if (upd.changes > 0) {
+      const payload = votePushPayload(v.pick_slot, result, v.g_home, v.g_away);
+      for (const h of holders) notify.push({ user_id: h.user_id, payload });
+    }
     resolved++;
+  }
+
+  // Fire-and-forget: a push failure must never affect grading.
+  if (notify.length) {
+    const { sendToUser } = require('./push');
+    for (const n of notify) sendToUser(n.user_id, n.payload).catch(() => {});
   }
 
   if (resolved > 0) console.log(`[results] Resolved ${resolved} vote results`);
