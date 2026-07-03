@@ -5,7 +5,7 @@
 // every /api|/auth|/admin request always go to the network, so a deploy is never
 // masked by a stale cache. Navigations are network-first with the cached shell
 // as the offline fallback.
-const CACHE = 'ca-shell-v1';
+const CACHE = 'ca-shell-v2'; // bump wipes older caches on activation
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.add('/')).then(() => self.skipWaiting()));

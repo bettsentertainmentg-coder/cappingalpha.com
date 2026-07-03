@@ -7,8 +7,8 @@ import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=7';
-import { loadTracking, loadSettings } from './modules/account.js?v=37';
-import './modules/track.js?v=31';
+import { loadTracking, loadSettings } from './modules/account.js?v=38';
+import './modules/track.js?v=32';
 import './modules/modal.js?v=2';
 import './modules/member_profile.js?v=5';
 import { resumePendingCheckout } from './modules/paywall.js';
@@ -18,8 +18,22 @@ import { renderUnlock } from './modules/unlock.js';
 import { mountAds } from './modules/ads.js';
 
 // ── PWA: service worker (offline shell + push notifications) ──────────────────
+// On localhost the SW is actively removed instead of registered: an early sw.js
+// briefly cached versioned modules in dev, and a stale mid-edit module graph can
+// kill the page. This self-heals any browser that got caught in that window.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => {}); });
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  window.addEventListener('load', async () => {
+    if (isLocal) {
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+        if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+      } catch (_) {}
+      return;
+    }
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
