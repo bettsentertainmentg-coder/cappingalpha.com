@@ -61,7 +61,9 @@ function createBet(userId, body = {}) {
   let line = (body.line === '' || body.line == null) ? null : Number(body.line);
   if (!Number.isFinite(line)) line = null;
 
-  let sport = body.sport ? String(body.sport).toUpperCase() : null;
+  // Sport is rendered into HTML in several places — strip anything that isn't a
+  // plain label character so a hand-crafted API call can't store markup.
+  let sport = body.sport ? String(body.sport).toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 20) || null : null;
   let espn_game_id = body.espn_game_id ? String(body.espn_game_id) : null;
   let home_team = null, away_team = null, game_date = body.game_date || null;
 
@@ -268,8 +270,8 @@ function betSummary(userId, window = 'all') {
 
   for (const b of bets) {
     const r = (b.result || '').toLowerCase();
-    const freeLoss = !!b.free_bet && r === 'loss'; // a free-bet loss doesn't count anywhere
-    if (freeLoss) continue;
+    // A free-bet loss counts in the record but costs nothing (payout 0 via betProfit),
+    // so it flows through normally — the W-L stays honest while the P/L stays flat.
     if (r === 'win') wins++; else if (r === 'loss') losses++; else if (r === 'push') pushes++; else if (r === 'pending') pending++;
     if (r === 'win' || r === 'loss') staked += b.stake;
     const p = b.payout != null ? b.payout : betProfit(r, b.odds, b.stake, b.free_bet);

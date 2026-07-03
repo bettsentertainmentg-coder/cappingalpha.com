@@ -148,6 +148,9 @@ router.get('/me', (req, res) => {
   // Re-fetch from DB so subscription_expires is fresh
   const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.session.user.id);
   if (!row) return res.json({ user: null });
+  // unit_size rides along so the betslip's default stake is right from the first
+  // paint, even if the user never opens the Tracking tab that session.
+  const prefs = db.prepare(`SELECT unit_size FROM user_preferences WHERE user_id = ?`).get(row.id);
   res.json({
     user: {
       id:                   row.id,
@@ -155,6 +158,7 @@ router.get('/me', (req, res) => {
       username:             row.username || null,
       tier:                 row.subscription_tier,
       subscription_expires: row.subscription_expires,
+      unit_size:            prefs && prefs.unit_size != null ? prefs.unit_size : 20,
     }
   });
 });

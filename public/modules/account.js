@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=29';
+import { loadUserBets, setBetsData } from './track.js?v=30';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
@@ -222,20 +222,32 @@ export async function uploadAvatar(input) {
   reader.readAsDataURL(file);
 }
 
-export async function saveFavSports() {
+// Disable a Save button and show "Saving..." while its request is in flight, so a
+// slow network can't collect double-taps that fire the request twice.
+async function withSaving(btn, fn) {
+  if (btn && btn.disabled) return;
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+  try { await fn(); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = orig; } }
+}
+
+export async function saveFavSports(btn) {
   const pills  = document.querySelectorAll('#fav-sport-pills .sport-pill');
   const sports = Array.from(pills).filter(p => p.classList.contains('active')).map(p => p.dataset.sport);
   const msgEl  = document.getElementById('fav-saved-msg');
-  try {
-    const res = await fetch('/api/account/preferences', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ favorite_sports: sports }),
-    });
-    if (res.ok) {
-      if (msgEl) { msgEl.style.display = ''; setTimeout(() => { msgEl.style.display = 'none'; }, 2000); }
-    }
-  } catch (_) {}
+  await withSaving(btn, async () => {
+    try {
+      const res = await fetch('/api/account/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ favorite_sports: sports }),
+      });
+      if (res.ok) {
+        if (msgEl) { msgEl.style.display = ''; setTimeout(() => { msgEl.style.display = 'none'; }, 2000); }
+      }
+    } catch (_) {}
+  });
 }
 
 // Default odds source (Settings). Persists immediately on tap.
@@ -255,20 +267,25 @@ export async function saveDefaultOdds(v) {
 }
 
 // Bankroll + unit size (Settings). Persists both at once.
-export async function saveBankroll() {
+export async function saveBankroll(btn) {
   const unitEl = document.getElementById('settings-unit-size');
   const brEl   = document.getElementById('settings-bankroll');
   const msgEl  = document.getElementById('bankroll-saved');
   const unit_size        = parseFloat(unitEl?.value) || 20;
   const starting_bankroll = parseFloat(brEl?.value)   || 0;
-  try {
-    const res = await fetch('/api/account/preferences', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ unit_size, starting_bankroll }),
-    });
-    if (res.ok && msgEl) { msgEl.style.display = ''; setTimeout(() => { msgEl.style.display = 'none'; }, 1800); }
-  } catch (_) {}
+  await withSaving(btn, async () => {
+    try {
+      const res = await fetch('/api/account/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ unit_size, starting_bankroll }),
+      });
+      if (res.ok) {
+        window._trackUnitSize = unit_size; // keep the betslip default in sync right away
+        if (msgEl) { msgEl.style.display = ''; setTimeout(() => { msgEl.style.display = 'none'; }, 1800); }
+      }
+    } catch (_) {}
+  });
 }
 
 // Password reset — sends a reset link to the account email (reuses the existing
@@ -291,7 +308,7 @@ export async function sendPasswordReset(email) {
   }
 }
 
-async function changeUsername() {
+async function changeUsername(btn) {
   const input  = document.getElementById('change-username-input');
   const errEl  = document.getElementById('change-username-error');
   const okEl   = document.getElementById('change-username-ok');
@@ -299,18 +316,20 @@ async function changeUsername() {
   errEl.textContent = '';
   okEl.style.display = 'none';
   if (!newName) { errEl.textContent = 'Enter a username.'; return; }
-  try {
-    const res  = await fetch('/auth/username', {
-      method:  'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username: newName }),
-    });
-    const data = await res.json();
-    if (!res.ok) { errEl.textContent = data.error || 'Failed to update.'; return; }
-    okEl.style.display = '';
-    okEl.textContent   = `Username updated to "${data.username}"`;
-    setTimeout(() => loadSettings(), 1500);
-  } catch (_) { errEl.textContent = 'Network error. Try again.'; }
+  await withSaving(btn, async () => {
+    try {
+      const res  = await fetch('/auth/username', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ username: newName }),
+      });
+      const data = await res.json();
+      if (!res.ok) { errEl.textContent = data.error || 'Failed to update.'; return; }
+      okEl.style.display = '';
+      okEl.textContent   = `Username updated to "${data.username}"`;
+      setTimeout(() => loadSettings(), 1500);
+    } catch (_) { errEl.textContent = 'Network error. Try again.'; }
+  });
 }
 
 // ── Access status card (shown in Settings) ────────────────────────────────────
@@ -411,7 +430,8 @@ function votesInRange(votes, range) {
 // Price CLV for ML + totals (you beat the close when your implied prob is lower).
 function clvOf(votes) {
   const impl = o => (o < 0 ? (-o) / (-o + 100) : 100 / (o + 100));
-  let good = 0, bad = 0, n = 0;
+  let good = 0, bad = 0, n = 0, sum = 0;
+  const diffs = []; // per-pick CLV in "cents" of implied probability (x100)
   for (const v of (votes || [])) {
     const co = v.closing_odds;
     if (co == null) continue;
@@ -424,9 +444,28 @@ function clvOf(votes) {
     else continue; // spread (line CLV) skipped in the small version
     if (yours == null) continue;
     const d = impl(co) - impl(yours); // > 0 => you beat the close
-    n++; if (d > 0) good++; else if (d < 0) bad++;
+    n++; sum += d; diffs.push(+(100 * d).toFixed(1));
+    if (d > 0) good++; else if (d < 0) bad++;
   }
-  return { n, good, bad, pct: n ? Math.round(100 * good / n) : null };
+  return { n, good, bad, pct: n ? Math.round(100 * good / n) : null, avg: n ? +(100 * sum / n).toFixed(1) : null, diffs };
+}
+// The odds a vote was effectively taken at (the user's own number when they wagered,
+// otherwise the CA slot odds; spreads carry the flat -110 convention).
+function voteOddsOf(v) {
+  if (v.user_odds != null) return v.user_odds;
+  const slot = v.pick_slot;
+  if (slot === 'home_ml') return v.ml_home ?? -110;
+  if (slot === 'away_ml') return v.ml_away ?? -110;
+  if (slot === 'over')    return v.ou_over_odds ?? -110;
+  if (slot === 'under')   return v.ou_under_odds ?? -110;
+  return -110;
+}
+// Units this item returns under FLAT 1u staking (the "discipline counterfactual").
+function flatUnitsOf(it) {
+  if (it.result === 'push') return 0;
+  if (it.result === 'loss') return -1;
+  const o = (it.odds == null || !isFinite(it.odds)) ? -110 : it.odds;
+  return o < 0 ? 100 / Math.abs(o) : o / 100;
 }
 // One settled item: { units, dollars, riskedD, result, ts }.
 function slotType(slot) {
@@ -458,15 +497,16 @@ function buildItems(votes, bets, unit) {
       if (r === 'push') dollars = 0;
       else if (r === 'loss') dollars = -stakeD;
       else dollars = (hasWager && v.user_odds != null) ? americanProfit(v.user_odds, stakeD) : calcVoteReturn(v, 1) * unit;
-      items.push({ units: unit > 0 ? dollars / unit : 0, dollars: +dollars.toFixed(2), riskedD: stakeD, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot) });
+      items.push({ units: unit > 0 ? dollars / unit : 0, dollars: +dollars.toFixed(2), riskedD: stakeD, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot), odds: voteOddsOf(v) });
     }
   }
   for (const b of (bets || [])) {
     const r = (b.result || '').toLowerCase();
-    if (b.free_bet && r === 'loss') continue; // a free-bet loss doesn't count
+    // A free-bet loss counts in the record at $0 P/L (payout is already 0 server-side).
+    // Hiding the loss entirely inflates the record — the win rate has to stay honest.
     if (r === 'win' || r === 'loss' || r === 'push') {
       const d = b.payout != null ? b.payout : 0;
-      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type) });
+      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type), odds: (b.odds != null && isFinite(b.odds)) ? b.odds : -110 });
     }
   }
   return items;
@@ -568,6 +608,161 @@ function trackExtraHtml(items, clv) {
     <div class="track-stat"><div class="track-stat-label">Closing Line Value</div><div class="track-stat-val">${clv && clv.n ? clv.pct + '%' : '—'}</div><div class="track-stat-sub">${clv && clv.n ? `beat the close (${clv.good}/${clv.n})` : 'on graded verified picks'}</div></div>`;
 }
 
+// ── Phase 2 analytics: odds bands, downside, calendar heatmap, CLV card ────────
+
+// Win rate vs breakeven by odds band. Breakeven is the implied probability of the
+// odds you took; beating it is what actually pays, not the raw win rate.
+const ODDS_BANDS = [
+  { label: '-200 or shorter', lo: -Infinity, hi: -200 },
+  { label: '-199 to -150',    lo: -199,      hi: -150 },
+  { label: '-149 to -105',    lo: -149,      hi: -105 },
+  { label: '-104 to +104',    lo: -104,      hi: 104  },
+  { label: '+105 to +150',    lo: 105,       hi: 150  },
+  { label: '+151 or longer',  lo: 151,       hi: Infinity },
+];
+function oddsBandsHtml(items) {
+  const impl = o => (o < 0 ? (-o) / (-o + 100) : 100 / (o + 100));
+  const bands = ODDS_BANDS.map(b => ({ ...b, wins: 0, losses: 0, beSum: 0 }));
+  for (const it of items) {
+    if (it.result !== 'win' && it.result !== 'loss') continue;
+    const o = (it.odds == null || !isFinite(it.odds)) ? -110 : it.odds;
+    const band = bands.find(b => o >= b.lo && o <= b.hi);
+    if (!band) continue;
+    band.beSum += impl(o);
+    if (it.result === 'win') band.wins++; else band.losses++;
+  }
+  const rows = bands.filter(b => b.wins + b.losses > 0).map(b => {
+    const n = b.wins + b.losses;
+    const actual = Math.round(100 * b.wins / n);
+    const be = Math.round(100 * b.beSum / n);
+    const ok = actual >= be;
+    return `<div class="ob-band-row" title="Win rate ${actual}% vs ${be}% needed to break even at these odds">
+      <span class="ob-band-label">${b.label}</span>
+      <span class="ob-band-bar">
+        <span class="ob-band-fill" style="width:${actual}%;background:${ok ? '#4ade80' : '#f87171'};"></span>
+        <span class="ob-band-be" style="left:${be}%;" title="Breakeven ${be}%"></span>
+      </span>
+      <span class="ob-band-rec">${b.wins}-${b.losses} · ${actual}%</span>
+    </div>`;
+  }).join('');
+  if (!rows) return `<div style="padding:10px 0;color:var(--muted);font-size:13px;">Settled bets land here, grouped by the odds you took. The tick on each bar is the win rate you need to break even.</div>`;
+  return rows + `<div style="padding-top:8px;font-size:11px;color:var(--muted);">Bar = your win rate. Tick = the win rate needed to break even at those odds.</div>`;
+}
+
+// Downside panel: the numbers winners watch. Cold streak mirrors hotStreakDays.
+function coldStreakDays(items) {
+  const m = new Map();
+  for (const it of items) {
+    if (it.result !== 'win' && it.result !== 'loss') continue;
+    const d = etDate(it.ts); if (!d) continue;
+    m.set(d, (m.get(d) || 0) + it.units);
+  }
+  const dates = [...m.keys()].sort();
+  let worst = 0, run = 0;
+  for (const d of dates) { if (m.get(d) < 0) { run++; worst = Math.max(worst, run); } else run = 0; }
+  return worst;
+}
+function maxDrawdownUnits(items) {
+  const sorted = items.slice().sort((a, b) => a.ts - b.ts);
+  let cum = 0, peak = 0, dd = 0;
+  for (const it of sorted) { cum += it.units; peak = Math.max(peak, cum); dd = Math.max(dd, peak - cum); }
+  return +dd.toFixed(2);
+}
+function worstWeekDollars(items) {
+  const m = new Map();
+  for (const it of items) {
+    if (it.result !== 'win' && it.result !== 'loss') continue;
+    const d = etDate(it.ts); if (!d) continue;
+    const wk = Math.floor(Date.parse(d + 'T00:00:00Z') / (7 * 864e5));
+    m.set(wk, (m.get(wk) || 0) + it.dollars);
+  }
+  let worst = 0;
+  for (const val of m.values()) worst = Math.min(worst, val);
+  return +worst.toFixed(2);
+}
+function downsideHtml(items) {
+  const dd = maxDrawdownUnits(items);
+  const cold = coldStreakDays(items);
+  const ww = worstWeekDollars(items);
+  const row = (label, val, sub) => `<div class="brk-row"><span class="brk-label">${label}</span><span class="brk-rec">${sub}</span><span class="brk-units">${val}</span></div>`;
+  return row('Max drawdown', dd > 0 ? `-${dd.toFixed(2)}u` : '0.00u', 'deepest dip from a peak')
+    + row('Coldest streak', `${cold} day${cold !== 1 ? 's' : ''}`, 'losing days in a row')
+    + row('Worst week', `${ww < 0 ? '-' : ''}$${Math.abs(ww).toFixed(2)}`, 'roughest 7-day stretch');
+}
+
+// Calendar heatmap: last 12 weeks of daily net units, GitHub-style.
+function heatmapHtml(items) {
+  const byDay = new Map();
+  for (const it of items) {
+    if (it.result !== 'win' && it.result !== 'loss' && it.result !== 'push') continue;
+    const d = etDate(it.ts); if (!d) continue;
+    byDay.set(d, (byDay.get(d) || 0) + it.units);
+  }
+  // Walk from the Sunday 11 weeks back through today (ET), one cell per day.
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - (77 + today.getDay()));
+  const cells = [];
+  const cur = new Date(start);
+  while (cur <= today) {
+    const key = cur.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const u = byDay.get(key);
+    let style = '';
+    if (u != null && u !== 0) {
+      const alpha = Math.min(0.9, 0.25 + Math.abs(u) / 3 * 0.65); // saturate at 3u
+      style = `background:${u > 0 ? `rgba(74,222,128,${alpha.toFixed(2)})` : `rgba(248,113,113,${alpha.toFixed(2)})`};`;
+    }
+    const label = new Date(cur).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    cells.push(`<span class="hm-cell" style="${style}" title="${label}${u != null ? ` · ${u >= 0 ? '+' : ''}${u.toFixed(2)}u` : ''}"></span>`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return `<div class="hm-grid">${cells.join('')}</div>
+    <div style="padding-top:8px;font-size:11px;color:var(--muted);">Each square is a day: green up, red down, deeper color means a bigger swing.</div>`;
+}
+
+// CLV card: the verified-picks edge signal, in plain English, with a distribution.
+function clvCardHtml(clv) {
+  if (!clv || !clv.n) {
+    return `<div style="padding:4px 0;color:var(--muted);font-size:13px;">Once your verified picks grade, we compare the number you took to where the line closed. Beating the close often signals real edge, win or lose.</div>`;
+  }
+  const avg = clv.avg == null ? 0 : clv.avg;
+  const read = avg >= 0
+    ? 'Getting a better number than the close tends to be the strongest sign of long-term edge.'
+    : 'Getting a worse number than the close tends to drag on results over time, so line shopping can help.';
+  const buckets = [
+    { label: '-10c+',  lo: -Infinity, hi: -10 },
+    { label: '-10 to -3', lo: -10, hi: -3 },
+    { label: 'even', lo: -3, hi: 3 },
+    { label: '+3 to +10', lo: 3, hi: 10 },
+    { label: '+10c+', lo: 10, hi: Infinity },
+  ].map(b => ({ ...b, n: 0 }));
+  for (const d of clv.diffs) {
+    const b = buckets.find(b => d > b.lo && d <= b.hi) || buckets[2];
+    b.n++;
+  }
+  const maxN = Math.max(1, ...buckets.map(b => b.n));
+  const bars = buckets.map((b, i) => `
+    <div class="clv-bar-wrap" title="${b.n} pick${b.n !== 1 ? 's' : ''}">
+      <span class="clv-bar" style="height:${Math.max(3, Math.round(44 * b.n / maxN))}px;background:${i < 2 ? '#f87171' : i === 2 ? 'var(--muted)' : '#4ade80'};"></span>
+      <span class="clv-bar-lbl">${b.label}</span>
+    </div>`).join('');
+  return `
+    <div style="font-size:13.5px;line-height:1.5;">You beat the closing line on <b>${clv.pct}%</b> of graded verified picks (${clv.good}/${clv.n}), averaging <b>${avg >= 0 ? '+' : ''}${avg} cents</b> of implied probability. ${read}</div>
+    <div class="clv-dist">${bars}</div>`;
+}
+
+// ── Global filters (sport + bet type) applied across the tracking analytics ────
+let _trackSportF = '', _trackTypeF = '';
+function applyTrackFilters(items) {
+  return items.filter(it =>
+    (!_trackSportF || it.sport === _trackSportF) &&
+    (!_trackTypeF || it.type === _trackTypeF));
+}
+export function setTrackFilter(kind, val) {
+  if (kind === 'sport') _trackSportF = val; else _trackTypeF = val;
+  recomputeTrackStats();
+}
+
 // ── Net Units cards (AN-style): net units at a glance across 4 timeframes ──────
 function startOfTodayTs() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function netUnitsCardsHtml(items) {
@@ -607,42 +802,89 @@ function performanceHtml(items, pending) {
 }
 // Cumulative P/L from the unified items (sorted by time), in the chosen metric.
 let trackChart = null;
-let _trackMetric = 'dollars'; // 'dollars' | 'units'
-function fmtMetric(v) { return _trackMetric === 'units' ? (v >= 0 ? '+' : '') + v.toFixed(2) + 'u' : (v >= 0 ? '+' : '') + '$' + v.toFixed(2); }
+let _trackMetric = 'dollars'; // 'dollars' | 'units' | 'bankroll'
+function fmtMetric(v) {
+  if (_trackMetric === 'bankroll') return '$' + v.toFixed(2);
+  return _trackMetric === 'units' ? (v >= 0 ? '+' : '') + v.toFixed(2) + 'u' : (v >= 0 ? '+' : '') + '$' + v.toFixed(2);
+}
 function drawTrackGraph(items) {
   const canvas = document.getElementById('voted-pl-chart');
   const label  = document.getElementById('voted-pl-total');
+  const empty  = document.getElementById('track-graph-empty');
   if (!canvas) return;
   const sorted = items.slice().sort((a, b) => a.ts - b.ts);
   if (sorted.length === 0) {
-    if (label) { label.textContent = _trackMetric === 'units' ? '0.00u' : '$0.00'; label.className = 'graph-pl-label'; }
+    if (label) {
+      label.textContent = _trackMetric === 'units' ? '0.00u'
+        : _trackMetric === 'bankroll' ? '$' + (Number(window._trackBankroll) || 0).toFixed(2) : '$0.00';
+      label.className = 'graph-pl-label';
+    }
     if (trackChart) { trackChart.destroy(); trackChart = null; }
+    // Teach on the very first visit (the intro card above carries the CTA button);
+    // a range with no bets just says so.
+    if (empty) {
+      const neverTracked = !(window._trackingVotes || []).length && !(window._trackingBets || []).length;
+      empty.innerHTML = neverTracked
+        ? `<div>Your P/L graph builds here once your first bet settles.</div>`
+        : `<div>No settled bets in this timeframe yet.</div>`;
+      empty.style.display = '';
+    }
     return;
   }
-  const field = _trackMetric === 'units' ? 'units' : 'dollars';
-  let cum = 0;
+  if (empty) empty.style.display = 'none';
+  const isBankroll = _trackMetric === 'bankroll';
+  const field = (!isBankroll && _trackMetric === 'units') ? 'units' : 'dollars';
+  const startBR = Number(window._trackBankroll) || 0;
+  let cum = isBankroll ? startBR : 0;
   const pts = sorted.map(it => { cum = +(cum + it[field]).toFixed(4); return +cum.toFixed(2); });
+  // Flat 1u pace: the same bets at a disciplined flat unit. Not shown on bankroll view.
+  let flatPts = null;
+  if (!isBankroll) {
+    const unit = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
+    let fc = 0;
+    flatPts = sorted.map(it => {
+      const fu = flatUnitsOf(it);
+      fc = +(fc + (_trackMetric === 'units' ? fu : fu * unit)).toFixed(4);
+      return +fc.toFixed(2);
+    });
+  }
+  // Running peak: the fill between it and the actual line shades every underwater stretch.
+  let pk = -Infinity;
+  const peakPts = pts.map(v => { pk = Math.max(pk, v); return +pk.toFixed(2); });
   const total = pts[pts.length - 1];
-  if (label) { label.textContent = fmtMetric(total); label.className = 'graph-pl-label ' + (total >= 0 ? 'pos' : 'neg'); }
+  if (label) {
+    label.textContent = fmtMetric(total);
+    label.className = 'graph-pl-label ' + ((isBankroll ? total >= startBR : total >= 0) ? 'pos' : 'neg');
+  }
   const css = getComputedStyle(document.documentElement);
   const tick = (css.getPropertyValue('--muted').trim()) || '#8892a4';
   const grid = (css.getPropertyValue('--grid-line').trim()) || 'rgba(255,255,255,0.05)';
-  const line = total >= 0 ? '#4ade80' : '#f87171';
+  const line = (isBankroll ? total >= startBR : total >= 0) ? '#4ade80' : '#f87171';
   const unitSuffix = _trackMetric === 'units' ? 'u' : '';
   const dollarPrefix = _trackMetric === 'units' ? '' : '$';
   if (trackChart) { trackChart.destroy(); trackChart = null; }
+  const datasets = [
+    { label: 'Actual', data: pts, borderColor: line, backgroundColor: line + '18', borderWidth: 2, pointRadius: pts.length > 40 ? 0 : 4, pointHoverRadius: 6, fill: true, tension: 0.2, order: 1 },
+    { label: 'Peak', data: peakPts, borderColor: 'rgba(248,113,113,0.35)', borderWidth: 1, borderDash: [3, 4], pointRadius: 0, pointHoverRadius: 0, tension: 0, order: 3,
+      fill: { target: 0, above: 'rgba(248,113,113,0.10)', below: 'rgba(0,0,0,0)' } },
+  ];
+  if (flatPts) datasets.push({ label: 'Flat 1u', data: flatPts, borderColor: 'rgba(96,165,250,0.75)', borderWidth: 1.5, borderDash: [6, 5], pointRadius: 0, pointHoverRadius: 4, fill: false, tension: 0.2, order: 2 });
   trackChart = new Chart(canvas, {
     type: 'line',
-    data: { labels: pts.map((_, i) => i + 1), datasets: [{ data: pts, borderColor: line, backgroundColor: line + '18', borderWidth: 2, pointRadius: pts.length > 40 ? 0 : 4, pointHoverRadius: 6, fill: true, tension: 0.2 }] },
+    data: { labels: pts.map((_, i) => i + 1), datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { title: () => '', label: i => fmtMetric(Number(i.raw)) } } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { filter: i => i.dataset.label !== 'Peak', callbacks: { title: () => '', label: i => `${i.dataset.label}: ${fmtMetric(Number(i.raw))}` } },
+      },
       scales: { x: { display: false }, y: { grid: { color: grid }, ticks: { color: tick, callback: v => dollarPrefix + v + unitSuffix } } },
     },
   });
 }
 export function setTrackMetric(m) {
-  _trackMetric = (m === 'units') ? 'units' : 'dollars';
+  _trackMetric = (m === 'units' || m === 'bankroll') ? m : 'dollars';
   document.querySelectorAll('[data-track-metric]').forEach(b => b.classList.toggle('active', b.dataset.trackMetric === _trackMetric));
   recomputeTrackStats();
 }
@@ -650,21 +892,31 @@ export function recomputeTrackStats() {
   const votes = window._trackingVotes || [];
   const bets  = window._trackingBets || [];
   const unit  = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
-  const all    = buildItems(votes, bets, unit);
-  const ranged = itemsInRange(all, _trackRange);
-  const pend   = pendingCount(votes, bets);
+  const all      = buildItems(votes, bets, unit);
+  const filtered = applyTrackFilters(all);           // global sport/type filters
+  const ranged   = itemsInRange(filtered, _trackRange);
+  const pend     = pendingCount(votes, bets);
   // Net Units cards show all 4 fixed timeframes (data-driven, not the dropdown).
   const nu = document.getElementById('track-nu');
-  if (nu) nu.innerHTML = netUnitsCardsHtml(all);
+  if (nu) nu.innerHTML = netUnitsCardsHtml(filtered);
   // Performance card follows the dropdown timeframe.
   const perf = document.getElementById('track-perf');
   if (perf) perf.innerHTML = performanceHtml(ranged, pend);
   // Hot streak / best week / CLV are all-time concepts.
   const extra = document.getElementById('track-extra');
-  if (extra) extra.innerHTML = trackExtraHtml(all, clvOf(votes));
+  if (extra) extra.innerHTML = trackExtraHtml(filtered, clvOf(votes));
   // Breakdown + graph follow the dropdown timeframe.
   const brk = document.getElementById('track-breakdown');
   if (brk) brk.innerHTML = breakdownHtml(ranged);
+  // Phase 2 analytics.
+  const bands = document.getElementById('track-bands');
+  if (bands) bands.innerHTML = oddsBandsHtml(ranged);
+  const down = document.getElementById('track-downside');
+  if (down) down.innerHTML = downsideHtml(filtered);
+  const hm = document.getElementById('track-heatmap');
+  if (hm) hm.innerHTML = heatmapHtml(filtered);
+  const clvEl = document.getElementById('track-clv');
+  if (clvEl) clvEl.innerHTML = clvCardHtml(clvOf(votes));
   drawTrackGraph(ranged);
 }
 export function setTrackRange(r) {
@@ -676,7 +928,7 @@ export function setTrackRange(r) {
 // ── My Tracking view ──────────────────────────────────────────────────────────
 function renderTracking(data) {
   const el = document.getElementById('tracking-content');
-  const { votes = [], friends = [], bets = [], unitSize } = data;
+  const { votes = [], friends = [], bets = [], unitSize, startingBankroll } = data;
   const unit = Number(unitSize) > 0 ? Number(unitSize) : 20;
 
   // Unified personal series: verified votes + settled custom bets.
@@ -688,6 +940,27 @@ function renderTracking(data) {
   window._trackingVotes  = votes;
   window._trackingBets   = bets;
   window._trackUnitSize  = unit;
+  window._trackBankroll  = Number(startingBankroll) || 0;
+
+  // Global filter options come from the sports/types actually in the data; keep a
+  // stale active filter visible (like the bet-history dropdown) instead of snapping.
+  const fSports = [...new Set(items.map(i => i.sport).filter(Boolean))].sort();
+  const fTypes  = [...new Set(items.map(i => i.type).filter(Boolean))].sort();
+  if (_trackSportF && !fSports.includes(_trackSportF)) fSports.push(_trackSportF);
+  if (_trackTypeF && !fTypes.includes(_trackTypeF)) fTypes.push(_trackTypeF);
+  const filterBar = items.length === 0 ? '' : `
+    <div class="track-filter-row account-reveal">
+      <span class="tfr-label">Filter</span>
+      <select class="perf-range" onchange="setTrackFilter('sport', this.value)">
+        <option value="">All sports</option>
+        ${fSports.map(s => `<option value="${s}"${_trackSportF === s ? ' selected' : ''}>${s}</option>`).join('')}
+      </select>
+      <select class="perf-range" onchange="setTrackFilter('type', this.value)">
+        <option value="">All bet types</option>
+        ${fTypes.map(t => `<option value="${t}"${_trackTypeF === t ? ' selected' : ''}>${t}</option>`).join('')}
+      </select>
+      <span class="tfr-note">Applies to the stats and charts below.</span>
+    </div>`;
 
   // Friends (followed members), each clickable into their profile.
   const friendsHtml = friends.length === 0
@@ -749,7 +1022,17 @@ function renderTracking(data) {
           </div>`;
       }).join('');
 
+  // Brand-new tracker: explain what the zeroed cards mean and hand them the first step.
+  const emptyIntro = (items.length === 0 && pend === 0)
+    ? `<div class="card account-reveal" style="margin-bottom:20px;padding:22px 20px;text-align:center;">
+        <div style="font-size:15px;font-weight:700;margin-bottom:4px;">Track your first bet to start your record</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">Tap a line on any game to track it verified, or log a custom bet. Your stats, record, and P/L graph build from there.</div>
+        <button class="track-submit" style="width:auto;padding:11px 20px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
+      </div>`
+    : '';
+
   el.innerHTML = `
+    ${emptyIntro}
     <div class="nu-row account-reveal" id="track-nu">${netUnitsCardsHtml(items)}</div>
     <div class="perf-card account-reveal">
       <div class="perf-head">
@@ -764,7 +1047,7 @@ function renderTracking(data) {
       <div class="perf-body" id="track-perf">${performanceHtml(items, pend)}</div>
     </div>
     <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
-
+    ${filterBar}
     <div class="account-reveal" style="display:flex;gap:14px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
       <div class="track-verified-note" style="margin-bottom:0;flex:1;min-width:240px;">
         <span class="tvn-badge" title="A verified pick is a side tracked on a real game at our recorded line. It grades automatically and is the only kind that counts on the leaderboard. Custom bets are personal only." style="cursor:help;">Verified</span>
@@ -773,7 +1056,7 @@ function renderTracking(data) {
       <button class="track-submit" style="width:auto;white-space:nowrap;padding:11px 18px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
     </div>
 
-    <div class="account-layout">
+    <div class="account-layout track-wide">
       <div>
         <div class="graph-card account-reveal" style="margin-bottom:20px;">
           <div class="graph-header">
@@ -782,6 +1065,7 @@ function renderTracking(data) {
               <div class="theme-toggle" style="padding:2px;">
                 <button class="theme-opt active" data-track-metric="dollars" style="padding:4px 11px;" onclick="setTrackMetric('dollars')">$</button>
                 <button class="theme-opt" data-track-metric="units" style="padding:4px 11px;" onclick="setTrackMetric('units')">Units</button>
+                <button class="theme-opt" data-track-metric="bankroll" style="padding:4px 11px;" onclick="setTrackMetric('bankroll')">Bankroll</button>
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:16px;">
@@ -799,7 +1083,25 @@ function renderTracking(data) {
           </div>
           <div class="graph-canvas-wrap">
             <canvas id="voted-pl-chart"></canvas>
+            <div class="graph-empty" id="track-graph-empty" style="display:none;"></div>
           </div>
+          ${items.length > 0 ? `<div class="graph-hint">Dashed blue = flat 1u pace. Red shading = below your running peak.</div>` : ''}
+        </div>
+
+        <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header">
+            <span class="card-title">Win Rate by Odds</span>
+            <span style="font-size:12px;color:var(--muted);">vs breakeven</span>
+          </div>
+          <div style="padding:12px 20px 16px;"><div id="track-bands">${oddsBandsHtml(items)}</div></div>
+        </div>
+
+        <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header">
+            <span class="card-title">Daily P/L</span>
+            <span style="font-size:12px;color:var(--muted);">last 12 weeks</span>
+          </div>
+          <div style="padding:14px 20px 16px;"><div id="track-heatmap">${heatmapHtml(items)}</div></div>
         </div>
 
         <div class="card account-reveal">
@@ -822,6 +1124,22 @@ function renderTracking(data) {
       </div>
 
       <div>
+        <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header">
+            <span class="card-title">Closing Line Value</span>
+            <span style="font-size:12px;color:var(--muted);">verified picks</span>
+          </div>
+          <div style="padding:12px 20px 16px;"><div id="track-clv">${clvCardHtml(clvOf(votes))}</div></div>
+        </div>
+
+        <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header">
+            <span class="card-title">Downside</span>
+            <span style="font-size:12px;color:var(--muted);">risk check</span>
+          </div>
+          <div style="padding:8px 20px 12px;"><div id="track-downside">${downsideHtml(items)}</div></div>
+        </div>
+
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header">
             <span class="card-title">Breakdown</span>
@@ -889,7 +1207,7 @@ function renderSettings(data) {
     : `<div style="display:flex;gap:8px;margin-top:8px;">
         <input type="text" id="change-username-input" placeholder="${user.username || 'Choose a username'}"
                maxlength="20" style="flex:1;font-size:13px;" />
-        <button class="btn btn-ghost" style="font-size:13px;padding:6px 12px;" onclick="changeUsername()">Save</button>
+        <button class="btn btn-ghost" style="font-size:13px;padding:6px 12px;" onclick="changeUsername(this)">Save</button>
        </div>
        <div class="form-error" id="change-username-error" style="font-size:12px;margin-top:4px;"></div>
        <div id="change-username-ok" style="font-size:12px;color:var(--green);margin-top:4px;display:none;"></div>`;
@@ -1027,7 +1345,7 @@ function renderSettings(data) {
               <div class="field-hint">Used as the starting point for bankroll-over-time tracking (coming soon).</div>
             </div>
             <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
-              <button class="sport-pill-save" onclick="saveBankroll()">Save</button>
+              <button class="sport-pill-save" onclick="saveBankroll(this)">Save</button>
               <span class="sport-pill-saved" id="bankroll-saved" style="display:none;">Saved!</span>
             </div>
           </div>
@@ -1048,7 +1366,7 @@ function renderSettings(data) {
             <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick your sports to filter your personal feed.</div>
             <div class="sport-pill-grid" id="fav-sport-pills">${pillsHtml}</div>
             <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
-              <button class="sport-pill-save" onclick="saveFavSports()">Save</button>
+              <button class="sport-pill-save" onclick="saveFavSports(this)">Save</button>
               <span class="sport-pill-saved" id="fav-saved-msg" style="display:none;">Saved!</span>
             </div>
           </div>
@@ -1138,5 +1456,5 @@ Object.assign(window, {
   deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
-  showLeaderboardInfo,
+  showLeaderboardInfo, setTrackFilter,
 });

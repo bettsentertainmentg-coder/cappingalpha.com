@@ -529,6 +529,10 @@ try { db.exec(`ALTER TABLE dummy_settings ADD COLUMN comments TEXT NOT NULL DEFA
 // Speeds up per-window leaderboard aggregates (filter by result + voted_at, group by user).
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_result_voted ON game_votes (user_id, result, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_votes (result, voted_at)`); } catch (_) {}
+// /api/account lists a user's votes ordered by voted_at (no result filter), and the
+// bet-history sport filter hits user_bets by (user_id, sport).
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_voted ON game_votes (user_id, voted_at)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_user_sport ON user_bets (user_id, sport)`); } catch (_) {}
 // Permanent record of weekly/monthly leaderboard finishes (top 10) → drives profile
 // badges. Never wiped. tier: gold (#1), silver (top 5), bronze (top 10).
 try {

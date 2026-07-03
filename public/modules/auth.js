@@ -21,6 +21,10 @@ export async function checkAuth() {
     const res  = await fetch('/auth/me');
     const data = await res.json();
     state.currentUser = data.user;
+    // Preload the unit size at boot so the Track FAB's default stake is the user's
+    // real unit, not the hardcoded $20 fallback (it used to load only once the
+    // Tracking tab had been opened).
+    if (data.user && data.user.unit_size != null) window._trackUnitSize = Number(data.user.unit_size);
   } catch (_) {
     state.currentUser = null;
   }

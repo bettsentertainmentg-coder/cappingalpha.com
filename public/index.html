@@ -160,8 +160,16 @@
       /* env() is 0 in normal browsers (so this stays 24px); respects the notch on an installed app. */
       padding: 0 max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
       height: 56px;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
+      /* Real blue-velvet photo as the top bar, with a soft dark scrim so the nav text
+         stays readable over the bright velvet highlights. */
+      background-color: #0b1d49;
+      background-image:
+        linear-gradient(180deg, rgba(7,14,36,0.34), rgba(7,14,36,0.50)),
+        url("/velvet-bar.png?v=3");
+      background-size: cover, cover;
+      background-position: center, center;
+      background-repeat: no-repeat, no-repeat;
+      border-bottom: 1px solid rgba(120,150,220,0.25);
       position: sticky;
       top: 0;
       z-index: 100;
@@ -446,6 +454,8 @@
     .ob-caline-tag { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #a78bfa; }
     .ob-caline-tag.live { color: #38bdf8; }
     .ob-bolt { color: #38bdf8; font-size: 11px; margin-right: 5px; }
+    /* Live-odds marker: a pulsing dot, distinct from the free-bet bolt */
+    .ob-livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; margin-right: 6px; vertical-align: middle; animation: pulse 1.6s ease-in-out infinite; }
     .ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
 
     /* Confirmation slide (tap a line -> configure -> Track Bet) */
@@ -560,12 +570,13 @@
     /* ── Nav tabs ── */
     .nav-tabs { display: flex; align-items: stretch; gap: 24px; }
     .tab-btn {
-      background: none; border: none; color: var(--muted);
+      background: none; border: none; color: #c8d4ee; /* readable on the velvet bar */
       font-family: inherit; font-size: 14px; font-weight: 600;
       padding: 0; cursor: pointer;
       border-bottom: 2px solid transparent;
       transition: color 0.15s, border-color 0.15s;
       white-space: nowrap; display: flex; align-items: center;
+      text-shadow: 0 1px 2px rgba(4,10,26,0.6); /* legibility over the textured velvet */
     }
     .tab-btn:hover { color: var(--text); }
     .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -905,6 +916,29 @@
     }
     .unit-input-row input:focus { outline: none; border-color: var(--accent); }
     .graph-canvas-wrap { position: relative; height: 240px; }
+    /* Empty-state overlay on the P/L graph (teaches new users, notes empty timeframes) */
+    .graph-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; font-size: 13.5px; color: var(--muted); padding: 12px; }
+    .graph-hint { font-size: 11px; color: var(--muted); padding: 8px 2px 0; }
+    /* Global tracking filters (sport + bet type) */
+    .track-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .track-filter-row .tfr-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .track-filter-row .tfr-note { font-size: 11.5px; color: var(--muted); }
+    /* Win Rate by Odds bands */
+    .ob-band-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+    .ob-band-row:last-of-type { border-bottom: none; }
+    .ob-band-label { width: 108px; flex-shrink: 0; color: var(--muted); }
+    .ob-band-bar { flex: 1; position: relative; height: 10px; background: var(--surface2); border-radius: 5px; }
+    .ob-band-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; opacity: .85; }
+    .ob-band-be { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .65; border-radius: 1px; }
+    .ob-band-rec { width: 92px; flex-shrink: 0; text-align: right; font-weight: 600; }
+    /* Daily P/L calendar heatmap */
+    .hm-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); grid-auto-columns: 12px; gap: 3px; overflow-x: auto; padding-bottom: 2px; }
+    .hm-cell { width: 12px; height: 12px; border-radius: 3px; background: var(--surface2); }
+    /* CLV distribution */
+    .clv-dist { display: flex; align-items: flex-end; gap: 6px; height: 66px; margin-top: 12px; }
+    .clv-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+    .clv-bar { width: 100%; max-width: 44px; border-radius: 3px 3px 0 0; }
+    .clv-bar-lbl { font-size: 9.5px; color: var(--muted); white-space: nowrap; }
     .graph-pl-label { font-size: 18px; font-weight: 700; }
     .graph-pl-label.pos { color: var(--green); }
     .graph-pl-label.neg { color: var(--red); }
@@ -1330,7 +1364,9 @@
 
     /* ── My Account tab ── */
     .account-layout { display: grid; grid-template-columns: 280px 1fr; gap: 24px; align-items: start; }
-    @media (max-width: 860px) { .account-layout { grid-template-columns: 1fr; } }
+    /* My Tracking flips the grid: the P/L graph is the hero, the sidebar holds the lists */
+    .account-layout.track-wide { grid-template-columns: minmax(0, 1fr) 320px; }
+    @media (max-width: 860px) { .account-layout, .account-layout.track-wide { grid-template-columns: 1fr; } }
 
     .account-section-title {
       font-size: 11px; font-weight: 700; text-transform: uppercase;
@@ -2750,6 +2786,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=46"></script>
+  <script type="module" src="app.js?v=48"></script>
 </body>
 </html>

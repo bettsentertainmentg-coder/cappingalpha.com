@@ -26,6 +26,8 @@ function unitSize() { return Number(window._trackUnitSize) > 0 ? Number(window._
 export function showToast(msg, kind) {
   let host = document.getElementById('ca-toast-host');
   if (!host) { host = document.createElement('div'); host.id = 'ca-toast-host'; document.body.appendChild(host); }
+  // One toast at a time — rapid actions replace the previous message instead of stacking.
+  host.querySelectorAll('.ca-toast').forEach(el => el.remove());
   const t = document.createElement('div');
   t.className = 'ca-toast' + (kind === 'err' ? ' err' : '');
   t.textContent = msg;
@@ -124,9 +126,14 @@ function renderBets() {
   };
   let rows;
   if (filtered.length === 0) {
+    // An active sport filter with zero matches gets a one-tap way out instead of a dead end.
+    const clearBtn = _filters.sport
+      ? ` <button class="bet-settle-btn push" style="margin-left:8px;" onclick="setBetFilter('sport','')">Show all sports</button>`
+      : '';
+    const safeSport = String(_filters.sport || '').replace(/[^A-Za-z0-9 ]/g, ''); // never inject markup
     rows = `<div style="padding:26px 20px;color:var(--muted);font-size:14px;">${_bets.length === 0
       ? 'No custom bets yet. Tap "Track a Bet" to log one.'
-      : 'No bets match this filter.'}</div>`;
+      : `No${safeSport ? ' ' + safeSport : ''} bets match this filter.${clearBtn}`}</div>`;
   } else {
     const groups = []; const idx = new Map();
     for (const b of filtered) {
@@ -183,15 +190,26 @@ export async function deleteBetUI(id) {
     else showToast('Could not delete.', 'err');
   } catch (_) { showToast('Network error. Try again.', 'err'); }
 }
-// Inline two-step confirm (no native dialog).
+// Inline two-step confirm (no native dialog). The delete button hides and a confirm
+// row appears in its place; Cancel restores the button without re-rendering the sheet.
 export function confirmDeleteBet(id) {
-  const el = document.getElementById('bd-delete-area');
-  if (!el) { deleteBetUI(id); return; }
-  el.outerHTML = `<div class="bd-confirm" id="bd-delete-area">
+  const btn = document.getElementById('bd-delete-area');
+  if (!btn) { deleteBetUI(id); return; }
+  if (document.getElementById('bd-confirm-row')) return; // already confirming
+  // Insert the confirm row FIRST, hide the button after — if the insert ever fails,
+  // the delete button is still there instead of stranding the user.
+  btn.insertAdjacentHTML('afterend', `<div class="bd-confirm" id="bd-confirm-row" role="alertdialog" aria-label="Confirm delete">
     <span>Delete this bet?</span>
     <button class="bet-settle-btn loss" onclick="deleteBetUI(${id})">Delete</button>
-    <button class="bet-settle-btn push" onclick="openBetDetail(${id})">Cancel</button>
-  </div>`;
+    <button class="bet-settle-btn push" onclick="cancelDeleteBet()">Cancel</button>
+  </div>`);
+  btn.style.display = 'none';
+  document.querySelector('#bd-confirm-row .bet-settle-btn.push')?.focus();
+}
+export function cancelDeleteBet() {
+  document.getElementById('bd-confirm-row')?.remove();
+  const btn = document.getElementById('bd-delete-area');
+  if (btn) { btn.style.display = ''; btn.focus(); }
 }
 
 // Re-pull the whole tracking view after a mutation so stats + lists stay in sync.
@@ -609,7 +627,9 @@ function renderOddsBoard() {
       if (dk.ou_under_odds != null) g.ou_under_odds = dk.ou_under_odds;
     }
   }
-  const bolt = live ? '<i class="fa-solid fa-bolt ob-bolt" title="Live odds right now"></i>' : '';
+  // Live odds get a pulsing dot, NOT the bolt — the bolt is the free-bet mark everywhere
+  // else, and doubling it up read as "this line is a free bet".
+  const bolt = live ? '<span class="ob-livedot" title="Live odds right now"></span>' : '';
 
   // Tap a line -> the confirmation slide. `numOdds` is the raw number (or null).
   const line = (slot, label, numOdds, disabled) => `
@@ -652,7 +672,7 @@ function renderOddsBoard() {
     <div class="track-form-note">${finished
       ? 'This game is final, so tracking is closed. Use Custom bet to log it.'
       : live
-        ? `<i class="fa-solid fa-bolt ob-bolt"></i> Live odds — tap a line to track it at the live number, graded automatically.`
+        ? `<span class="ob-livedot"></span> Live odds. Tap a line to track it at the live number, graded automatically.`
         : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
     ${finished ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
@@ -696,6 +716,12 @@ let _confirm = null;
 const VERIFY_TOL = 0.09; // 9% outside the book range still counts (Jack's rule)
 
 function americanToDecimal(a) { a = Number(a); if (!isFinite(a) || a === 0) return null; return a < 0 ? 1 + 100 / Math.abs(a) : 1 + a / 100; }
+function decimalToAmerican(d) {
+  d = Number(d);
+  if (!isFinite(d) || d <= 1) return null;
+  return d >= 2 ? Math.round((d - 1) * 100) : -Math.round(100 / (d - 1));
+}
+const fmtAm = a => (a == null ? '—' : a > 0 ? '+' + a : '' + a);
 function rangeOf(nums) {
   const v = nums.filter(n => n != null && isFinite(n));
   if (!v.length) return null;
@@ -819,7 +845,7 @@ function renderConfirmBooks() {
   const lineStr = (ln) => {
     if (ln == null) return '';
     if (c.isSpread) return ln > 0 ? '+' + ln : '' + ln;
-    if (c.isTotal)  return (c.slot === 'over' ? 'o' : 'u') + ln;
+    if (c.isTotal)  return (c.slot === 'over' ? 'Over ' : 'Under ') + ln; // "o9" read as a mystery code
     return '';
   };
   // The line/total goes first, a separator, then the odds (e.g. "+1.5 · -110", "o9 · -117").
@@ -891,33 +917,45 @@ function syncSignPrefix() {
 // the books we track (±9% on decimal odds). Risk is NOT a factor: any verified bet counts
 // as a flat 1 unit at the CA line on the leaderboard no matter what you wager — your Risk /
 // To Win are just your own numbers for personal tracking. A free bet is personal-only.
-function confirmIsVerified() {
-  const c = _confirm; if (!c) return false;
-  if (c.freeBet) return false;
+// Why (or why not) the current ticket verifies. Returns null when verified, otherwise
+// a plain-English reason with the actual numbers so the 9% rule is never a mystery.
+function confirmVerifyIssue() {
+  const c = _confirm; if (!c) return 'not-ready';
+  if (c.freeBet) return 'free';
   const odds = parseFloat(document.getElementById('lc-odds')?.value);
-  if (!isFinite(odds) || odds === 0) return false;
+  if (!isFinite(odds) || odds === 0) return 'Enter odds to see if this bet verifies.';
   const dec = americanToDecimal(odds);
-  if (!c.oddsRange || dec == null) return false;
-  if (!(dec >= c.oddsRange.lo * (1 - VERIFY_TOL) && dec <= c.oddsRange.hi * (1 + VERIFY_TOL))) return false;
+  if (!c.oddsRange || dec == null) return 'No book odds to verify against, so this tracks as a personal bet.';
+  const oLo = c.oddsRange.lo * (1 - VERIFY_TOL), oHi = c.oddsRange.hi * (1 + VERIFY_TOL);
+  if (!(dec >= oLo && dec <= oHi)) {
+    return `Your odds (${fmtAm(odds)}) are outside the book range (${fmtAm(decimalToAmerican(oLo))} to ${fmtAm(decimalToAmerican(oHi))}), so this tracks as a personal bet.`;
+  }
   if (c.hasLine) {                                                // spread/total: line must be in range too
     const ln = parseFloat(document.getElementById('lc-line')?.value);
-    if (!isFinite(ln) || !c.lineRange) return false;
+    if (!isFinite(ln)) return 'Enter a line to see if this bet verifies.';
+    if (!c.lineRange) return 'No book line to verify against, so this tracks as a personal bet.';
     const pad = v => VERIFY_TOL * Math.abs(v);
-    if (!(ln >= c.lineRange.lo - pad(c.lineRange.lo) && ln <= c.lineRange.hi + pad(c.lineRange.hi))) return false;
+    const lLo = c.lineRange.lo - pad(c.lineRange.lo), lHi = c.lineRange.hi + pad(c.lineRange.hi);
+    if (!(ln >= lLo && ln <= lHi)) {
+      const f = v => +v.toFixed(1);
+      return `Your line (${ln > 0 && c.isSpread ? '+' + ln : ln}) is outside the book range (${f(lLo)} to ${f(lHi)}), so this tracks as a personal bet.`;
+    }
   }
-  return true;
+  return null;
 }
+function confirmIsVerified() { return confirmVerifyIssue() === null; }
 function updateConfirmMode() {
   const c = _confirm; if (!c) return;
-  c.verified = confirmIsVerified();
+  const issue = confirmVerifyIssue();
+  c.verified = issue === null;
   const mode = document.getElementById('lc-mode');
   if (mode) {
     mode.className = 'lc-mode' + (c.verified ? '' : ' lc-mode-custom');
     mode.innerHTML = c.verified
-      ? '<i class="fa-solid fa-circle-check"></i> Verified — 1 unit at the CA line on the leaderboard.'
-      : c.freeBet
-        ? "Free bet — personal only. A loss won't count, a win will. Not on the leaderboard."
-        : 'Off the book range — tracked as a personal bet only, not on the leaderboard.';
+      ? '<i class="fa-solid fa-circle-check"></i> Verified: 1 unit at the CA line on the leaderboard.'
+      : issue === 'free'
+        ? 'Free bet, personal only. A loss costs nothing but still counts in your record. Not on the leaderboard.'
+        : `${issue} Not on the leaderboard.`;
   }
   refreshBookHighlight();
 }
@@ -1144,7 +1182,7 @@ Object.assign(window, {
   setFormField, setFormBook, updatePayoutPreview, submitCustomBet,
   setBetFilter, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
-  openBetDetail, saveBetEdit, confirmDeleteBet,
+  openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
   toggleConfirmFreeBet, toggleAddNote,
