@@ -10,7 +10,7 @@ import { state } from './state.js';
 import { sportBadge } from './utils.js?v=1';
 
 const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
-const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'WCBB', 'Boxing'];
+const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'MMA', 'WCBB', 'Boxing', 'F1', 'NASCAR', 'Cricket', 'Rugby'];
 
 let _bets      = [];
 let _betsTotal = 0;
@@ -767,12 +767,13 @@ function renderTrackGames() {
     const away = nameOf(g.away_team, g.sport);
     const home = nameOf(g.home_team, g.sport);
     const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
+    const isEventRow = !away; // races and other single-entry events: just the name
     const status = cust
       ? (g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}` : time)
       : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
       : time;
-    const matchup = `${away} @ ${home}`;
+    const matchup = isEventRow ? home : `${away} @ ${home}`;
     const onclick = cust
       ? `trackFutureGame('${(g.sport || '').toUpperCase()}','${matchup.replace(/'/g, "\\'")}')`
       : `pickTrackGame('${g.espn_game_id}')`;

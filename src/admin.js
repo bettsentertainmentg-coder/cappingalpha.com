@@ -9,7 +9,7 @@ const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
-const { storeEngineBookLines } = require('./odds_ingest');
+const { storeEngineBookLines, storeEngineEvents, OFFSHORE_BOOKS } = require('./odds_ingest');
 const { recordHeartbeat, getHealthSnapshot } = require('./ops_health');
 const { normalizeCapper } = require('./storage');
 const dummyAccounts = require('./dummy_accounts');
@@ -3209,6 +3209,69 @@ router.post('/ingest-book-lines', (req, res) => {
     }
   }
 );
+
+// ── POST /admin/ingest-engine-events — Boxing/MMA cards from the engine (HMAC) ─
+router.post('/ingest-engine-events', (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const canonical = JSON.stringify(req.body);
+    const sig        = req.headers['x-relay-signature'] || '';
+    const expected   = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+    const sigBuf     = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf     = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    const { events } = req.body;
+    if (!Array.isArray(events)) return res.status(400).send('Invalid payload');
+    try {
+      const out = storeEngineEvents(events);
+      res.json(out);
+    } catch (err) {
+      console.error('[relay] engine-events ingest error:', err.message);
+      res.status(500).send('Store failed');
+    }
+  }
+);
+
+// ── JSON APIs for the desktop ops console ─────────────────────────────────────
+router.get('/api/health.json', requireAuth, (_req, res) => {
+  try { res.json(getHealthSnapshot()); }
+  catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Per-book coverage: which sports, how many games, how fresh, which markets.
+router.get('/api/books.json', requireAuth, (_req, res) => {
+  try {
+    const ageMin = (t) => {
+      if (!t) return null;
+      const ms = Date.parse(String(t).replace(' ', 'T') + 'Z');
+      return isNaN(ms) ? null : Math.round((Date.now() - ms) / 60000);
+    };
+    const books = db.prepare(`
+      SELECT book, COUNT(*) total_games, MAX(updated_at) newest,
+             ROUND(100.0 * SUM(ml_home IS NOT NULL) / COUNT(*)) ml_pct,
+             ROUND(100.0 * SUM(spread_home IS NOT NULL) / COUNT(*)) spread_pct,
+             ROUND(100.0 * SUM(over_under IS NOT NULL) / COUNT(*)) total_pct
+      FROM book_lines GROUP BY book ORDER BY book
+    `).all().map(b => ({
+      book: b.book,
+      offshore: OFFSHORE_BOOKS.has(b.book),
+      total_games: b.total_games,
+      newest: b.newest,
+      ageMin: ageMin(b.newest),
+      markets: { ml_pct: b.ml_pct, spread_pct: b.spread_pct, total_pct: b.total_pct },
+      sports: db.prepare(`
+        SELECT tg.sport, COUNT(*) games, MAX(bl.updated_at) newest
+        FROM book_lines bl JOIN today_games tg USING (espn_game_id)
+        WHERE bl.book = ? GROUP BY tg.sport ORDER BY tg.sport
+      `).all(b.book).map(s => ({ sport: s.sport, games: s.games, newest: s.newest, ageMin: ageMin(s.newest) })),
+    }));
+    res.json({ books, generatedAt: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 // ── POST /admin/ingest-heartbeat — Mac service check-ins (HMAC) ───────────────
 // Body: { service: 'odds-engine', meta: { interval_min, cycle stats... } }

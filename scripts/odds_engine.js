@@ -32,7 +32,8 @@ const crypto = require('crypto');
 const RELAY_SECRET = process.env.RELAY_SECRET;
 const RAILWAY_URL  = (process.env.RAILWAY_URL || '').replace(/\/$/, '');
 const INTERVAL_MS  = Math.max(2, parseInt(process.env.ODDS_ENGINE_INTERVAL_MIN || '5', 10)) * 60 * 1000;
-const BOOKS        = (process.env.ODDS_ENGINE_BOOKS || 'bovada,draftkings').split(',').map(s => s.trim().toLowerCase());
+const BOOKS        = (process.env.ODDS_ENGINE_BOOKS || 'bovada,draftkings,fanduel,betrivers,pinnacle,caesars,hardrock,betonline,thunderpick')
+  .split(',').map(s => s.trim().toLowerCase());
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
@@ -123,6 +124,38 @@ async function fetchBovada() {
   return rows;
 }
 
+// ── Bovada event feed: sports ESPN has no scoreboard for ─────────────────────
+// Boxing and non-UFC MMA cards exist on Bovada but not on ESPN's free API, so the
+// engine relays the EVENTS themselves (who fights whom, when) and the betslip's
+// game picker lists them as custom-only entries.
+const EVENT_FEEDS = { Boxing: 'boxing', MMA: 'ufc-mma' };
+
+async function fetchBovadaEvents() {
+  const events = [];
+  for (const [sport, path] of Object.entries(EVENT_FEEDS)) {
+    try {
+      const groups = await getJson(`https://www.bovada.lv/services/sports/event/coupon/events/A/description/${path}?marketFilterId=def&preMatchOnly=false&lang=en`);
+      if (!Array.isArray(groups)) continue;
+      for (const grp of groups) {
+        for (const ev of grp.events || []) {
+          const parts = String(ev.description || '').split(/\s+vs\.?\s+/i);
+          if (parts.length !== 2) continue;
+          events.push({
+            sport,
+            away_team: parts[0].trim().slice(0, 80),
+            home_team: parts[1].trim().slice(0, 80),
+            start_time: ev.startTime ? new Date(ev.startTime).toISOString() : null,
+          });
+        }
+      }
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) console.warn(`[bovada-events] ${sport}: ${err.message}`);
+    }
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  return events;
+}
+
 // ── Adapter: DraftKings (public eventgroups JSON) ─────────────────────────────
 // Group ids drift when DK reshuffles; failures are visible on /admin/health.
 const DK_GROUPS = { MLB: 84240, NBA: 42648, NHL: 42133, NFL: 88808, WNBA: 94682, CBB: 92483, NCAAF: 87637 };
@@ -202,7 +235,11 @@ async function relay(path, payload) {
   return r.json().catch(() => ({}));
 }
 
-const ADAPTERS = { bovada: fetchBovada, draftkings: fetchDraftKings };
+// scripts/odds_adapters.js carries the researched per-book adapters (betrivers,
+// pinnacle, fanduel, the working nash-API draftkings, plus honest blocked stubs
+// for caesars/hardrock/betonline/thunderpick). Its draftkings replaces the inline
+// v5 one, which the books 403.
+const ADAPTERS = { bovada: fetchBovada, draftkings: fetchDraftKings, ...require('./odds_adapters') };
 
 async function cycle() {
   const stats = { interval_min: Math.round(INTERVAL_MS / 60000), adapters: {} };
@@ -218,6 +255,17 @@ async function cycle() {
       stats.adapters[book] = { error: err.message.slice(0, 120) };
     }
   }
+  // Fight-card events (Boxing + MMA) ride along each cycle.
+  try {
+    const events = await fetchBovadaEvents();
+    if (events.length) {
+      const out = await relay('/admin/ingest-engine-events', { events });
+      stats.events = { sent: events.length, stored: out.stored };
+    }
+  } catch (err) {
+    stats.events = { error: err.message.slice(0, 120) };
+  }
+
   try {
     if (all.length) {
       const out = await relay('/admin/ingest-book-lines', { rows: all });

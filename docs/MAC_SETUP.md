@@ -8,6 +8,7 @@ Everything CappingAlpha runs on the Mac Mini, and how to bring it all up on a ne
 |---|---|---|---|
 | odds-engine | scripts/odds_engine.js | CA Odds Engine: public Bovada (all sports) + DraftKings odds, normalized, relayed to book_lines on the site | Every 5 min |
 | pb-relay | scripts/pb_relay.js | ActionNetwork public betting % + Bovada tennis lines relay | Hourly |
+| ops-app | ops/server.js | Desktop ops console backend; the "CA Ops" app on the Desktop opens its UI (127.0.0.1:4300) | Always on |
 | capperboss | index.js | Local dev instance of the site (UI_ONLY, prod mirror) | Always on |
 | cappingalpha-studio | ~/projects/cappingalpha-studio | Marketing Studio (shorts from real picks), port 4100 | Always on |
 | MVP backup | scripts/backup-mvp.sh | Pulls the server's MVP history to the Mac as a backup | Manual (run after big days or redeploys) |
@@ -36,17 +37,25 @@ Every relay service reports a heartbeat to the site each cycle. Check `/admin/he
 | ODDS_ENGINE_BOOKS | odds-engine | Optional, default bovada,draftkings |
 | UI_ONLY=1 | capperboss (local dev) | Keeps the local instance off paid APIs |
 | MIRROR_PROD | capperboss (local dev) | Optional; proxies read-only GETs to prod for real data |
-| ADMIN_PASSWORD | backup-mvp.sh | Must match Railway's |
+| ADMIN_PASSWORD | backup-mvp.sh, ops-app | Must match Railway's |
+| OPS_SITE_URL | ops-app | Which site the console reads: http://localhost:3001 now, https://cappingalpha.com after ship |
+
+To recreate the Desktop icon on a new Mac:
+
+    osacompile -o ~/Desktop/"CA Ops.app" -e 'do shell script "open -na \"Google Chrome\" --args --app=http://127.0.0.1:4300"'
 
 Gotcha from the old machine: on the current Mac Mini, ALL of these vars actually live in `~/Projects/AgentOSO/.env` and the repo's own `.env` is empty. pb_relay.js and odds_engine.js read the AgentOSO file first, then the local `.env` for anything missing. On a new machine you do not need AgentOSO at all: put every var straight into `capperboss/.env` and the same code finds them there. When migrating, copy the values out of `~/Projects/AgentOSO/.env`.
 
 ## Until the bet-tracking branch ships
 
-Production does not have the /admin/ingest-book-lines and /admin/ingest-heartbeat routes until the big ship, so odds-engine currently runs pointed at the LOCAL instance (started with RAILWAY_URL=http://localhost:3001 in its pm2 env). On ship day, repoint it at production:
+Production does not have the /admin/ingest-book-lines and /admin/ingest-heartbeat routes until the big ship, so odds-engine and ops-app currently run pointed at the LOCAL instance (RAILWAY_URL / OPS_SITE_URL = http://localhost:3001 in their pm2 env). On ship day, repoint BOTH at production:
 
-    pm2 delete odds-engine && pm2 start ecosystem.config.js --only odds-engine && pm2 save
+    1. Add to .env: OPS_SITE_URL=https://cappingalpha.com
+    2. pm2 delete odds-engine ops-app
+    3. pm2 start ecosystem.config.js --only odds-engine --only ops-app
+    4. pm2 save
 
-That picks RAILWAY_URL back up from .env (cappingalpha.com) and the engine starts feeding the live site.
+odds-engine picks RAILWAY_URL back up from .env (cappingalpha.com); ops-app reads the new OPS_SITE_URL. Both start feeding from and reporting on the live site.
 
 ## Day-to-day
 

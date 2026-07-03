@@ -1305,11 +1305,22 @@ function renderLines() {
     over_under: game.over_under,   ou_over_odds: game.ou_over_odds, ou_under_odds: game.ou_under_odds,
   };
 
+  // Every book the odds engine or the crons have stored appears here. Regulated
+  // books first; offshore books group after them with a visible tag (their lines
+  // are shown as information only, never linked).
+  const OFFSHORE = new Set(['bovada', 'betonline', 'mybookie', 'betus', 'thunderpick', 'pinnacle']);
+  const BOOK_LABEL = { draftkings: 'DraftKings', fanduel: 'FanDuel', betrivers: 'BetRivers', caesars: 'Caesars', betmgm: 'BetMGM', hardrock: 'Hard Rock', bovada: 'Bovada', betonline: 'BetOnline', pinnacle: 'Pinnacle', thunderpick: 'Thunderpick' };
+  const label = (k) => BOOK_LABEL[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+  const offTag = `<span class="ca-lt-offshore" title="Offshore book. Line shown for information only.">offshore</span>`;
+
   const rows = [
     { book: 'Open (ESPN)', src: openGame,     prev: null },
     { book: 'DraftKings',  src: dk,           prev: dk   },
     { book: 'FanDuel',     src: fd,           prev: null },
   ];
+  const extraKeys = Object.keys(lines || {}).filter(k => k !== 'draftkings' && k !== 'fanduel');
+  for (const k of extraKeys.filter(k => !OFFSHORE.has(k)).sort()) rows.push({ book: label(k), src: lines[k], prev: null });
+  for (const k of extraKeys.filter(k => OFFSHORE.has(k)).sort())  rows.push({ book: `${label(k)} ${offTag}`, src: lines[k], prev: null });
 
   const hasAny = rows.some(r => awayFn(r.src) != null || homeFn(r.src) != null);
   if (!hasAny) {

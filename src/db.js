@@ -545,6 +545,23 @@ try {
     )`);
 } catch (_) {}
 
+// Events relayed by the odds engine for sports ESPN has no free scoreboard for
+// (boxing, non-UFC MMA). Feeds the betslip's game picker as custom-only entries.
+// Refreshed every engine cycle; old rows pruned on ingest.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS engine_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      sport      TEXT NOT NULL,
+      home_team  TEXT NOT NULL,
+      away_team  TEXT NOT NULL,
+      start_time TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(sport, home_team, away_team)
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_engine_events_start ON engine_events (start_time)`);
+} catch (_) {}
+
 // Web-push subscriptions (one row per device endpoint per user) — never wiped.
 try {
   db.exec(`

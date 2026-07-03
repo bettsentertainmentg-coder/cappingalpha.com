@@ -44,6 +44,19 @@ module.exports = {
       }
     },
     {
+      // Desktop ops console backend (the "CA Ops" app on the Desktop opens it).
+      // Localhost-only listener on port 4300; UI at http://127.0.0.1:4300.
+      name: 'ops-app',
+      script: 'ops/server.js',
+      cwd: __dirname,
+      watch: false,
+      autorestart: true,
+      restart_delay: 5000,
+      env: {
+        NODE_ENV: 'production'
+      }
+    },
+    {
       // Marketing Studio (separate repo). Comment this block out on machines
       // that don't have ~/projects/cappingalpha-studio checked out.
       name: 'cappingalpha-studio',

@@ -123,24 +123,25 @@ function getLinesForGame(espn_game_id) {
     `SELECT * FROM book_lines WHERE espn_game_id = ?`
   ).all(espn_game_id);
 
+  // EVERY stored book rides along (the odds engine adds books beyond dk/fd);
+  // the popup, detail page, and betslip chips render whatever keys arrive.
+  // draftkings/fanduel stay explicitly null when absent for older callers.
   const result = { draftkings: null, fanduel: null };
   for (const row of rows) {
-    if (row.book === 'draftkings' || row.book === 'fanduel') {
-      result[row.book] = {
-        ml_home:          row.ml_home,
-        ml_away:          row.ml_away,
-        spread_home:      row.spread_home,
-        spread_away:      row.spread_away,
-        over_under:       row.over_under,
-        ou_over_odds:     row.ou_over_odds,
-        ou_under_odds:    row.ou_under_odds,
-        prev_ml_home:     row.prev_ml_home     ?? null,
-        prev_ml_away:     row.prev_ml_away     ?? null,
-        prev_spread_home: row.prev_spread_home ?? null,
-        prev_spread_away: row.prev_spread_away ?? null,
-        prev_over_under:  row.prev_over_under  ?? null,
-      };
-    }
+    result[row.book] = {
+      ml_home:          row.ml_home,
+      ml_away:          row.ml_away,
+      spread_home:      row.spread_home,
+      spread_away:      row.spread_away,
+      over_under:       row.over_under,
+      ou_over_odds:     row.ou_over_odds,
+      ou_under_odds:    row.ou_under_odds,
+      prev_ml_home:     row.prev_ml_home     ?? null,
+      prev_ml_away:     row.prev_ml_away     ?? null,
+      prev_spread_home: row.prev_spread_home ?? null,
+      prev_spread_away: row.prev_spread_away ?? null,
+      prev_over_under:  row.prev_over_under  ?? null,
+    };
   }
   return result;
 }

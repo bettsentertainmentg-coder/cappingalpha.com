@@ -883,6 +883,8 @@ nav {
 .ca-lt-val.ca-lt-open      { color: var(--text-tertiary); font-size: 12px; }
 .ca-lt-empty { padding: 24px; text-align: center; color: var(--text-disabled); font-size: 13px; }
 .ca-lt-na   { color: var(--text-disabled); }
+/* Offshore books show their line as information only, clearly tagged */
+.ca-lt-offshore { display: inline-block; margin-left: 6px; padding: 1px 6px; border: 1px solid var(--text-disabled); border-radius: 4px; font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); vertical-align: middle; }
 
 /* Movement arrows — replace ± text with ↑/↓ */
 .ca-mv-arrow { font-size: 11px; margin-left: 3px; font-weight: 600; }

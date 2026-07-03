@@ -29,13 +29,27 @@ const SPORT_FEEDS = [
   { sport: 'CBB',    path: 'basketball/mens-college-basketball' },
   { sport: 'WCBB',   path: 'basketball/womens-college-basketball' },
   { sport: 'UFC',    path: 'mma/ufc' },
+  { sport: 'Soccer', path: 'soccer/fifa.world' },     // World Cup
   { sport: 'Soccer', path: 'soccer/eng.1' },          // Premier League
   { sport: 'Soccer', path: 'soccer/usa.1' },          // MLS
   { sport: 'Soccer', path: 'soccer/uefa.champions' }, // Champions League
+  { sport: 'Soccer', path: 'soccer/uefa.europa' },    // Europa League
   { sport: 'Soccer', path: 'soccer/esp.1' },          // La Liga
   { sport: 'Soccer', path: 'soccer/ita.1' },          // Serie A
   { sport: 'Soccer', path: 'soccer/ger.1' },          // Bundesliga
+  { sport: 'Soccer', path: 'soccer/fra.1' },          // Ligue 1
+  { sport: 'Soccer', path: 'soccer/mex.1' },          // Liga MX
+  { sport: 'Soccer', path: 'soccer/ned.1' },          // Eredivisie
+  { sport: 'Soccer', path: 'soccer/por.1' },          // Primeira Liga
+  { sport: 'Soccer', path: 'soccer/conmebol.america' }, // Copa America
   { sport: 'Soccer', path: 'soccer/eng.fa' },         // FA Cup
+  // Racing is event-style (a field of drivers, not two sides) -> one row per race,
+  // custom-only in the betslip.
+  { sport: 'F1',      path: 'racing/f1',             event: true },
+  { sport: 'NASCAR',  path: 'racing/nascar-premier', event: true },
+  { sport: 'Rugby',   path: 'rugby/267979' },        // English Premiership
+  { sport: 'Rugby',   path: 'rugby/242041' },        // Super Rugby
+  { sport: 'Cricket', path: 'cricket/8039' },        // international slate
 ];
 
 const TTL_MS = 10 * 60 * 1000;
@@ -69,6 +83,21 @@ function eventToGames(ev, sport) {
   return (ev?.competitions || []).map(c => compToGame(c, ev, sport)).filter(Boolean);
 }
 
+// Racing: the "competitors" are a whole field of drivers, so the trackable unit is
+// the race itself. One row per event; away_team stays empty and the frontend shows
+// just the race name.
+function eventToRaceRow(ev, sport) {
+  if (!ev) return null;
+  return {
+    espn_game_id: String(ev.id),
+    sport,
+    home_team: ev.shortName || ev.name || 'Race',
+    away_team: '',
+    start_time: ev.date || null,
+    status: ev.status?.type?.state || 'pre',
+  };
+}
+
 async function fetchFeedDate(feed, yyyymmdd) {
   const key = `${feed.path}:${yyyymmdd}`;
   const hit = _cache.get(key);
@@ -76,7 +105,9 @@ async function fetchFeedDate(feed, yyyymmdd) {
   let games = [];
   try {
     const res = await axios.get(`${ESPN_BASE}/${feed.path}/scoreboard?dates=${yyyymmdd}`, { timeout: 9000 });
-    games = (res.data?.events || []).flatMap(ev => eventToGames(ev, feed.sport));
+    games = feed.event
+      ? (res.data?.events || []).map(ev => eventToRaceRow(ev, feed.sport)).filter(Boolean)
+      : (res.data?.events || []).flatMap(ev => eventToGames(ev, feed.sport));
   } catch (_) { games = []; }
   _cache.set(key, { ts: Date.now(), games });
   return games;
@@ -94,11 +125,38 @@ router.get('/schedule', async (req, res) => {
     const seen = new Set();
     const games = per.flat()
       .filter(g => { if (seen.has(g.espn_game_id)) return false; seen.add(g.espn_game_id); return true; })
+      .concat(engineEventsFor(raw))
       .sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
     res.json({ date: raw, games });
   } catch (_) {
     res.status(500).json({ error: 'Could not load the schedule.' });
   }
 });
+
+// Boxing + non-UFC MMA cards relayed by the odds engine (no ESPN scoreboard exists
+// for them). Custom-only rows with synthetic ids so nothing collides with ESPN's.
+function engineEventsFor(yyyymmdd) {
+  const dayIso = `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
+  try {
+    const db = require('./db');
+    // The user picks an ET day; start_time is stored as UTC ISO. A 11:30pm ET
+    // fight is the NEXT UTC date, so match on the ET day's UTC window instead of
+    // the UTC date substring (ET_OFFSET_MS handles DST).
+    const { ET_OFFSET_MS } = require('./cycle');
+    const startUtc = new Date(Date.parse(`${dayIso}T00:00:00Z`) + ET_OFFSET_MS).toISOString();
+    const endUtc   = new Date(Date.parse(`${dayIso}T00:00:00Z`) + ET_OFFSET_MS + 24 * 3600 * 1000).toISOString();
+    return db.prepare(
+      `SELECT id, sport, home_team, away_team, start_time FROM engine_events
+       WHERE start_time >= ? AND start_time < ?`
+    ).all(startUtc, endUtc).map(e => ({
+      espn_game_id: `eng-${e.id}`,
+      sport: e.sport,
+      home_team: e.home_team,
+      away_team: e.away_team,
+      start_time: e.start_time,
+      status: 'pre',
+    }));
+  } catch (_) { return []; }
+}
 
 module.exports = router;

@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CA OPS</title>
+<style>
+  /* ── Base ─────────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #060809;
+    --panel: #0b0e10;
+    --panel-2: #0e1214;
+    --line: #181e22;
+    --line-soft: #12171a;
+    --text: #c3ccd3;
+    --dim: #5d6a72;
+    --faint: #39434a;
+    --ok: #3fbf74;
+    --warn: #d9a13b;
+    --bad: #e05252;
+    --accent: #45c7db;
+    --ok-bg: rgba(63,191,116,0.10);
+    --warn-bg: rgba(217,161,59,0.10);
+    --bad-bg: rgba(224,82,82,0.10);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); }
+  body {
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.45;
+    padding: 0 0 60px;
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection { background: rgba(69,199,219,0.25); }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 0 22px; }
+
+  .sec-label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 30px 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .sec-label::after { content: ""; flex: 1; border-bottom: 1px solid var(--line-soft); transform: translateY(-3px); }
+  .sec-note { color: var(--faint); font-size: 10px; letter-spacing: 0.05em; text-transform: none; }
+
+  /* ── Header ───────────────────────────────────────────────────────────── */
+  header {
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .hd {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 13px 0;
+    flex-wrap: wrap;
+  }
+  .brand { font-size: 13px; letter-spacing: 0.20em; color: var(--text); white-space: nowrap; }
+  .brand b { color: var(--accent); font-weight: 700; }
+  .verdict {
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .verdict.go  { color: var(--ok);  border-color: rgba(63,191,116,0.4);  background: var(--ok-bg); }
+  .verdict.bad { color: var(--bad); border-color: rgba(224,82,82,0.4);   background: var(--bad-bg); }
+  .verdict.unknown { color: var(--dim); }
+  .hd-right { margin-left: auto; display: flex; align-items: center; gap: 14px; color: var(--dim); font-size: 11px; white-space: nowrap; }
+  .hd-right .num { color: var(--text); }
+  button.refresh {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--accent);
+    font: inherit;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 4px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  button.refresh:hover { border-color: var(--accent); }
+  button.refresh:active { transform: translateY(1px); }
+  .issues-line { color: var(--bad); font-size: 11px; padding: 6px 0 10px; display: none; }
+  .issues-line.show { display: block; }
+
+  /* ── Status strip ─────────────────────────────────────────────────────── */
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--panel);
+    margin-top: 16px;
+    overflow: hidden;
+  }
+  .stat {
+    padding: 10px 14px;
+    border-right: 1px solid var(--line-soft);
+    min-width: 0;
+  }
+  .stat:last-child { border-right: none; }
+  .stat .k { font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+  .stat .v { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stat .sub { font-size: 10.5px; color: var(--dim); }
+
+  /* ── Pills ────────────────────────────────────────────────────────────── */
+  .pill {
+    display: inline-block;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 1px 8px 2px;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    color: var(--dim);
+    vertical-align: 1px;
+  }
+  .pill.ok   { color: var(--ok);   border-color: rgba(63,191,116,0.35); background: var(--ok-bg); }
+  .pill.warn { color: var(--warn); border-color: rgba(217,161,59,0.35); background: var(--warn-bg); }
+  .pill.bad  { color: var(--bad);  border-color: rgba(224,82,82,0.35);  background: var(--bad-bg); }
+  .tag-offshore {
+    display: inline-block;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    padding: 0 6px 1px;
+    border-radius: 3px;
+    border: 1px solid rgba(69,199,219,0.35);
+    color: var(--accent);
+    margin-left: 8px;
+    vertical-align: 1px;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────────────────── */
+  .tbl-wrap { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    font-size: 9.5px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+    white-space: nowrap;
+  }
+  td { padding: 7px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.dim { color: var(--dim); }
+  td.num, th.num { text-align: right; }
+  .empty-cell { color: var(--faint); }
+
+  /* ── DOWN card ────────────────────────────────────────────────────────── */
+  .down {
+    border: 1px solid rgba(224,82,82,0.35);
+    border-radius: 4px;
+    background: var(--bad-bg);
+    padding: 14px 16px;
+    color: var(--bad);
+    font-size: 12px;
+  }
+  .down .why { color: var(--dim); margin-top: 3px; font-size: 11px; }
+
+  /* ── Coverage matrix ──────────────────────────────────────────────────── */
+  .matrix td, .matrix th { padding: 7px 10px; }
+  .matrix th.book-col { min-width: 300px; }
+  .matrix .book-row { cursor: pointer; }
+  .matrix .book-row:hover td { background: #0e1316; }
+  .matrix .book-name { color: var(--text); font-size: 12.5px; }
+  .matrix .book-meta { color: var(--dim); font-size: 10.5px; margin-top: 1px; }
+  .matrix .caret { color: var(--faint); display: inline-block; width: 12px; transition: transform 0.12s; }
+  .matrix .book-row.open .caret { transform: rotate(90deg); color: var(--accent); }
+  .cell { text-align: center; min-width: 52px; border-radius: 3px; }
+  td.c-fresh { color: var(--ok);   background: var(--ok-bg); }
+  td.c-aging { color: var(--warn); background: var(--warn-bg); }
+  td.c-stale { color: var(--bad);  background: var(--bad-bg); }
+  td.c-none  { color: var(--faint); }
+  .drawer-row td {
+    background: var(--panel-2);
+    padding: 12px 16px 14px 34px;
+    white-space: normal;
+    border-bottom: 1px solid var(--line);
+  }
+  .drawer-title { font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+  .drawer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 24px; margin-bottom: 10px; }
+  .drawer-grid .row { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; }
+  .drawer-grid .row .s { color: var(--dim); }
+  .adapter-err { color: var(--bad); font-size: 11.5px; word-break: break-word; }
+  .adapter-ok { color: var(--faint); font-size: 11.5px; }
+  .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 10px; color: var(--dim); }
+  .legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+
+  /* ── Reader card ──────────────────────────────────────────────────────── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 12px 16px; }
+  .card .k { font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); margin-bottom: 6px; }
+  .card .big { font-size: 17px; color: var(--text); }
+  .card .sub { font-size: 11px; color: var(--dim); margin-top: 3px; word-break: break-word; white-space: normal; }
+  .card .err { color: var(--bad); }
+  .spend { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap hd">
+    <div class="brand"><b>CA</b> OPS CONSOLE</div>
+    <div class="verdict unknown" id="verdict">CONNECTING</div>
+    <div class="hd-right">
+      <span>updated <span class="num" id="stamp">never</span></span>
+      <span>next in <span class="num" id="countdown">--</span>s</span>
+      <button class="refresh" id="refreshBtn" type="button">refresh</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="issues-line" id="issuesLine"></div>
+
+  <div id="stripHost"></div>
+
+  <div class="sec-label">Mac processes <span class="sec-note" id="pm2Note"></span></div>
+  <div id="pm2Host"></div>
+
+  <div class="sec-label">Heartbeats</div>
+  <div id="hbHost"></div>
+
+  <div class="sec-label">Book coverage matrix <span class="sec-note">cells are games with lines, colored by newest update age. click a book for detail</span></div>
+  <div id="matrixHost"></div>
+
+  <div class="sec-label">Data sources</div>
+  <div id="sourcesHost"></div>
+
+  <div class="sec-label">Reader and spend</div>
+  <div id="readerHost"></div>
+</div>
+
+<script>
+'use strict';
+
+/* ── Constants ──────────────────────────────────────────────────────────── */
+var REFRESH_SEC = 30;
+var FRESH_MIN = 90;    // cell age <= 90 min: fresh
+var AGING_MIN = 360;   // cell age <= 6 h: aging; beyond: stale
+var PINNED_PM2 = ['odds-engine', 'pb-relay'];
+var SPORT_ORDER = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'TENNIS', 'GOLF'];
+
+var expandedBooks = {};   // book name -> true, survives re-renders
+var countdown = REFRESH_SEC;
+var lastData = null;
+
+/* ── Tiny helpers ───────────────────────────────────────────────────────── */
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function num(n, d) { return (typeof n === 'number' && isFinite(n)) ? n : (d === undefined ? null : d); }
+function el(id) { return document.getElementById(id); }
+
+function fmtAge(min) {
+  var m = num(min);
+  if (m == null) return '—';
+  if (m < 1) return 'now';
+  if (m < 60) return Math.round(m) + 'm';
+  if (m < 48 * 60) { var h = Math.floor(m / 60); var r = Math.round(m % 60); return h + 'h' + (r ? ' ' + r + 'm' : ''); }
+  return Math.round(m / 1440) + 'd';
+}
+function fmtUptime(ms) {
+  var v = num(ms);
+  if (v == null || v <= 0) return '—';
+  var s = Math.floor(v / 1000);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor((s % 86400) / 3600) + 'h';
+}
+function fmtMem(bytes) {
+  var b = num(bytes);
+  if (b == null) return '—';
+  if (b < 1048576) return Math.round(b / 1024) + ' KB';
+  if (b < 1073741824) return Math.round(b / 1048576) + ' MB';
+  return (b / 1073741824).toFixed(2) + ' GB';
+}
+function fmtTime(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  var now = new Date();
+  var hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  if (d.toDateString() === now.toDateString()) return hm;
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+}
+function fmtPct(p) {
+  var v = num(p);
+  if (v == null) return '—';
+  return Math.round(v) + '%';
+}
+function pill(status) {
+  var s = String(status || '').toLowerCase();
+  if (s === 'ok' || s === 'online' || s === 'green') return '<span class="pill ok">' + esc(s) + '</span>';
+  if (s === 'yellow' || s === 'warn' || s === 'launching' || s === 'aging') return '<span class="pill warn">' + esc(s) + '</span>';
+  if (s === 'red' || s === 'never' || s === 'errored' || s === 'stopped' || s === 'down' || s === 'stale') return '<span class="pill bad">' + esc(s) + '</span>';
+  return '<span class="pill">' + esc(s || 'unknown') + '</span>';
+}
+function downCard(what, why) {
+  return '<div class="down">' + esc(what) + ' is DOWN' +
+    (why ? '<div class="why">' + esc(why) + '</div>' : '') + '</div>';
+}
+function parseMeta(meta) {
+  if (meta == null) return null;
+  if (typeof meta === 'object') return meta;
+  if (typeof meta === 'string') { try { return JSON.parse(meta); } catch (e) { return { raw: meta }; } }
+  return null;
+}
+function metaToText(meta) {
+  var m = parseMeta(meta);
+  if (!m) return '—';
+  if (typeof m !== 'object') return String(m);
+  var parts = [];
+  for (var k in m) {
+    if (!Object.prototype.hasOwnProperty.call(m, k)) continue;
+    var v = m[k];
+    if (v == null) continue;
+    if (typeof v === 'object') { try { v = JSON.stringify(v); } catch (e) { v = '[object]'; } }
+    parts.push(k + ': ' + v);
+    if (parts.length >= 6) break;
+  }
+  return parts.length ? parts.join('  ·  ') : '—';
+}
+
+/* ── Issue counting ─────────────────────────────────────────────────────── */
+function collectIssues(d) {
+  var issues = [];
+  if (!d.site || !d.site.reachable) issues.push('site unreachable (' + ((d.site && d.site.url) || '?') + ')');
+  if (d.health && d.health.error) {
+    issues.push('health.json failed: ' + d.health.error);
+  } else if (d.health) {
+    (d.health.sources || []).forEach(function (s) {
+      if (!s) return;
+      var st = String(s.status || '').toLowerCase();
+      if (st === 'red' || st === 'never') issues.push('source ' + (s.name || '?') + ' is ' + st);
+    });
+    (d.health.heartbeats || []).forEach(function (h) {
+      if (!h) return;
+      var st = String(h.status || '').toLowerCase();
+      if (st === 'red' || st === 'never' || st === 'down') issues.push('heartbeat ' + (h.service || '?') + ' is ' + st);
+    });
+  }
+  if (d.books && d.books.error) issues.push('books.json failed: ' + d.books.error);
+  if (d.pm2) {
+    if (d.pm2.note && (!d.pm2.processes || !d.pm2.processes.length)) issues.push(d.pm2.note);
+    (d.pm2.processes || []).forEach(function (p) {
+      if (p && p.status !== 'online') issues.push('pm2 ' + p.name + ' is ' + p.status);
+    });
+  }
+  var disk = d.host && d.host.disk;
+  if (disk && !disk.error && num(disk.used_pct) != null && disk.used_pct >= 90) issues.push('disk ' + disk.used_pct + '% full');
+  return issues;
+}
+
+/* ── Renderers ──────────────────────────────────────────────────────────── */
+function renderStrip(d) {
+  var site = d.site || {};
+  var host = d.host || {};
+  var disk = host.disk || {};
+  var load = Array.isArray(host.load) ? host.load : [];
+  var sitePill = site.reachable ? '<span class="pill ok">up</span>' : '<span class="pill bad">down</span>';
+  var diskV = disk.error ? '<span style="color:var(--bad)">unavailable</span>'
+    : esc((num(disk.free_gb) != null ? disk.free_gb : '?') + ' GB free');
+  var diskSub = disk.error ? esc(disk.error)
+    : (num(disk.used_pct) != null ? disk.used_pct + '% used of ' + (num(disk.total_gb) != null ? disk.total_gb : '?') + ' GB' : '');
+
+  el('stripHost').innerHTML =
+    '<div class="strip">' +
+      '<div class="stat"><div class="k">Site</div><div class="v">' + sitePill + ' ' + esc(site.url || '?') + '</div>' +
+        '<div class="sub">' + (site.reachable ? (site.loggedIn ? 'admin session active' : 'reachable, not logged in yet') : esc(site.error || 'no response')) + '</div></div>' +
+      '<div class="stat"><div class="k">Mac host</div><div class="v">' + esc(host.hostname || '?') + '</div>' +
+        '<div class="sub">' + (num(host.cpus) != null ? host.cpus + ' cores' : '') + '</div></div>' +
+      '<div class="stat"><div class="k">Load 1m / 5m / 15m</div><div class="v">' +
+        esc(load.length ? load.join(' / ') : '—') + '</div><div class="sub">&nbsp;</div></div>' +
+      '<div class="stat"><div class="k">Disk /</div><div class="v">' + diskV + '</div>' +
+        '<div class="sub">' + diskSub + '&nbsp;</div></div>' +
+    '</div>';
+}
+
+function renderPm2(d) {
+  var pm2 = d.pm2 || {};
+  var procs = (pm2.processes || []).slice();
+  el('pm2Note').textContent = pm2.note || '';
+  if (!procs.length) {
+    el('pm2Host').innerHTML = downCard('pm2 process list', pm2.note || 'no processes reported');
+    return;
+  }
+  procs.sort(function (a, b) {
+    var ai = PINNED_PM2.indexOf(a.name), bi = PINNED_PM2.indexOf(b.name);
+    if (ai !== -1 || bi !== -1) {
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    }
+    return String(a.name).localeCompare(String(b.name));
+  });
+  var rows = procs.map(function (p) {
+    return '<tr>' +
+      '<td>' + esc(p.name) + '</td>' +
+      '<td>' + pill(p.status) + '</td>' +
+      '<td class="num">' + fmtUptime(p.uptime_ms) + '</td>' +
+      '<td class="num">' + (num(p.restarts) != null ? p.restarts : '—') + '</td>' +
+      '<td class="num">' + fmtMem(p.memory) + '</td>' +
+    '</tr>';
+  }).join('');
+  el('pm2Host').innerHTML =
+    '<div class="tbl-wrap"><table>' +
+      '<thead><tr><th>process</th><th>status</th><th class="num">uptime</th><th class="num">restarts</th><th class="num">memory</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+}
+
+function renderHeartbeats(d) {
+  var health = d.health || {};
+  if (health.error) { el('hbHost').innerHTML = downCard('health.json', health.error); return; }
+  var hbs = health.heartbeats || [];
+  if (!hbs.length) { el('hbHost').innerHTML = '<div class="card"><div class="sub">No heartbeats reported yet.</div></div>'; return; }
+  var rows = hbs.map(function (h) {
+    if (!h) return '';
+    return '<tr>' +
+      '<td>' + esc(h.service || '?') + '</td>' +
+      '<td class="num">' + fmtTime(h.lastSeen) + ' <span class="dim">(' + fmtAge(h.ageMin) + ' ago)</span></td>' +
+      '<td class="dim" style="white-space:normal;max-width:520px">' + esc(metaToText(h.meta)) + '</td>' +
+      '<td>' + pill(h.status) + '</td>' +
+    '</tr>';
+  }).join('');
+  el('hbHost').innerHTML =
+    '<div class="tbl-wrap"><table>' +
+      '<thead><tr><th>service</th><th class="num">last check-in</th><th>last cycle</th><th>status</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+}
+
+function cellClass(ageMin, games) {
+  if (num(games) == null || games <= 0) return 'c-none';
+  var m = num(ageMin);
+  if (m == null) return 'c-none';
+  if (m <= FRESH_MIN) return 'c-fresh';
+  if (m <= AGING_MIN) return 'c-aging';
+  return 'c-stale';
+}
+
+function adapterErrorsFor(bookName, heartbeats) {
+  var out = [];
+  var b = String(bookName || '').toLowerCase();
+  (heartbeats || []).forEach(function (hb) {
+    if (!hb) return;
+    var meta = parseMeta(hb.meta);
+    if (!meta || typeof meta !== 'object') return;
+    ['errors', 'adapter_errors', 'book_errors'].forEach(function (key) {
+      var map = meta[key];
+      if (map && typeof map === 'object' && !Array.isArray(map)) {
+        for (var k in map) {
+          if (Object.prototype.hasOwnProperty.call(map, k) && String(k).toLowerCase() === b && map[k]) {
+            out.push(String(map[k]));
+          }
+        }
+      }
+    });
+    if (String(hb.service || '').toLowerCase().indexOf(b) !== -1) {
+      ['error', 'last_error', 'lastError'].forEach(function (key) {
+        if (meta[key]) out.push(String(meta[key]));
+      });
+    }
+  });
+  return out;
+}
+
+function renderMatrix(d) {
+  var books = d.books || {};
+  if (books.error) { el('matrixHost').innerHTML = downCard('books.json', books.error); return; }
+  var list = books.books || [];
+  if (!list.length) { el('matrixHost').innerHTML = '<div class="card"><div class="sub">No book data yet.</div></div>'; return; }
+
+  // Column set: union of sports across all books, in preferred order.
+  var seen = {};
+  list.forEach(function (bk) {
+    ((bk && bk.sports) || []).forEach(function (s) {
+      if (s && s.sport) seen[String(s.sport)] = true;
+    });
+  });
+  var sports = Object.keys(seen).sort(function (a, b) {
+    var ai = SPORT_ORDER.indexOf(a.toUpperCase()), bi = SPORT_ORDER.indexOf(b.toUpperCase());
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  var heartbeats = (d.health && !d.health.error && d.health.heartbeats) || [];
+
+  var head = '<tr><th class="book-col">book</th>' +
+    sports.map(function (s) { return '<th class="cell">' + esc(s) + '</th>'; }).join('') + '</tr>';
+
+  var body = list.map(function (bk, idx) {
+    if (!bk) return '';
+    var name = bk.book || ('book ' + idx);
+    var mk = bk.markets || {};
+    var bySport = {};
+    (bk.sports || []).forEach(function (s) { if (s && s.sport) bySport[String(s.sport)] = s; });
+
+    var meta = [
+      (num(bk.total_games) != null ? bk.total_games : '?') + ' games',
+      'ML ' + fmtPct(mk.ml_pct) + ' · SP ' + fmtPct(mk.spread_pct) + ' · TOT ' + fmtPct(mk.total_pct),
+      'newest ' + fmtAge(bk.ageMin) + ' ago',
+    ].join('   ');
+
+    var cells = sports.map(function (sp) {
+      var s = bySport[sp];
+      if (!s || num(s.games) == null || s.games <= 0) {
+        return '<td class="cell c-none"><span class="empty-cell">—</span></td>';
+      }
+      var cls = cellClass(s.ageMin, s.games);
+      var tip = sp + ': ' + s.games + ' games, newest ' + fmtTime(s.newest) + ' (' + fmtAge(s.ageMin) + ' ago)';
+      return '<td class="cell ' + cls + '" title="' + esc(tip) + '">' + esc(s.games) + '</td>';
+    }).join('');
+
+    var isOpen = !!expandedBooks[name];
+    var rowHtml =
+      '<tr class="book-row' + (isOpen ? ' open' : '') + '" data-book="' + esc(name) + '">' +
+        '<td><span class="caret">&#9656;</span><span class="book-name">' + esc(name) + '</span>' +
+          (bk.offshore ? '<span class="tag-offshore">offshore</span>' : '') +
+          '<div class="book-meta">' + esc(meta) + '</div></td>' +
+        cells +
+      '</tr>';
+
+    var drawerHtml = '';
+    if (isOpen) {
+      var sportRows = (bk.sports || []).map(function (s) {
+        if (!s) return '';
+        return '<div class="row"><span class="s">' + esc(s.sport || '?') + '</span>' +
+          '<span>' + fmtTime(s.newest) + ' <span class="s">(' + fmtAge(s.ageMin) + ' ago, ' +
+          (num(s.games) != null ? s.games : '?') + ' games)</span></span></div>';
+      }).join('');
+      var errs = adapterErrorsFor(name, heartbeats);
+      var errHtml = errs.length
+        ? errs.map(function (e) { return '<div class="adapter-err">' + esc(e) + '</div>'; }).join('')
+        : '<div class="adapter-ok">No adapter errors reported in heartbeat meta.</div>';
+      drawerHtml =
+        '<tr class="drawer-row"><td colspan="' + (sports.length + 1) + '">' +
+          '<div class="drawer-title">Per-sport newest updates</div>' +
+          '<div class="drawer-grid">' + (sportRows || '<div class="adapter-ok">No per-sport data.</div>') + '</div>' +
+          '<div class="drawer-title">Adapter errors</div>' + errHtml +
+        '</td></tr>';
+    }
+    return rowHtml + drawerHtml;
+  }).join('');
+
+  el('matrixHost').innerHTML =
+    '<div class="tbl-wrap"><table class="matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
+    '<div class="legend">' +
+      '<span><span class="sw" style="background:var(--ok-bg);border:1px solid var(--ok)"></span>fresh (under ' + FRESH_MIN + 'm)</span>' +
+      '<span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>aging (under ' + (AGING_MIN / 60) + 'h)</span>' +
+      '<span><span class="sw" style="background:var(--bad-bg);border:1px solid var(--bad)"></span>stale</span>' +
+      '<span><span class="sw" style="border:1px solid var(--faint)"></span>no lines</span>' +
+    '</div>';
+
+  // Row click toggles drawer. Re-render just the matrix so state applies.
+  Array.prototype.forEach.call(document.querySelectorAll('.matrix .book-row'), function (row) {
+    row.addEventListener('click', function () {
+      var name = row.getAttribute('data-book');
+      expandedBooks[name] = !expandedBooks[name];
+      if (lastData) renderMatrix(lastData);
+    });
+  });
+}
+
+function renderSources(d) {
+  var health = d.health || {};
+  if (health.error) { el('sourcesHost').innerHTML = downCard('health.json', health.error); return; }
+  var sources = health.sources || [];
+  if (!sources.length) { el('sourcesHost').innerHTML = '<div class="card"><div class="sub">No sources reported yet.</div></div>'; return; }
+  var rows = sources.map(function (s) {
+    if (!s) return '';
+    return '<tr>' +
+      '<td>' + esc(s.name || '?') + '</td>' +
+      '<td class="num">' + fmtAge(s.ageMin) + (num(s.expectMin) != null ? ' <span class="dim">/ expect ' + fmtAge(s.expectMin) + '</span>' : '') + '</td>' +
+      '<td class="dim" style="white-space:normal;max-width:420px">' + esc(s.detail || '—') + '</td>' +
+      '<td class="dim" style="white-space:normal;max-width:320px">' + esc(s.hint || '—') + '</td>' +
+      '<td>' + pill(s.status) + '</td>' +
+    '</tr>';
+  }).join('');
+  el('sourcesHost').innerHTML =
+    '<div class="tbl-wrap"><table>' +
+      '<thead><tr><th>source</th><th class="num">age</th><th>detail</th><th>hint</th><th>status</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
+}
+
+function findSpend(obj, depth) {
+  // Look for a numeric spend/cost value in health.json, at most 2 levels deep.
+  if (!obj || typeof obj !== 'object' || depth > 2) return null;
+  for (var k in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+    var v = obj[k];
+    if (/spend|cost/i.test(k) && typeof v === 'number' && isFinite(v)) return v;
+    if (v && typeof v === 'object' && !Array.isArray(v) && /spend|cost|reader|haiku/i.test(k)) {
+      var inner = findSpend(v, depth + 1);
+      if (inner != null) return inner;
+    }
+  }
+  return null;
+}
+
+function renderReader(d) {
+  var health = d.health || {};
+  if (health.error) { el('readerHost').innerHTML = downCard('health.json', health.error); return; }
+
+  var src = (health.sources || []).find(function (s) { return s && /reader/i.test(s.name || ''); }) || null;
+  var hb = (health.heartbeats || []).find(function (h) { return h && /reader/i.test(h.service || ''); }) || null;
+  var hbMeta = hb ? (parseMeta(hb.meta) || {}) : {};
+  var readerObj = (health.reader && typeof health.reader === 'object') ? health.reader : {};
+
+  var path = readerObj.path || readerObj.mode || hbMeta.path || hbMeta.reader_path || hbMeta.mode || null;
+  var lastError = readerObj.last_error || readerObj.lastError || hbMeta.last_error || hbMeta.lastError || hbMeta.error || null;
+  var spend = findSpend(health, 0);
+  var srcLine = src ? ((src.detail || '') + (src.hint ? ' · ' + src.hint : '')) : null;
+  var srcStatus = src ? src.status : (hb ? hb.status : null);
+
+  var cards = '';
+  cards += '<div class="card"><div class="k">Reader path</div>' +
+    '<div class="big">' + esc(path || 'not reported') + '</div>' +
+    '<div class="sub">' + (srcStatus ? pill(srcStatus) + ' ' : '') + esc(srcLine || (hb ? 'from heartbeat ' + (hb.service || '') : 'no reader entry in health.json')) + '</div></div>';
+  cards += '<div class="card"><div class="k">Last reader error</div>' +
+    (lastError
+      ? '<div class="big err">error</div><div class="sub err">' + esc(lastError) + '</div>'
+      : '<div class="big">none</div><div class="sub">no error reported</div>') + '</div>';
+  cards += '<div class="card"><div class="k">Haiku spend today</div>' +
+    (spend != null
+      ? '<div class="big spend">$' + esc(spend.toFixed(4)) + '</div><div class="sub">from health.json</div>'
+      : '<div class="big">—</div><div class="sub">not present in health.json</div>') + '</div>';
+
+  el('readerHost').innerHTML = '<div class="cards">' + cards + '</div>';
+}
+
+function renderAll(d) {
+  lastData = d;
+  var issues = collectIssues(d);
+  var v = el('verdict');
+  if (issues.length) {
+    v.textContent = issues.length + (issues.length === 1 ? ' ISSUE' : ' ISSUES');
+    v.className = 'verdict bad';
+  } else {
+    v.textContent = 'ALL SYSTEMS GO';
+    v.className = 'verdict go';
+  }
+  var il = el('issuesLine');
+  if (issues.length) {
+    il.textContent = issues.join('   ·   ');
+    il.className = 'issues-line show';
+  } else {
+    il.className = 'issues-line';
+  }
+
+  renderStrip(d);
+  renderPm2(d);
+  renderHeartbeats(d);
+  renderMatrix(d);
+  renderSources(d);
+  renderReader(d);
+
+  var t = new Date();
+  el('stamp').textContent = String(t.getHours()).padStart(2, '0') + ':' +
+    String(t.getMinutes()).padStart(2, '0') + ':' + String(t.getSeconds()).padStart(2, '0');
+}
+
+/* ── Fetch loop ─────────────────────────────────────────────────────────── */
+var fetching = false;
+
+function refresh() {
+  if (fetching) return;
+  fetching = true;
+  countdown = REFRESH_SEC;
+  fetch('/api/summary', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { renderAll(d); })
+    .catch(function (err) {
+      var v = el('verdict');
+      v.textContent = 'OPS SERVER ERROR';
+      v.className = 'verdict bad';
+      var il = el('issuesLine');
+      il.textContent = 'could not reach /api/summary: ' + (err && err.message ? err.message : 'unknown');
+      il.className = 'issues-line show';
+    })
+    .finally(function () { fetching = false; });
+}
+
+setInterval(function () {
+  countdown -= 1;
+  if (countdown <= 0) { refresh(); return; }
+  el('countdown').textContent = countdown;
+}, 1000);
+
+el('refreshBtn').addEventListener('click', refresh);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden && countdown < REFRESH_SEC - 5) refresh();
+});
+
+refresh();
+</script>
+</body>
+</html>
