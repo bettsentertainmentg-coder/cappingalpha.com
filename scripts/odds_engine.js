@@ -32,7 +32,7 @@ const crypto = require('crypto');
 const RELAY_SECRET = process.env.RELAY_SECRET;
 const RAILWAY_URL  = (process.env.RAILWAY_URL || '').replace(/\/$/, '');
 const INTERVAL_MS  = Math.max(2, parseInt(process.env.ODDS_ENGINE_INTERVAL_MIN || '5', 10)) * 60 * 1000;
-const BOOKS        = (process.env.ODDS_ENGINE_BOOKS || 'bovada,draftkings,fanduel,betrivers,pinnacle,caesars,hardrock,betonline,thunderpick')
+const BOOKS        = (process.env.ODDS_ENGINE_BOOKS || 'bovada,draftkings,fanduel,betrivers,pinnacle,actionnetwork,caesars,hardrock,betonline,thunderpick')
   .split(',').map(s => s.trim().toLowerCase());
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';

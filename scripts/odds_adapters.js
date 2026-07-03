@@ -487,4 +487,102 @@ async function draftkings() {
   return rows;
 }
 
-module.exports = { betrivers, pinnacle, betonline, caesars, hardrock, thunderpick, fanduel, draftkings };
+// ── ActionNetwork aggregator: the books whose own walls we cannot climb ───────
+// AN's public scoreboard API (the same unauthenticated JSON their site loads, and
+// the same legal lane as our hourly public-betting scrape) carries per-book
+// markets with explicit home/away sides. This is how Caesars, BetMGM, and bet365
+// get in despite their Akamai/Cloudflare walls. Books we fetch DIRECTLY (bovada,
+// pinnacle, betrivers, fanduel, draftkings) are skipped here so the fresher
+// first-party feed always wins.
+const AN_LEAGUES = { MLB: 'mlb', NBA: 'nba', WNBA: 'wnba', NHL: 'nhl', NFL: 'nfl', NCAAF: 'ncaaf', CBB: 'ncaab' };
+const AN_TARGET_BOOKS = [
+  [/caesars/i, 'caesars'],
+  [/betmgm/i, 'betmgm'],
+  [/bet365/i, 'bet365'],
+  [/hard ?rock/i, 'hardrock'],
+  [/betonline/i, 'betonline'],
+];
+
+let _anBookMap = null; // book_id -> our book key, discovered from AN's own catalog
+async function anBookMap() {
+  if (_anBookMap) return _anBookMap;
+  const r = await fetch('https://www.actionnetwork.com/mlb/odds', {
+    headers: { 'User-Agent': UA, Accept: 'text/html' }, signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) throw new Error(`catalog HTTP ${r.status}`);
+  const m = (await r.text()).match(/<script id="__NEXT_DATA__"[^>]*>({.+?})<\/script>/s);
+  if (!m) throw new Error('catalog: no NEXT_DATA');
+  const all = JSON.parse(m[1])?.props?.pageProps?.allBooks || {};
+  const map = {};
+  for (const b of Object.values(all)) {
+    const name = b.display_name || '';
+    for (const [re, key] of AN_TARGET_BOOKS) {
+      if (re.test(name)) { map[b.id] = key; break; }
+    }
+  }
+  _anBookMap = map;
+  return map;
+}
+
+async function actionnetwork() {
+  const rows = [];
+  let map;
+  try { map = await anBookMap(); }
+  catch (err) { console.warn(`[actionnetwork] ${err.message}`); return rows; }
+  const ids = Object.keys(map);
+  if (!ids.length) { console.warn('[actionnetwork] no target books in catalog'); return rows; }
+
+  for (const [sport, league] of Object.entries(AN_LEAGUES)) {
+    try {
+      const r = await fetch(`https://api.actionnetwork.com/web/v2/scoreboard/${league}?period=game&bookIds=${ids.join(',')}`, {
+        headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(15000),
+      });
+      if (!r.ok) { console.warn(`[actionnetwork] ${sport}: HTTP ${r.status}`); continue; }
+      const j = await r.json();
+      for (const g of j.games || []) {
+        const home = (g.teams || []).find(t => t.id === g.home_team_id);
+        const away = (g.teams || []).find(t => t.id === g.away_team_id);
+        if (!home || !away) continue;
+        // One market blob per requested book: dedupe multi-state variants of the
+        // same brand (Caesars NJ + Caesars NV, etc.) so one row per book survives.
+        const seen = new Set();
+        for (const [bookId, mkt] of Object.entries(g.markets || {})) {
+          const book = map[bookId];
+          if (!book || seen.has(book)) continue;
+          const ev = (mkt && mkt.event) || {};
+          const row = {
+            book, sport, home_team: home.full_name, away_team: away.full_name,
+            ml_home: null, ml_away: null, spread_home: null, spread_away: null,
+            over_under: null, ou_over_odds: null, ou_under_odds: null,
+          };
+          for (const o of ev.moneyline || []) {
+            if (o.period !== 'event') continue;
+            if (o.side === 'home') row.ml_home = american(o.odds);
+            else if (o.side === 'away') row.ml_away = american(o.odds);
+          }
+          for (const o of ev.spread || []) {
+            if (o.period !== 'event') continue;
+            if (o.side === 'home') row.spread_home = o.value != null ? parseFloat(o.value) : null;
+            else if (o.side === 'away') row.spread_away = o.value != null ? parseFloat(o.value) : null;
+          }
+          for (const o of ev.total || []) {
+            if (o.period !== 'event') continue;
+            if (o.value != null && row.over_under == null) row.over_under = parseFloat(o.value);
+            if (o.side === 'over') row.ou_over_odds = american(o.odds);
+            else if (o.side === 'under') row.ou_under_odds = american(o.odds);
+          }
+          if (row.ml_home != null || row.spread_home != null || row.over_under != null) {
+            rows.push(row);
+            seen.add(book);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[actionnetwork] ${sport}: ${err.message}`);
+    }
+    await sleep(1500);
+  }
+  return rows;
+}
+
+module.exports = { betrivers, pinnacle, betonline, caesars, hardrock, thunderpick, fanduel, draftkings, actionnetwork };
