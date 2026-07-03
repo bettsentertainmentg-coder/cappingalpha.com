@@ -534,6 +534,17 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_result_voted ON game_vo
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_user_voted ON game_votes (user_id, voted_at)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_user_bets_user_sport ON user_bets (user_id, sport)`); } catch (_) {}
 
+// Mac-side service heartbeats (odds engine, pb-relay) — never wiped. One row per
+// service; /admin/health flags anything that stops checking in.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_heartbeats (
+      service   TEXT PRIMARY KEY,
+      last_seen TEXT NOT NULL,
+      meta_json TEXT
+    )`);
+} catch (_) {}
+
 // Web-push subscriptions (one row per device endpoint per user) — never wiped.
 try {
   db.exec(`

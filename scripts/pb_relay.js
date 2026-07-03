@@ -226,6 +226,13 @@ async function run() {
 
   // Bovada tennis lines — same residential-IP relay (Railway is geo-blocked by Bovada)
   await relayTennis();
+
+  // Heartbeat for /admin/health — a missing beat means this process is down.
+  try {
+    await postToRailway({ service: 'pb-relay', meta: { interval_min: 60, stored: totalStored } }, '/admin/ingest-heartbeat');
+  } catch (err) {
+    console.warn('[pb-relay] heartbeat failed:', err.message);
+  }
 }
 
 // Run immediately on startup, then every hour

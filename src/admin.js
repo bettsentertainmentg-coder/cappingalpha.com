@@ -9,6 +9,8 @@ const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
+const { storeEngineBookLines } = require('./odds_ingest');
+const { recordHeartbeat, getHealthSnapshot } = require('./ops_health');
 const { normalizeCapper } = require('./storage');
 const dummyAccounts = require('./dummy_accounts');
 const crypto  = require('crypto');
@@ -3177,6 +3179,95 @@ router.post('/ingest-tennis-lines', (req, res) => {
     }
   }
 );
+
+// ── POST /admin/ingest-book-lines — CA Odds Engine relay from Mac (HMAC) ──────
+// scripts/odds_engine.js fetches public sportsbook odds on the Mac (residential
+// IP) and POSTs normalized rows here. Same HMAC scheme as ingest-public-betting.
+router.post('/ingest-book-lines', (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const canonical = JSON.stringify(req.body);
+    const sig        = req.headers['x-relay-signature'] || '';
+    const expected   = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+    const sigBuf     = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf     = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    const { rows } = req.body;
+    if (!Array.isArray(rows)) return res.status(400).send('Invalid payload');
+
+    try {
+      const out = storeEngineBookLines(rows);
+      console.log(`[relay] book lines: stored ${out.stored}/${rows.length} (${out.unmatched} unmatched)`);
+      res.json(out);
+    } catch (err) {
+      console.error('[relay] book-lines ingest error:', err.message);
+      res.status(500).send('Store failed');
+    }
+  }
+);
+
+// ── POST /admin/ingest-heartbeat — Mac service check-ins (HMAC) ───────────────
+// Body: { service: 'odds-engine', meta: { interval_min, cycle stats... } }
+router.post('/ingest-heartbeat', (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const canonical = JSON.stringify(req.body);
+    const sig        = req.headers['x-relay-signature'] || '';
+    const expected   = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+    const sigBuf     = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf     = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    const ok = recordHeartbeat(req.body.service, req.body.meta);
+    if (!ok) return res.status(400).send('Invalid service name');
+    res.json({ ok: true });
+  }
+);
+
+// ── GET /admin/health — every data source + Mac service on one page ───────────
+router.get('/health', requireAuth, (_req, res) => {
+  const snap = getHealthSnapshot();
+  const dot = (s) => ({
+    ok:    '<span class="badge match-ok">OK</span>',
+    yellow:'<span class="badge match-new">STALE</span>',
+    red:   '<span class="badge" style="background:rgba(239,68,68,.15);color:#f87171;border:1px solid rgba(239,68,68,.3);">DOWN</span>',
+    never: '<span class="badge" style="background:#252c3b;color:#8892a4;border:1px solid #252c3b;">NO DATA</span>',
+  }[s] || s);
+  const fmtAge = (m) => m == null ? '—' : m < 60 ? `${m}m ago` : m < 2880 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+
+  const beatRows = snap.heartbeats.length
+    ? snap.heartbeats.map(b => `<tr>
+        <td>${dot(b.status)}</td><td><b>${b.service}</b></td>
+        <td>${fmtAge(b.ageMin)}</td>
+        <td style="font-size:12px;color:#8892a4;">${Object.entries(b.meta).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ').slice(0, 220) || '—'}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="4" class="empty">No heartbeats yet. Mac services check in here once they run with RELAY_SECRET set.</td></tr>`;
+
+  const srcRows = snap.sources.map(s => `<tr>
+      <td>${dot(s.status)}</td><td>${s.name.startsWith('  ') ? '&nbsp;&nbsp;&nbsp;' + s.name.trim() : `<b>${s.name}</b>`}</td>
+      <td>${fmtAge(s.ageMin)}</td>
+      <td>${s.detail || '—'}</td>
+      <td style="font-size:12px;color:#8892a4;">${s.hint || ''}</td>
+    </tr>`).join('');
+
+  res.send(page('Health', `
+    <h1>Source Health <a href="/admin/dashboard" style="font-size:13px;font-weight:400;margin-left:14px;">back to dashboard</a></h1>
+    <p style="color:#8892a4;margin-bottom:20px;">Auto-refreshes every 60 seconds. Yellow = past its normal cadence. Red = 3x past it, treat as down.</p>
+    <h2>Mac services (heartbeats)</h2>
+    <table><tr><th></th><th>Service</th><th>Last check-in</th><th>Last cycle</th></tr>${beatRows}</table>
+    <h2>Data sources (freshness)</h2>
+    <table><tr><th></th><th>Source</th><th>Last data</th><th>Detail</th><th>If stale</th></tr>${srcRows}</table>
+    <p style="color:#64748b;font-size:12px;margin-top:14px;">Generated ${snap.generatedAt}</p>
+    <script>setTimeout(() => location.reload(), 60000);</script>
+  `));
+});
 
 // ── GET /admin/api/reader-health ──────────────────────────────────────────────
 router.get('/api/reader-health', requireAuth, async (_req, res) => {
