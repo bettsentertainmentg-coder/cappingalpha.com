@@ -132,6 +132,15 @@ function evaluateVote(slot, line, game) {
 
   const pickedHome = slot === 'home_ml' || slot === 'home_spread';
 
+  // Soccer moneylines are 3-WAY prices (the draw is its own outcome), so a drawn
+  // match loses BOTH ml sides, exactly how books settle it. Totals and spreads
+  // grade normally below.
+  const isSoccer = String(game.sport || '').toLowerCase() === 'soccer';
+  if (isSoccer && (slot === 'home_ml' || slot === 'away_ml')) {
+    const margin = (game.home_score ?? 0) - (game.away_score ?? 0);
+    if (margin === 0) return 'loss';
+  }
+
   if (slot === 'home_ml' || slot === 'away_ml') {
     const margin = pickedHome ? hs - as : as - hs;
     return margin > 0 ? 'win' : margin < 0 ? 'loss' : 'push';

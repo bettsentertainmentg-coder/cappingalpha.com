@@ -610,7 +610,10 @@ function dateLabel(offset) {
 // CappingAlpha core sports (we track them with game detail pages + lines). These sort
 // to the TOP of the sport dropdown by our betting volume. Every other sport ESPN gives
 // us (UFC, Soccer, WCBB, ...) is offered too but sorts to the bottom and is custom-only.
-const CORE_SPORTS = ['MLB', 'NBA', 'NHL', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'GOLF'];
+const CORE_SPORTS = ['MLB', 'NBA', 'NHL', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'GOLF', 'SOCCER'];
+// Mascot-style last-word shortening reads wrong for soccer clubs ("United",
+// "City"), so soccer keeps full names everywhere.
+const FULL_NAME_SPORTS = new Set(['SOCCER']);
 function sortSports(arr) {
   return arr.slice().sort((a, b) => {
     const ia = CORE_SPORTS.indexOf(a), ib = CORE_SPORTS.indexOf(b);
@@ -761,7 +764,10 @@ function renderTrackGames() {
     : '';
   // Core team sports read better as the mascot (last word); fighters/soccer clubs need
   // the full name ("Toronto FC", "Jefferson Nascimento").
-  const nameOf = (full, sport) => CORE_SPORTS.includes((sport || '').toUpperCase()) ? (full || '').split(' ').pop() : (full || '');
+  const nameOf = (full, sport) => {
+    const s = (sport || '').toUpperCase();
+    return CORE_SPORTS.includes(s) && !FULL_NAME_SPORTS.has(s) ? (full || '').split(' ').pop() : (full || '');
+  };
   el.innerHTML = note + games.map(g => {
     const cust = isCustomGame(g);
     const away = nameOf(g.away_team, g.sport);
@@ -895,7 +901,9 @@ function renderOddsBoard() {
   const finished = g.status === 'post';        // only a FINAL game closes tracking
   const live     = g.status === 'in';          // live games stay open, tracked at the live line
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
-  const awayN = away.split(' ').pop(), homeN = home.split(' ').pop();
+  const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
+  const awayN = fullNames ? away : away.split(' ').pop();
+  const homeN = fullNames ? home : home.split(' ').pop();
 
   // Live game: prefer the current DraftKings line (freshest) for the numbers we show +
   // lock, so the live bolt reflects the price right now, not the morning open.
@@ -1067,7 +1075,9 @@ export function openLineConfirm(id, slot, label, caOdds) {
   const isSpread = slot === 'home_spread' || slot === 'away_spread';
   const isTotal  = slot === 'over' || slot === 'under';
   const hasLine  = isSpread || isTotal;
-  const awayN = (g.away_team || 'Away').split(' ').pop(), homeN = (g.home_team || 'Home').split(' ').pop();
+  const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
+  const awayN = fullNames ? (g.away_team || 'Away') : (g.away_team || 'Away').split(' ').pop();
+  const homeN = fullNames ? (g.home_team || 'Home') : (g.home_team || 'Home').split(' ').pop();
   const sideName = { home_ml: homeN, away_ml: awayN, home_spread: homeN, away_spread: awayN, over: 'Over', under: 'Under' }[slot];
   const caLine = isSpread ? (slot === 'home_spread' ? g.spread_home : g.spread_away)
                : isTotal  ? g.over_under : null;

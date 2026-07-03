@@ -1,0 +1,143 @@
+// src/soccer_espn.js
+// Soccer fetcher for VERIFIED BET TRACKING. Writes popular-competition matches
+// into today_games exactly like wnba_espn.js does for WNBA (espn_live.js is DO
+// NOT TOUCH and does not export its upsert helper). This exists so soccer games
+// can be tracked verified in the betslip: the odds board, vote slots, and
+// grading all read today_games.
+//
+// Lines: ESPN's embedded DraftKings odds are free (no Odds API credits); the CA
+// Odds Engine layers more books into book_lines on top.
+//
+// Soccer is NOT part of the capper pick pipeline: the reader does not emit
+// Soccer picks and no sport/home bonus applies. Rows exist for tracking only.
+//
+// Moneylines here are 3-WAY prices (draw exists). A drawn match grades ml votes
+// as LOSSES on both sides, matching how books settle 3-way moneylines. That
+// branch lives in results.js evaluateVote, keyed off sport = 'Soccer'.
+//
+// Called at 5am + startup (fetchTodaysSoccerGames) and every 5 min during
+// active hours (updateSoccerLiveScores).
+
+const db = require('./db');
+const { getCycleDate } = require('./cycle');
+const { fetchScoreboardForDate, fetchScoreboard } = require('./espn_live');
+
+// Same popular-competition set the betslip schedule offers. World Cup first.
+const SOCCER_PATHS = [
+  'soccer/fifa.world',
+  'soccer/eng.1', 'soccer/usa.1', 'soccer/uefa.champions', 'soccer/uefa.europa',
+  'soccer/esp.1', 'soccer/ita.1', 'soccer/ger.1', 'soccer/fra.1',
+  'soccer/mex.1', 'soccer/ned.1', 'soccer/por.1', 'soccer/conmebol.america',
+];
+
+// ESPN embedded odds (DraftKings). Same shape as wnba_espn.parseEspnOdds; for
+// soccer the moneyline prices are the 3-way market's home/away legs and the
+// spread is the goal handicap when present.
+function parseEspnOdds(comp) {
+  const odds = comp.odds?.[0] || {};
+  return {
+    ml_home:       odds.moneyline?.home?.close?.odds != null ? parseInt(odds.moneyline.home.close.odds, 10) : null,
+    ml_away:       odds.moneyline?.away?.close?.odds != null ? parseInt(odds.moneyline.away.close.odds, 10) : null,
+    over_under:    odds.overUnder ?? null,
+    ou_over_odds:  odds.total?.over?.close?.odds  != null ? parseInt(odds.total.over.close.odds,  10) : null,
+    ou_under_odds: odds.total?.under?.close?.odds != null ? parseInt(odds.total.under.close.odds, 10) : null,
+    spread_home:   odds.pointSpread?.home?.close?.line != null ? parseFloat(odds.pointSpread.home.close.line) : null,
+    spread_away:   odds.pointSpread?.away?.close?.line != null ? parseFloat(odds.pointSpread.away.close.line) : null,
+  };
+}
+
+function upsertSoccerGame(ev) {
+  const comp = ev.competitions?.[0] || {};
+  const home = comp.competitors?.find(c => c.homeAway === 'home') || {};
+  const away = comp.competitors?.find(c => c.homeAway === 'away') || {};
+  if (!home.team || !away.team) return;
+  const state = ev.status?.type?.state || 'pre';
+
+  const o = parseEspnOdds(comp);
+
+  db.prepare(`
+    INSERT INTO today_games (
+      espn_game_id, sport, status, period, clock, start_time,
+      home_score, away_score,
+      home_team, home_short, home_name, home_abbr,
+      away_team, away_short, away_name, away_abbr,
+      ml_home, ml_away, spread_home, spread_away,
+      over_under, ou_over_odds, ou_under_odds, odds_updated_at,
+      fetched_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?,
+              CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE NULL END,
+              datetime('now'))
+    ON CONFLICT(espn_game_id) DO UPDATE SET
+      status     = excluded.status,
+      period     = excluded.period,
+      clock      = excluded.clock,
+      home_score = excluded.home_score,
+      away_score = excluded.away_score,
+      fetched_at = excluded.fetched_at,
+      ml_home       = COALESCE(ml_home,       excluded.ml_home),
+      ml_away       = COALESCE(ml_away,       excluded.ml_away),
+      spread_home   = COALESCE(spread_home,   excluded.spread_home),
+      spread_away   = COALESCE(spread_away,   excluded.spread_away),
+      over_under    = COALESCE(over_under,    excluded.over_under),
+      ou_over_odds  = COALESCE(ou_over_odds,  excluded.ou_over_odds),
+      ou_under_odds = COALESCE(ou_under_odds, excluded.ou_under_odds),
+      odds_updated_at = CASE WHEN odds_updated_at IS NULL AND excluded.ml_home IS NOT NULL THEN datetime('now') ELSE odds_updated_at END
+  `).run(
+    ev.id, 'Soccer', state,
+    ev.status?.period || null,
+    ev.status?.displayClock || null,
+    ev.date || null,
+    parseInt(home.score || 0, 10),
+    parseInt(away.score || 0, 10),
+    home.team?.displayName || null,
+    home.team?.shortDisplayName || null,
+    home.team?.name || null,
+    home.team?.abbreviation || null,
+    away.team?.displayName || null,
+    away.team?.shortDisplayName || null,
+    away.team?.name || null,
+    away.team?.abbreviation || null,
+    o.ml_home, o.ml_away, o.spread_home, o.spread_away,
+    o.over_under, o.ou_over_odds, o.ou_under_odds,
+    o.ml_home
+  );
+
+  if (o.ml_home !== null || o.over_under !== null) {
+    const { storeEspnDkLines } = require('./lines_scraper');
+    storeEspnDkLines(ev.id, o);
+  }
+}
+
+async function fetchTodaysSoccerGames() {
+  const dateStr = getCycleDate().replace(/-/g, '');
+  let total = 0;
+  for (const path of SOCCER_PATHS) {
+    try {
+      const events = await fetchScoreboardForDate(path, dateStr);
+      for (const ev of events) { upsertSoccerGame(ev); total++; }
+    } catch (err) {
+      console.warn(`[soccer_espn] ${path}:`, err.message);
+    }
+  }
+  if (total > 0) console.log(`[soccer_espn] today_games: ${total} soccer matches upserted`);
+  return total;
+}
+
+// Refresh every soccer match still on the board that hasn't gone final, so
+// tracked bets flip live and grade the moment matches end. ESPN is free; a
+// handful of scoreboard calls per cycle costs nothing.
+async function updateSoccerLiveScores() {
+  const open = db.prepare(
+    `SELECT COUNT(*) n FROM today_games WHERE sport = 'Soccer' AND status != 'post'`
+  ).get();
+  if (!open || open.n === 0) return;
+  for (const path of SOCCER_PATHS) {
+    try {
+      const events = await fetchScoreboard(path);
+      for (const ev of events) upsertSoccerGame(ev);
+    } catch (_) { /* per-competition failures are fine */ }
+  }
+}
+
+module.exports = { fetchTodaysSoccerGames, updateSoccerLiveScores };

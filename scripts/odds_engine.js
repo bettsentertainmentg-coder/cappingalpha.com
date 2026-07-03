@@ -52,13 +52,18 @@ async function getJson(url) {
 
 // ── Adapter: Bovada (public coupon API, all team sports) ──────────────────────
 const BOVADA_SPORTS = {
-  MLB:   'baseball/mlb',
-  NBA:   'basketball/nba',
-  WNBA:  'basketball/wnba',
-  NHL:   'hockey/nhl',
-  NFL:   'football/nfl',
-  NCAAF: 'football/college-football',
-  CBB:   'basketball/college-basketball',
+  MLB:    'baseball/mlb',
+  NBA:    'basketball/nba',
+  WNBA:   'basketball/wnba',
+  NHL:    'hockey/nhl',
+  NFL:    'football/nfl',
+  NCAAF:  'football/college-football',
+  CBB:    'basketball/college-basketball',
+  // One coupon covers every soccer competition (World Cup included). Soccer
+  // markets read "3-Way Moneyline" / "Goal Spread" under "Regulation Time";
+  // the parser's regexes cover both shapes, and the Draw outcome matches
+  // neither side name so 3-way collapses to home/away prices naturally.
+  Soccer: 'soccer',
 };
 
 function bovadaParseEvent(sport, ev) {
@@ -80,10 +85,10 @@ function bovadaParseEvent(sport, ev) {
         const price = o.price || {};
         const isHome = (o.description || '') === home.name || o.type === 'H';
         const isAway = (o.description || '') === away.name || o.type === 'A';
-        if (desc === 'Moneyline') {
+        if (/moneyline/i.test(desc)) { // covers 'Moneyline' and soccer's '3-Way Moneyline'
           if (isHome) row.ml_home = american(price.american);
           else if (isAway) row.ml_away = american(price.american);
-        } else if (/point spread|spread|runline|puck line/i.test(desc)) {
+        } else if (/point spread|goal spread|spread|runline|puck line/i.test(desc)) {
           const hc = american(price.handicap);
           if (isHome) row.spread_home = hc;
           else if (isAway) row.spread_away = hc;

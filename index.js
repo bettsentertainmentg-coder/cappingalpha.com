@@ -33,6 +33,7 @@ const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
+const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
@@ -1837,6 +1838,7 @@ app.listen(PORT, () => {
   await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
   await fetchTennisLines().catch(err => console.error('[startup] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
+  await fetchTodaysSoccerGames().catch(err => console.error('[startup] fetchTodaysSoccerGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
   await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
@@ -1973,6 +1975,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
   await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
+  await fetchTodaysSoccerGames().catch(err => console.error('[cron] fetchTodaysSoccerGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
   await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
@@ -2074,6 +2077,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Golf already refreshes all active leaderboards below.
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
+  await updateSoccerLiveScores().catch(err => console.error('[cron] updateSoccerLiveScores error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   // Condensed in-game state (baseball bases/outs/half-inning) for live games — free
@@ -2118,6 +2122,7 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
   try {
     await fetchTodaysGames();
     await fetchTodaysWnbaGames();
+    await updateSoccerLiveScores();
     await syncLiveSituations();
     // A game that just flipped to Final needs to settle, not sit on its last inning.
     stampActualEnds();

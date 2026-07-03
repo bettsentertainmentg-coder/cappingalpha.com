@@ -65,10 +65,18 @@ nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  padding: 0 max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
   height: 56px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* Same blue-velvet photo top bar as index.html (was a flat grey surface here,
+     which made the detail-page nav read as a different site). */
+  background-color: #0b1d49;
+  background-image:
+    linear-gradient(180deg, rgba(7,14,36,0.34), rgba(7,14,36,0.50)),
+    url("/velvet-bar.png?v=3");
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  border-bottom: 1px solid rgba(120,150,220,0.25);
   position: sticky;
   top: 0;
   z-index: 100;
@@ -78,7 +86,7 @@ nav {
 #nav-user-info { font-size: 13px; color: var(--muted); display: none; }
 
 .logo {
-  font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+  font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
   cursor: pointer; user-select: none; display: flex; align-items: center;
   border-bottom: 2px solid transparent; transition: border-color 0.15s;
   padding: 0; white-space: nowrap;
@@ -88,12 +96,13 @@ nav {
 
 .nav-tabs { display: flex; align-items: stretch; gap: 24px; }
 .tab-btn {
-  background: none; border: none; color: var(--muted);
+  background: none; border: none; color: #c8d4ee; /* readable on the velvet bar (matches index.html, not the greyer --muted) */
   font-family: inherit; font-size: 14px; font-weight: 600;
   padding: 0; cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap; display: flex; align-items: center;
+  text-shadow: 0 1px 2px rgba(4,10,26,0.6); /* legibility over the textured velvet */
 }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -103,6 +112,24 @@ nav {
 .tab-btn .ca-pick-logo { height: 1.5em; margin-right: 3px; opacity: 0.78; transition: opacity 0.15s; }
 .tab-btn:hover .ca-pick-logo,
 .tab-btn.active .ca-pick-logo { opacity: 1; }
+
+/* ── About nav dropdown (About + FAQ under the About tab, matches index.html) ── */
+.nav-about-wrap { position: relative; display: flex; align-items: stretch; }
+.tab-caret { font-size: 9px; margin-left: 5px; opacity: .8; }
+.about-dropdown {
+  position: absolute; top: calc(100% + 14px); left: 0; min-width: 150px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.45); padding: 6px; z-index: 200;
+  transform-origin: top left; animation: ddIn .12s ease;
+}
+.about-dropdown.hidden { display: none; }
+@keyframes ddIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+.about-dropdown-item {
+  display: flex; align-items: center; padding: 9px 12px; border-radius: 8px;
+  font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer;
+  text-decoration: none; transition: background .12s;
+}
+.about-dropdown-item:hover { background: var(--surface2); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .btn {

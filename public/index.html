@@ -224,6 +224,23 @@
     .account-dropdown-logout i { color: var(--red); }
     .account-dropdown-logout:hover { background: rgba(239,68,68,0.12); }
 
+    /* ── About nav dropdown (About + FAQ under the About tab) ── */
+    .nav-about-wrap { position: relative; display: flex; align-items: stretch; }
+    .tab-caret { font-size: 9px; margin-left: 5px; opacity: .8; }
+    .about-dropdown {
+      position: absolute; top: calc(100% + 14px); left: 0; min-width: 150px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      box-shadow: 0 12px 32px var(--shadow-soft); padding: 6px; z-index: 200;
+      transform-origin: top left; animation: ddIn .12s ease;
+    }
+    .about-dropdown.hidden { display: none; }
+    .about-dropdown-item {
+      display: flex; align-items: center; padding: 9px 12px; border-radius: 8px;
+      font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer;
+      text-decoration: none; transition: background .12s;
+    }
+    .about-dropdown-item:hover { background: var(--surface2); }
+
     /* ── Appearance theme toggle (Settings) ── */
     .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 3px; }
     .theme-opt {
@@ -2180,7 +2197,13 @@
         <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
         <button class="tab-btn" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</button>
-        <button class="tab-btn" data-tab="about"   onclick="switchTab('about')">About</button>
+        <div class="nav-about-wrap" id="nav-about-wrap">
+          <button class="tab-btn" data-tab="about" id="nav-about-btn" onclick="toggleAboutMenu(event)" aria-haspopup="true" aria-expanded="false">About<span class="tab-caret">&#9662;</span></button>
+          <div class="about-dropdown hidden" id="about-dropdown" role="menu">
+            <a class="about-dropdown-item" role="menuitem" onclick="switchTab('about');closeAboutMenu();">About</a>
+            <a class="about-dropdown-item" role="menuitem" href="/faq">FAQ</a>
+          </div>
+        </div>
       </div>
     </div>
     <div class="nav-actions">
@@ -2220,6 +2243,32 @@
       </a>
     </div>
   </nav>
+
+  <!-- About nav dropdown behavior: click toggles, outside click + Escape close.
+       Inline (not app.js) because the nav is static markup and the toggle must
+       work even before the ES modules finish loading. -->
+  <script>
+    function toggleAboutMenu(e) {
+      if (e) e.stopPropagation();
+      const dd  = document.getElementById('about-dropdown');
+      const btn = document.getElementById('nav-about-btn');
+      if (!dd) return;
+      const willOpen = dd.classList.contains('hidden');
+      dd.classList.toggle('hidden', !willOpen);
+      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    }
+    function closeAboutMenu() {
+      const dd  = document.getElementById('about-dropdown');
+      const btn = document.getElementById('nav-about-btn');
+      if (dd) dd.classList.add('hidden');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('#nav-about-wrap')) return;
+      closeAboutMenu();
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAboutMenu(); });
+  </script>
 
   <!-- ── Unlock the CappingAlpha ── -->
   <div id="panel-unlock" class="tab-panel"></div>
@@ -2742,6 +2791,9 @@
     <a class="ca-drawer-nav-item" onclick="switchTab('about');closeDrawer();">
       About <span class="ca-drawer-nav-chevron">›</span>
     </a>
+    <a class="ca-drawer-nav-item" href="/faq">
+      FAQ <span class="ca-drawer-nav-chevron">›</span>
+    </a>
 
     <div class="ca-drawer-account-toggle" onclick="toggleDrawerAccount()">
       <span>My Account</span>
@@ -2796,6 +2848,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=51"></script>
+  <script type="module" src="app.js?v=52"></script>
 </body>
 </html>

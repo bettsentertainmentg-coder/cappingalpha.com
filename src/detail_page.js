@@ -100,8 +100,7 @@ function buildNav(user) {
         <div style="padding:8px 12px 10px;border-bottom:1px solid #252c3b;margin-bottom:6px;font-weight:700;font-size:14px;color:#e2e8f0;">@${esc(nm)}</div>
         ${ddItem('/#tracking', 'fa-solid fa-chart-line', 'My Tracking')}
         ${ddItem('/#settings', 'fa-solid fa-gear', 'Settings')}
-        ${ddItem('/faq', 'fa-regular fa-circle-question', 'FAQ')}
-        ${ddItem('/#about', 'fa-regular fa-life-ring', 'Support')}
+        ${ddItem('/#about', 'fa-regular fa-circle-question', 'Support')}
         <div style="height:1px;background:#252c3b;margin:6px 4px;"></div>
         <a onclick="doLogout()" style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#ef4444;cursor:pointer;"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;text-align:center;color:#ef4444;"></i> Logout</a>
       </div>
@@ -118,8 +117,13 @@ function buildNav(user) {
         ${tab('sports', 'Sports')}
         ${tab('esports', 'Esports')}
         ${tab('leaderboard', 'Leaderboard')}
-        ${tab('about', 'About')}
-        <a href="/faq" class="tab-btn" style="text-decoration:none;">FAQ</a>
+        <div class="nav-about-wrap" id="ca-about-nav">
+          <button class="tab-btn" id="ca-about-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleAboutMenu(event)">About<span class="tab-caret">&#9662;</span></button>
+          <div class="about-dropdown hidden" id="ca-about-dd" role="menu">
+            <a class="about-dropdown-item" role="menuitem" href="/#about">About</a>
+            <a class="about-dropdown-item" role="menuitem" href="/faq">FAQ</a>
+          </div>
+        </div>
       </div>
     </div>
     <div class="nav-actions">
@@ -138,7 +142,32 @@ function buildNav(user) {
     <a href="/#about">About</a>
     <a href="/faq">FAQ</a>
     <a href="/#account">My Account</a>
-  </div>`;
+  </div>
+  <script>
+    // About nav dropdown: click toggles, outside click + Escape close (same
+    // behavior as the SPA nav's About menu in index.html).
+    function caToggleAboutMenu(e) {
+      if (e) e.stopPropagation();
+      var dd  = document.getElementById('ca-about-dd');
+      var btn = document.getElementById('ca-about-btn');
+      if (!dd) return;
+      var willOpen = dd.classList.contains('hidden');
+      dd.classList.toggle('hidden', !willOpen);
+      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    }
+    function caCloseAboutMenu() {
+      var dd  = document.getElementById('ca-about-dd');
+      var btn = document.getElementById('ca-about-btn');
+      if (dd) dd.classList.add('hidden');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('click', function (e) {
+      var w = document.getElementById('ca-about-nav');
+      if (w && w.contains(e.target)) return;
+      caCloseAboutMenu();
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') caCloseAboutMenu(); });
+  </script>`;
 }
 
 // ── Auth modals (copied from index.html) ─────────────────────────────────────

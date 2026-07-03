@@ -73,8 +73,9 @@ function storeEngineBookLines(rows) {
     const book  = String(row.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
     if (!sport || !book) { unmatched++; continue; }
     if (!bySport.has(sport)) {
+      // Case-insensitive: today_games stores 'Soccer' while adapters send 'SOCCER'.
       bySport.set(sport, db.prepare(
-        `SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE sport = ?`
+        `SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`
       ).all(sport));
     }
     const hit = matchGame(bySport.get(sport), row);
