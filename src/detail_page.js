@@ -9,7 +9,8 @@ function esc(str) {
 
 function sportSlugDisplay(sport) {
   const map = { ATP:'Tennis', WTA:'Tennis', CBB:'NCAAMB', NCAAF:'NCAAF',
-                NBA:'NBA', MLB:'MLB', NHL:'NHL', NFL:'NFL', Golf:'Golf' };
+                NBA:'NBA', MLB:'MLB', NHL:'NHL', NFL:'NFL', GOLF:'Golf',
+                WNBA:'WNBA', SOCCER:'Soccer' };
   return map[(sport||'').toUpperCase()] || sport || 'Sports';
 }
 
@@ -17,7 +18,7 @@ function sportBgColor(sport) {
   const map = {
     NBA:'#f97316', MLB:'#22c55e', NHL:'#3b82f6', NFL:'#013369',
     NCAAF:'#1E4A8C', CBB:'#FBA94C', ATP:'#6B46C1', WTA:'#6B46C1',
-    Golf:'#16734A', Esports:'#06B6D4',
+    GOLF:'#16734A', ESPORTS:'#06B6D4', SOCCER:'#34d399', WNBA:'#f472b6',
   };
   return map[(sport||'').toUpperCase()] || '#3b82f6';
 }
@@ -276,6 +277,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="/game-detail.css" />
   <link rel="stylesheet" href="/gauge.css" />
+  <link rel="stylesheet" href="/track-sheet.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -489,6 +491,9 @@ ${buildAuthModals()}
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
 <script type="module" src="/game-detail.js"></script>
+<!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
+     Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
+<script type="module" src="/modules/track.js?v=36"></script>
 </body>
 </html>`;
 }

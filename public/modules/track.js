@@ -840,6 +840,34 @@ function startBoardPoll(id) {
   }, BOARD_POLL_MS);
 }
 
+// Open the sheet straight at a specific line's confirm slide. Used by the game
+// detail page: tapping a vote button lands here with that page's game + slot,
+// so the user goes from "I like this side" to a filled-in betslip in one tap.
+// Works logged-out too: the 401 path in confirmTrackBet raises the login modal.
+export async function openTrackForSlot(id, slot) {
+  let host = document.getElementById('track-sheet-host');
+  if (!host) { host = document.createElement('div'); host.id = 'track-sheet-host'; document.body.appendChild(host); }
+  host.innerHTML = `
+    <div class="track-overlay" id="track-overlay" onclick="if(event.target===this)closeTrackSheet()">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="Track a bet">
+        <div class="track-sheet-grab"></div>
+        <div class="track-sheet-head">
+          <span>Track a Bet</span>
+          <button class="track-sheet-x" onclick="closeTrackSheet()" aria-label="Close">✕</button>
+        </div>
+        <div id="track-sheet-body"><div style="padding:20px;color:var(--muted);font-size:13px;">Loading lines...</div></div>
+      </div>
+    </div>`;
+  requestAnimationFrame(() => document.getElementById('track-overlay')?.classList.add('open'));
+  await pickTrackGame(id);
+  // Simulate tapping the requested line so labels, live swaps, and disabled
+  // states all come from the one true render path. If the line has no number,
+  // the board stays up and explains itself.
+  const btn = [...document.querySelectorAll('#track-sheet-body .ob-line')]
+    .find(b => (b.getAttribute('onclick') || '').includes(`'${slot}'`) && !b.disabled);
+  if (btn) btn.click();
+}
+
 export async function pickTrackGame(id) {
   stopBoardPoll(); // switching games: never let the old game's interval outlive its board
   _lastBoardId = id;
@@ -1344,6 +1372,8 @@ export async function confirmTrackBet() {
       if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
       showToast('Tracked: ' + selLabel + ' (verified)');
+      // Host pages (game detail) listen and bump their vote counts in place.
+      document.dispatchEvent(new CustomEvent('ca:tracked', { detail: { id: _confirm.id, slot: _confirm.slot, verified: true } }));
     } else {
       if (!Number.isFinite(odds) || odds === 0) { if (errEl) errEl.textContent = 'Enter valid odds (e.g. -110).'; return; }
       const g = _board.game;
@@ -1358,6 +1388,7 @@ export async function confirmTrackBet() {
       }) });
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }
       showToast('Tracked: ' + selLabel + (_confirm.freeBet ? ' (free bet)' : ' (custom)'));
+      document.dispatchEvent(new CustomEvent('ca:tracked', { detail: { id: _confirm.id, slot: _confirm.slot, verified: false } }));
     }
     closeTrackSheet(); refreshTracking();
   } catch (_) { showToast('Network error. Try again.', 'err'); }
@@ -1541,7 +1572,7 @@ Object.assign(window, {
   openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   showBetScan, scanBetslip, backToTrackMenu,
-  openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
+  openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet, openTrackForSlot,
   toggleConfirmFreeBet, toggleAddNote, toggleBookCompare,
 });
 

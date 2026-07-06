@@ -1,0 +1,280 @@
+/* public/track-sheet.css
+ * The Track-a-Bet sheet styles, EXTRACTED from public/index.html for the
+ * standalone game detail page (which loads /modules/track.js so its vote
+ * buttons open the betslip). index.html keeps its own inline copy; when the
+ * sheet's styling changes there, re-run the extraction or mirror the change
+ * here. Vars below are index.html values the detail page does not define.
+ */
+:root { --card: #171b24; --overlay-1: rgba(15,17,23,0.6); --overlay-2: rgba(15,17,23,0.82); --shadow-soft: 0 12px 32px rgba(0,0,0,0.45); --grid-line: rgba(255,255,255,0.05); }
+/* ── My Tracking — stat strip (Action-Network-style) ── */
+    .track-stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+    }
+@media (max-width: 640px) {
+  .track-stats { grid-template-columns: repeat(2, 1fr); }
+}
+.track-extra-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.track-range-row { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.track-range-btn {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-weight: 600; font-size: 12.5px; padding: 7px 14px; border-radius: 999px; cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+    }
+.track-range-btn:hover { color: var(--text); }
+.track-range-btn.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.track-stat {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+    }
+.track-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+.track-stat-val { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; font-family: 'Space Grotesk', 'Inter', sans-serif; }
+.track-stat-val.pos { color: var(--green); }
+.track-stat-val.neg { color: var(--red); }
+.track-stat-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.track-verified-note {
+      display: flex; align-items: center; gap: 9px; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 11px 14px; font-size: 13px; color: var(--muted); margin-bottom: 20px;
+    }
+.track-verified-note .tvn-badge {
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #fff;
+      background: var(--accent); padding: 2px 7px; border-radius: 999px; flex-shrink: 0;
+    }
+/* ── "Track this side (verified)" caption in the game modal / detail page ── */
+    .track-side-cap { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; font-weight: 700; color: var(--text); }
+.track-verified-pill { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #fff; background: var(--accent); padding: 2px 6px; border-radius: 999px; }
+.track-side-note { font-size: 11.5px; color: var(--muted); margin-top: 7px; line-height: 1.4; }
+/* ── Settings — bankroll / unit inputs ── */
+    .settings-field { margin-bottom: 14px; }
+.settings-field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+.settings-field .field-prefix-wrap { position: relative; display: flex; align-items: center; }
+.settings-field .field-prefix { position: absolute; left: 12px; color: var(--muted); font-size: 14px; pointer-events: none; }
+.settings-field input[type="number"], .settings-field input[type="text"] {
+      width: 100%; font-size: 14px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px;
+    }
+.settings-field input[type="number"] { padding: 9px 12px 9px 26px; }
+.settings-field input[type="text"] { padding: 9px 12px; }
+.settings-field input::placeholder { color: var(--muted); }
+.settings-field input:focus { outline: none; border-color: var(--accent); }
+.settings-field .field-hint { font-size: 12px; color: var(--muted); margin-top: 5px; }
+.settings-field select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; }
+/* ── Track-Bet sheet + custom form + bet history (Phase B) ── */
+    .track-fab {
+      position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom));
+      z-index: 150; display: none; align-items: center; gap: 8px; cursor: pointer;
+      background: var(--accent); color: #fff; font-family: inherit; font-weight: 800; font-size: 14px;
+      border: none; border-radius: 999px; padding: 12px 18px; box-shadow: 0 8px 22px var(--shadow-soft);
+    }
+.track-fab i { font-size: 13px; }
+.track-fab:hover { filter: brightness(1.05); }
+@media (max-width: 768px) {
+  /* Lift the FAB above the tab bar; keep page content clear of the fixed bar. */
+      .track-fab { bottom: calc(60px + env(safe-area-inset-bottom)); padding: 11px 16px; }
+}
+.track-overlay {
+      position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.55);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .18s ease;
+    }
+.track-overlay.open { opacity: 1; }
+.track-sheet {
+      width: 440px; max-width: calc(100vw - 24px); max-height: 90vh; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 8px 18px 20px;
+      transform: translateY(10px); transition: transform .18s ease;
+    }
+.track-overlay.open .track-sheet { transform: none; }
+.track-sheet-grab { display: none; width: 40px; height: 4px; border-radius: 999px; background: var(--border); margin: 8px auto 4px; }
+.track-sheet-head { display: flex; align-items: center; justify-content: space-between; font-size: 17px; font-weight: 800; padding: 8px 0 12px; }
+.track-sheet-x { background: none; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+.track-opt {
+      display: flex; align-items: center; gap: 13px; width: 100%; text-align: left; cursor: pointer;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 10px;
+      font-family: inherit; transition: border-color .12s, background .12s;
+    }
+.track-opt:hover:not(:disabled) { border-color: var(--accent); }
+.track-opt-soon { opacity: 0.6; cursor: default; }
+.track-opt-ic { width: 40px; height: 40px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.track-opt-t { display: block; font-weight: 700; font-size: 14px; color: var(--text); }
+.track-opt-d { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.track-soon { font-size: 9px; font-weight: 800; text-transform: uppercase; background: var(--surface2); color: var(--muted); padding: 1px 6px; border-radius: 999px; margin-left: 4px; }
+.track-form { padding-top: 4px; }
+.bet-seg-row { display: flex; gap: 6px; }
+.bet-seg {
+      flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-weight: 600; font-size: 12.5px; padding: 8px 6px; border-radius: 8px; cursor: pointer;
+      white-space: nowrap; transition: background .12s, color .12s, border-color .12s;
+    }
+.bet-seg:hover { color: var(--text); }
+.bet-seg.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+.track-payout { font-size: 13px; color: var(--muted); margin: 2px 0 12px; }
+.track-payout strong { color: var(--text); }
+.track-form-note { font-size: 11.5px; color: var(--muted); line-height: 1.4; margin: 6px 0 12px; }
+.track-submit { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 12px; font-family: inherit; font-weight: 800; font-size: 15px; cursor: pointer; }
+.track-submit:disabled { opacity: 0.6; cursor: default; }
+.track-submit:hover:not(:disabled) { filter: brightness(1.05); }
+.track-game-search #tg-search { width: 100%; padding: 11px 14px; font-size: 14px; margin-bottom: 10px; }
+.tg-results { height: 46vh; overflow-y: auto; }
+/* fixed height so day-stepping never collapses/flickers the sheet */
+    .tg-row {
+      display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
+      padding: 12px 14px; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: border-color .12s;
+    }
+.tg-row:hover { border-color: var(--accent); }
+.tg-matchup { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+.tg-status { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.tg-filter-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; -webkit-overflow-scrolling: touch; }
+.tg-chip {
+      background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-family: inherit;
+      font-weight: 700; font-size: 12px; padding: 6px 13px; border-radius: 999px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    }
+.tg-chip:hover { color: var(--text); }
+.tg-chip.active { background: var(--surface); color: var(--text); border-color: var(--accent); }
+/* AN-style betslip controls: sport dropdown + date stepper */
+    .tg-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.tg-sportdd { position: relative; flex-shrink: 0; }
+.tg-sportdd-btn { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-width: 132px;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit; font-weight: 700; font-size: 13px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.tg-sportdd-btn:hover { border-color: var(--accent); }
+.tg-sportdd-btn .tg-caret { color: var(--muted); font-size: 10px; }
+.tg-sportdd-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 50; min-width: 168px; max-height: 290px; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; box-shadow: 0 14px 34px rgba(0,0,0,.45); }
+.tg-sportdd-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
+      background: none; border: none; color: var(--text); font-family: inherit; font-weight: 600; font-size: 13px; padding: 8px 10px; border-radius: 7px; cursor: pointer; }
+.tg-sportdd-item:hover { background: var(--bg); }
+.tg-sportdd-item .tg-check { color: var(--accent); font-weight: 800; }
+.tg-datestep { display: flex; align-items: center; gap: 2px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
+.tg-datestep-btn { background: none; border: none; color: var(--text); font-family: inherit; font-size: 15px; cursor: pointer; padding: 5px 10px; border-radius: 6px; line-height: 1; }
+.tg-datestep-btn:hover:not(:disabled) { background: var(--surface); }
+.tg-datestep-btn:disabled { color: var(--muted); opacity: .4; cursor: default; }
+.tg-datestep-label { font-weight: 700; font-size: 13px; min-width: 96px; text-align: center; color: var(--text); }
+/* Odds board (tap a line to track verified) */
+    .ob-back { background: none; border: none; color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 4px 0 8px; }
+.ob-head { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.ob-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.ob-section { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 8px;
+      display: flex; align-items: baseline; justify-content: space-between; }
+.ob-line {
+      display: flex; align-items: center; justify-content: space-between; width: 100%;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
+      padding: 13px 16px; border-radius: 10px; cursor: pointer; transition: border-color .12s, background .12s;
+    }
+.ob-line:hover { border-color: var(--accent); background: rgba(59,130,246,0.06); }
+.ob-line-label { font-weight: 600; font-size: 14px; }
+.ob-line-odds { font-weight: 800; font-size: 15px; font-family: 'Space Grotesk','Inter',sans-serif; }
+.ob-books { font-size: 11px; color: var(--muted); }
+.ob-line-off { opacity: 0.5; cursor: default; }
+/* CA/Live line label rides on the first section header (right side) */
+    .ob-caline-tag { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: #a78bfa; }
+.ob-caline-tag.live { color: #38bdf8; }
+.ob-bolt { color: #38bdf8; font-size: 11px; margin-right: 5px; }
+/* A refreshed line that moved pulses once so the change is unmissable */
+    .ob-line.obflash { animation: obflash 1.5s ease; }
+@keyframes obflash { 0%, 35% { background: rgba(56,189,248,.16); border-color: #38bdf8; } 100% { } }
+/* Live-odds marker: a pulsing dot, distinct from the free-bet bolt */
+    .ob-livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; margin-right: 6px; vertical-align: middle; animation: pulse 1.6s ease-in-out infinite; }
+.ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
+/* Confirmation slide (tap a line -> configure -> Track Bet) */
+    .lc-sel { font-size: 18px; font-weight: 800; margin: 6px 0 12px; }
+.lc-odds-row { display: flex; align-items: center; gap: 12px; }
+.lc-odds-row input { width: 110px; }
+.lc-caline { font-size: 12px; font-weight: 700; color: #a78bfa; }
+/* Action-Network-style field row: Risk / To Win / [Line] / Odds side by side */
+    .lc-fields { display: flex; gap: 8px; margin-bottom: 6px; }
+.lc-field { flex: 1; min-width: 0; min-inline-size: 0; margin: 0; padding: 3px 6px 7px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.lc-field legend { font-size: 11px; color: var(--muted); font-weight: 600; padding: 0 5px; margin-left: 2px; }
+.lc-fin { display: flex; align-items: center; justify-content: center; gap: 1px; }
+.lc-fpre { color: var(--muted); font-size: 14px; }
+.lc-field input { width: 100%; min-width: 0; background: transparent; border: none; color: var(--text); text-align: center;
+      font-family: 'Space Grotesk','Inter',sans-serif; font-weight: 800; font-size: 17px; padding: 2px 0; outline: none; -moz-appearance: textfield; }
+.lc-field input::-webkit-outer-spin-button, .lc-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.lc-caref { text-align: right; font-size: 11.5px; font-weight: 700; color: #a78bfa; margin: 0 2px 6px; }
+.lc-io-row { display: flex; gap: 12px; margin-bottom: 14px; }
+.lc-books { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.lc-book { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 11px; border-radius: 8px; cursor: pointer; }
+.lc-book:hover { border-color: var(--accent); }
+.lc-book span { font-weight: 800; }
+.lc-book .lc-bk { display: inline-flex; align-items: center; gap: 4px; }
+.lc-book .lc-bk-sep { color: var(--muted); font-weight: 600; }
+.lc-book.active { border-color: var(--accent); background: rgba(59,130,246,0.12); color: var(--text); }
+.lc-book-plain span { display: none; }
+/* Book head row: label + "Compare N books" toggle */
+    .lc-book-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.lc-compare-toggle { background: none; border: none; color: var(--accent); font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 2px 0; }
+.lc-compare-toggle i { transition: transform .15s; }
+.lc-compare-toggle.open i { transform: rotate(180deg); }
+/* All-books compare table (line shopping for the picked side) */
+    .lc-compare { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.lc-cmp-head { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 7px 12px; background: var(--surface2, rgba(255,255,255,.03)); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.lc-cmp-head span:nth-child(2) { text-align: right; min-width: 46px; }
+.lc-cmp-head span:nth-child(3) { text-align: right; min-width: 56px; }
+.lc-cmp-row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; width: 100%; padding: 9px 12px; background: none; border: none; border-top: 1px solid var(--border); color: var(--text); font-family: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.lc-cmp-row:hover { background: rgba(59,130,246,.06); }
+.lc-cmp-row.active { background: rgba(59,130,246,.12); }
+.lc-cmp-row.best .lc-cmp-odds { color: #4ade80; font-weight: 800; }
+.lc-cmp-book { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; }
+.lc-cmp-off { font-size: 8.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
+.lc-cmp-line { text-align: right; min-width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lc-cmp-odds { text-align: right; min-width: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lc-cmp-best { font-size: 10px; margin-left: 5px; color: #4ade80; }
+.lc-cmp-note { padding: 8px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
+.lc-mode { font-size: 12px; color: var(--accent); margin: 8px 0 4px; display: flex; align-items: center; gap: 6px; line-height: 1.3; }
+.lc-mode.lc-mode-custom { color: #f87171; }
+.lc-addnote { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+      background: var(--overlay-1); border: 1px dashed var(--accent); color: var(--accent);
+      border-radius: 10px; padding: 11px; font-family: inherit; font-weight: 700; font-size: 13px; cursor: pointer; margin-bottom: 2px; }
+.lc-addnote:hover { background: var(--overlay-2); }
+.lc-addnote i { font-size: 11px; }
+.lc-towin { font-size: 18px; font-weight: 800; padding-top: 6px; font-family: 'Space Grotesk','Inter',sans-serif; }
+.lc-freebet-row { display: flex; align-items: center; gap: 12px; margin: 4px 0 6px; }
+.lc-freebet { display: inline-flex; align-items: center; gap: 6px; background: var(--bg); border: 1px solid var(--border);
+      color: var(--muted); font-family: inherit; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+.lc-freebet i { color: #38bdf8; }
+.lc-freebet.active { background: rgba(56,189,248,.14); border-color: #38bdf8; color: var(--text); }
+.free-tag { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 5px; white-space: nowrap; }
+.free-tag i { font-size: 8px; }
+.ca-toast {
+      background: var(--green); color: #06230f; font-weight: 700; font-size: 14px;
+      padding: 11px 18px; border-radius: 10px; box-shadow: 0 10px 26px var(--shadow-soft);
+      opacity: 0; transform: translateY(12px); transition: opacity .2s ease, transform .2s ease; max-width: 90vw; text-align: center;
+    }
+.ca-toast.in { opacity: 1; transform: none; }
+.ca-toast.err { background: var(--red); color: #fff; }
+.bd-confirm { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--text); flex-wrap: wrap; }
+.tg-matchup { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tg-sportdd-menu { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.bet-settle-row { display: flex; gap: 6px; margin-top: 8px; }
+.bet-settle-btn { background: var(--bg); border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.bet-settle-btn.win:hover  { color: var(--green); border-color: var(--green); }
+.bet-settle-btn.loss:hover { color: var(--red); border-color: var(--red); }
+.bet-settle-btn.push:hover { color: var(--text); border-color: var(--muted); }
+/* Bet detail rows */
+    .bd-rows { display: flex; flex-direction: column; margin: 4px 0; }
+.bd-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.bd-row:last-child { border-bottom: none; }
+.bd-row span:first-child { color: var(--muted); }
+@media (max-width: 560px) {
+  .track-overlay { align-items: flex-end; }
+  .track-sheet { width: 100%; max-width: 100%; border-radius: 16px 16px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+  .track-sheet-grab { display: block; }
+}
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+/* Global tracking filters (sport + bet type) */
+    .track-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+.track-filter-row .tfr-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.track-filter-row .tfr-note { font-size: 11.5px; color: var(--muted); }
+/* Win Rate by Odds bands */
+    .ob-band-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.ob-band-row:last-of-type { border-bottom: none; }
+.ob-band-label { width: 108px; flex-shrink: 0; color: var(--muted); }
+.ob-band-bar { flex: 1; position: relative; height: 10px; background: var(--surface2); border-radius: 5px; }
+.ob-band-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; opacity: .85; }
+.ob-band-be { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); opacity: .65; border-radius: 1px; }
+.ob-band-rec { width: 92px; flex-shrink: 0; text-align: right; font-weight: 600; }
+.form-error { color: var(--red); font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+/* My Tracking flips the grid: the P/L graph is the hero, the sidebar holds the lists */
+    .account-layout.track-wide { grid-template-columns: minmax(0, 1fr) 320px; }
+@media (max-width: 860px) {
+  .account-layout, .account-layout.track-wide { grid-template-columns: 1fr; }
+}
+.ca-tg-teams.tg-has-bases .ca-tg-tname { padding-right: 32px; }

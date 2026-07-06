@@ -1105,16 +1105,40 @@ async function handleVoteChoice(gameId, chosenSlot) {
   if (hasChosen) {
     // Toggle off — remove existing vote
     await doVoteRequest(gameId, chosenSlot, true);
-  } else {
-    // POST — server automatically removes the opposite slot vote and returns
-    // fresh votes + userVote, so one call is enough
-    await doVoteRequest(gameId, chosenSlot, false);
+    renderDetailPanel();
+    renderSentiment();
+    return;
   }
 
+  // New vote: open the Track-a-Bet sheet at this exact line (track.js is loaded
+  // on this page). The betslip's confirm IS the vote — it writes the same
+  // game_votes row, with the user's stake and odds attached. Fallback to the
+  // plain vote POST if the module ever fails to load.
+  if (window.openTrackForSlot) {
+    window.openTrackForSlot(gameId, chosenSlot);
+    return;
+  }
+  await doVoteRequest(gameId, chosenSlot, false);
   renderDetailPanel();
   renderSentiment();
 }
 window.handleVoteChoice = handleVoteChoice;
+
+// The sheet confirms a track -> reflect it in this page's community counts
+// without a reload. Server-side the vote row is already written.
+document.addEventListener('ca:tracked', (e) => {
+  const { id, slot, verified } = e.detail || {};
+  if (!verified || !_data?.game || String(_data.game.espn_game_id) !== String(id)) return;
+  if (!_data.votes) _data.votes = {};
+  if (!_data.userVote) _data.userVote = {};
+  if (!_data.userVote[slot]) {
+    _data.votes[slot] = (_data.votes[slot] || 0) + 1;
+    _data.userVote[slot] = true;
+  }
+  renderDetailPanel();
+  renderSentiment();
+  if (typeof renderCommunity === 'function') renderCommunity();
+});
 
 async function doVoteRequest(gameId, slot, isRemoving) {
   try {

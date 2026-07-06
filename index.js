@@ -178,10 +178,12 @@ if (MIRROR_URL) {
   app.use((req, res, next) => {
     if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
     if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
-    // The live tracker route runs LOCALLY (fetches ESPN directly, pulls its pick
-    // context from the mirror itself) so the live UI is testable in UI_ONLY. The
-    // main /api/game/:id stays mirrored.
-    if (/^\/api\/game\/[^/]+\/live$/.test(req.path)) return next();
+    // Games + game detail are served LOCALLY: the local board now carries data
+    // prod doesn't have yet (odds-engine books, soccer, engine events), and the
+    // game handler already pulls its PICK context from the mirror internally, so
+    // local pages get local lines + prod picks. /api/games/top stays mirrored
+    // (it ranks by public-betting volume, which only prod accumulates).
+    if (req.path === '/api/games' || /^\/api\/game\/[^/]+/.test(req.path)) return next();
     // Local mock live game (dev only): serve Top Games + its detail/pick data
     // locally so the mock surfaces and the real prod top games aren't needed.
     if (mockActive() && (req.path === '/api/games/top' || req.path.startsWith('/api/game/' + MOCK_ID))) return next();
@@ -1159,7 +1161,27 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   const polymarket    = getPolymarketForGame(espn_game_id);
   const kalshi        = getKalshiForGame(espn_game_id);
   const insights      = getLineInsights(espn_game_id, game);
-  res.json({ game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting, lineHistory, polymarket, kalshi, insights });
+  const payload = { game, picks, pickRanks, stats, weather: stats.weather ?? null, lines, votes, userVote, publicBetting, lineHistory, polymarket, kalshi, insights };
+
+  // Local UI_ONLY dev: this route is served locally (so the odds-engine books and
+  // soccer show), but the local DB has no scanned picks. Borrow the PICK context
+  // from prod, same pattern as /api/game/:id/live. Lines/game stay local.
+  if (MIRROR_URL && (!picks.length)) {
+    try {
+      const mr = await fetch(`${MIRROR_URL}/api/game/${encodeURIComponent(espn_game_id)}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6000) });
+      if (mr.ok) {
+        const pd = await mr.json();
+        if (Array.isArray(pd.picks) && pd.picks.length) {
+          payload.picks = pd.picks;
+          payload.pickRanks = pd.pickRanks || {};
+        }
+        if (pd.publicBetting && !payload.publicBetting) payload.publicBetting = pd.publicBetting;
+        if (pd.lineHistory && !(payload.lineHistory || []).length) payload.lineHistory = pd.lineHistory;
+        if (pd.insights && !(payload.insights || []).length) payload.insights = pd.insights;
+      }
+    } catch (_) {}
+  }
+  res.json(payload);
 });
 
 // ── GET /api/game/:id/live — fast (~12s) live state + value pulse (MLB v1) ─────
@@ -1768,7 +1790,7 @@ app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
 
   // Valid sport slugs only — guard against catching arbitrary routes
-  const SPORT_SLUGS = new Set(['nba','wnba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb']);
+  const SPORT_SLUGS = new Set(['nba','wnba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb','soccer']);
   if (!SPORT_SLUGS.has(sport.toLowerCase())) return res.status(404).send('Not found');
 
   // Parse slug: "timberwolves-vs-nuggets-2026-04-28"
