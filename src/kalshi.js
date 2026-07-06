@@ -10,10 +10,24 @@ const { ET_OFFSET_MS } = require('./cycle');
 // KXATPMATCH / KXWTAMATCH (the KXATPGAME/KXWTAGAME slugs exist but return no open
 // events). College hoops (CBB) and tennis only publish a winner market, no
 // spread/total series — those are simply absent from SPREAD_SERIES/TOTAL_SERIES.
+// Soccer is ONE sport on our board but many Kalshi series (one per competition),
+// so its entry is an array; every series is queried and events match by team name.
+// Soccer game markets are 3-way (home/away/Tie) — extractMoneyline handles the tie.
 const GAME_SERIES   = {
   NBA:  'KXNBAGAME',  MLB:   'KXMLBGAME',   NHL: 'KXNHLGAME',   NFL: 'KXNFLGAME',
   WNBA: 'KXWNBAGAME', NCAAF: 'KXNCAAFGAME', CBB: 'KXNCAABGAME',
   ATP:  'KXATPMATCH', WTA:   'KXWTAMATCH',
+  Soccer: [
+    'KXWCGAME',                                        // FIFA World Cup (Kalshi's biggest soccer market)
+    'KXEPLGAME', 'KXLALIGAGAME', 'KXSERIEAGAME',       // top European leagues
+    'KXBUNDESLIGAGAME', 'KXLIGUE1GAME',
+    'KXUCLGAME', 'KXUELGAME',                          // UEFA cups
+    'KXMLSGAME', 'KXLIGAMXGAME', 'KXBRASILEIROGAME',   // Americas
+  ],
+};
+const seriesListFor = (sport) => {
+  const s = GAME_SERIES[sport];
+  return !s ? [] : (Array.isArray(s) ? s : [s]);
 };
 const SPREAD_SERIES = {
   NBA:  'KXNBASPREAD',  MLB:   'KXMLBSPREAD',   NHL: 'KXNHLSPREAD', NFL: 'KXNFLSPREAD',
@@ -67,10 +81,15 @@ async function _syncGames(games) {
       // (tennis, college hoops) so we don't waste calls on nonexistent series.
       // Also pull SETTLED game events so finished games keep their (often largest)
       // volume in the ranking — their market drops out of the `open` feed.
-      const gameEvtsOpen = await fetchSeries(GAME_SERIES[sport], 'open');
-      await _sleep(300);
-      const gameEvtsSettled = await fetchSeries(GAME_SERIES[sport], 'settled');
-      const gameEvts = [...gameEvtsOpen, ...gameEvtsSettled];
+      // Soccer fans out over its per-competition series list.
+      const gameEvts = [];
+      const seriesList = seriesListFor(sport);
+      for (let ti = 0; ti < seriesList.length; ti++) {
+        if (ti > 0) await _sleep(300);
+        gameEvts.push(...await fetchSeries(seriesList[ti], 'open'));
+        await _sleep(300);
+        gameEvts.push(...await fetchSeries(seriesList[ti], 'settled'));
+      }
       let spreadEvts = [], totalEvts = [];
       if (SPREAD_SERIES[sport]) { await _sleep(300); spreadEvts = await fetchSeries(SPREAD_SERIES[sport]); }
       if (TOTAL_SERIES[sport])  { await _sleep(300); totalEvts  = await fetchSeries(TOTAL_SERIES[sport]); }
@@ -216,15 +235,19 @@ function extractMoneyline(ev, game) {
   if (mktList.length < 2) return null;
 
   const tennis = TENNIS_SPORTS.has(game.sport);
+  const soccer = game.sport === 'Soccer';
   // Tennis: match on last name only. cityOf() would return a player's FIRST name,
   // which collides when two players share one (e.g. Matteo Arnaldi vs Matteo
   // Berrettini), so never use it for tennis.
+  // Soccer: full club/country names (no city+nickname split to exploit).
   const homeKeys = tennis ? [nickOf(game.home_team)]
+                 : soccer ? [(game.home_team || '').toLowerCase()]
                           : [cityOf(game.home_team), nickOf(game.home_team)].filter(Boolean);
   const awayKeys = tennis ? [nickOf(game.away_team)]
+                 : soccer ? [(game.away_team || '').toLowerCase()]
                           : [cityOf(game.away_team), nickOf(game.away_team)].filter(Boolean);
 
-  let homeProb = null, awayProb = null, totalVolume = 0;
+  let homeProb = null, awayProb = null, drawProb = null, totalVolume = 0;
 
   for (const m of mktList) {
     const sub  = (m.yes_sub_title || '').toLowerCase();
@@ -237,6 +260,17 @@ function extractMoneyline(ev, game) {
     const vol = parseFloat(m.volume_fp || m.volume || 0) || 0;
     if (vol > 0) totalVolume += vol * mid;
 
+    // A quoteless market (bid 0, ask 1 — settled/halted, order book empty) carries
+    // no price information; its 0.5 mid would read as a real probability and a
+    // freshly-backfilled finished game would show a bogus even split. Volume above
+    // still counts; the probability doesn't.
+    if (bid === 0 && ask === 1) continue;
+
+    // Soccer regulation-time markets carry a third outcome ("Reg Time: Tie").
+    if (/(^|\s|:)(tie|draw)\b/.test(sub) || /-TIE$/.test((m.ticker || '').toUpperCase())) {
+      drawProb = mid;
+      continue;
+    }
     const isHome = homeKeys.some(k => k && sub.includes(k));
     const isAway = awayKeys.some(k => k && sub.includes(k));
     if (isHome && !isAway) homeProb = mid;
@@ -248,7 +282,8 @@ function extractMoneyline(ev, game) {
     const m0 = mktList[0], m1 = mktList[1];
     const b0 = parseFloat(m0?.yes_bid_dollars), a0 = parseFloat(m0?.yes_ask_dollars);
     const b1 = parseFloat(m1?.yes_bid_dollars), a1 = parseFloat(m1?.yes_ask_dollars);
-    if (!isNaN(b0) && !isNaN(a0) && !isNaN(b1) && !isNaN(a1)) {
+    const quoteless = (b, a) => b === 0 && a === 1; // empty order book, no price info
+    if (!isNaN(b0) && !isNaN(a0) && !isNaN(b1) && !isNaN(a1) && !quoteless(b0, a0) && !quoteless(b1, a1)) {
       const hAbbrUp = (game.home_abbr || '').toUpperCase();
       const t0 = (m0.ticker || '').toUpperCase();
       const isM0Home = hAbbrUp && t0.endsWith(hAbbrUp);
@@ -259,9 +294,14 @@ function extractMoneyline(ev, game) {
 
   if (homeProb == null || awayProb == null) return null;
 
-  const tot = homeProb + awayProb;
+  // De-vig across the outcomes we saw. In a 3-way (soccer) market the draw stays
+  // in the denominator, so home+away honestly sum to less than 100% — the rest is
+  // the draw. draw_prob is included so consumers can show it.
+  const tot = homeProb + awayProb + (drawProb || 0);
+  const ml = { home_prob: homeProb / tot, away_prob: awayProb / tot };
+  if (drawProb != null) ml.draw_prob = drawProb / tot;
   return {
-    moneyline: { home_prob: homeProb / tot, away_prob: awayProb / tot },
+    moneyline: ml,
     volume: totalVolume > 0 ? totalVolume : null,
   };
 }
@@ -316,15 +356,27 @@ function extractTotal(ev) {
 // Match a Kalshi event to one of our games by team city/nick in title
 function matchEventToGame(ev, games) {
   const title = (ev.title || ev.sub_title || '').toLowerCase();
-  // Strip series+date+time prefix to get just the team abbreviation portion of ticker
-  // e.g. KXMLBGAME-26MAY081905ATHBAL → ATHBAL
-  const tickerTeamPart = (ev.event_ticker || '').replace(/^[A-Z0-9]+-\d{2}[A-Z]{3}\d{2}\d{4}/, '').toUpperCase();
+  // Strip series+date(+optional time) prefix to get the team code portion of the
+  // ticker. Team sports carry a time (KXMLBGAME-26MAY081920DETKC -> DETKC); soccer
+  // tickers don't (KXWCGAME-26JUL11NORENG -> NORENG), so the time is optional.
+  const tickerTeamPart = (ev.event_ticker || '').replace(/^[A-Z0-9]+-\d{2}[A-Z]{3}\d{1,2}(\d{4})?/, '').toUpperCase();
 
   return games.find(g => {
     // Tennis events are titled "Lastname vs Lastname" — match purely on last names.
     if (TENNIS_SPORTS.has(g.sport)) {
       const homeLast = nickOf(g.home_team), awayLast = nickOf(g.away_team);
       return !!(homeLast && awayLast && title.includes(homeLast) && title.includes(awayLast));
+    }
+
+    // Soccer: full names in the title ("Norway vs England: Regulation Time
+    // Moneyline"), FIFA/club codes in the ticker (NORENG). Match on both names,
+    // falling back to both abbreviations in the ticker's team part.
+    if (g.sport === 'Soccer') {
+      const h = (g.home_team || '').toLowerCase(), a = (g.away_team || '').toLowerCase();
+      if (h && a && title.includes(h) && title.includes(a)) return true;
+      const hA = (g.home_abbr || '').toUpperCase(), aA = (g.away_abbr || '').toUpperCase();
+      return !!(tickerTeamPart && hA.length >= 3 && aA.length >= 3
+             && tickerTeamPart.includes(hA) && tickerTeamPart.includes(aA));
     }
 
     const homeCity = cityOf(g.home_team), awayCity = cityOf(g.away_team);

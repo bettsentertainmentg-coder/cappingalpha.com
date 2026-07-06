@@ -1245,12 +1245,9 @@ export function openLineConfirm(id, slot, label, caOdds) {
       <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
         <div class="lc-book-head">
-          <label style="margin:0;">Book</label>
-          ${(_confirm.books.length + (_confirm.imp ? 1 : 0)) > 1
-            ? `<button type="button" class="lc-compare-toggle" id="lc-compare-toggle" onclick="toggleBookCompare()">Compare ${_confirm.books.length + (_confirm.imp ? 1 : 0)} books <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></button>`
-            : ''}
+          <label style="margin:0;">Book<span class="lc-book-sel" id="lc-book-sel"></span></label>
+          <button type="button" class="lc-compare-toggle" id="lc-compare-toggle" onclick="toggleBookCompare()">Compare ${_confirm.books.length + (_confirm.imp ? 1 : 0)} book${(_confirm.books.length + (_confirm.imp ? 1 : 0)) === 1 ? '' : 's'} <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></button>
         </div>
-        <div class="lc-books" id="lc-books">${renderConfirmBooks()}</div>
         <div class="lc-compare" id="lc-compare" style="display:none;">${renderBookCompare()}</div>
       </div>
       <div id="lc-note-area">
@@ -1267,39 +1264,16 @@ export function openLineConfirm(id, slot, label, caOdds) {
   mountParlayTray();
 }
 
-// Combined book picker: every book we know a price for shows its odds; tap it to load
-// that book's odds (and line) onto the ticket and mark it as where you placed the bet.
-function renderConfirmBooks() {
-  const c = _confirm; if (!c) return '';
-  const fmtO = o => (o > 0 ? '+' + o : '' + o);
-  const lineStr = (ln) => {
-    if (ln == null) return '';
-    if (c.isSpread) return ln > 0 ? '+' + ln : '' + ln;
-    if (c.isTotal)  return (c.slot === 'over' ? 'Over ' : 'Under ') + ln; // "o9" read as a mystery code
-    return '';
-  };
-  // The line/total goes first, a separator, then the odds (e.g. "+1.5 · -110", "o9 · -117").
-  const nums = (odds, line) => {
-    const ls = lineStr(line);
-    return `<span class="lc-bk">${ls ? `<span class="lc-bk-line">${ls}</span><span class="lc-bk-sep">·</span>` : ''}<span class="lc-bk-odds">${fmtO(odds)}</span></span>`;
-  };
-  const chips = c.books.map((b, i) =>
-    `<button type="button" class="lc-book" data-book="${b.book}" onclick="pickConfirmBook(${i})">${b.book}${nums(b.odds, b.line)}</button>`
-  );
-  if (c.imp) chips.push(`<button type="button" class="lc-book" data-book="${c.imp.book}" onclick="pickConfirmBook('imp')">${c.imp.book}${nums(c.imp.odds, c.imp.line)}</button>`);
-  chips.push(`<button type="button" class="lc-book lc-book-plain" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`);
-  return chips.join('');
-}
-// All books' price for this pick, side by side, so the user can line-shop before
-// tracking. Best payout is highlighted; tapping a row selects that book AND loads
-// its number onto the ticket (same as tapping its chip). Offshore books are tagged.
+// The book picker IS the compare table: every book's price for this pick, side by
+// side, so the user line-shops right where they choose the book. Best payout is
+// highlighted green; tapping a row selects that book AND loads its number onto the
+// ticket. Offshore books are tagged. Ends with an Other row for unlisted books.
 function renderBookCompare() {
   const c = _confirm; if (!c) return '';
   // One unified list: scraped books (index i -> pickConfirmBook(i)) + the implied
   // market ('imp'). Best price = highest decimal odds (biggest payout for the side).
   const entries = c.books.map((b, i) => ({ ...b, sel: String(i) }));
   if (c.imp) entries.push({ ...c.imp, sel: 'imp' });
-  if (!entries.length) return '';
   let bestDec = -Infinity;
   for (const e of entries) { const d = americanToDecimal(e.odds); if (d != null && d > bestDec) bestDec = d; }
   const fmtO = o => (o == null ? '—' : o > 0 ? '+' + o : '' + o);
@@ -1317,11 +1291,14 @@ function renderBookCompare() {
     return `<button type="button" class="lc-cmp-row${best ? ' best' : ''}${c.book === e.book ? ' active' : ''}" data-book="${e.book}" onclick="pickConfirmBook(${e.sel === 'imp' ? "'imp'" : e.sel})">
       <span class="lc-cmp-book">${e.book}${off ? '<span class="lc-cmp-off">offshore</span>' : ''}</span>
       <span class="lc-cmp-line">${ls || ''}</span>
-      <span class="lc-cmp-odds">${fmtO(e.odds)}${best ? '<i class="fa-solid fa-check lc-cmp-best" title="Best price"></i>' : ''}</span>
+      <span class="lc-cmp-odds">${fmtO(e.odds)}</span>
     </button>`;
   }).join('');
-  return `<div class="lc-cmp-head"><span>Book</span><span>Line</span><span>Odds</span></div>${rows}
-    <div class="lc-cmp-note">Best payout highlighted. Tap a book to load its number.</div>`;
+  const otherRow = `<button type="button" class="lc-cmp-row lc-cmp-other${c.book === 'Other' ? ' active' : ''}" data-book="Other" onclick="pickConfirmBook('other')">
+      <span class="lc-cmp-book">Other</span><span class="lc-cmp-line"></span><span class="lc-cmp-odds"></span>
+    </button>`;
+  return `<div class="lc-cmp-head"><span>Book</span><span>Line</span><span>Odds</span></div>${rows}${otherRow}
+    ${entries.length ? '<div class="lc-cmp-note">Best payout in green. Tap a book to load its number.</div>' : ''}`;
 }
 export function toggleBookCompare() {
   const el = document.getElementById('lc-compare');
@@ -1349,8 +1326,11 @@ export function pickConfirmBook(idx) {
   }
 }
 function refreshBookHighlight() {
-  document.querySelectorAll('#lc-books .lc-book, #lc-compare .lc-cmp-row').forEach(el =>
+  document.querySelectorAll('#lc-compare .lc-cmp-row').forEach(el =>
     el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
+  // With the chips gone, the collapsed state still shows which book is on the ticket.
+  const sel = document.getElementById('lc-book-sel');
+  if (sel) sel.textContent = _confirm.book ? ` · ${_confirm.book}` : '';
 }
 
 // Keep Odds / Risk / To Win in sync, with the ODDS held fixed. Editing To Win solves for

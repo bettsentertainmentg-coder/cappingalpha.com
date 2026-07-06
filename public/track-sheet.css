@@ -216,7 +216,8 @@
 .lc-cmp-off { font-size: 8.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
 .lc-cmp-line { text-align: right; min-width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .lc-cmp-odds { text-align: right; min-width: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.lc-cmp-best { font-size: 10px; margin-left: 5px; color: #4ade80; }
+.lc-book-sel { color: var(--accent); font-weight: 700; text-transform: none; letter-spacing: 0; }
+.lc-cmp-other .lc-cmp-book { color: var(--muted); }
 .lc-cmp-note { padding: 8px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
 .lc-mode { font-size: 12px; color: var(--accent); margin: 8px 0 4px; display: flex; align-items: center; gap: 6px; line-height: 1.3; }
 .lc-mode.lc-mode-custom { color: #f87171; }

@@ -523,7 +523,8 @@
     .lc-cmp-off { font-size: 8.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; }
     .lc-cmp-line { text-align: right; min-width: 46px; color: var(--muted); font-variant-numeric: tabular-nums; }
     .lc-cmp-odds { text-align: right; min-width: 56px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .lc-cmp-best { font-size: 10px; margin-left: 5px; color: #4ade80; }
+    .lc-book-sel { color: var(--accent); font-weight: 700; text-transform: none; letter-spacing: 0; }
+    .lc-cmp-other .lc-cmp-book { color: var(--muted); }
     /* Parlay builder (Phase 5) */
     .lc-addleg { width: 100%; margin-top: 8px; background: none; border: 1px solid var(--border); color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 700; padding: 11px; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
     .lc-addleg:hover { border-color: var(--accent); background: rgba(59,130,246,.08); }
@@ -2897,6 +2898,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=56"></script>
+  <script type="module" src="app.js?v=57"></script>
 </body>
 </html>
