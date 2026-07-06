@@ -137,6 +137,24 @@ A bare city with no WNBA nickname and no "WNBA" keyword must NOT be WNBA —
 treat it as the men's/other sport (e.g. "Atlanta -5" → NBA). When in doubt
 between NBA and WNBA, choose NBA.
 
+── SOCCER ────────────────────────────────────────────────────────────────────
+Soccer picks use club names ("Arsenal ML", "Real Madrid -1.5") or country names
+during international tournaments ("France ML", "Brazil -0.5"). "team" = the club
+or country name as written.
+  - Spreads are goal handicaps (-0.5, -1, -1.5, +1.5). Totals are goals
+    ("over 2.5" → over, spread_value=2.5).
+  - Set sport=Soccer ONLY with an explicit soccer signal: a distinctly-soccer
+    club name (Arsenal, Liverpool, Real Madrid, Barcelona, Inter Miami, ...),
+    a country-vs-country matchup, a competition name (World Cup, EPL, Premier
+    League, MLS, Champions League, La Liga, Serie A, Bundesliga, Liga MX), or
+    a soccer emoji. MLS cities overlap US sports (Toronto, Miami, Dallas,
+    Atlanta, Seattle, ...) — a bare city name must NOT be Soccer; treat it as
+    the MLB/NBA/NHL team. When in doubt, choose the US sport.
+  - Draw/tie bets ("Draw ML", "France or draw", double chance) are NOT
+    extractable picks — skip those lines.
+  - Soccer props are skipped like all props: BTTS / both teams to score,
+    corners, cards, anytime goalscorer.
+
 ── GAME MATCHING ─────────────────────────────────────────────────────────────
 When today's games are listed, match each pick to a game by team name.
 Return espn_game_id + picked_side (home/away) when confident.
@@ -163,7 +181,7 @@ const EXTRACT_TOOL = {
             team:         { type: 'string',  description: 'Team or player name as written' },
             pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml', 'set_spread'] },
             spread_value: { type: 'number',  description: 'Spread or total line (games for spread, set handicap for set_spread). Omit for ML.' },
-            sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf'] },
+            sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf', 'Soccer'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
             vs_player:    { type: 'string',  description: 'Opponent name for head-to-head or tennis match-total bets (e.g. "Kostyuk vs Svitolina over 21.5" → vs_player=Svitolina). Also golf h2h.' },
             sport_record: { type: 'string',  description: 'Record string e.g. "27-21 CBB". Omit if absent.' },

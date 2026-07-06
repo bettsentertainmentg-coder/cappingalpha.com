@@ -33,6 +33,7 @@ const { getPickTimeline }   = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
+const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
@@ -922,7 +923,7 @@ app.put('/api/account/preferences', (req, res) => {
   const userId = req.session.user.id;
   const { favorite_sports, is_public } = req.body || {};
 
-  const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+  const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
 
   // Read the current row so a partial update preserves the untouched field.
   const cur = db.prepare(`SELECT favorite_sports, is_public FROM user_preferences WHERE user_id = ?`).get(userId);
@@ -1473,7 +1474,7 @@ app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
 
   // Valid sport slugs only — guard against catching arbitrary routes
-  const SPORT_SLUGS = new Set(['nba','wnba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb']);
+  const SPORT_SLUGS = new Set(['nba','wnba','mlb','nhl','nfl','ncaamb','ncaaf','tennis','golf','cbb','soccer']);
   if (!SPORT_SLUGS.has(sport.toLowerCase())) return res.status(404).send('Not found');
 
   // Parse slug: "timberwolves-vs-nuggets-2026-04-28"
@@ -1488,7 +1489,7 @@ app.get('/:sport/:slug', async (req, res) => {
   // Sport → DB sport label
   const SPORT_MAP = {
     ncaamb:'CBB', ncaaf:'NCAAF', tennis:'ATP', nba:'NBA', wnba:'WNBA',
-    mlb:'MLB', nhl:'NHL', nfl:'NFL', golf:'Golf', cbb:'CBB',
+    mlb:'MLB', nhl:'NHL', nfl:'NFL', golf:'Golf', cbb:'CBB', soccer:'Soccer',
   };
   const sportFilter = SPORT_MAP[sport.toLowerCase()] || sport.toUpperCase();
 
@@ -1540,6 +1541,7 @@ app.listen(PORT, () => {
   await fetchTodaysTennisMatches().catch(err => console.error('[startup] fetchTodaysTennisMatches error:', err.message));
   await fetchTennisLines().catch(err => console.error('[startup] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
+  await fetchTodaysSoccerGames().catch(err => console.error('[startup] fetchTodaysSoccerGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
   await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
@@ -1549,7 +1551,7 @@ app.listen(PORT, () => {
   // NBA/MLB/NHL games are missing (common after a mid-day restart or outage redeploy).
   const todayStr = new Date().toISOString().slice(0, 10);
   const teamGameCount = db.prepare(
-    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf','WNBA') AND date(start_time) = ?`
+    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf','WNBA','Soccer') AND date(start_time) = ?`
   ).get(todayStr).c;
   if (teamGameCount === 0) {
     console.log('[startup] no team sport games for today — fetching ESPN games and seeding slots...');
@@ -1673,6 +1675,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTodaysTennisMatches().catch(err => console.error('[cron] fetchTodaysTennisMatches error:', err.message));
   await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
+  await fetchTodaysSoccerGames().catch(err => console.error('[cron] fetchTodaysSoccerGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
   await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
@@ -1772,6 +1775,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Golf already refreshes all active leaderboards below.
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
+  await updateSoccerLiveScores().catch(err => console.error('[cron] updateSoccerLiveScores error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
   // Condensed in-game state (baseball bases/outs/half-inning) for live games — free

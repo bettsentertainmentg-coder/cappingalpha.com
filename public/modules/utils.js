@@ -27,6 +27,7 @@ export const SPORT_THEMES = {
   WCBB:  { grad: 'linear-gradient(135deg,#701a75 0%,#a21caf 50%,#e879f9 100%)',             fa: 'fa-solid fa-basketball' },
   ATP:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
   WTA:   { grad: 'linear-gradient(135deg,#3d6e00 0%,#72b300 45%,#bedd1a 100%)', label: 'Tennis', svg: TENNIS_RACKET_SVG },
+  Soccer:{ grad: 'linear-gradient(135deg,#064e3b 0%,#059669 50%,#34d399 100%)',             fa: 'fa-solid fa-futbol' },
   // Esports titles — keys match the labels produced by esports_markets.js normGame()
   'CS2':           { grad: 'linear-gradient(135deg,#1c1c1c 0%,#2d2d2d 40%,#f5a623 100%)', fa: 'fa-solid fa-bomb' },
   'LoL':           { grad: 'linear-gradient(135deg,#0a1628 0%,#091428 50%,#c8aa6e 100%)', fa: 'fa-solid fa-shield-halved' },
