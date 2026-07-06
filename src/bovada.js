@@ -115,6 +115,27 @@ function storeTennisLines(events) {
     WHERE espn_game_id = ? AND sport IN ('ATP','WTA')
   `);
 
+  // Also record Bovada as a per-book row so the betslip's book picker and the
+  // game-detail lines table show it. Tennis is not in the odds engine's sport
+  // list, so without this the only per-book entry a tennis game ever gets is the
+  // prediction-market implied line (which is why the confirm slide showed only
+  // Polymarket). Same book_lines shape the odds engine uses.
+  const upsertBook = db.prepare(`
+    INSERT INTO book_lines
+      (espn_game_id, book, ml_home, ml_away, spread_home, spread_away,
+       over_under, ou_over_odds, ou_under_odds, updated_at)
+    VALUES (?, 'bovada', ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(espn_game_id, book) DO UPDATE SET
+      ml_home       = COALESCE(excluded.ml_home, ml_home),
+      ml_away       = COALESCE(excluded.ml_away, ml_away),
+      spread_home   = COALESCE(excluded.spread_home, spread_home),
+      spread_away   = COALESCE(excluded.spread_away, spread_away),
+      over_under    = COALESCE(excluded.over_under, over_under),
+      ou_over_odds  = COALESCE(excluded.ou_over_odds, ou_over_odds),
+      ou_under_odds = COALESCE(excluded.ou_under_odds, ou_under_odds),
+      updated_at    = datetime('now')
+  `);
+
   let updated = 0;
   for (const ev of events) {
     const names = (ev.players || []).map(p => lastNameOf(p.name)).filter(Boolean);
@@ -138,6 +159,14 @@ function storeTennisLines(events) {
       ev.over_under, ev.ou_over_odds, ev.ou_under_odds,
       game.espn_game_id
     );
+    try {
+      upsertBook.run(
+        game.espn_game_id,
+        homeP.ml, awayP.ml,
+        homeP.spread, awayP.spread,
+        ev.over_under, ev.ou_over_odds, ev.ou_under_odds
+      );
+    } catch (_) { /* book_lines is best-effort; the today_games update is the source of truth */ }
     updated++;
   }
 

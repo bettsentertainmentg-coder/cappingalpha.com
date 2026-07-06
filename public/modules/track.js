@@ -1027,6 +1027,17 @@ function slotToBet(slot) {
   if (slot === 'home_spread' || slot === 'away_spread') return 'spread';
   return slot; // 'over' | 'under'
 }
+// Display names for every book key the engine or the crons can produce.
+const BOOK_LABELS = {
+  draftkings: 'DraftKings', fanduel: 'FanDuel', espnbet: 'ESPN BET', caesars: 'Caesars',
+  betmgm: 'BetMGM', betrivers: 'BetRivers', bet365: 'bet365', hardrock: 'Hard Rock',
+  pinnacle: 'Pinnacle', bovada: 'Bovada', betonline: 'BetOnline', thunderpick: 'Thunderpick',
+};
+// Books shown as information only (unlicensed in the US): tagged, never linked.
+// Keep in sync with OFFSHORE in game-detail.js and OFFSHORE_BOOKS in odds_ingest.js.
+const OFFSHORE_BOOKS = new Set(['bovada', 'betonline', 'thunderpick', 'pinnacle', 'mybookie', 'betus']);
+const isOffshoreLabel = (lbl) => OFFSHORE_BOOKS.has(String(lbl).toLowerCase().replace(/[^a-z0-9]/g, ''));
+
 // Per-book odds + line for a slot, from the books we scrape. Spread juice isn't stored
 // per book (it's a flat -110); the meaningful spread number is the LINE. Powers the
 // combined book picker AND the verified range.
@@ -1035,7 +1046,7 @@ function bookInfoForSlot(slot) {
   const isSpread = slot === 'home_spread' || slot === 'away_spread';
   const oddsField = { home_ml: 'ml_home', away_ml: 'ml_away', over: 'ou_over_odds', under: 'ou_under_odds' }[slot];
   const lineField = { home_spread: 'spread_home', away_spread: 'spread_away', over: 'over_under', under: 'over_under' }[slot];
-  const label = { draftkings: 'DraftKings', fanduel: 'FanDuel', espnbet: 'ESPN BET', caesars: 'Caesars', betmgm: 'BetMGM' };
+  const label = BOOK_LABELS;
   const out = [];
   const add = (key, obj) => {
     if (!obj) return;
@@ -1119,8 +1130,14 @@ export function openLineConfirm(id, slot, label, caOdds) {
       <div class="lc-caref">CA Line ${caTxt}${hasLine ? ` · ${lineLeg} ${lineTxt}` : ''}</div>
       <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
-        <label>Book</label>
+        <div class="lc-book-head">
+          <label style="margin:0;">Book</label>
+          ${(_confirm.books.length + (_confirm.imp ? 1 : 0)) > 1
+            ? `<button type="button" class="lc-compare-toggle" id="lc-compare-toggle" onclick="toggleBookCompare()">Compare ${_confirm.books.length + (_confirm.imp ? 1 : 0)} books <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></button>`
+            : ''}
+        </div>
         <div class="lc-books" id="lc-books">${renderConfirmBooks()}</div>
+        <div class="lc-compare" id="lc-compare" style="display:none;">${renderBookCompare()}</div>
       </div>
       <div id="lc-note-area">
         <button type="button" class="lc-addnote" id="lc-addnote" onclick="toggleAddNote()"><i class="fa-solid fa-plus"></i> Add a note</button>
@@ -1157,6 +1174,47 @@ function renderConfirmBooks() {
   chips.push(`<button type="button" class="lc-book lc-book-plain" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`);
   return chips.join('');
 }
+// All books' price for this pick, side by side, so the user can line-shop before
+// tracking. Best payout is highlighted; tapping a row selects that book AND loads
+// its number onto the ticket (same as tapping its chip). Offshore books are tagged.
+function renderBookCompare() {
+  const c = _confirm; if (!c) return '';
+  // One unified list: scraped books (index i -> pickConfirmBook(i)) + the implied
+  // market ('imp'). Best price = highest decimal odds (biggest payout for the side).
+  const entries = c.books.map((b, i) => ({ ...b, sel: String(i) }));
+  if (c.imp) entries.push({ ...c.imp, sel: 'imp' });
+  if (!entries.length) return '';
+  let bestDec = -Infinity;
+  for (const e of entries) { const d = americanToDecimal(e.odds); if (d != null && d > bestDec) bestDec = d; }
+  const fmtO = o => (o == null ? '—' : o > 0 ? '+' + o : '' + o);
+  const lineStr = (ln) => {
+    if (ln == null) return '';
+    if (c.isSpread) return ln > 0 ? '+' + ln : '' + ln;
+    if (c.isTotal)  return (c.slot === 'over' ? 'o' : 'u') + ln;
+    return '';
+  };
+  const rows = entries.map(e => {
+    const dec = americanToDecimal(e.odds);
+    const best = dec != null && Math.abs(dec - bestDec) < 1e-9;
+    const off = isOffshoreLabel(e.book);
+    const ls = lineStr(e.line);
+    return `<button type="button" class="lc-cmp-row${best ? ' best' : ''}${c.book === e.book ? ' active' : ''}" data-book="${e.book}" onclick="pickConfirmBook(${e.sel === 'imp' ? "'imp'" : e.sel})">
+      <span class="lc-cmp-book">${e.book}${off ? '<span class="lc-cmp-off">offshore</span>' : ''}</span>
+      <span class="lc-cmp-line">${ls || ''}</span>
+      <span class="lc-cmp-odds">${fmtO(e.odds)}${best ? '<i class="fa-solid fa-check lc-cmp-best" title="Best price"></i>' : ''}</span>
+    </button>`;
+  }).join('');
+  return `<div class="lc-cmp-head"><span>Book</span><span>Line</span><span>Odds</span></div>${rows}
+    <div class="lc-cmp-note">Best payout highlighted. Tap a book to load its number.</div>`;
+}
+export function toggleBookCompare() {
+  const el = document.getElementById('lc-compare');
+  const tog = document.getElementById('lc-compare-toggle');
+  if (!el) return;
+  const open = el.style.display === 'none';
+  el.style.display = open ? '' : 'none';
+  if (tog) tog.classList.toggle('open', open);
+}
 export function pickConfirmBook(idx) {
   const c = _confirm; if (!c) return;
   let info = null, book = 'Other';
@@ -1175,7 +1233,7 @@ export function pickConfirmBook(idx) {
   }
 }
 function refreshBookHighlight() {
-  document.querySelectorAll('#lc-books .lc-book').forEach(el =>
+  document.querySelectorAll('#lc-books .lc-book, #lc-compare .lc-cmp-row').forEach(el =>
     el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
 }
 
@@ -1484,7 +1542,7 @@ Object.assign(window, {
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   showBetScan, scanBetslip, backToTrackMenu,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet,
-  toggleConfirmFreeBet, toggleAddNote,
+  toggleConfirmFreeBet, toggleAddNote, toggleBookCompare,
 });
 
 // Close the sport dropdown when clicking outside it.

@@ -7,8 +7,8 @@ import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=7';
-import { loadTracking, loadSettings } from './modules/account.js?v=40';
-import './modules/track.js?v=34';
+import { loadTracking, loadSettings } from './modules/account.js?v=41';
+import './modules/track.js?v=35';
 import './modules/modal.js?v=2';
 import './modules/member_profile.js?v=5';
 import { resumePendingCheckout } from './modules/paywall.js';
@@ -198,9 +198,11 @@ export function closeDrawer() {
   if (!overlay || !drawer) return;
   overlay.classList.remove('open');
   drawer.classList.remove('open');
-  // Also close account sub-menu
-  const sub = document.getElementById('ca-drawer-account-sub');
-  if (sub) sub.classList.remove('open');
+  // Also close the expandable sub-menus (About + My Account)
+  const accountSub = document.getElementById('ca-drawer-account-sub');
+  if (accountSub) accountSub.classList.remove('open');
+  const aboutSub = document.getElementById('ca-drawer-about-sub');
+  if (aboutSub) aboutSub.classList.remove('open');
 }
 
 export function toggleDrawerAccount() {
@@ -211,7 +213,15 @@ export function toggleDrawerAccount() {
   if (arrow) arrow.textContent = isOpen ? '▴' : '▾';
 }
 
-Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount });
+export function toggleDrawerAbout() {
+  const sub = document.getElementById('ca-drawer-about-sub');
+  const arrow = document.getElementById('ca-drawer-about-arrow');
+  if (!sub) return;
+  const isOpen = sub.classList.toggle('open');
+  if (arrow) arrow.textContent = isOpen ? '▴' : '▾';
+}
+
+Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount, toggleDrawerAbout });
 
 // ── Account dropdown (desktop avatar menu) ────────────────────────────────────
 export function toggleAccountMenu(e) {
