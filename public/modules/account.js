@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=36';
+import { loadUserBets, setBetsData } from './track.js?v=38';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
 
@@ -565,7 +565,7 @@ function buildItems(votes, bets, unit) {
     // Hiding the loss entirely inflates the record — the win rate has to stay honest.
     if (r === 'win' || r === 'loss' || r === 'push') {
       const d = b.payout != null ? b.payout : 0;
-      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type), odds: (b.odds != null && isFinite(b.odds)) ? b.odds : -110 });
+      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type), odds: (b.odds != null && isFinite(b.odds)) ? b.odds : -110, book: b.book || null });
     }
   }
   return items;
@@ -595,9 +595,14 @@ function breakdownHtml(items) {
           <span class="brk-units" style="color:${uCls};">${r.units >= 0 ? '+' : ''}${r.units.toFixed(2)}u</span>
         </div>`;
       }).join('');
+  // By book: only bets carry a book (votes are at the CA line), so this section
+  // appears once the user has logged bets with a book. Best book = most net units.
+  const bookItems = items.filter(it => it.book);
+  const byBook = bookItems.length ? breakdownBy(bookItems, 'book') : [];
   return `
     <div class="brk-section">By sport</div>${rows(breakdownBy(items, 'sport'), true)}
-    <div class="brk-section" style="margin-top:10px;">By bet type</div>${rows(breakdownBy(items, 'type'), false)}`;
+    <div class="brk-section" style="margin-top:10px;">By bet type</div>${rows(breakdownBy(items, 'type'), false)}
+    ${byBook.length ? `<div class="brk-section" style="margin-top:10px;">By book</div>${rows(byBook, false)}` : ''}`;
 }
 function pendingCount(votes, bets) {
   const vp = (votes || []).filter(v => !['win', 'loss', 'push'].includes((v.result || '').toLowerCase())).length;

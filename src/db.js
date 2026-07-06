@@ -342,6 +342,10 @@ try { db.exec(`ALTER TABLE game_votes ADD COLUMN closing_line REAL`);   } catch 
 // voteReturn(v, 1)); these only scale the user's private P/L.
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN user_stake REAL`);     } catch (_) {}
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN user_odds REAL`);      } catch (_) {}
+// Tail attribution (Phase 5): the scanned pick this vote tracked, when the voted
+// side matches a capper's pick for the game. Powers tailers count + tail slippage.
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN tailed_pick_id INTEGER`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_tailed ON game_votes (tailed_pick_id) WHERE tailed_pick_id IS NOT NULL`); } catch (_) {}
 
 // prev_ columns for book_lines line-movement tracking
 try { db.exec(`ALTER TABLE book_lines ADD COLUMN prev_ml_home REAL`); } catch (_) {}
@@ -470,6 +474,32 @@ try {
 } catch (_) {}
 // Free bet: a loss doesn't count (payout 0, excluded from the record); a win does.
 try { db.exec(`ALTER TABLE user_bets ADD COLUMN free_bet INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+
+// ── bet_legs (Phase 5) — legs of a parlay user_bet. NEVER wiped. ───────────────
+// One row per leg of a bet_type='parlay' user_bet. Game-linked legs auto-grade via
+// the same evaluateVote path as single bets; prop legs stay manual. The parent
+// parlay's result/payout is derived from its legs (any loss = loss, all win = win,
+// pushes drop out and re-price the combined odds).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bet_legs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      bet_id       INTEGER NOT NULL,
+      user_id      INTEGER NOT NULL,
+      espn_game_id TEXT,
+      sport        TEXT,
+      selection    TEXT NOT NULL,
+      bet_type     TEXT NOT NULL,
+      side         TEXT,
+      line         REAL,
+      odds         REAL NOT NULL,
+      result       TEXT NOT NULL DEFAULT 'pending',
+      settled_at   TEXT,
+      leg_index    INTEGER NOT NULL DEFAULT 0
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bet_legs_bet   ON bet_legs (bet_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bet_legs_grade ON bet_legs (result, espn_game_id) WHERE espn_game_id IS NOT NULL`);
+} catch (_) {}
 
 // ── bankroll_ledger (Phase B) — append-only bankroll adjustments. NEVER wiped. ──
 try {

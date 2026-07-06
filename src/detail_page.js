@@ -493,7 +493,7 @@ ${buildAuthModals()}
 <script type="module" src="/game-detail.js"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=36"></script>
+<script type="module" src="/modules/track.js?v=38"></script>
 </body>
 </html>`;
 }

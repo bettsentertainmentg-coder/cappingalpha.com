@@ -1139,9 +1139,13 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // The overall #1 and the public tail (rank > max) stay full.
   const paid    = auth.isPaid(req);
   const maxRank = PAID_RANK_MAX();
+  // Tailers: how many members have tracked (tailed) each pick. Free social proof.
+  const tailerRows = db.prepare(`SELECT tailed_pick_id, COUNT(*) n FROM game_votes WHERE espn_game_id = ? AND tailed_pick_id IS NOT NULL GROUP BY tailed_pick_id`).all(espn_game_id);
+  const tailerMap = new Map(tailerRows.map(r => [r.tailed_pick_id, r.n]));
   for (const p of picks) {
     p.globalRank = globalRank.get(p.id) || null;
     p.timeline = getPickTimeline(p.id);
+    p.tailers = tailerMap.get(p.id) || 0;
     if (!paid && p.globalRank && p.globalRank >= 2 && p.globalRank <= maxRank) {
       p.score = null;
       p.timeline = null;
@@ -1474,6 +1478,21 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
            game.home_team, game.away_team, game.sport,
            game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds, voteLine,
            userStake, userOdds);
+    // Tail attribution: if this side matches a scanned capper pick for the game,
+    // record which pick was tailed (highest-scored match). Zero-friction: every
+    // verified track of a capper's side is captured as a tail.
+    const SLOT_PICK = { home_ml: ['ml', 1], away_ml: ['ml', 0], home_spread: ['spread', 1], away_spread: ['spread', 0] };
+    let tailed = null;
+    if (SLOT_PICK[slot]) {
+      const [pt, ih] = SLOT_PICK[slot];
+      const p = db.prepare(`SELECT id FROM picks WHERE espn_game_id = ? AND pick_type = ? AND is_home_team = ? AND mention_count > 0 ORDER BY score DESC LIMIT 1`).get(espn_game_id, pt, ih);
+      tailed = p ? p.id : null;
+    } else if (slot === 'over' || slot === 'under') {
+      const p = db.prepare(`SELECT id FROM picks WHERE espn_game_id = ? AND pick_type = ? AND mention_count > 0 ORDER BY score DESC LIMIT 1`).get(espn_game_id, slot);
+      tailed = p ? p.id : null;
+    }
+    db.prepare(`UPDATE game_votes SET tailed_pick_id = ? WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
+      .run(tailed, userId, espn_game_id, slot);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

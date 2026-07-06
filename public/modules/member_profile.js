@@ -221,6 +221,11 @@ function renderMemberProfile(data) {
         <div class="record-item"><div class="record-val">${stats.roi == null ? '—' : (stats.roi >= 0 ? '+' : '') + stats.roi.toFixed(1) + '%'}</div><div class="record-label">ROI</div></div>
       </div>
 
+      ${(data.clv && data.clv.n) ? `<div class="mp-clv">
+        <div class="mp-clv-pct">${data.clv.pct}% <span>beat the close</span></div>
+        <div class="mp-clv-sub">${data.clv.good}/${data.clv.n} graded picks${data.clv.avg_cents != null ? ` · avg ${data.clv.avg_cents >= 0 ? '+' : ''}${data.clv.avg_cents} cents` : ''}. Beating the closing line often signals real edge.</div>
+      </div>` : ''}
+
       <div style="display:flex;flex-wrap:nowrap;justify-content:center;align-items:flex-start;gap:26px;margin:16px 0 4px;">${badgeHtml}</div>
 
       <div class="mp-section-label" style="margin-top:14px;">${winLabel} P/L</div>

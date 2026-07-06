@@ -301,6 +301,7 @@ function memberWindowVotes(userId, window) {
            COALESCE(gv.home_team, tg.home_team) AS home_team,
            COALESCE(gv.away_team, tg.away_team) AS away_team,
            gv.ml_home, gv.ml_away, gv.ou_over_odds, gv.ou_under_odds, gv.spread,
+           gv.closing_odds, gv.user_odds,
            tg.status, tg.home_score, tg.away_score
     FROM game_votes gv
     LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
@@ -325,9 +326,31 @@ function memberWindowData(userId, window) {
     return { i: i + 1, cum, ret: v.units, result: v.result };
   });
 
+  // Closing Line Value: how often the member's number beat where the line closed.
+  // ml + totals only (spread closing juice isn't stored). Odds taken = user_odds
+  // when they wagered, else the CA slot odds captured on the vote.
+  const impl = o => (o < 0 ? (-o) / (-o + 100) : 100 / (o + 100));
+  let clvGood = 0, clvN = 0, clvSum = 0;
+  for (const v of votes) {
+    if (v.closing_odds == null) continue;
+    let taken = v.user_odds;
+    if (taken == null) {
+      if (v.pick_slot === 'home_ml') taken = v.ml_home;
+      else if (v.pick_slot === 'away_ml') taken = v.ml_away;
+      else if (v.pick_slot === 'over') taken = v.ou_over_odds;
+      else if (v.pick_slot === 'under') taken = v.ou_under_odds;
+      else continue; // spread
+    }
+    if (taken == null) continue;
+    const d = impl(v.closing_odds) - impl(taken); // > 0 => beat the close
+    clvN++; clvSum += d; if (d > 0) clvGood++;
+  }
+  const clv = { n: clvN, good: clvGood, pct: clvN ? Math.round(100 * clvGood / clvN) : null, avg_cents: clvN ? +(100 * clvSum / clvN).toFixed(1) : null };
+
   return {
     stats: statify(agg),
     chart,
+    clv,
     recentPicks: votes.slice().reverse(), // newest first
   };
 }
@@ -363,7 +386,7 @@ function getMemberProfile(userId, meId, window) {
   // A private member stays visible to people who already follow them (and to self).
   if (!isPublic && !isMe && !iFollow) return { error: 'private' };
 
-  const { stats, chart, recentPicks } = memberWindowData(userId, w);
+  const { stats, chart, recentPicks, clv } = memberWindowData(userId, w);
   const counts = followCounts(userId);
   return {
     user: {
@@ -381,6 +404,7 @@ function getMemberProfile(userId, meId, window) {
     window: w,
     stats,
     chart,
+    clv,
     badges: memberBadges(userId),
     recentPicks,
   };

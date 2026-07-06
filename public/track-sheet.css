@@ -278,3 +278,21 @@
   .account-layout, .account-layout.track-wide { grid-template-columns: 1fr; }
 }
 .ca-tg-teams.tg-has-bases .ca-tg-tname { padding-right: 32px; }
+    /* Parlay builder (Phase 5) */
+    .lc-addleg { width: 100%; margin-top: 8px; background: none; border: 1px solid var(--border); color: var(--accent); font-family: inherit; font-size: 13px; font-weight: 700; padding: 11px; border-radius: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .lc-addleg:hover { border-color: var(--accent); background: rgba(59,130,246,.08); }
+    .parlay-tray { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: rgba(59,130,246,.10); border: 1px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; }
+    .ptray-info { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .ptray-count { font-weight: 800; font-size: 14px; }
+    .ptray-odds { color: var(--accent); font-weight: 800; font-variant-numeric: tabular-nums; }
+    .ptray-review { background: var(--accent); color: #fff; border: none; font-family: inherit; font-size: 13px; font-weight: 700; padding: 8px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+    .pl-combined { color: var(--accent); font-weight: 800; margin-left: 6px; font-variant-numeric: tabular-nums; }
+    .pl-legs { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .pl-leg { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .pl-leg:last-child { border-bottom: none; }
+    .pl-leg-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .pl-leg-sel { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pl-leg-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .pl-leg-odds { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 13px; }
+    .pl-leg-x { background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 2px 4px; }
+    .pl-leg-x:hover { color: var(--red); }

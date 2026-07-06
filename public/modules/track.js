@@ -22,6 +22,9 @@ function americanProfit(odds, stake) {
   return o < 0 ? stake * (100 / Math.abs(o)) : stake * (o / 100);
 }
 function unitSize() { return Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20; }
+// Escape any DB-sourced string before it goes into innerHTML (leg selections,
+// bet selections). Server strips <> too, this is defense in depth.
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
 // Lightweight toast for tracked/settled/error feedback (Backlog P0 #1).
 export function showToast(msg, kind) {
@@ -294,6 +297,10 @@ export function openBetDetail(id) {
   if (!b) return;
   const pending = b.result === 'pending';
   const oddsStr = b.odds > 0 ? '+' + b.odds : '' + b.odds;
+  // A parlay with any game-linked leg auto-grades, so it hides the manual-settle
+  // buttons (the server rejects a hand settle on it) the same way single
+  // game-linked bets do.
+  const autoGraded = !!b.espn_game_id || (b.bet_type === 'parlay' && Array.isArray(b.legs) && b.legs.some(l => l.espn_game_id));
   const host = ensureSheetHost();
   host.innerHTML = `
     <div class="track-overlay" id="track-overlay" onclick="if(event.target===this)closeTrackSheet()">
@@ -301,8 +308,11 @@ export function openBetDetail(id) {
         <div class="track-sheet-grab"></div>
         <div class="track-sheet-head"><span>Bet detail</span><button class="track-sheet-x" onclick="closeTrackSheet()" aria-label="Close">✕</button></div>
         <div class="track-form">
-          <div class="ob-head" style="margin-bottom:2px;">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${betResultPill(b.result)} · ${b.verified ? 'Verified' : 'Custom'}${b.book ? ' · ' + b.book : ''}</div>
+          <div class="ob-head" style="margin-bottom:2px;">${esc(b.selection) || '—'} ${b.sport && b.sport !== 'MULTI' ? sportBadge(b.sport) : ''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${betResultPill(b.result)} · ${b.bet_type === 'parlay' ? 'Parlay' : (b.verified ? 'Verified' : 'Custom')}${b.book ? ' · ' + b.book : ''}</div>
+          ${(b.bet_type === 'parlay' && Array.isArray(b.legs) && b.legs.length) ? `<div class="pl-legs" style="margin-bottom:12px;">${b.legs.map(l => `
+            <div class="pl-leg"><div class="pl-leg-main"><span class="pl-leg-sel">${esc(l.selection)}</span>${l.sport && l.sport !== 'MULTI' ? sportBadge(l.sport) : ''}</div>
+              <div class="pl-leg-side">${betResultPill(l.result)}<span class="pl-leg-odds">${l.odds > 0 ? '+' + l.odds : l.odds}</span></div></div>`).join('')}</div>` : ''}
           ${pending ? `
             <div style="display:flex;gap:12px;">
               <div class="settings-field" style="flex:1;"><label for="bd-odds">Odds</label><input type="number" id="bd-odds" value="${b.odds}" step="5" /></div>
@@ -310,12 +320,12 @@ export function openBetDetail(id) {
             </div>
             <div class="settings-field"><label for="bd-notes">Note</label><input type="text" id="bd-notes" value="${(b.notes || '').replace(/"/g, '&quot;')}" maxlength="200" /></div>
             <button class="track-submit" onclick="saveBetEdit(${b.id})">Save changes</button>
-            ${!b.espn_game_id ? `<div class="bet-settle-row" style="margin-top:12px;">
+            ${!autoGraded ? `<div class="bet-settle-row" style="margin-top:12px;">
               <button class="bet-settle-btn win"  onclick="settleBetUI(${b.id},'win')">Won</button>
               <button class="bet-settle-btn loss" onclick="settleBetUI(${b.id},'loss')">Lost</button>
               <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'push')">Push</button>
               <button class="bet-settle-btn push" onclick="settleBetUI(${b.id},'void')">Void</button>
-            </div>` : `<div class="track-form-note">This is a game-linked bet — it grades automatically when the game finishes.</div>`}
+            </div>` : `<div class="track-form-note">${b.bet_type === 'parlay' ? 'This parlay grades automatically as its games finish.' : 'This is a game-linked bet. It grades automatically when the game finishes.'}</div>`}
           ` : `
             <div class="bd-rows">
               <div class="bd-row"><span>Odds</span><span>${oddsStr}</span></div>
@@ -324,7 +334,7 @@ export function openBetDetail(id) {
               <div class="bd-row"><span>P/L</span>${payoutCell(b)}</div>
             </div>
             ${b.notes ? `<div class="track-form-note" style="font-style:italic;">${b.notes}</div>` : ''}
-            ${!b.espn_game_id ? `
+            ${!autoGraded ? `
             <div class="track-form-note" style="margin-top:12px;margin-bottom:6px;">Marked it wrong? Update the result:</div>
             <div class="bet-settle-row">
               <button class="bet-settle-btn win"  onclick="settleBetUI(${b.id},'win')">Won</button>
@@ -337,6 +347,10 @@ export function openBetDetail(id) {
             <span class="track-opt-ic" style="background:rgba(59,130,246,.14);color:var(--accent);"><i class="fa-solid fa-arrow-up-right-from-square"></i></span>
             <span><span class="track-opt-t">View game</span><span class="track-opt-d">Open the matchup, lines, and live score.</span></span>
           </button>` : ''}
+          ${(b.result === 'win') ? `<button class="track-opt" style="margin-top:12px;" onclick="shareBet(${b.id})">
+            <span class="track-opt-ic" style="background:rgba(74,222,128,.14);color:#4ade80;"><i class="fa-solid fa-share-nodes"></i></span>
+            <span><span class="track-opt-t">Share this win</span><span class="track-opt-d">Make a card to post or send.</span></span>
+          </button>` : ''}
           <button class="track-opt" id="bd-delete-area" style="margin-top:12px;" onclick="confirmDeleteBet(${b.id})">
             <span class="track-opt-ic" style="background:rgba(239,68,68,.14);color:#ef4444;"><i class="fa-solid fa-trash"></i></span>
             <span><span class="track-opt-t" style="color:#ef4444;">Delete bet</span><span class="track-opt-d">Remove it from your tracking.</span></span>
@@ -346,6 +360,75 @@ export function openBetDetail(id) {
     </div>`;
   requestAnimationFrame(() => document.getElementById('track-overlay')?.classList.add('open'));
 }
+// ── Share a win (Phase 5) — canvas card, no server ────────────────────────────
+// Renders a settled winning bet to a PNG and shares it via the Web Share API
+// (mobile) or downloads it (desktop). Pure client, CappingAlpha-branded.
+export async function shareBet(id) {
+  const b = _bets.find(x => x.id === id);
+  if (!b) return;
+  const W = 1080, H = 1080, dpr = 1;
+  const cv = document.createElement('canvas');
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#0b1220'); grad.addColorStop(1, '#0f1117');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+  // accent bar
+  ctx.fillStyle = '#3b82f6'; ctx.fillRect(0, 0, W, 14);
+  const cx = W / 2;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = '800 40px system-ui, sans-serif';
+  ctx.fillText('CappingAlpha', cx, 120);
+  // WINNER badge
+  ctx.fillStyle = '#4ade80';
+  ctx.font = '900 130px system-ui, sans-serif';
+  ctx.fillText('WINNER', cx, 340);
+  // selection (wrap)
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 58px system-ui, sans-serif';
+  const sel = String(b.selection || 'My bet');
+  const words = sel.split(' '); let line = '', y = 470;
+  for (const w of words) {
+    if (ctx.measureText(line + w).width > W - 160 && line) { ctx.fillText(line.trim(), cx, y); line = ''; y += 74; }
+    line += w + ' ';
+  }
+  ctx.fillText(line.trim(), cx, y);
+  // odds + payout stats
+  const oddsStr = b.odds > 0 ? '+' + b.odds : '' + b.odds;
+  const profit = b.payout != null ? b.payout : 0;
+  const unit = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
+  const uStr = `+${(profit / unit).toFixed(2)}u`;
+  ctx.font = '800 84px system-ui, sans-serif';
+  ctx.fillStyle = '#4ade80';
+  ctx.fillText(`+$${Math.abs(profit).toFixed(2)}`, cx, y + 200);
+  ctx.font = '600 44px system-ui, sans-serif';
+  ctx.fillStyle = '#8892a4';
+  ctx.fillText(`${oddsStr}  ·  ${uStr}${b.book ? '  ·  ' + b.book : ''}`, cx, y + 270);
+  // footer
+  ctx.fillStyle = '#64748b';
+  ctx.font = '500 34px system-ui, sans-serif';
+  ctx.fillText('cappingalpha.com', cx, H - 70);
+
+  const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+  if (!blob) { showToast('Could not make the card.', 'err'); return; }
+  const file = new File([blob], 'cappingalpha-win.png', { type: 'image/png' });
+  const text = `${sel} cashed. ${oddsStr} on CappingAlpha.`;
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text });
+      return;
+    }
+  } catch (_) { /* user canceled or share failed -> fall through to download */ }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'cappingalpha-win.png';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('Saved your win card.');
+}
+
 export async function saveBetEdit(id) {
   const odds  = parseFloat(document.getElementById('bd-odds')?.value);
   const stake = parseFloat(document.getElementById('bd-stake')?.value);
@@ -381,6 +464,7 @@ export function openTrackSheet() {
       </div>
     </div>`;
   requestAnimationFrame(() => document.getElementById('track-overlay')?.classList.add('open'));
+  mountParlayTray(); // resume a running parlay if the sheet was closed mid-build
 }
 
 export function closeTrackSheet() {
@@ -658,6 +742,7 @@ export async function trackFromGame() {
   _dayMeta = buildDayMeta();
   renderDateStep();
   renderSportDropdown();
+  mountParlayTray(); // keep a running parlay visible while picking another game
   try {
     const res = await fetch('/api/games');
     _trackGames = res.ok ? await res.json() : [];
@@ -1001,6 +1086,7 @@ function renderOddsBoard() {
     </button>`;
   if (finished || noLines) stopBoardPoll();
   else if (!_boardPoll || _boardPollId !== id) startBoardPoll(id);
+  mountParlayTray();
 }
 
 let _trackingLine = false;
@@ -1174,9 +1260,11 @@ export function openLineConfirm(id, slot, label, caOdds) {
         <button type="button" class="lc-freebet" id="lc-freebet" onclick="toggleConfirmFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
       </div>
       <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
+      <button type="button" class="lc-addleg" id="lc-addleg" onclick="addLegToParlay()"><i class="fa-solid fa-layer-group"></i> ${_parlayLegs.length ? 'Add to parlay' : 'Start a parlay'}</button>
       <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
     </div>`;
   onConfirmField('odds'); // seed To Win + verified state
+  mountParlayTray();
 }
 
 // Combined book picker: every book we know a price for shows its odds; tap it to load
@@ -1395,6 +1483,162 @@ export async function confirmTrackBet() {
   finally { if (btn) btn.disabled = false; }
 }
 
+// ── Parlay builder (Phase 5) ──────────────────────────────────────────────────
+// A cross-game slip built by tapping lines from the board. Legs accumulate in
+// _parlayLegs; the tray rides along the top of the sheet so the user can hop
+// between games and keep adding. Combined odds are the product of the leg
+// decimals, priced client-side and re-checked server-side on submit.
+let _parlayLegs = [];
+let _parlayMeta = { stake: null, book: '', freeBet: false, note: '' };
+
+function parlayCombinedOdds() {
+  let dec = 1, n = 0;
+  for (const l of _parlayLegs) { const d = americanToDecimal(l.odds); if (d == null) continue; dec *= d; n++; }
+  if (!n) return null;
+  return decimalToAmerican(dec);
+}
+function fmtAmO(o) { return o == null ? '—' : o > 0 ? '+' + o : '' + o; }
+
+// Snapshot the current confirm-slide line as a parlay leg, then return to the
+// board so the user can add another (from this game or, via Games, another).
+export function addLegToParlay() {
+  const c = _confirm; if (!c) return;
+  const odds = parseFloat(document.getElementById('lc-odds')?.value);
+  if (!Number.isFinite(odds) || odds === 0) { showToast('Enter valid odds first.', 'err'); return; }
+  const lineV = c.hasLine ? parseFloat(document.getElementById('lc-line')?.value) : null;
+  const side = (c.slot === 'home_ml' || c.slot === 'home_spread') ? 'home'
+             : (c.slot === 'away_ml' || c.slot === 'away_spread') ? 'away'
+             : (c.slot === 'over' || c.slot === 'under') ? c.slot : null;
+  const g = _board && _board.game;
+  // Guard: the same exact side of the same game can't be added twice.
+  const dup = _parlayLegs.some(l => l.espn_game_id === c.id && l.slot === c.slot);
+  if (dup) { showToast('That leg is already in your parlay.', 'err'); return; }
+  _parlayLegs.push({
+    espn_game_id: c.id, slot: c.slot, betKind: c.betKind, side,
+    selection: lcSelLabel(), odds,
+    line: (c.hasLine && Number.isFinite(lineV)) ? lineV : null,
+    sport: (g && g.sport) || null,
+  });
+  showToast(`Added. ${_parlayLegs.length} legs.`);
+  pickTrackGame(c.id); // back to this game's board (Games from there for another game)
+}
+
+export function removeParlayLeg(i) {
+  _parlayLegs.splice(i, 1);
+  if (!_parlayLegs.length) { closeTrackSheet(); return; }
+  reviewParlay();
+}
+export function clearParlay() { _parlayLegs = []; _parlayMeta = { stake: null, book: '', freeBet: false, note: '' }; closeTrackSheet(); }
+
+// Tray: a persistent bar at the top of the sheet showing the running parlay.
+function mountParlayTray() {
+  const body = document.getElementById('track-sheet-body'); if (!body) return;
+  document.getElementById('parlay-tray')?.remove();
+  if (_parlayLegs.length < 1) return;
+  const combined = parlayCombinedOdds();
+  const tray = document.createElement('div');
+  tray.id = 'parlay-tray';
+  tray.className = 'parlay-tray';
+  tray.innerHTML = `
+    <div class="ptray-info"><span class="ptray-count">${_parlayLegs.length}-leg parlay</span><span class="ptray-odds">${fmtAmO(combined)}</span></div>
+    <button type="button" class="ptray-review" onclick="reviewParlay()">Review ${_parlayLegs.length >= 2 ? '›' : '(add 1 more)'}</button>`;
+  body.prepend(tray);
+}
+
+export function reviewParlay() {
+  stopBoardPoll();
+  const body = document.getElementById('track-sheet-body'); if (!body) return;
+  const combined = parlayCombinedOdds();
+  const oneGame = _parlayLegs.length >= 2 && new Set(_parlayLegs.map(l => l.espn_game_id)).size === 1;
+  const unit = unitSize();
+  const stake = _parlayMeta.stake != null ? _parlayMeta.stake : unit;
+  const legRows = _parlayLegs.map((l, i) => `
+    <div class="pl-leg">
+      <div class="pl-leg-main"><span class="pl-leg-sel">${esc(l.selection)}</span>${l.sport ? sportBadge(l.sport) : ''}</div>
+      <div class="pl-leg-side"><span class="pl-leg-odds">${fmtAmO(l.odds)}</span>
+        <button type="button" class="pl-leg-x" onclick="removeParlayLeg(${i})" aria-label="Remove leg">✕</button></div>
+    </div>`).join('');
+  body.innerHTML = `
+    <button class="ob-back" onclick="trackFromGame()">‹ Add another game</button>
+    <div class="lc-sel">${_parlayLegs.length}-leg ${oneGame ? 'same game parlay' : 'parlay'} <span class="pl-combined">${fmtAmO(combined)}</span></div>
+    <div class="track-form">
+      <div class="pl-legs">${legRows}</div>
+      ${oneGame ? `<div class="track-form-note">Same game parlay. Legs from one game can be correlated, so books often price these differently. We track it at the straight combined number.</div>` : ''}
+      <div class="lc-fields three" style="margin-top:10px;">
+        <fieldset class="lc-field"><legend>Risk</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="pl-stake" value="${stake}" min="0" step="1" oninput="onParlayField()" /></div></fieldset>
+        <fieldset class="lc-field"><legend>To win</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="pl-towin" min="0" step="1" readonly /></div></fieldset>
+        <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="pl-oddspre" style="display:${combined > 0 ? '' : 'none'};">+</span><input type="number" id="pl-odds" value="${combined}" readonly /></div></fieldset>
+      </div>
+      <div class="settings-field">
+        <label>Book (optional)</label>
+        <div class="bet-seg-row" style="flex-wrap:wrap;">
+          ${BOOKS.map(b => `<button type="button" class="bet-seg${_parlayMeta.book === b ? ' active' : ''}" onclick="setParlayBook('${b}',this)">${b}</button>`).join('')}
+        </div>
+      </div>
+      <div id="pl-note-area">
+        ${_parlayMeta.note ? `<div class="settings-field" style="margin-bottom:0;"><label for="pl-note">Note</label><input type="text" id="pl-note" value="${_parlayMeta.note.replace(/"/g,'&quot;')}" maxlength="200" /></div>`
+          : `<button type="button" class="lc-addnote" onclick="toggleParlayNote()"><i class="fa-solid fa-plus"></i> Add a note</button>`}
+      </div>
+      <div class="lc-freebet-row">
+        <button type="button" class="lc-freebet${_parlayMeta.freeBet ? ' active' : ''}" id="pl-freebet" onclick="toggleParlayFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
+      </div>
+      <div class="track-form-note">Parlays are personal tracking (not on the leaderboard). Game-linked legs grade automatically.</div>
+      <button class="track-submit" id="pl-submit" onclick="submitParlay()">Track Parlay</button>
+      <div class="form-error" id="pl-error" style="margin-top:8px;font-size:12px;"></div>
+    </div>`;
+  onParlayField();
+}
+export function onParlayField() {
+  const combined = parlayCombinedOdds();
+  const stake = parseFloat(document.getElementById('pl-stake')?.value);
+  const win = document.getElementById('pl-towin');
+  if (win && combined != null && Number.isFinite(stake) && stake > 0) {
+    win.value = americanProfit(combined, stake).toFixed(2);
+  } else if (win) win.value = '';
+}
+export function setParlayBook(book, btn) {
+  const on = _parlayMeta.book === book;
+  _parlayMeta.book = on ? '' : book;
+  const row = btn.parentElement;
+  row.querySelectorAll('.bet-seg').forEach(b => b.classList.remove('active'));
+  if (!on) btn.classList.add('active');
+}
+export function toggleParlayNote() {
+  const area = document.getElementById('pl-note-area'); if (!area) return;
+  area.innerHTML = `<div class="settings-field" style="margin-bottom:0;"><label for="pl-note">Note</label><input type="text" id="pl-note" placeholder="e.g. Sunday longshot" maxlength="200" /></div>`;
+  document.getElementById('pl-note')?.focus();
+}
+export function toggleParlayFreeBet() {
+  _parlayMeta.freeBet = !_parlayMeta.freeBet;
+  document.getElementById('pl-freebet')?.classList.toggle('active', _parlayMeta.freeBet);
+}
+export async function submitParlay() {
+  if (_parlayLegs.length < 2) { showToast('Add at least two legs.', 'err'); return; }
+  const errEl = document.getElementById('pl-error'); if (errEl) errEl.textContent = '';
+  const stake = parseFloat(document.getElementById('pl-stake')?.value) || 0;
+  const note = (document.getElementById('pl-note')?.value || '').trim() || null;
+  const btn = document.getElementById('pl-submit'); if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/bets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bet_type: 'parlay', stake, book: _parlayMeta.book || null, notes: note,
+        free_bet: _parlayMeta.freeBet ? 1 : 0,
+        legs: _parlayLegs.map(l => ({
+          bet_type: l.betKind, selection: l.selection, odds: l.odds, side: l.side,
+          line: l.line, sport: l.sport, espn_game_id: l.espn_game_id,
+        })),
+      }),
+    });
+    if (res.status === 401) { window.openLogin && window.openLogin(); return; }
+    if (!res.ok) { const d = await res.json().catch(() => ({})); if (errEl) errEl.textContent = d.error || 'Could not track that.'; return; }
+    showToast(`Tracked: ${_parlayLegs.length}-leg parlay`);
+    _parlayLegs = []; _parlayMeta = { stake: null, book: '', freeBet: false, note: '' };
+    closeTrackSheet(); refreshTracking();
+  } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
+  finally { if (btn) btn.disabled = false; }
+}
+
 let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
 
 export function showCustomForm() {
@@ -1569,10 +1813,12 @@ Object.assign(window, {
   setFormField, setFormBook, updatePayoutPreview, submitCustomBet,
   setBetFilter, clearBetFilters, loadMoreBets, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
-  openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet,
+  openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet, shareBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
   showBetScan, scanBetslip, backToTrackMenu,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet, openTrackForSlot,
+  addLegToParlay, removeParlayLeg, clearParlay, reviewParlay, onParlayField,
+  setParlayBook, toggleParlayNote, toggleParlayFreeBet, submitParlay,
   toggleConfirmFreeBet, toggleAddNote, toggleBookCompare,
 });
 

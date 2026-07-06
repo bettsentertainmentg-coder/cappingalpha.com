@@ -7,7 +7,7 @@
 // manual (no game id -> the user self-settles via POST /api/bets/:id/settle).
 
 const db = require('./db');
-const { settledProfit } = require('./odds_math');
+const { settledProfit, parlayAmericanOdds } = require('./odds_math');
 const { evaluateVote, fetchGameResult } = require('./results');
 
 const BET_TYPES = new Set(['ml', 'spread', 'over', 'under', 'prop', 'parlay', 'future']);
@@ -27,7 +27,12 @@ function getUnitSize(userId) {
 }
 
 function getBet(userId, id) {
-  return db.prepare(`SELECT * FROM user_bets WHERE id = ? AND user_id = ?`).get(id, userId);
+  const bet = db.prepare(`SELECT * FROM user_bets WHERE id = ? AND user_id = ?`).get(id, userId);
+  if (bet && bet.bet_type === 'parlay') bet.legs = getLegs(id);
+  return bet;
+}
+function getLegs(betId) {
+  return db.prepare(`SELECT * FROM bet_legs WHERE bet_id = ? ORDER BY leg_index, id`).all(betId);
 }
 
 // ml/spread map to a vote slot via side; over/under are their own slot.
@@ -39,10 +44,105 @@ function betToSlot(bet) {
   return null; // prop/parlay/future — not auto-gradable
 }
 
+// The parent parlay's result from its legs: any decided leg loses => loss; any
+// leg still pending => pending; all decided with at least one win => win; all
+// push/void => void (stake back). Push/void legs drop out and re-price.
+function parlayResultFromLegs(legs) {
+  if (!legs.length) return 'pending';
+  if (legs.some(l => (l.result || '').toLowerCase() === 'loss')) return 'loss';
+  if (legs.some(l => (l.result || 'pending').toLowerCase() === 'pending')) return 'pending';
+  return legs.some(l => (l.result || '').toLowerCase() === 'win') ? 'win' : 'void';
+}
+
+// ── Create a parlay from legs (Phase 5) ───────────────────────────────────────
+function createParlay(userId, body) {
+  const rawLegs = Array.isArray(body.legs) ? body.legs : [];
+  if (rawLegs.length < 2) throw httpErr(400, 'A parlay needs at least two legs.');
+  if (rawLegs.length > 12) throw httpErr(400, 'Too many legs.');
+
+  let stake = Number(body.stake);
+  if (!Number.isFinite(stake) || stake < 0) stake = 0;
+  const freeBet = body.free_bet ? 1 : 0;
+
+  // Every leg must be auto-gradable, so a parlay can never get stuck pending: a
+  // game-linked ml/spread with a real side, or over/under, on a game we know.
+  // Props and side-less legs are rejected (the board builder never produces them).
+  const legs = [];
+  for (const raw of rawLegs) {
+    const lt = String(raw.bet_type || '').toLowerCase();
+    if (!GRADABLE.has(lt)) throw httpErr(400, 'Each parlay leg must be a moneyline, spread, or total.');
+    const legOdds = Number(raw.odds);
+    if (!Number.isFinite(legOdds) || legOdds === 0) throw httpErr(400, 'Each leg needs valid odds.');
+    // Selection is display-only; strip markup so it can never inject when rendered.
+    const sel = String(raw.selection || '').replace(/[<>]/g, '').trim();
+    if (!sel) throw httpErr(400, 'Each leg needs a selection.');
+
+    let side = raw.side ? String(raw.side).toLowerCase() : null;
+    if (lt === 'over') side = 'over';
+    if (lt === 'under') side = 'under';
+    if ((lt === 'ml' || lt === 'spread') && side !== 'home' && side !== 'away') {
+      throw httpErr(400, 'A moneyline or spread leg needs a side.');
+    }
+
+    let line = (raw.line === '' || raw.line == null) ? null : Number(raw.line);
+    if (!Number.isFinite(line)) line = null;
+
+    const egid = raw.espn_game_id ? String(raw.espn_game_id) : null;
+    if (!egid) throw httpErr(400, 'Each leg must be tied to a game.');
+    const g = db.prepare(`SELECT sport, spread_home, spread_away, over_under FROM today_games WHERE espn_game_id = ?`).get(egid);
+    if (!g) throw httpErr(400, 'A leg references a game we no longer have.');
+    let sport = raw.sport ? String(raw.sport).toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 20) || null : null;
+    if (!sport) sport = (g.sport || '').toUpperCase();
+    if (line == null) {
+      if (lt === 'spread') line = side === 'home' ? g.spread_home : g.spread_away;
+      else if (lt === 'over' || lt === 'under') line = g.over_under;
+    }
+    legs.push({ selection: sel.slice(0, 120), bet_type: lt, side, line, odds: legOdds, sport, espn_game_id: egid });
+  }
+
+  const combined = parlayAmericanOdds(legs); // all pending at creation -> full product
+  if (combined == null) throw httpErr(400, 'Could not price this parlay.');
+
+  const unit  = getUnitSize(userId) || 20;
+  const units = unit > 0 ? +(stake / unit).toFixed(4) : null;
+  const sports = [...new Set(legs.map(l => l.sport).filter(Boolean))];
+  const oneGame = new Set(legs.map(l => l.espn_game_id).filter(Boolean)).size === 1 && legs.every(l => l.espn_game_id);
+  const selection = `${legs.length}-leg ${oneGame ? 'same game parlay' : 'parlay'}`;
+
+  const tx = db.transaction(() => {
+    const info = db.prepare(`
+      INSERT INTO user_bets
+        (user_id, bet_type, sport, selection, side, line, odds, stake, units,
+         espn_game_id, game_date, result, payout, settled_at, verified, source, home_team, away_team, book, notes, free_bet)
+      VALUES (?, 'parlay', ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, 'pending', NULL, NULL, 0, 'manual', NULL, NULL, ?, ?, ?)
+    `).run(
+      userId, sports.length === 1 ? sports[0] : (sports.length ? 'MULTI' : null),
+      selection, combined, stake, units,
+      body.book ? String(body.book).slice(0, 40) : null,
+      body.notes ? String(body.notes).slice(0, 500) : null,
+      freeBet,
+    );
+    const betId = info.lastInsertRowid;
+    const insLeg = db.prepare(`
+      INSERT INTO bet_legs (bet_id, user_id, espn_game_id, sport, selection, bet_type, side, line, odds, result, leg_index)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `);
+    legs.forEach((l, i) => insLeg.run(betId, userId, l.espn_game_id, l.sport, l.selection, l.bet_type, l.side, l.line, l.odds, i));
+    return betId;
+  });
+  return getBet(userId, tx());
+}
+
 // ── Create ────────────────────────────────────────────────────────────────────
 function createBet(userId, body = {}) {
   const bet_type = String(body.bet_type || '').toLowerCase();
   if (!BET_TYPES.has(bet_type)) throw httpErr(400, 'Invalid bet type.');
+
+  // Parlay with legs (Phase 5 builder). A legless parlay falls through to the
+  // single-row manual path below (unchanged: user self-settles it).
+  if (bet_type === 'parlay' && Array.isArray(body.legs) && body.legs.length) {
+    return createParlay(userId, body);
+  }
 
   const selection = String(body.selection || '').trim();
   if (!selection) throw httpErr(400, 'A selection is required.');
@@ -128,6 +228,14 @@ function listBets(userId, { status = 'all', sport, limit = 200, offset = 0 } = {
   const lim = Math.min(500, Math.max(1, parseInt(limit) || 200));
   const off = Math.max(0, parseInt(offset) || 0);
   const bets = db.prepare(`SELECT * FROM user_bets WHERE ${w} ORDER BY placed_at DESC LIMIT ? OFFSET ?`).all(...args, lim, off);
+  // Attach legs to parlays in one query (avoids N+1 on the history list).
+  const parlayIds = bets.filter(b => b.bet_type === 'parlay').map(b => b.id);
+  if (parlayIds.length) {
+    const rows = db.prepare(`SELECT * FROM bet_legs WHERE bet_id IN (${parlayIds.map(() => '?').join(',')}) ORDER BY leg_index, id`).all(...parlayIds);
+    const byBet = new Map();
+    for (const r of rows) { if (!byBet.has(r.bet_id)) byBet.set(r.bet_id, []); byBet.get(r.bet_id).push(r); }
+    for (const b of bets) if (b.bet_type === 'parlay') b.legs = byBet.get(b.id) || [];
+  }
   return { bets, total };
 }
 
@@ -158,6 +266,7 @@ function updateBet(userId, id, partial = {}) {
 function deleteBet(userId, id) {
   const info = db.prepare(`DELETE FROM user_bets WHERE id = ? AND user_id = ?`).run(id, userId);
   if (info.changes === 0) throw httpErr(404, 'Bet not found.');
+  db.prepare(`DELETE FROM bet_legs WHERE bet_id = ? AND user_id = ?`).run(id, userId); // cascade legs
   return { ok: true };
 }
 
@@ -166,12 +275,33 @@ function settleBet(userId, id, result) {
   const bet = getBet(userId, id);
   if (!bet) throw httpErr(404, 'Bet not found.');
   if (bet.espn_game_id) throw httpErr(409, 'Game-linked bets are graded automatically.');
+  // A parlay with any game-linked leg grades from its legs, not by hand.
+  if (bet.bet_type === 'parlay' && (bet.legs || []).some(l => l.espn_game_id)) {
+    throw httpErr(409, 'This parlay grades automatically from its legs.');
+  }
   const r = String(result || '').toLowerCase();
   if (!['win', 'loss', 'push', 'void'].includes(r)) throw httpErr(400, 'Invalid result.');
   const payout = betProfit(r, bet.odds, bet.stake, bet.free_bet);
   db.prepare(`UPDATE user_bets SET result = ?, payout = ?, settled_at = datetime('now') WHERE id = ? AND user_id = ?`)
     .run(r, payout, id, userId);
   return getBet(userId, id);
+}
+
+// Recompute a parlay parent from its (freshly-graded) legs. Re-prices off the
+// legs that still count (push/void dropped). Only writes when the parlay reaches
+// a decided result. Returns { changed, result }.
+function settleParlayFromLegs(betId) {
+  const bet = db.prepare(`SELECT * FROM user_bets WHERE id = ?`).get(betId);
+  if (!bet || bet.bet_type !== 'parlay' || bet.result !== 'pending') return { changed: false };
+  const legs = getLegs(betId);
+  const result = parlayResultFromLegs(legs);
+  if (result === 'pending') return { changed: false };
+  const combined = parlayAmericanOdds(legs);          // re-priced (winning legs only)
+  const payout = betProfit(result, combined, bet.stake, bet.free_bet);
+  // Keep the parent odds in sync with the re-priced number so the record is honest.
+  const upd = db.prepare(`UPDATE user_bets SET result = ?, payout = ?, odds = COALESCE(?, odds), settled_at = datetime('now') WHERE id = ? AND result = 'pending'`)
+    .run(result, payout, combined, betId);
+  return { changed: upd.changes > 0, result, bet };
 }
 
 // Snapshot the latest available odds/line as the CLV "closing" reference while the
@@ -258,6 +388,54 @@ async function gradePendingBets() {
     if (upd.changes > 0) { notify.push({ user_id: b.user_id, payload: betPushPayload(b, result) }); graded++; }
   }
 
+  // ── Pass C: parlay legs (Phase 5) ──────────────────────────────────────────
+  // Grade any pending game-linked leg whose game is final, then re-settle its
+  // parent parlay if all its legs are now decided.
+  const affectedParlays = new Set();
+
+  const liveLegs = db.prepare(`
+    SELECT l.*, tg.status AS g_status, tg.home_score AS g_hs, tg.away_score AS g_as,
+           tg.sport AS g_sport, tg.tennis_home_games, tg.tennis_away_games
+    FROM bet_legs l JOIN today_games tg ON tg.espn_game_id = l.espn_game_id
+    WHERE l.result = 'pending' AND l.espn_game_id IS NOT NULL
+      AND l.bet_type IN ('ml','spread','over','under') AND tg.status = 'post'
+  `).all();
+  for (const l of liveLegs) {
+    const slot = betToSlot(l);
+    if (!slot) continue;
+    const game = { status: l.g_status, sport: l.g_sport || l.sport, home_score: l.g_hs, away_score: l.g_as,
+      tennis_home_games: l.tennis_home_games, tennis_away_games: l.tennis_away_games };
+    const r = evaluateVote(slot, l.line, game);
+    if (r === 'pending') continue;
+    const upd = db.prepare(`UPDATE bet_legs SET result = ?, settled_at = datetime('now') WHERE id = ? AND result = 'pending'`).run(r, l.id);
+    if (upd.changes > 0) affectedParlays.add(l.bet_id);
+  }
+
+  const staleLegs = db.prepare(`
+    SELECT l.* FROM bet_legs l LEFT JOIN today_games tg ON tg.espn_game_id = l.espn_game_id
+    WHERE l.result = 'pending' AND l.espn_game_id IS NOT NULL
+      AND l.bet_type IN ('ml','spread','over','under') AND tg.espn_game_id IS NULL
+  `).all();
+  const legCache = new Map();
+  for (const l of staleLegs) {
+    if (!l.sport) continue;
+    const slot = betToSlot(l);
+    if (!slot) continue;
+    let game;
+    if (legCache.has(l.espn_game_id)) game = legCache.get(l.espn_game_id);
+    else { game = await fetchGameResult(l.espn_game_id, l.sport, null); legCache.set(l.espn_game_id, game); }
+    if (!game) continue;
+    const r = evaluateVote(slot, l.line, game);
+    if (r === 'pending') continue;
+    const upd = db.prepare(`UPDATE bet_legs SET result = ?, settled_at = datetime('now') WHERE id = ? AND result = 'pending'`).run(r, l.id);
+    if (upd.changes > 0) affectedParlays.add(l.bet_id);
+  }
+
+  for (const betId of affectedParlays) {
+    const out = settleParlayFromLegs(betId);
+    if (out.changed) { notify.push({ user_id: out.bet.user_id, payload: betPushPayload({ ...out.bet, selection: out.bet.selection }, out.result) }); graded++; }
+  }
+
   if (notify.length) {
     const { sendToUser } = require('./push');
     for (const n of notify) sendToUser(n.user_id, n.payload).catch(() => {});
@@ -330,4 +508,4 @@ function betSummary(userId, window = 'all') {
   };
 }
 
-module.exports = { createBet, listBets, updateBet, deleteBet, settleBet, gradePendingBets, betSummary, getBet };
+module.exports = { createBet, listBets, updateBet, deleteBet, settleBet, gradePendingBets, betSummary, getBet, getLegs };

@@ -24,4 +24,34 @@ function settledProfit(result, odds, stake = 1) {
   return 0; // push | void | pending
 }
 
-module.exports = { americanProfit, settledProfit };
+// American <-> decimal, for combining parlay legs.
+function americanToDecimal(a) {
+  const o = parseFloat(a);
+  if (!Number.isFinite(o) || o === 0) return null;
+  return o < 0 ? 1 + 100 / Math.abs(o) : 1 + o / 100;
+}
+function decimalToAmerican(d) {
+  const x = Number(d);
+  if (!Number.isFinite(x) || x <= 1) return null;
+  return x >= 2 ? Math.round((x - 1) * 100) : -Math.round(100 / (x - 1));
+}
+
+// Combined American odds for a set of parlay legs. Each leg is { odds, result }.
+// Only legs that WIN or are still PENDING contribute (a book re-prices a parlay
+// down when a leg pushes/voids; those legs drop out of the product). Returns null
+// if nothing contributes. This is the number the payout is settled from once the
+// parlay wins.
+function parlayAmericanOdds(legs) {
+  let dec = 1, counted = 0;
+  for (const leg of legs || []) {
+    const r = String(leg.result || 'pending').toLowerCase();
+    if (r === 'push' || r === 'void') continue; // drops out, re-prices
+    const d = americanToDecimal(leg.odds);
+    if (d == null) continue;
+    dec *= d; counted++;
+  }
+  if (!counted) return null;
+  return decimalToAmerican(dec);
+}
+
+module.exports = { americanProfit, settledProfit, americanToDecimal, decimalToAmerican, parlayAmericanOdds };
