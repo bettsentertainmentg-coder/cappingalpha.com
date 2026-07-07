@@ -43,6 +43,9 @@ function evaluatePick(pick, game) {
   if (type === 'ml') {
     if (margin > 0) return 'win';
     if (margin < 0) return 'loss';
+    // Soccer moneylines are 3-WAY prices (the draw is its own outcome), so a
+    // drawn match loses BOTH ml sides, exactly how books settle it.
+    if ((game.sport || pick.sport || '').toLowerCase() === 'soccer') return 'loss';
     return 'push';
   }
 
@@ -307,50 +310,58 @@ const TENNIS_SPORTS = new Set(['ATP', 'WTA']);
 
 async function fetchGameResult(espnGameId, sport, gameDate = null) {
   const sportKey = (sport || '').toUpperCase();
-  const path     = SPORT_PATH[sportKey];
-  if (!path) return null;  // never silently fall back to MLB
+  // Soccer spans many competitions — probe each popular league path until one
+  // recognizes the event id. Every other sport has a single known path.
+  const paths = sportKey === 'SOCCER'
+    ? require('./soccer_espn').SOCCER_PATHS
+    : (SPORT_PATH[sportKey] ? [SPORT_PATH[sportKey]] : []);
+  if (!paths.length) return null;  // never silently fall back to MLB
 
   // Tennis uses scoreboard-by-date (summary endpoint returns 400 for tennis events)
   if (TENNIS_SPORTS.has(sportKey)) {
-    return fetchTennisGameByDate(espnGameId, path, gameDate);
+    return fetchTennisGameByDate(espnGameId, paths[0], gameDate);
   }
 
-  try {
-    const url  = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${espnGameId}`;
-    const resp = await axios.get(url, { timeout: 8000 });
-    const comp = resp.data?.header?.competitions?.[0];
-    if (!comp) return null;
-    const statusName = (comp.status?.type?.name || '').toLowerCase();
-    const stateName  = (comp.status?.type?.state || '').toLowerCase();
-    const isFinal = statusName.includes('final') || statusName.includes('complete')
-                 || statusName === 'post'        || stateName === 'post';
-    if (!isFinal) return null;
+  for (const path of paths) {
+    try {
+      const url  = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${espnGameId}`;
+      const resp = await axios.get(url, { timeout: 8000 });
+      const comp = resp.data?.header?.competitions?.[0];
+      if (!comp) continue;
+      const statusName = (comp.status?.type?.name || '').toLowerCase();
+      const stateName  = (comp.status?.type?.state || '').toLowerCase();
+      const isFinal = statusName.includes('final') || statusName.includes('complete')
+                   || statusName === 'post'        || stateName === 'post';
+      if (!isFinal) return null;
 
-    const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
-    const away = comp.competitors?.find(c => c.homeAway === 'away') || comp.competitors?.[1];
-    if (!home || !away) return null;
+      const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
+      const away = comp.competitors?.find(c => c.homeAway === 'away') || comp.competitors?.[1];
+      if (!home || !away) return null;
 
-    const homeDisplay = home.team?.displayName || '';
-    const awayDisplay = away.team?.displayName || '';
+      const homeDisplay = home.team?.displayName || '';
+      const awayDisplay = away.team?.displayName || '';
 
-    return {
-      status:     'post',
-      sport:      sportKey,
-      home_score: parseInt(home.score) || 0,
-      away_score: parseInt(away.score) || 0,
-      home_team:  homeDisplay,
-      home_short: home.team?.shortDisplayName || lastNameOf(homeDisplay),
-      home_name:  home.team?.name || homeDisplay,
-      home_abbr:  home.team?.abbreviation || abbrOf(homeDisplay),
-      away_team:  awayDisplay,
-      away_short: away.team?.shortDisplayName || lastNameOf(awayDisplay),
-      away_name:  away.team?.name || awayDisplay,
-      away_abbr:  away.team?.abbreviation || abbrOf(awayDisplay),
-    };
-  } catch (err) {
-    console.warn(`[results] ESPN fetch for game ${espnGameId} (${sportKey}) failed:`, err.message);
-    return null;
+      return {
+        status:     'post',
+        sport:      sportKey,
+        home_score: parseInt(home.score) || 0,
+        away_score: parseInt(away.score) || 0,
+        home_team:  homeDisplay,
+        home_short: home.team?.shortDisplayName || lastNameOf(homeDisplay),
+        home_name:  home.team?.name || homeDisplay,
+        home_abbr:  home.team?.abbreviation || abbrOf(homeDisplay),
+        away_team:  awayDisplay,
+        away_short: away.team?.shortDisplayName || lastNameOf(awayDisplay),
+        away_name:  away.team?.name || awayDisplay,
+        away_abbr:  away.team?.abbreviation || abbrOf(awayDisplay),
+      };
+    } catch (err) {
+      // Wrong-league misses are expected while probing soccer paths; only warn
+      // when the sport had a single known path.
+      if (paths.length === 1) console.warn(`[results] ESPN fetch for game ${espnGameId} (${sportKey}) failed:`, err.message);
+    }
   }
+  return null;
 }
 
 // ── Tennis: pull scoreboard for the game's date, find this match, parse linescores ─

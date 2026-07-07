@@ -992,7 +992,7 @@ app.put('/api/account/preferences', (req, res) => {
   const userId = req.session.user.id;
   const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds } = req.body || {};
 
-  const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+  const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
   const ODDS_SOURCES = ['consensus', 'draftkings', 'fanduel', 'kalshi', 'polymarket'];
 
   // Read the current row so a partial update preserves the untouched fields.
@@ -1889,7 +1889,7 @@ app.listen(PORT, () => {
   // NBA/MLB/NHL games are missing (common after a mid-day restart or outage redeploy).
   const todayStr = new Date().toISOString().slice(0, 10);
   const teamGameCount = db.prepare(
-    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf','WNBA') AND date(start_time) = ?`
+    `SELECT COUNT(*) AS c FROM today_games WHERE sport NOT IN ('ATP','WTA','Golf','WNBA','Soccer') AND date(start_time) = ?`
   ).get(todayStr).c;
   if (teamGameCount === 0) {
     console.log('[startup] no team sport games for today — fetching ESPN games and seeding slots...');

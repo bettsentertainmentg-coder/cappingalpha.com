@@ -21,6 +21,7 @@ const SPORT_KEY_MAP = {
   WCBB:  null, // not available on Odds API
   ATP:   'tennis_atp',
   WTA:   'tennis_wta',
+  Soccer: null, // ESPN's free DraftKings odds only — never spend credits on soccer
 };
 
 // ── Fetch odds for one sport from The Odds API ────────────────────────────────

@@ -95,7 +95,9 @@ function scheduleRowHtml(g) {
       ? `${g.period === 1 ? '1st' : g.period === 2 ? '2nd' : g.period === 3 ? '3rd' : (g.period || '') + 'th'} Inn`
       : sportUp === 'ATP' || sportUp === 'WTA'
         ? `Set ${g.period || ''}`
-        : `P${g.period || ''}`;
+        : sportUp === 'SOCCER'
+          ? `${g.period || ''}H`
+          : `P${g.period || ''}`;
     // Baseball shows the bases diamond + outs + half-inning; others fall back to the period.
     const bb = liveStateHtml(g);
     const state = bb || `<span class="bb-half">${periodLabel}</span>`;

@@ -36,6 +36,17 @@ function isWnbaSignaled(readerSport, text) {
   return (readerSport || '').toUpperCase() === 'WNBA' || WNBA_SIGNAL.test(text || '');
 }
 
+// ── Soccer disambiguation ─────────────────────────────────────────────────────
+// Same problem as WNBA, bigger: MLS cities overlap MLB/NBA/NHL (Toronto FC vs
+// Blue Jays, Inter Miami vs Marlins, FC Dallas, Atlanta United, Seattle
+// Sounders, ...). Only accept a Soccer game match when the message explicitly
+// signals soccer — the reader said sport=Soccer, or a competition keyword /
+// distinctly-soccer club name appears.
+const SOCCER_SIGNAL = /⚽|\b(soccer|futbol|world cup|fifa|mls|epl|premier league|la ?liga|serie a|bundesliga|ligue 1|champions league|ucl|europa|liga mx|eredivisie|copa america|arsenal|liverpool|chelsea|tottenham|everton|barcelona|real madrid|atletico|bayern|dortmund|juventus|napoli|psg|man united|man city|manchester united|manchester city|inter miami|united fc|galaxy|sounders|whitecaps|timbers|earthquakes|red bulls|rapids|dynamo|crew|revolution)\b/i;
+function isSoccerSignaled(readerSport, text) {
+  return (readerSport || '').toUpperCase() === 'SOCCER' || SOCCER_SIGNAL.test(text || '');
+}
+
 // ── Title-case a team name: "LAKERS" → "Lakers", "MIAMI HEAT" → "Miami Heat" ─
 function titleCase(str) {
   return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
@@ -149,6 +160,13 @@ async function processMessage(msg, channelConfig, window) {
     // before it gets overwritten by the ESPN label below.
     if (todayGame && todayGame.sport === 'WNBA' && !isWnbaSignaled(pick.sport, msg.content)) {
       console.log(`[Scanner] WNBA guard: "${pick.team}" matched a WNBA game but no WNBA signal — rejecting`);
+      todayGame = null;
+    }
+
+    // Soccer guard: same rule — reject a Soccer game match unless the message
+    // explicitly signaled soccer (reader sport, competition keyword, or club name).
+    if (todayGame && todayGame.sport === 'Soccer' && !isSoccerSignaled(pick.sport, msg.content)) {
+      console.log(`[Scanner] Soccer guard: "${pick.team}" matched a Soccer game but no soccer signal — rejecting`);
       todayGame = null;
     }
 
@@ -437,6 +455,10 @@ async function rescanSkipped() {
 
       // WNBA guard (same as processMessage): require an explicit WNBA signal.
       if (todayGame && todayGame.sport === 'WNBA' && !isWnbaSignaled(pick.sport, row.content)) {
+        continue;
+      }
+      // Soccer guard (same as processMessage): require an explicit soccer signal.
+      if (todayGame && todayGame.sport === 'Soccer' && !isSoccerSignaled(pick.sport, row.content)) {
         continue;
       }
       if (!todayGame) continue;
