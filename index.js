@@ -16,6 +16,7 @@ const db      = require('./src/db');
 const scanner = require('./src/expert_data');
 const admin   = require('./src/admin');
 const auth    = require('./src/auth');
+const { publicPick, publicPicks } = require('./src/pick_privacy'); // strip proprietary scoring columns before any pick leaves the server
 const { runDailyWipe, pruneStaleGames }   = require('./src/wipe');
 const { lockMorningLines, getLines } = require('./src/lines');
 const { fetchForwardGames } = require('./src/forward_games');
@@ -38,6 +39,7 @@ const { fetchTodaysNcaafGames }     = require('./src/ncaaf_espn');
 const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
+const { recomputeCapperRatings } = require('./src/capper_ratings');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -126,9 +128,44 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000).unref();
 
+// Generic per-IP limiter for other sensitive write endpoints (password reset,
+// code redemption). Each gets its own bucket so they don't share the login count.
+function makeRateLimit({ max = 10, windowMs = 15 * 60 * 1000, msg = 'Too many attempts. Try again later.' } = {}) {
+  const hits = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, times] of hits) {
+      const fresh = times.filter(t => now - t < windowMs);
+      if (fresh.length === 0) hits.delete(ip); else hits.set(ip, fresh);
+    }
+  }, 60 * 60 * 1000).unref();
+  return (req, res, next) => {
+    const ip  = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const arr = (hits.get(ip) || []).filter(t => now - t < windowMs);
+    if (arr.length >= max) return res.status(429).json({ error: msg });
+    arr.push(now); hits.set(ip, arr); next();
+  };
+}
+
 // ── Express ───────────────────────────────────────────────────────────────────
 const app = express();
 app.set('trust proxy', 1); // Required for secure cookies behind Railway/Heroku proxies
+app.disable('x-powered-by'); // don't advertise Express
+
+// Security headers on every response. No CSP here yet — the single-file index.html
+// uses inline styles/scripts, so a strict CSP needs its own tested pass; these are
+// the high-value, non-breaking headers. HSTS only when we're actually behind HTTPS.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-XSS-Protection', '0'); // modern guidance: disable the legacy auditor
+  if (process.env.SESSION_SECURE) {
+    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+  next();
+});
 
 // Stripe webhook MUST be registered before express.json() — needs raw body for signature verification
 app.post('/auth/stripe-webhook', express.raw({ type: 'application/json' }), auth.stripeWebhook);
@@ -153,6 +190,9 @@ app.use(session({
 }));
 app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
+// Throttle the other unauthenticated / brute-forceable auth writes.
+app.use('/auth/forgot-password', makeRateLimit({ max: 5,  windowMs: 15 * 60 * 1000, msg: 'Too many reset requests. Try again in 15 minutes.' }));
+app.use('/auth/redeem-code',     makeRateLimit({ max: 10, windowMs: 15 * 60 * 1000, msg: 'Too many code attempts. Try again in 15 minutes.' }));
 app.use('/admin', admin);
 app.use('/auth', auth);
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
@@ -485,7 +525,8 @@ app.get('/api/picks', (req, res) => {
   // Logged-out visitor: nothing — the #1 pick is account-gated to encourage signups,
   // so every ranked pick is withheld and the client shows a "create a free account"
   // CTA in its place.
-  if (!auth.isPaid(req)) {
+  const paid = auth.isPaid(req);
+  if (!paid) {
     const authed = auth.isAuthed(req);
     for (let i = 0; i < picks.length; i++) {
       const p = picks[i];
@@ -499,7 +540,9 @@ app.get('/api/picks', (req, res) => {
     }
   }
 
-  res.json(picks);
+  // Strip the proprietary scoring columns (channel/weight/bonuses/raw_message) from
+  // every row that survived the paywall pass; capper_name only ships to paid.
+  res.json(publicPicks(picks, { paid }));
 });
 
 // GET /api/picks/top — #1 pick today
@@ -530,7 +573,7 @@ app.get('/api/picks/top', (req, res) => {
     ORDER BY p.score DESC, p.id ASC
   `).all();
   const pick = rows.find(p => isOnBoard(p.start_time, boardDate)) || null;
-  res.json(pick);
+  res.json(pick ? publicPick(pick, { paid: auth.isPaid(req) }) : pick);
 });
 
 // GET /api/mvp — recent MVP picks + all-time record (paid users only).
@@ -579,7 +622,17 @@ app.get('/api/pick-history', (req, res) => {
   const result = req.query.result || null;
   const limit  = Math.min(parseInt(req.query.limit, 10) || 100, 500);
 
-  let sql = `SELECT * FROM pick_history WHERE 1=1`;
+  // Explicit display-safe column list — NEVER SELECT *. pick_history rows carry the
+  // proprietary scoring decomposition (channel, channel_points, sport_bonus,
+  // home_bonus), the raw scanned messages (messages_json), and capper_name; this
+  // endpoint is public, so those columns must never ship. `score` stays: the
+  // permanent archive is a public transparency record by design.
+  let sql = `SELECT id, pick_id, espn_game_id, sport, game_date,
+                    home_team, away_team, home_abbr, away_abbr, team,
+                    pick_type, spread, ml_odds, ou_odds, is_home_team,
+                    score, mention_count, result, home_score, away_score,
+                    first_seen_at, resolved_at, archived_at
+             FROM pick_history WHERE 1=1`;
   const params = [];
   if (sport) {
     // "Tennis" is a virtual filter that blends both tours (ATP + WTA).
@@ -828,7 +881,7 @@ app.get('/api/golf/:tournamentId', (req, res) => {
 
     const picks = db.prepare(`
       SELECT id, capper_name, player_name, vs_player, pick_type, spread_value,
-             channel, score, mention_count, result, game_date, parsed_at
+             score, mention_count, result, game_date, parsed_at
       FROM golf_picks
       WHERE espn_tournament_id = ?
       ORDER BY score DESC
@@ -850,7 +903,9 @@ app.get('/api/golf/picks/all', (req, res) => {
       WHERE gt.status != 'post' OR gt.status IS NULL
       ORDER BY gp.score DESC
     `).all();
-    res.json(picks);
+    // gp.* includes the proprietary `channel` column — strip model columns before
+    // sending (capper_name is kept: the golf modal displays it).
+    res.json(publicPicks(picks, { paid: true }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -942,12 +997,13 @@ app.get('/api/account', (req, res) => {
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
   const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
   const unitSize = prefs && prefs.unit_size != null ? prefs.unit_size : 20;
   const startingBankroll = prefs && prefs.starting_bankroll != null ? prefs.starting_bankroll : 0;
   const defaultOdds = prefs && prefs.default_odds ? prefs.default_odds : 'consensus';
+  const myBooks = prefs ? JSON.parse(prefs.my_books || '[]') : [];
   const avatarUrl = user.avatar_path ? `/avatars/${user.avatar_path}` : null;
 
   // Votes joined to today_games + picks. Snapshot columns (gv.*) take priority —
@@ -982,7 +1038,11 @@ app.get('/api/account', (req, res) => {
     ORDER BY gv.voted_at ASC
   `).all(userId);
 
-  res.json({ user, favoriteSports, isPublic, unitSize, startingBankroll, defaultOdds, avatarUrl, votes });
+  // Paywall parity: the CA pick score is paid-only (ranks 2..paid_rank_max). A free
+  // user must not read it off their own voted games here — null it unless paid.
+  if (!auth.isPaid(req)) { for (const v of votes) v.score = null; }
+
+  res.json({ user, favoriteSports, isPublic, unitSize, startingBankroll, defaultOdds, myBooks, avatarUrl, votes });
 });
 
 // DELETE /api/game/:espn_game_id/vote — remove a vote while game is still pre-game
@@ -1031,13 +1091,21 @@ app.delete('/api/push/subscribe', (req, res) => {
 app.put('/api/account/preferences', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
-  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds } = req.body || {};
+  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
   const ODDS_SOURCES = ['consensus', 'draftkings', 'fanduel', 'kalshi', 'polymarket'];
+  // Canonical "My books" keys. Superset of what we scrape: the picker is about where
+  // the user bets, not which books we have lines for. Mirror of the catalog in
+  // public/modules/books.js — keep the two in sync.
+  const BOOK_KEYS = ['draftkings', 'fanduel', 'betmgm', 'caesars', 'espnbet', 'fanatics',
+                     'betrivers', 'hardrock', 'bet365', 'circa',
+                     'kalshi', 'polymarket', 'novig', 'prophetx',
+                     'bovada', 'pinnacle', 'betonline', 'mybookie', 'betus',
+                     'prizepicks', 'underdog', 'fliff', 'other'];
 
   // Read the current row so a partial update preserves the untouched fields.
-  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds FROM user_preferences WHERE user_id = ?`).get(userId);
+  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books FROM user_preferences WHERE user_id = ?`).get(userId);
 
   const sports = favorite_sports !== undefined
     ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
@@ -1064,19 +1132,26 @@ app.put('/api/account/preferences', (req, res) => {
     ? (ODDS_SOURCES.includes(String(default_odds)) ? String(default_odds) : 'consensus')
     : (cur && cur.default_odds ? cur.default_odds : 'consensus');
 
+  const books = my_books !== undefined
+    ? (Array.isArray(my_books)
+        ? [...new Set(my_books.map(b => String(b).toLowerCase()))].filter(b => BOOK_KEYS.includes(b))
+        : [])
+    : (cur ? JSON.parse(cur.my_books || '[]') : []);
+
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       favorite_sports   = excluded.favorite_sports,
       is_public         = excluded.is_public,
       unit_size         = excluded.unit_size,
       starting_bankroll = excluded.starting_bankroll,
       default_odds      = excluded.default_odds,
+      my_books          = excluded.my_books,
       updated_at        = datetime('now')
-  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds);
+  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds, JSON.stringify(books));
 
-  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds, myBooks: books });
 });
 
 // POST /api/account/avatar — upload a profile photo as a base64 data URL.
@@ -1198,7 +1273,8 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // Stats + weather in parallel (non-blocking — return nulls on error)
   let stats = { pitchers: [], injuries: [], venue: null, weather: null };
   try {
-    stats = await getFullGameContext(espn_game_id, game.sport, game.home_team);
+    // league_path unlocks soccer (per-competition ESPN path lives on the game row)
+    stats = await getFullGameContext(espn_game_id, game.sport, game.home_team, game.league_path);
   } catch (_) {}
 
   const publicBetting = getPublicBettingForGame(espn_game_id);
@@ -1226,6 +1302,10 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
       }
     } catch (_) {}
   }
+  // Strip proprietary scoring columns (channel/weight/bonuses/raw_message) from
+  // every pick before it leaves the server — the score redaction above never
+  // covered them. Applied last so mirror-sourced picks are sanitized too.
+  payload.picks = publicPicks(payload.picks, { paid });
   res.json(payload);
 });
 
@@ -1932,7 +2012,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
     }
 
     // ESPN stats are re-fetchable for past games, so always pull live.
-    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team).catch(() => ({}));
+    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team, game.league_path).catch(() => ({}));
 
     const pick = (key, liveFn) => (opts[key] !== undefined ? opts[key] : liveFn());
     const lines         = pick('lines',         () => getLinesForGame(game.espn_game_id));
@@ -1942,8 +2022,13 @@ async function renderGameDetail(req, res, game, opts = {}) {
     const kalshi        = pick('kalshi',         () => getKalshiForGame(game.espn_game_id));
     const insights      = pick('insights',       () => getLineInsights(game.espn_game_id, game));
 
+    // Strip proprietary scoring columns (channel/weight/bonuses/raw_message) from
+    // every pick before it is inlined into the page source (__GAME_DATA__), on
+    // historical archive pages too — the score redaction above never covered them.
+    const safePicks = publicPicks(picks, { paid: auth.isPaid(req) });
+
     const payload = {
-      game, picks, pickRanks, votes, userVote, stats, lines, publicBetting,
+      game, picks: safePicks, pickRanks, votes, userVote, stats, lines, publicBetting,
       lineHistory, polymarket, kalshi, insights,
       user: req.session?.user || null,
     };
@@ -2083,6 +2168,14 @@ app.get('/:sport/:slug', async (req, res) => {
   return renderGameDetail(req, res, game);
 });
 
+// Terminal error handler — logs the real error server-side and returns a generic
+// message so stack traces / internal paths never reach a client. Must be last.
+app.use((err, req, res, next) => {
+  console.error('[unhandled]', req.method, req.path, err && err.stack ? err.stack : err);
+  if (res.headersSent) return next(err);
+  res.status(err && err.status ? err.status : 500).json({ error: 'Something went wrong.' });
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log('[CappperBoss] ─────────────────────────────────');
@@ -2133,6 +2226,9 @@ app.listen(PORT, () => {
   // Fills any null odds from today's 5am run and seeds pick slots.
   await refreshEspnOdds().catch(err => console.error('[startup] refreshEspnOdds error:', err.message));
 
+  // v3 foundation: make sure capper ratings exist after any restart (DB-only, fast).
+  try { recomputeCapperRatings(); } catch (err) { console.error('[startup] recomputeCapperRatings error:', err.message); }
+
   // Seed slots for every game in today_games (including forward games) — INSERT OR
   // IGNORE, so safe even when today's slots already exist. Picks up forward games
   // that the conditional team-game seed above skipped.
@@ -2175,7 +2271,7 @@ app.listen(PORT, () => {
 
   // Immediately seed public betting % — no API credits, just HTML scrape.
   // Runs unconditionally on startup so data is always fresh after a restart.
-  for (const s of ['NBA', 'WNBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB']) {
+  for (const s of ['NBA', 'WNBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB', 'Soccer']) {
     fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
   }
 
@@ -2230,6 +2326,14 @@ cron.schedule('10 5 * * *', () => {
   catch (err) { console.error('[cron] finalizeLeaderboardAwards error:', err.message); }
 }, { timezone: 'America/New_York' });
 
+// 5:20am ET — nightly capper ratings recompute (v3 foundation). Free, DB-only,
+// idempotent → runs even in UI_ONLY so the local admin leaderboard stays current.
+// Runs after the 4:58am final resolve so yesterday's grades are all in.
+cron.schedule('20 5 * * *', () => {
+  try { recomputeCapperRatings(); }
+  catch (err) { console.error('[cron] recomputeCapperRatings error:', err.message); }
+}, { timezone: 'America/New_York' });
+
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on
 // the games they bet. Runs a few times a day (idempotent) to catch picks that come
 // in after the morning setup, while their games are still pre-game. The extra late
@@ -2253,7 +2357,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await refreshOdds().catch(err => console.error('[cron] refreshOdds error:', err.message));
   await lockMorningLines().catch(err => console.error('[cron] lockMorningLines error:', err.message));
   // Seed initial public betting percentages
-  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1, Soccer:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
   }
   // Seed initial line history + prediction market data
@@ -2295,7 +2399,7 @@ if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   const { seedPickSlots } = require('./src/lines');
   await seedPickSlots().catch(err => console.error('[cron] seedPickSlots error:', err.message));
   // Refresh public betting percentages
-  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1 })) {
+  for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1, Soccer:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 4pm ${s}:`, e.message));
   }
 }, { timezone: 'America/New_York' });
@@ -2305,7 +2409,7 @@ const _lastPbFetch = {};
 cron.schedule('*/30 8-23 * * *', async () => {
   const now = Date.now();
   const THREE_HOURS = 3 * 60 * 60 * 1000;
-  for (const sport of ['NBA','WNBA','NFL','MLB','NHL','NCAAF','CBB']) {
+  for (const sport of ['NBA','WNBA','NFL','MLB','NHL','NCAAF','CBB','Soccer']) {
     // Skip only if no games at all today for this sport
     const anyGame = db.prepare(`SELECT 1 FROM today_games WHERE sport = ? LIMIT 1`).get(sport);
     if (!anyGame) continue;

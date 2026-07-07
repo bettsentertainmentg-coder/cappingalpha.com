@@ -258,6 +258,10 @@ try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN away_team TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_over_odds REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch (_) {}
+// Soccer 3-way moneyline: the draw leg's price (ESPN DK drawOdds). Display only —
+// draw is never a pick slot; a drawn match grades ML picks as losses on both sides.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ml_draw REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE book_lines  ADD COLUMN ml_draw REAL`); } catch (_) {}
 // Live game-state for condensed in-game scoreboards (e.g. baseball bases/outs/
 // half-inning). Populated by src/live_situation.js from ESPN's free scoreboard,
 // cleared when a game is no longer live. live_detail = "Bot 5th"; live_bases is a
@@ -433,6 +437,9 @@ try { db.exec(`ALTER TABLE user_preferences ADD COLUMN unit_size REAL NOT NULL D
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN starting_bankroll REAL NOT NULL DEFAULT 0`); } catch (_) {}
 // Default odds source shown to the user (consensus | draftkings | kalshi | polymarket).
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN default_odds TEXT NOT NULL DEFAULT 'consensus'`); } catch (_) {}
+// Sportsbooks the user actually bets at ("My books"): JSON array of book keys.
+// Drives the Track a Bet book bubbles + the detail-page "My books" lines group.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN my_books TEXT NOT NULL DEFAULT '[]'`); } catch (_) {}
 
 // ── user_bets (Phase B) — free-entry + game-linked personal bet tracking ──────
 // The MANUAL counterpart to game_votes. A bet may be game-linked (espn_game_id set
@@ -1137,6 +1144,123 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_archived ON raw_messages_archi
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_capper   ON raw_messages_archive (capper_name)`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_rma_msgid    ON raw_messages_archive (message_id)`); } catch (_) {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rma_dedup ON raw_messages_archive (message_id, pick_id) WHERE message_id IS NOT NULL`); } catch (_) {}
+
+// ══ CA Algorithm v3 — Phase 1 foundation (docs/CA_ALGORITHM_V3.md) ═══════════
+
+// Cross-source capper identity registry. canonical_name is the one name every
+// system resolves into; capper_aliases stays as the Discord name-variant layer.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_registry (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name TEXT NOT NULL UNIQUE,
+      notes          TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+// (source, handle) -> canonical capper. handle is a username / wallet / user_id /
+// contestant guid depending on the source. meta_json holds the source-side profile
+// snapshot (e.g. AN verified record) for display next to OUR graded record.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_source_handles (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      source         TEXT NOT NULL,
+      handle         TEXT NOT NULL,
+      canonical_name TEXT NOT NULL,
+      meta_json      TEXT,
+      created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (source, handle)
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_csh_canonical ON capper_source_handles (canonical_name)`); } catch (_) {}
+
+// Provenance + venue flag on the permanent capper log
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN source TEXT NOT NULL DEFAULT 'discord'`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN is_home_team INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN sources_json TEXT`); } catch (_) {}
+
+// Per-mention capper attribution (quality-weighted consensus needs to know WHO
+// each mention came from, not just the author/channel)
+try { db.exec(`ALTER TABLE raw_messages ADD COLUMN capper_name TEXT`); } catch (_) {}
+
+// Spread juice (The Odds API returns prices alongside points; stored per side)
+try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_home_odds REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_away_odds REAL`); } catch (_) {}
+
+// v3 component logging (log-only until scoring_version flips) + era markers
+try { db.exec(`ALTER TABLE score_breakdown ADD COLUMN v3_total REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE score_breakdown ADD COLUMN v3_json  TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
+
+// Materialized capper ratings — the scorer and leaderboard read THIS, never raw
+// history. Recomputed nightly + on demand (src/capper_ratings.js).
+// scope: 'overall' | 'sport:MLB' | 'type:MLB/over'
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_ratings (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name TEXT NOT NULL,
+      scope          TEXT NOT NULL,
+      sport          TEXT,
+      pick_type      TEXT,
+      picks          INTEGER NOT NULL DEFAULT 0,
+      wins           INTEGER NOT NULL DEFAULT 0,
+      losses         INTEGER NOT NULL DEFAULT 0,
+      pushes         INTEGER NOT NULL DEFAULT 0,
+      units          REAL    NOT NULL DEFAULT 0,
+      blend          REAL,
+      resume_points  INTEGER,
+      tier           TEXT,
+      fade           TEXT,
+      sources        TEXT,
+      computed_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (canonical_name, scope)
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ratings_scope ON capper_ratings (scope)`); } catch (_) {}
+
+// One-time Phase-1 backfill (settings-flag guarded):
+//  - seed the registry from existing alias canonicals + history names
+//  - discord handles for every known alias
+//  - odds + is_home backfill onto old capper_history rows via pick_history
+//  - bad-date sweep (a mis-parsed 2024 game_date exists on the server)
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'v3_phase1_backfill'`).get();
+  if (!done) {
+    db.exec(`
+      INSERT OR IGNORE INTO capper_registry (canonical_name)
+        SELECT DISTINCT canonical_name FROM capper_aliases WHERE canonical_name IS NOT NULL;
+      INSERT OR IGNORE INTO capper_registry (canonical_name)
+        SELECT DISTINCT capper_name FROM capper_history WHERE capper_name IS NOT NULL;
+      INSERT OR IGNORE INTO capper_source_handles (source, handle, canonical_name)
+        SELECT 'discord', alias, canonical_name FROM capper_aliases;
+      INSERT OR IGNORE INTO capper_source_handles (source, handle, canonical_name)
+        SELECT 'discord', canonical_name, canonical_name FROM capper_registry;
+      UPDATE capper_history SET odds = (
+        SELECT CASE
+          WHEN LOWER(capper_history.pick_type) = 'ml' THEN ph.ml_odds
+          WHEN LOWER(capper_history.pick_type) IN ('over','under') THEN ph.ou_odds
+          ELSE NULL END
+        FROM pick_history ph WHERE ph.pick_id = capper_history.pick_id
+      ) WHERE odds IS NULL AND pick_id IS NOT NULL;
+      UPDATE capper_history SET is_home_team = (
+        SELECT ph.is_home_team FROM pick_history ph WHERE ph.pick_id = capper_history.pick_id
+      ) WHERE is_home_team IS NULL AND pick_id IS NOT NULL;
+      UPDATE capper_history SET game_date = NULL
+        WHERE game_date IS NOT NULL AND game_date < '2026-01-01';
+    `);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('v3_phase1_backfill', datetime('now'))`).run();
+    console.log('[db] v3 Phase-1 backfill complete (registry seeded, odds/is_home backfilled)');
+  }
+} catch (err) {
+  console.warn('[db] v3 Phase-1 backfill failed:', err.message);
+}
 
 function getSetting(key, defaultVal) {
   try {

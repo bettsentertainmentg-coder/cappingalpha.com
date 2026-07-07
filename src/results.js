@@ -470,15 +470,16 @@ function abbrOf(displayName) {
 }
 
 // ── American odds of a pick, derived from the joined today_games row ───────────
-// ML uses the moneyline for the picked side; over/under use the total juice.
-// Spread juice is not stored anywhere, so it defaults to -110 downstream.
-// Returns null when no real odds exist (spread, NRFI, etc.) — money math then
-// falls back to a standard juice default so the bet still counts.
+// ML uses the moneyline for the picked side; over/under use the total juice;
+// spread uses the side's stored juice (populated by odds_api since v3 Phase 1).
+// Returns null when no real odds exist — money math then falls back to a
+// standard juice default so the bet still counts.
 function capperBetOdds(pick) {
   const pt = (pick.pick_type || '').toLowerCase();
-  if (pt === 'ml')    return pick.is_home_team ? (pick.ml_home ?? null) : (pick.ml_away ?? null);
-  if (pt === 'over')  return pick.ou_over_odds  ?? null;
-  if (pt === 'under') return pick.ou_under_odds ?? null;
+  if (pt === 'ml')     return pick.is_home_team ? (pick.ml_home ?? null) : (pick.ml_away ?? null);
+  if (pt === 'over')   return pick.ou_over_odds  ?? null;
+  if (pt === 'under')  return pick.ou_under_odds ?? null;
+  if (pt === 'spread') return pick.is_home_team ? (pick.spread_home_odds ?? null) : (pick.spread_away_odds ?? null);
   return null;
 }
 
@@ -546,6 +547,7 @@ async function resolveResults() {
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
            tg.away_team, tg.first_inning_runs,
            tg.ml_home, tg.ml_away, tg.over_under, tg.ou_over_odds, tg.ou_under_odds,
+           tg.spread_home_odds, tg.spread_away_odds,
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
@@ -587,11 +589,12 @@ async function resolveResults() {
       // Capture the American odds of this bet so money / P&L can be computed later.
       // today_games is still present here (game just finished, pre-wipe).
       const betOdds = capperBetOdds(pick);
+      const isTotal = ['over', 'under'].includes((pick.pick_type || '').toLowerCase());
       try {
         db.prepare(`
           INSERT OR IGNORE INTO capper_history
-            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           pick.capper_name,
           pick.sport        ?? null,
@@ -604,7 +607,9 @@ async function resolveResults() {
           pick.score        ?? null,
           result,
           pick.id,
-          betOdds
+          betOdds,
+          pick.source ?? 'discord',
+          isTotal ? 0 : (pick.is_home_team ?? null)
         );
       } catch (_) {}
     }
@@ -704,6 +709,28 @@ async function resolveResults() {
         ph.pick_type ?? null
       );
     } catch (_) {}
+    // ── v3 Phase 1: capper_history was only ever written in Pass 1, so a pick
+    // graded here (game wiped before grading) silently lost its capper record.
+    // Write it now from the archived row; the (pick_id, capper_name) unique
+    // index makes this idempotent with Pass 1.
+    if (ph.capper_name && ph.pick_id != null) {
+      const pt = (ph.pick_type || '').toLowerCase();
+      const phOdds = pt === 'ml' ? (ph.live_ml ?? ph.ml_odds ?? null)
+                   : (pt === 'over' || pt === 'under') ? (ph.live_ou_odds ?? ph.ou_odds ?? null)
+                   : null;
+      try {
+        db.prepare(`
+          INSERT OR IGNORE INTO capper_history
+            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discord', ?)
+        `).run(
+          ph.capper_name, ph.sport ?? null, ph.pick_type ?? null, ph.team ?? null,
+          ph.spread ?? null, ph.espn_game_id ?? null, ph.game_date ?? null,
+          ph.channel ?? null, ph.score ?? null, result, ph.pick_id, phOdds,
+          (pt === 'over' || pt === 'under') ? 0 : (ph.is_home_team ?? null)
+        );
+      } catch (_) {}
+    }
     resolved++;
   }
 

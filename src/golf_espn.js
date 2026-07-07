@@ -242,6 +242,31 @@ function resolveGolfPicks(espn_tournament_id, leaderboard) {
     if (result) {
       db.prepare(`UPDATE golf_picks SET result = ? WHERE id = ?`).run(result, pick.id);
       console.log(`[golf_espn] Resolved golf pick id=${pick.id} ${pick.player_name} ${pick.pick_type} → ${result} (pos=${pos})`);
+
+      // v3 Phase 1: golf results never reached capper_history. Golf pick ids live
+      // in their own table, so pick_id stays NULL (the dedup index is pick_id-scoped)
+      // and duplicates are guarded manually by capper + player + date + type.
+      if (pick.capper_name) {
+        try {
+          const seen = db.prepare(`
+            SELECT id FROM capper_history
+            WHERE capper_name = ? AND sport = 'Golf' AND team = ? AND pick_type = ? AND game_date IS ?
+          `).get(pick.capper_name, pick.player_name, pick.pick_type ?? null, pick.game_date ?? null);
+          if (!seen) {
+            db.prepare(`
+              INSERT INTO capper_history
+                (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
+              VALUES (?, 'Golf', ?, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL, 'discord', 0)
+            `).run(
+              pick.capper_name, pick.pick_type ?? null, pick.player_name,
+              pick.spread_value ?? null, pick.game_date ?? null, pick.channel ?? null,
+              pick.score ?? null, result
+            );
+          }
+        } catch (err) {
+          console.warn('[golf_espn] capper_history write failed:', err.message);
+        }
+      }
     }
   }
 }

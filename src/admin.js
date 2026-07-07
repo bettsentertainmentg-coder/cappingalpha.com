@@ -10,7 +10,7 @@ const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
 const { storeEngineBookLines, storeEngineEvents, OFFSHORE_BOOKS } = require('./odds_ingest');
-const { recordHeartbeat, getHealthSnapshot } = require('./ops_health');
+const { recordHeartbeat, getHealthSnapshot, getBookReceptions } = require('./ops_health');
 const { normalizeCapper } = require('./storage');
 const dummyAccounts = require('./dummy_accounts');
 const crypto  = require('crypto');
@@ -813,6 +813,29 @@ router.get('/dashboard', requireAuth, (req, res) => {
   })();
   const localReaderUrl = (process.env.LOCAL_READER_URL || '').replace(/\/$/, '');
 
+  // ── CA Ops Receptions: per-book line freshness + Mac heartbeats ──────────────
+  const receptions = (() => { try { return getBookReceptions(); } catch (_) { return { books: [], beats: [] }; } })();
+  const recAge = (m) => m == null ? 'never'
+    : m < 60 ? `${m}m ago`
+    : m < 1440 ? `${Math.floor(m / 60)}h ${m % 60}m ago`
+    : `${Math.floor(m / 1440)}d ago`;
+  const recDot = (m) => m == null ? '#64748b' : m <= 60 ? '#4ade80' : m <= 360 ? '#facc15' : '#ef4444';
+  const recRowsHtml = receptions.books.map(b => `
+    <tr>
+      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${recDot(b.ageMin)};margin-right:8px;"></span><b>${b.book}</b></td>
+      <td style="white-space:nowrap;">${b.last_at || '—'}</td>
+      <td>${recAge(b.ageMin)}</td>
+      <td>${b.games_today || 0}</td>
+      <td>${b.sports_today || '—'}</td>
+      <td>${b.rows_total}</td>
+    </tr>`).join('');
+  const beatRowsHtml = receptions.beats.map(b => `
+    <tr>
+      <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${recDot(b.ageMin)};margin-right:8px;"></span><b>${b.service}</b></td>
+      <td style="white-space:nowrap;">${b.last_seen || '—'}</td>
+      <td>${recAge(b.ageMin)}</td>
+    </tr>`).join('');
+
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
 
@@ -833,8 +856,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
       <button class="atab${ta('dummy')}" data-tab="dummy" onclick="adminTab('dummy')">Dummy Accounts</button>
+      <button class="atab${ta('receptions')}" data-tab="receptions" onclick="adminTab('receptions')">CA Ops Receptions</button>
       <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
       <a href="/admin/logout" class="atab-logout">Log out</a>
+    </div>
+
+    <!-- CA OPS RECEPTIONS PANEL -->
+    <div class="apanel${ta('receptions')}" id="panel-receptions">
+      <h1>CA Ops Receptions</h1>
+      <p style="color:#8892a4;font-size:13px;margin:-6px 0 16px;">When each book's lines last landed in book_lines and what they cover on today's board. Green = under 1h, yellow = under 6h, red = older. Timestamps are UTC. Whole-system view lives at <a href="/admin/health" style="color:#3b82f6;">/admin/health</a>.</p>
+      <table>
+        <thead><tr><th>Book</th><th>Last received (UTC)</th><th>Age</th><th>Games today</th><th>Sports today</th><th>Rows total</th></tr></thead>
+        <tbody>${recRowsHtml || `<tr><td colspan="6" style="color:#8892a4;">No book lines stored yet.</td></tr>`}</tbody>
+      </table>
+      <h2 style="margin-top:24px;">Mac service heartbeats</h2>
+      <p style="color:#8892a4;font-size:13px;margin:-4px 0 12px;">One beat per cycle from the Mac-side relays (odds engine, pb-relay). A stale beat means the process is down or its network path to the site is broken.</p>
+      <table>
+        <thead><tr><th>Service</th><th>Last beat (UTC)</th><th>Age</th></tr></thead>
+        <tbody>${beatRowsHtml || `<tr><td colspan="3" style="color:#8892a4;">No heartbeats recorded yet.</td></tr>`}</tbody>
+      </table>
     </div>
 
     <!-- PICKS PANEL -->
@@ -3005,8 +3045,40 @@ router.post('/revoke-access', requireAuth, express.urlencoded({ extended: false 
 });
 
 
+// ── GET /admin/export-capper-history — channel-complete capper data pull ─────
+// Header-auth (x-admin-password) so local calibration scripts can pull the full
+// row-level history the public pick-history endpoint deliberately strips.
+// Read-only. v3 Phase 1 (docs/CA_ALGORITHM_V3.md).
+router.get('/export-capper-history', adminLoginRateLimit, (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  try {
+    const rows = db.prepare(`SELECT * FROM capper_history ORDER BY id ASC`).all();
+    const pickHistory = db.prepare(`SELECT * FROM pick_history ORDER BY id ASC`).all();
+    const aliases = db.prepare(`SELECT * FROM capper_aliases`).all();
+    const handles = (() => {
+      try { return db.prepare(`SELECT * FROM capper_source_handles`).all(); } catch (_) { return []; }
+    })();
+    res.json({ exported_at: new Date().toISOString(), capper_history: rows, pick_history: pickHistory, capper_aliases: aliases, capper_source_handles: handles });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /admin/api/recompute-ratings — on-demand capper ratings refresh ─────
+router.post('/api/recompute-ratings', requireAuth, (_req, res) => {
+  try {
+    const { recomputeCapperRatings } = require('./capper_ratings');
+    res.json(recomputeCapperRatings());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
-router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
+router.post('/import-mvp', adminLoginRateLimit, express.json({ limit: '5mb' }), (req, res) => {
   const pw = req.headers['x-admin-password'];
   if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
     return res.status(401).send('Unauthorized');
@@ -3027,7 +3099,7 @@ router.post('/import-mvp', express.json({ limit: '5mb' }), (req, res) => {
 });
 
 // ── PATCH /admin/patch-mvp — update specific fields on an MVP pick by id ─────
-router.post('/patch-mvp', express.json(), (req, res) => {
+router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   const pw = req.headers['x-admin-password'];
   if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
     return res.status(401).send('Unauthorized');
@@ -3133,7 +3205,7 @@ router.post('/ingest-public-betting', (req, res) => {
     }
 
     const { sport, games } = req.body;
-    const VALID_SPORTS = ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB'];
+    const VALID_SPORTS = ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB', 'Soccer'];
     if (!VALID_SPORTS.includes(sport) || !Array.isArray(games)) {
       return res.status(400).send('Invalid payload');
     }

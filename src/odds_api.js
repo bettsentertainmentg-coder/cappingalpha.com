@@ -92,7 +92,7 @@ function extractLines(oddsGame) {
   if (!book) book = books[0];
   if (!book) return null;
 
-  const result = { ml_home: null, ml_away: null, spread_home: null, spread_away: null, over_under: null, ou_over_odds: null, ou_under_odds: null };
+  const result = { ml_home: null, ml_away: null, spread_home: null, spread_away: null, spread_home_odds: null, spread_away_odds: null, over_under: null, ou_over_odds: null, ou_under_odds: null };
 
   for (const market of book.markets || []) {
     if (market.key === 'h2h') {
@@ -103,8 +103,8 @@ function extractLines(oddsGame) {
     }
     if (market.key === 'spreads') {
       for (const outcome of market.outcomes || []) {
-        if (outcome.name === oddsGame.home_team) result.spread_home = outcome.point;
-        else result.spread_away = outcome.point;
+        if (outcome.name === oddsGame.home_team) { result.spread_home = outcome.point; result.spread_home_odds = outcome.price ?? null; }
+        else { result.spread_away = outcome.point; result.spread_away_odds = outcome.price ?? null; }
       }
     }
     if (market.key === 'totals') {
@@ -132,6 +132,8 @@ function applyOddsToGame(game, lines, oddsGame) {
   const ml_away     = oddsMatchesEspn ? lines.ml_away     : lines.ml_home;
   const spread_home = oddsMatchesEspn ? lines.spread_home : lines.spread_away;
   const spread_away = oddsMatchesEspn ? lines.spread_away : lines.spread_home;
+  const spread_home_odds = oddsMatchesEspn ? lines.spread_home_odds : lines.spread_away_odds;
+  const spread_away_odds = oddsMatchesEspn ? lines.spread_away_odds : lines.spread_home_odds;
 
   db.prepare(`
     UPDATE today_games
@@ -139,12 +141,14 @@ function applyOddsToGame(game, lines, oddsGame) {
         ml_away         = ?,
         spread_home     = ?,
         spread_away     = ?,
+        spread_home_odds = ?,
+        spread_away_odds = ?,
         over_under      = ?,
         ou_over_odds    = ?,
         ou_under_odds   = ?,
         odds_updated_at = datetime('now')
     WHERE espn_game_id = ? AND status = 'pre'
-  `).run(ml_home, ml_away, spread_home, spread_away, lines.over_under, lines.ou_over_odds, lines.ou_under_odds, game.espn_game_id);
+  `).run(ml_home, ml_away, spread_home, spread_away, spread_home_odds, spread_away_odds, lines.over_under, lines.ou_over_odds, lines.ou_under_odds, game.espn_game_id);
 }
 
 // ── Main: fetch all odds for sports currently in today_games ──────────────────

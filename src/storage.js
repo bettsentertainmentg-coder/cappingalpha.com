@@ -52,16 +52,34 @@ function normalizeCapper(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-// Returns { name, matched }: name is canonical if an alias hit, raw otherwise.
-// `matched` is 1 when capper_aliases knew the name, 0 when this is a fresh capper.
-function resolveCapperName(raw) {
+// Ensure a canonical capper exists in the cross-source registry. Cheap
+// INSERT OR IGNORE; failures must never break the pick pipeline.
+function ensureRegistered(canonicalName, source = 'discord', handle = null) {
+  if (!canonicalName) return;
+  try {
+    db.prepare(`INSERT OR IGNORE INTO capper_registry (canonical_name) VALUES (?)`).run(canonicalName);
+    db.prepare(`INSERT OR IGNORE INTO capper_source_handles (source, handle, canonical_name) VALUES (?, ?, ?)`)
+      .run(source, handle ?? canonicalName, canonicalName);
+  } catch (_) {}
+}
+
+// Returns { name, matched }: name is canonical if an alias or registry handle hit,
+// raw otherwise. `matched` is 1 when the name was already known, 0 for fresh cappers.
+function resolveCapperName(raw, source = 'discord') {
   if (!raw) return { name: raw, matched: 0 };
   const norm = normalizeCapper(raw);
   try {
     const alias = db.prepare(
       `SELECT canonical_name FROM capper_aliases WHERE LOWER(REPLACE(REPLACE(REPLACE(alias,' ',''),'_',''),'-','')) = ? LIMIT 1`
     ).get(norm);
-    if (alias) return { name: alias.canonical_name, matched: 1 };
+    if (alias) { ensureRegistered(alias.canonical_name, source, raw); return { name: alias.canonical_name, matched: 1 }; }
+    // Registry handles layer (cross-source identity — same lookup, any source)
+    const handle = db.prepare(
+      `SELECT canonical_name FROM capper_source_handles
+       WHERE source = ? AND LOWER(REPLACE(REPLACE(REPLACE(handle,' ',''),'_',''),'-','')) = ? LIMIT 1`
+    ).get(source, norm);
+    if (handle) return { name: handle.canonical_name, matched: 1 };
+    ensureRegistered(raw, source, raw);
     return { name: raw, matched: 0 };
   } catch (_) {
     return { name: raw, matched: 0 };
@@ -484,15 +502,16 @@ function saveRawMessage(pick_id, pick) {
   if (!raw_message) return;
   db.prepare(`
     INSERT OR IGNORE INTO raw_messages
-      (pick_id, channel, message_text, author, message_timestamp, message_id)
-    VALUES (?, ?, ?, ?, ?, ?)
+      (pick_id, channel, message_text, author, message_timestamp, message_id, capper_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     pick_id,
     channel                 ?? null,
     raw_message.content     ?? null,
     raw_message.author      ?? null,
     raw_message.createdAt ? new Date(raw_message.createdAt).toISOString() : null,
-    raw_message.id          ?? null
+    raw_message.id          ?? null,
+    pick._capperResolved    ?? pick.capper_name ?? null
   );
   archiveRawMessage(pick_id, pick, 'discord');
 }
@@ -633,7 +652,7 @@ function upsertPickHistory(pick_id, scored, cap = null) {
     : null;
 
   const msgs = db.prepare(
-    `SELECT author, channel, message_text FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
+    `SELECT author, channel, message_text, capper_name FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
   ).all(pick_id);
 
   const bd = scored.breakdown || {};
@@ -673,4 +692,4 @@ function upsertPickHistory(pick_id, scored, cap = null) {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory };
