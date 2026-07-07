@@ -7,6 +7,22 @@ function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// The per-sport pages behind the nav's Sports dropdown (Phase 5c). Order is the
+// dropdown order. `sports` = the today_games sport labels each page aggregates.
+const SPORT_PAGES = [
+  { slug: 'mlb',    label: 'MLB',      sports: ['MLB'] },
+  { slug: 'nba',    label: 'NBA',      sports: ['NBA'] },
+  { slug: 'wnba',   label: 'WNBA',     sports: ['WNBA'] },
+  { slug: 'nfl',    label: 'NFL',      sports: ['NFL'] },
+  { slug: 'nhl',    label: 'NHL',      sports: ['NHL'] },
+  { slug: 'ncaaf',  label: 'NCAAF',    sports: ['NCAAF'] },
+  { slug: 'cbb',    label: 'CBB',      sports: ['CBB'] },
+  { slug: 'tennis', label: 'Tennis',   sports: ['ATP', 'WTA'] },
+  { slug: 'golf',   label: 'Golf',     sports: ['Golf'] },
+  { slug: 'soccer', label: 'Soccer',   sports: ['Soccer'] },
+  { slug: 'mma',    label: 'UFC / MMA', sports: ['MMA', 'Boxing'] },
+];
+
 function sportSlugDisplay(sport) {
   const map = { ATP:'Tennis', WTA:'Tennis', CBB:'NCAAMB', NCAAF:'NCAAF',
                 NBA:'NBA', MLB:'MLB', NHL:'NHL', NFL:'NFL', GOLF:'Golf',
@@ -115,7 +131,12 @@ function buildNav(user) {
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
         ${tab('mvp', `<img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings`)}
-        ${tab('sports', 'Sports')}
+        <div class="nav-about-wrap" id="ca-sports-nav">
+          <button class="tab-btn" id="ca-sports-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleSportsMenu(event)">Sports<span class="tab-caret">&#9662;</span></button>
+          <div class="about-dropdown hidden" id="ca-sports-dd" role="menu">
+            ${SPORT_PAGES.map(s => `<a class="about-dropdown-item" role="menuitem" href="/${s.slug}">${s.label}</a>`).join('\n            ')}
+          </div>
+        </div>
         ${tab('esports', 'Esports')}
         ${tab('leaderboard', 'Leaderboard')}
         <div class="nav-about-wrap" id="ca-about-nav">
@@ -137,7 +158,7 @@ function buildNav(user) {
   <div id="ca-detail-menu" class="ca-detail-menu">
     <a href="/">Home</a>
     <a href="/#mvp">CA Rankings</a>
-    <a href="/#sports">Sports</a>
+    ${SPORT_PAGES.map(s => `<a href="/${s.slug}" style="padding-left:26px;">${s.label}</a>`).join('\n    ')}
     <a href="/#esports">Esports</a>
     <a href="/#leaderboard">Leaderboard</a>
     <a href="/#about">About</a>
@@ -162,12 +183,29 @@ function buildNav(user) {
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
+    function caToggleSportsMenu(e) {
+      if (e) e.stopPropagation();
+      caCloseAboutMenu();
+      var dd  = document.getElementById('ca-sports-dd');
+      var btn = document.getElementById('ca-sports-btn');
+      if (!dd) return;
+      var willOpen = dd.classList.contains('hidden');
+      dd.classList.toggle('hidden', !willOpen);
+      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    }
+    function caCloseSportsMenu() {
+      var dd  = document.getElementById('ca-sports-dd');
+      var btn = document.getElementById('ca-sports-btn');
+      if (dd) dd.classList.add('hidden');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
     document.addEventListener('click', function (e) {
       var w = document.getElementById('ca-about-nav');
-      if (w && w.contains(e.target)) return;
-      caCloseAboutMenu();
+      if (!(w && w.contains(e.target))) caCloseAboutMenu();
+      var sw = document.getElementById('ca-sports-nav');
+      if (!(sw && sw.contains(e.target))) caCloseSportsMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') caCloseAboutMenu(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseSportsMenu(); } });
   </script>`;
 }
 
@@ -498,4 +536,6 @@ ${buildAuthModals()}
 </html>`;
 }
 
-module.exports = { buildDetailPageHtml };
+// buildNav + esc + SPORT_PAGES are shared with src/sport_page.js so the sport
+// pages carry the exact same top nav (including the Sports dropdown) for free.
+module.exports = { buildDetailPageHtml, buildNav, esc, SPORT_PAGES };

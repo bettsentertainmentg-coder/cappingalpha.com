@@ -2238,7 +2238,22 @@
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
       <div class="nav-tabs">
         <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</button>
-        <button class="tab-btn" data-tab="sports"  onclick="switchTab('sports')">Sports</button>
+        <div class="nav-about-wrap" id="nav-sports-wrap">
+          <button class="tab-btn" data-tab="sports" id="nav-sports-btn" onclick="toggleSportsMenu(event)" aria-haspopup="true" aria-expanded="false">Sports<span class="tab-caret">&#9662;</span></button>
+          <div class="about-dropdown hidden" id="sports-dropdown" role="menu">
+            <a class="about-dropdown-item" role="menuitem" href="/mlb">MLB</a>
+            <a class="about-dropdown-item" role="menuitem" href="/nba">NBA</a>
+            <a class="about-dropdown-item" role="menuitem" href="/wnba">WNBA</a>
+            <a class="about-dropdown-item" role="menuitem" href="/nfl">NFL</a>
+            <a class="about-dropdown-item" role="menuitem" href="/nhl">NHL</a>
+            <a class="about-dropdown-item" role="menuitem" href="/ncaaf">NCAAF</a>
+            <a class="about-dropdown-item" role="menuitem" href="/cbb">CBB</a>
+            <a class="about-dropdown-item" role="menuitem" href="/tennis">Tennis</a>
+            <a class="about-dropdown-item" role="menuitem" href="/golf">Golf</a>
+            <a class="about-dropdown-item" role="menuitem" href="/soccer">Soccer</a>
+            <a class="about-dropdown-item" role="menuitem" href="/mma">UFC / MMA</a>
+          </div>
+        </div>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
         <button class="tab-btn" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</button>
         <div class="nav-about-wrap" id="nav-about-wrap">
@@ -2307,11 +2322,27 @@
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
-    document.addEventListener('click', (e) => {
-      if (e.target.closest && e.target.closest('#nav-about-wrap')) return;
+    function toggleSportsMenu(e) {
+      if (e) e.stopPropagation();
       closeAboutMenu();
+      const dd  = document.getElementById('sports-dropdown');
+      const btn = document.getElementById('nav-sports-btn');
+      if (!dd) return;
+      const willOpen = dd.classList.contains('hidden');
+      dd.classList.toggle('hidden', !willOpen);
+      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    }
+    function closeSportsMenu() {
+      const dd  = document.getElementById('sports-dropdown');
+      const btn = document.getElementById('nav-sports-btn');
+      if (dd) dd.classList.add('hidden');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+    document.addEventListener('click', (e) => {
+      if (!(e.target.closest && e.target.closest('#nav-about-wrap'))) closeAboutMenu();
+      if (!(e.target.closest && e.target.closest('#nav-sports-wrap'))) closeSportsMenu();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAboutMenu(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeAboutMenu(); closeSportsMenu(); } });
   </script>
 
   <!-- ── Unlock the CappingAlpha ── -->
@@ -2827,9 +2858,22 @@
     <a class="ca-drawer-nav-item gold" onclick="switchTab('mvp');closeDrawer();">
       <span style="display:inline-flex;align-items:center;gap:8px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Rankings</span> <span class="ca-drawer-nav-chevron" style="color:var(--gold);">›</span>
     </a>
-    <a class="ca-drawer-nav-item" onclick="switchTab('sports');closeDrawer();">
-      Sports <span class="ca-drawer-nav-chevron">›</span>
-    </a>
+    <div class="ca-drawer-account-toggle" onclick="toggleDrawerSports()">
+      Sports <span class="ca-drawer-nav-chevron" id="ca-drawer-sports-chev">›</span>
+    </div>
+    <div id="ca-drawer-sports-sub" class="ca-drawer-sub">
+      <a class="ca-drawer-sub-item" href="/mlb">MLB</a>
+      <a class="ca-drawer-sub-item" href="/nba">NBA</a>
+      <a class="ca-drawer-sub-item" href="/wnba">WNBA</a>
+      <a class="ca-drawer-sub-item" href="/nfl">NFL</a>
+      <a class="ca-drawer-sub-item" href="/nhl">NHL</a>
+      <a class="ca-drawer-sub-item" href="/ncaaf">NCAAF</a>
+      <a class="ca-drawer-sub-item" href="/cbb">CBB</a>
+      <a class="ca-drawer-sub-item" href="/tennis">Tennis</a>
+      <a class="ca-drawer-sub-item" href="/golf">Golf</a>
+      <a class="ca-drawer-sub-item" href="/soccer">Soccer</a>
+      <a class="ca-drawer-sub-item" href="/mma">UFC / MMA</a>
+    </div>
     <a class="ca-drawer-nav-item" onclick="switchTab('leaderboard');closeDrawer();">
       Leaderboard <span class="ca-drawer-nav-chevron">›</span>
     </a>
@@ -2892,13 +2936,13 @@
   <nav class="ca-tabbar" id="ca-tabbar" aria-label="Primary">
     <button class="ca-tabbar-item active" data-tabbar="home"     onclick="switchTab('home')"><i class="fa-solid fa-house"></i><span>Home</span></button>
     <button class="ca-tabbar-item"        data-tabbar="mvp"      onclick="switchTab('mvp')"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></button>
-    <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="switchTab('sports')"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="openSportsPicker()"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
     <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></button>
   </nav>
 
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=58"></script>
+  <script type="module" src="app.js?v=59"></script>
 </body>
 </html>

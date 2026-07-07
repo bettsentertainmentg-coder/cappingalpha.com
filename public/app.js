@@ -221,7 +221,27 @@ export function toggleDrawerAbout() {
   if (arrow) arrow.textContent = isOpen ? '▴' : '▾';
 }
 
-Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount, toggleDrawerAbout });
+export function toggleDrawerSports() {
+  const sub = document.getElementById('ca-drawer-sports-sub');
+  const chev = document.getElementById('ca-drawer-sports-chev');
+  if (!sub) return;
+  const isOpen = sub.classList.toggle('open');
+  if (chev) chev.textContent = isOpen ? '▾' : '›';
+}
+
+// Mobile tabbar Sports: the SPA sports tab is gone, so the tabbar button opens
+// the drawer with the sports list expanded (one tap from any sport's page).
+export function openSportsPicker() {
+  toggleDrawer();
+  const sub = document.getElementById('ca-drawer-sports-sub');
+  const chev = document.getElementById('ca-drawer-sports-chev');
+  if (sub && !sub.classList.contains('open')) {
+    sub.classList.add('open');
+    if (chev) chev.textContent = '▾';
+  }
+}
+
+Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount, toggleDrawerAbout, toggleDrawerSports, openSportsPicker });
 
 // ── Account dropdown (desktop avatar menu) ────────────────────────────────────
 export function toggleAccountMenu(e) {

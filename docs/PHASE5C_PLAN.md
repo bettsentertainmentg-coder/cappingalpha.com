@@ -1,35 +1,31 @@
-# Phase 5c Plan: Line-Shopping Board + Tailer Analytics
+# Phase 5c Plan: Sports Rework (per-sport pages + nav dropdown + line board)
 
-The last feature batch before the Phase 6 security gate. Both halves consume data that already flows; nothing new is scraped and nothing costs money. Written so a fresh session can execute without prior context. Pair with docs/TRACKING_ROADMAP.md; prior-phase reference in docs/PHASE5_PLAN.md.
+Jack's locked decisions (2026-07-06):
+- Every sport gets a REAL server-rendered URL (cappingalpha.com/mlb, /nba, /soccer, ...) like the game detail pages. SEO-indexable, shareable.
+- Sports list: the core 10 (MLB, NBA, WNBA, NHL, NFL, NCAAF, CBB, Tennis, Golf, Soccer) plus UFC/MMA. 11 pages.
+- The SPA Sports tab is REPLACED: the top nav "Sports" becomes a dropdown (same pattern as About) listing ALL sports year-round, not just today's. Clicking a sport goes to its page. Mobile drawer gets a matching expandable Sports group.
+- Nav click behavior (About and Sports alike): first tap opens the dropdown, tapping the header item inside navigates.
+- Tailer analytics: OUT of 5c entirely (data keeps collecting via game_votes.tailed_pick_id; display work parked).
+- The line-shopping board lives INSIDE each sport page (per-sport best-price board), not as a separate tab.
 
-## 5c.1 Public line-shopping board (roadmap task #18, the Phase 4 leftover)
+## Each sport page contains (all data already flows; zero new costs)
 
-A public "Lines" surface: every game today, best price per market across all books we carry. This is the free-for-everyone traffic hook; the betslip compare table (already shipped) is the per-pick version of the same idea.
+1. **Headlines for that sport** — headlines.js filtered by sport.
+2. **Today's games** — today_games rows for the sport (engine_events for MMA/Boxing), linking to each game's detail page.
+3. **Line-shopping board** — per market (ML/spread/total), best price across all books from book_lines + ESPN DK + prediction markets; offshore tagged; book labels through one helper for future affiliate links.
+4. **MVP picks for that sport** — mvp_picks filtered by sport, recent + record.
+5. **Sport info** — short static blurb per sport (how we cover it, what markets exist, bonus rules).
 
-- **Data**: book_lines has 9 books per game (engine) + today_games ESPN DK columns + kalshi_cache/polymarket_cache implied. All served by getLinesForGame(). A one-query board endpoint: GET /api/lines-board returns per game { matchup, sport, start, per-market rows: { market, side, best: {book, odds/line}, spread of prices } }. Compute best by decimal odds (reuse odds_math.americanToDecimal server-side).
-- **UI**: new "Lines" tab or a section under Sports. Table per sport: game rows, ML/spread/total columns showing the best price + book logo/label, tap opens the game detail (or openTrackForSlot to track it). Offshore tag rules identical to game-detail.js OFFSHORE set. Mobile: horizontal scroll inside the card, never the page.
-- **Affiliate hooks**: render book labels through one helper so affiliate deep links can be added later in one place. No links yet.
-- **Free for everyone**: no paywall on this tab. It is the marketing surface.
+## Build order
 
-## 5c.2 Tailer analytics (5.2b, data foundation shipped in Phase 5)
-
-game_votes.tailed_pick_id is already auto-set on every verified track that matches a scanned pick, and /api/game returns a per-pick tailers count.
-
-- **Tailers on pick rows**: show "N tailing" on ranked pick rows (picks.js) and the game-detail pick panel when count > 0.
-- **Tail slippage**: for each tailed vote with user_odds, slippage = implied(user_odds) - implied(pick's line at scan, from line_snapshots/score_breakdown context). Aggregate per capper: "tailers of X average -4 cents vs the posted line". Surface on the capper leaderboard profile card.
-- **Tailer P/L**: reuse the vote grading that already exists; group graded tailed votes by the pick's capper (picks -> capper_history mapping) for a "what tailing X actually returned" line on capper profiles.
-- Keep it read-only aggregation: no new writes beyond what Phase 5 already stores.
-
-## 5c.3 Small carry-alongs
-
-- Custom-bet selection escaping sweep flagged in Phase 5 review (renderBets bet-row-sel renders unescaped; esc() already exists in track.js) - fix while touching the file, do not wait for Phase 6.
-- Betslip schedule fight rows: if Bovada engine_events and Kalshi disagree on a fight's existence, nothing breaks (strip simply doesn't match); no work needed, just a note.
-
-## Then: Phase 6 (security audit gate) and Phase 7 (Capacitor app)
-
-- Phase 6: run the full security audit (/security-audit) across auth, admin, relays (HMAC), the new bets/legs/votes endpoints, XSS sweep of every innerHTML sink, rate limiting on POST /api/bets. Fix everything it confirms. This is the gate before any public ship.
-- Phase 7: Capacitor app per docs/TRACKING_ROADMAP.md (token auth path, bundled frontend, push reuse, 18+ gate). App-store fees are the single allowed cost.
+- src/sport_page.js — buildSportPageHtml(sportKey): one data-driven template for all 11 (reuse detail_page.js buildNav + esc patterns). Per-sport INFO map for blurbs.
+- index.js — GET /:sportSlug routes from an explicit allowlist (mlb, nba, wnba, nhl, nfl, ncaaf, cbb, tennis, golf, soccer, mma). Must not shadow /faq, /privacy, /game/:id, /:sport/:slug detail routes (register before /:sport/:slug, after static pages).
+- Nav (index.html + app.js + detail_page.js buildNav + game-detail pages): Sports dropdown desktop + drawer group; remove the SPA Sports tab button; sport pages linked. Keep switchTab('sports') working for old deep links by redirecting to /mlb (or the user's favorite sport).
+- Tennis page combines ATP+WTA; MMA page reads engine_events + Kalshi event odds (kalshi_events.js) since no today_games rows exist.
+- Sitemap/robots: add the 11 URLs. JSON-LD SportsOrganization/CollectionPage per page.
 
 ## Verify pattern (unchanged)
 
-Preview server via launch.json (autoPort), throwaway @example.com accounts, sqlite seeding for graded scenarios, adversarial review Workflow before commit, pm2 restart capperboss after src/ changes, delete test users after. Ship gate stands: commit + push bet-tracking only; nothing to master without Jack's explicit go-ahead.
+Preview server (launch.json autoPort), throwaway @example.com accounts, adversarial review Workflow before commit, pm2 restart after src/ changes, delete test users. Ship gate stands: bet-tracking branch only.
+
+## Then: Phase 6 (/security-audit gate), Phase 7 (Capacitor app)

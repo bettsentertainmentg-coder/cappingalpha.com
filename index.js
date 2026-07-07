@@ -269,6 +269,17 @@ app.get('/sitemap.xml', (req, res) => {
   <url><loc>https://cappingalpha.com/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
   <url><loc>https://cappingalpha.com/results</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
   <url><loc>https://cappingalpha.com/faq</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://cappingalpha.com/mlb</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/nba</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/wnba</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/nfl</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/nhl</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/ncaaf</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/cbb</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/tennis</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/golf</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/soccer</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://cappingalpha.com/mma</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
   <url><loc>https://cappingalpha.com/terms</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
   <url><loc>https://cappingalpha.com/privacy</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>
 </urlset>`);
@@ -1804,6 +1815,23 @@ app.get('/game/:espn_game_id', async (req, res) => {
 
   return res.status(404).send('Game not found');
 });
+
+// ── Phase 5c: per-sport landing pages (/mlb, /nba, ... /mma) ──────────────────
+// Exact paths registered ABOVE the /:sport/:slug detail route. Rendered fresh
+// per request (SQLite reads are cheap); only the headlines + Kalshi fetches
+// inside buildSportPageHtml are cached and timeout-guarded.
+const { buildSportPageHtml } = require('./src/sport_page');
+const { SPORT_PAGES } = require('./src/detail_page');
+for (const pageDef of SPORT_PAGES) {
+  app.get('/' + pageDef.slug, async (req, res) => {
+    try {
+      res.send(await buildSportPageHtml(pageDef, { user: req.session?.user || null }));
+    } catch (err) {
+      console.error(`[sport-page] /${pageDef.slug} failed:`, err.message);
+      res.status(500).send('Error loading page');
+    }
+  });
+}
 
 app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;

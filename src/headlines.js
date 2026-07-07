@@ -17,9 +17,16 @@ function _decodeEntities(str) {
 }
 
 // ── Google News RSS ───────────────────────────────────────────────────────────
-async function _fetchGoogleNews() {
+// Accepts a search query so the per-sport pages can reuse the same fetcher +
+// parser. Default query keeps getHeadlines() behavior identical (same URL).
+function _newsUrl(query) {
+  const q = String(query || '').trim().split(/\s+/).map(encodeURIComponent).join('+');
+  return `https://news.google.com/rss/search?q=${q}&hl=en-US&gl=US&ceid=US:en`;
+}
+
+async function _fetchGoogleNews(query = 'sports betting') {
   try {
-    const url  = 'https://news.google.com/rss/search?q=sports+betting&hl=en-US&gl=US&ceid=US:en';
+    const url  = _newsUrl(query);
     const resp = await axios.get(url, { timeout: 8000 });
     const xml  = resp.data || '';
     const items = [];
@@ -137,4 +144,39 @@ async function getHeadlines() {
   return merged;
 }
 
-module.exports = { getHeadlines };
+// ── Per-sport headlines (sport landing pages) ─────────────────────────────────
+// Google News only (Reddit/ESPN feeds aren't sport-filterable), parsed by the
+// same fetcher. Cached per sport label for 30 minutes.
+const SPORT_NEWS_QUERY = {
+  'MLB':       'MLB betting news',
+  'NBA':       'NBA betting news',
+  'WNBA':      'WNBA betting news',
+  'NFL':       'NFL betting news',
+  'NHL':       'NHL betting news',
+  'NCAAF':     'college football betting news',
+  'CBB':       'college basketball betting news',
+  'Tennis':    'tennis betting news',
+  'Golf':      'golf betting news',
+  'Soccer':    'soccer betting news',
+  'UFC / MMA': 'UFC betting news',
+};
+
+const _sportCache = new Map(); // sport label -> { at, items }
+const SPORT_CACHE_TTL_MS = 30 * 60 * 1000;
+
+async function getSportHeadlines(sportLabel) {
+  const key = String(sportLabel || '').trim();
+  const hit = _sportCache.get(key);
+  if (hit && Date.now() - hit.at < SPORT_CACHE_TTL_MS) return hit.items;
+
+  const query = SPORT_NEWS_QUERY[key] || `${key} betting news`;
+  const items = (await _fetchGoogleNews(query))
+    .filter(h => h.title && h.url)
+    .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))
+    .slice(0, 10);
+
+  _sportCache.set(key, { at: Date.now(), items });
+  return items;
+}
+
+module.exports = { getHeadlines, getSportHeadlines };
