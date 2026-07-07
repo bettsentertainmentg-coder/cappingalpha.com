@@ -1,9 +1,13 @@
 # CA Algorithm v3: The 100-Point Rework
 
-Status: ALL 5 PHASES BUILT. v3 IS LIVE LOCALLY (scoring_version='v3' in the local
-settings; prod untouched and still v2 until the big combined update ships). Local
-commits a0b7dad / 98cf7f4 / 46a1bc3 / b2e4b21 + Phase 5 on bet-tracking. Calibrated
-2026-07-07: base 45, resume multiplier 360 (see "Phase-5 calibration record" below).
+Status: ALL 5 PHASES BUILT + post-flip fixes. v3 IS LIVE LOCALLY (scoring_version=
+'v3' in the local settings; prod untouched and still v2 until the big combined
+update ships). Local commits a0b7dad / 98cf7f4 / 46a1bc3 / b2e4b21 / 93ae6e4 /
+77ff3ae (fade sport-volume scaling, status column, persistent calibration log) /
+0f18715 (ONE SCALE: all history rescaled onto the 100 scale) on bet-tracking.
+Calibrated 2026-07-07: base 45, resume multiplier 360 ("Phase-5 calibration record"
+below). CLAUDE.md carries the operational summary; this doc is the source of truth
+for the algorithm.
 Owner: Jack. Last updated: 2026-07-07.
 
 The goal: make the CA pick ranking meaningfully predictive by ranking on capper and
