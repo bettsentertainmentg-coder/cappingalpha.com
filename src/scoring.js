@@ -19,10 +19,12 @@ const CHANNEL_POINTS = {
   'community-leaks':  10,
 };
 
-const SPORT_BONUS_SPORTS = new Set(['NBA', 'CBB', 'MLB', 'NFL', 'NCAAF', 'NHL', 'ATP', 'WTA', 'Golf']);
+// Entries must be UPPERCASE — scorePick uppercases the sport before the lookup.
+// ('Golf' in title case sat here unmatched: golf picks scored without their +5.)
+const SPORT_BONUS_SPORTS = new Set(['NBA', 'CBB', 'MLB', 'NFL', 'NCAAF', 'NHL', 'ATP', 'WTA', 'GOLF', 'SOCCER']);
 
 // Tennis + golf have no home-court/course advantage in betting — suppress home bonus
-const NO_HOME_BONUS_SPORTS = new Set(['ATP', 'WTA', 'Golf']);
+const NO_HOME_BONUS_SPORTS = new Set(['ATP', 'WTA', 'GOLF']);
 
 function scorePick(pick) {
   const mentions = pick.mentions ?? [pick];

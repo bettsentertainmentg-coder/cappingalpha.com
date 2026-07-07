@@ -8,12 +8,14 @@
 // Lines: ESPN's embedded DraftKings odds are free (no Odds API credits); the CA
 // Odds Engine layers more books into book_lines on top.
 //
-// Soccer is NOT part of the capper pick pipeline: the reader does not emit
-// Soccer picks and no sport/home bonus applies. Rows exist for tracking only.
+// Soccer is a full team sport in the capper pick pipeline: the reader emits
+// Soccer picks, slots seed like any team sport, and the +5 sport bonus and
+// +5 home bonus both apply.
 //
-// Moneylines here are 3-WAY prices (draw exists). A drawn match grades ml votes
-// as LOSSES on both sides, matching how books settle 3-way moneylines. That
-// branch lives in results.js evaluateVote, keyed off sport = 'Soccer'.
+// Moneylines here are 3-WAY prices (draw exists). A drawn match grades ml
+// picks and votes as LOSSES on both sides, matching how books settle 3-way
+// moneylines. Those branches live in results.js (evaluatePick + evaluateVote),
+// keyed off sport = 'Soccer'.
 //
 // Called at 5am + startup (fetchTodaysSoccerGames) and every 5 min during
 // active hours (updateSoccerLiveScores).
@@ -127,17 +129,29 @@ async function fetchTodaysSoccerGames() {
 // Refresh every soccer match still on the board that hasn't gone final, so
 // tracked bets flip live and grade the moment matches end. ESPN is free; a
 // handful of scoreboard calls per cycle costs nothing.
+//
+// Refresh-only: the undated scoreboard endpoint returns an out-of-season
+// competition's LAST played round (old Champions League semis, last year's
+// Copa America, ...), so upserting everything it returns would drag stale
+// finished matches onto the board. Only matches already on the board are
+// updated here; new matches enter via the dated fetch (5am + startup).
 async function updateSoccerLiveScores() {
   const open = db.prepare(
     `SELECT COUNT(*) n FROM today_games WHERE sport = 'Soccer' AND status != 'post'`
   ).get();
   if (!open || open.n === 0) return;
+  const onBoard = new Set(
+    db.prepare(`SELECT espn_game_id FROM today_games WHERE sport = 'Soccer'`).all()
+      .map(r => String(r.espn_game_id))
+  );
   for (const path of SOCCER_PATHS) {
     try {
       const events = await fetchScoreboard(path);
-      for (const ev of events) upsertSoccerGame(ev);
+      for (const ev of events) {
+        if (onBoard.has(String(ev.id))) upsertSoccerGame(ev);
+      }
     } catch (_) { /* per-competition failures are fine */ }
   }
 }
 
-module.exports = { fetchTodaysSoccerGames, updateSoccerLiveScores };
+module.exports = { fetchTodaysSoccerGames, updateSoccerLiveScores, SOCCER_PATHS };
