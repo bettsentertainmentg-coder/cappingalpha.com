@@ -734,6 +734,34 @@ async function resolveResults() {
     resolved++;
   }
 
+  // ── Pass 5: pending wave-1 source picks (capper_history rows written by ────
+  // source_ingest with result='pending'). Graded from today_games while the game
+  // is present, else from ESPN directly. Track-only rows: grading them is what
+  // builds each source capper's resume.
+  const pendingSource = db.prepare(`
+    SELECT * FROM capper_history
+    WHERE result = 'pending' AND source != 'discord' AND espn_game_id IS NOT NULL
+  `).all();
+
+  const srcGameCache = new Map();
+  for (const row of pendingSource) {
+    let game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(row.espn_game_id);
+    if (game && game.status !== 'post') continue;
+    if (!game) {
+      const key = `${row.espn_game_id}|${row.sport || ''}|${row.game_date || ''}`;
+      if (srcGameCache.has(key)) game = srcGameCache.get(key);
+      else {
+        game = await fetchGameResult(row.espn_game_id, row.sport, row.game_date);
+        srcGameCache.set(key, game);
+      }
+    }
+    if (!game) continue;
+    const result = evaluatePick(row, game);
+    if (result === 'pending') continue;
+    db.prepare(`UPDATE capper_history SET result = ? WHERE id = ?`).run(result, row.id);
+    resolved++;
+  }
+
   if (resolved > 0) console.log(`[results] Resolved ${resolved} pick results`);
   return resolved;
 }

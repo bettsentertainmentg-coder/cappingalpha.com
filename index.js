@@ -40,6 +40,9 @@ const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { recomputeCapperRatings } = require('./src/capper_ratings');
+const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
+const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
+const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -2229,6 +2232,17 @@ app.listen(PORT, () => {
   // v3 foundation: make sure capper ratings exist after any restart (DB-only, fast).
   try { recomputeCapperRatings(); } catch (err) { console.error('[startup] recomputeCapperRatings error:', err.message); }
 
+  // Wave-1 scraper warm start (server only): discovery + one poll each so a
+  // mid-day restart never leaves the trackers cold until the next cron.
+  if (!UI_ONLY) {
+    await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
+    await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
+    await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
+    pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
+    pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
+    pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
+  }
+
   // Seed slots for every game in today_games (including forward games) — INSERT OR
   // IGNORE, so safe even when today's slots already exist. Picks up forward games
   // that the conditional team-game seed above skipped.
@@ -2332,6 +2346,38 @@ cron.schedule('10 5 * * *', () => {
 cron.schedule('20 5 * * *', () => {
   try { recomputeCapperRatings(); }
   catch (err) { console.error('[cron] recomputeCapperRatings error:', err.message); }
+}, { timezone: 'America/New_York' });
+
+// ── Wave-1 source scrapers (v3 Phase 3, track-only, all free) ────────────────
+// Discovery/refresh at 5:05am ET: AN experts, Polymarket wallet leaderboard,
+// Covers contestants. Runs after the 5:00am morning setup so today_games exists.
+if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
+  await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
+  await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
+  await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// AN picks: every 10 min active hours, every 30 min overnight (median pick posts
+// 6.5h pregame; this captures nearly everything hours early).
+if (!UI_ONLY) cron.schedule('*/10 8-23 * * *', () => {
+  pollAnExperts().catch(err => console.error('[cron] pollAnExperts error:', err.message));
+}, { timezone: 'America/New_York' });
+if (!UI_ONLY) cron.schedule('*/30 0-7 * * *', () => {
+  pollAnExperts().catch(err => console.error('[cron] pollAnExperts (overnight) error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// Polymarket tracked-wallet trades: every 15 min active hours.
+if (!UI_ONLY) cron.schedule('*/15 8-23 * * *', () => {
+  pollPmWallets().catch(err => console.error('[cron] pollPmWallets error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// Covers contestant pick pages: every 30 min active hours; contestant list also
+// refreshes at 4:05pm for late-day contest movement.
+if (!UI_ONLY) cron.schedule('*/30 8-23 * * *', () => {
+  pollCoversPicks().catch(err => console.error('[cron] pollCoversPicks error:', err.message));
+}, { timezone: 'America/New_York' });
+if (!UI_ONLY) cron.schedule('5 16 * * *', () => {
+  refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants (4pm) error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on

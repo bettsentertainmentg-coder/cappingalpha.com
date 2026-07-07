@@ -1225,6 +1225,56 @@ try {
 } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ratings_scope ON capper_ratings (scope)`); } catch (_) {}
 
+// ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
+// AN experts registry (discovered from public expert pages; picks land in
+// capper_history via source_ingest with source='actionnetwork').
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS an_experts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     TEXT NOT NULL UNIQUE,
+      username    TEXT,
+      name        TEXT,
+      followers   INTEGER,
+      is_internal INTEGER,
+      record_json TEXT,
+      last_seen   TEXT,
+      last_poll   TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+// AN props/exotics: logged for the record + future props page, never scored.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS an_expert_props (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      an_pick_id  TEXT UNIQUE,
+      username    TEXT,
+      play        TEXT,
+      odds        REAL,
+      units       REAL,
+      starts_at   TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+// Polymarket tracked wallets (pro bettors, on-chain P/L shown on profile only).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pm_wallets (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      wallet        TEXT NOT NULL UNIQUE,
+      username      TEXT,
+      pnl           REAL,
+      volume        REAL,
+      last_trade_ts INTEGER,
+      meta_json     TEXT,
+      tracked_since TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 // One-time Phase-1 backfill (settings-flag guarded):
 //  - seed the registry from existing alias canonicals + history names
 //  - discord handles for every known alias

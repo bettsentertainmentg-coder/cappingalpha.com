@@ -572,9 +572,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
     if (!row.capper_name) continue;
     const display = resolveCapperDisplay(row.capper_name);
     if (!capperMap.has(display)) {
-      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, money: 0, sports: {} });
+      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, money: 0, sports: {}, srcs: new Set() });
     }
     const c = capperMap.get(display);
+    c.srcs.add(row.source || 'discord');
     const r = (row.result || '').toLowerCase();
     if (r === 'win')       c.wins++;
     else if (r === 'loss') c.losses++;
@@ -618,10 +619,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
       const winPct = total > 0 ? Math.round((c.wins / total) * 100) : null;
       const units  = c.wins - c.losses;
       const r = ratingsMap.get(name) || null;
+      const srcUnion = new Set([...(c.srcs || []), ...(r?.sources ? r.sources.split(',') : [])]);
       return { name, ...c, total, winPct, units,
                rating: r ? (r.resume_points ?? 0) : null,
                tier: r?.tier ?? null, fade: r?.fade ?? null,
-               srcList: r?.sources ? r.sources.split(',') : ['discord'] };
+               srcList: [...srcUnion].sort() };
     })
     .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
