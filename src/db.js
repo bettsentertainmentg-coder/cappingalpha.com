@@ -265,6 +265,10 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN ou_under_odds REAL`); } catch 
 try { db.exec(`ALTER TABLE today_games ADD COLUMN live_detail TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN live_outs INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN live_bases INTEGER`); } catch (_) {}
+// ESPN league path for sports whose scoreboard is per-competition (soccer:
+// 'soccer/usa.1', 'soccer/fifa.world', ...). Stamped by soccer_espn.js so the
+// live tracker + summary fetches know which competition scoreboard to hit.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN league_path TEXT`); } catch (_) {}
 // First moment a game's status flipped to 'in' (live). Used to enforce the
 // 5-minute-past-actual-start scoring cutoff. NULL until ESPN reports the game live.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_start_at TEXT`); } catch (_) {}

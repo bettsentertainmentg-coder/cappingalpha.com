@@ -54,8 +54,13 @@ const { syncEsportsMarkets, getTopEsportsGames } = require('./src/esports_market
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
-const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory } = require('./src/live_tracker');
-const { liveWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
+const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, pushWpHistory, getWpHistory } = require('./src/live_tracker');
+const { liveWinProb, liveHomeWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
+const { genericProgress, clockHomeWP, anchoredWP, soccerProbs, genericOverProb, mlbCountAdjust } = require('./src/win_prob_generic');
+const { SPORT_FAMILY } = require('./src/live_state');
+const { getFeed } = require('./src/espn_summary');
+const { getEspnWinProb } = require('./src/espn_summary');
+const { getCoreProbs } = require('./src/espn_probs');
 const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive } = require('./src/mock_live');
 const { computeValuePulse } = require('./src/live_value');
 const { impliedLineForGame } = require('./src/implied_lines');
@@ -1253,7 +1258,8 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
     }
     if (!game) return res.status(404).json({ error: 'Game not found' });
 
-    const sport = String(game.sport || '').toUpperCase();
+    const sport  = String(game.sport || '').toUpperCase();
+    const family = SPORT_FAMILY[sport] || null;
     const fallbackState = {
       status: game.status, detail: game.live_detail || null, period: game.period ?? null, clock: game.clock ?? null,
       homeScore: game.home_score ?? null, awayScore: game.away_score ?? null,
@@ -1276,31 +1282,127 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
     // login. UI_ONLY is never set on Railway, so prod gating is unaffected.
     const paid = auth.isPaid(req) || !!process.env.UI_ONLY;
     const pulses = {};
-    // Value pulse is MLB-only in v1; computed while live AND on the finished game (the
-    // completed curve). Other sports return live state with no pulse.
-    if ((state.status === 'in' || state.status === 'post') && sport === 'MLB') {
-      const gp = gameProgress({ inning: state.inning, half: state.half, outs: state.outs });
-      const totalRuns = (state.homeScore || 0) + (state.awayScore || 0);
+    let winProb = null;   // free { source, home } block — the game-level win prob read
+    // Pulses compute while live AND on the finished game (the completed curve) for
+    // every sport with a win-prob read. Tennis has none (set state only).
+    if ((state.status === 'in' || state.status === 'post') && family && family !== 'tennis') {
+      // Free ESPN sources, cached + request-collapsed. Mock games skip both.
+      const mock = isMockId(espn_game_id);
+      const [coreProbs, espnWp] = mock ? [null, null] : await Promise.all([
+        getCoreProbs(sport, espn_game_id).catch(() => null),
+        getEspnWinProb(sport, espn_game_id).catch(() => null),
+      ]);
+
+      // Pre-game home prob chain: market caches (Polymarket/Kalshi) -> de-vigged
+      // implied ML from today_games -> first point of ESPN's win-prob series.
+      if (pregameHomeProb == null) {
+        const qh = _americanToProb(game.ml_home), qa = _americanToProb(game.ml_away);
+        if (qh != null && qa != null && qh + qa > 0) {
+          const share = qh / (qh + qa);
+          // Soccer MLs are 3-way legs with no stored draw price: scale the
+          // two-way share down by a typical pre-game draw mass (approximation).
+          pregameHomeProb = family === 'soccer' ? share * 0.74 : share;
+        }
+      }
+      if (pregameHomeProb == null && espnWp?.series?.length) {
+        const h0 = espnWp.series[0]?.home;
+        if (typeof h0 === 'number' && h0 > 0 && h0 < 100) pregameHomeProb = h0 / 100;
+      }
+
+      // Game progress 0..1: outs-based for baseball, clock-based otherwise.
+      const gp = family === 'baseball'
+        ? gameProgress({ inning: state.inning, half: state.half, outs: state.outs })
+        : genericProgress(sport, state.period, state.clock);
+
+      // Live home win prob: freshest free ESPN source first (basketball rides one
+      // on the last play), homegrown anchored model as the universal fallback.
+      // Soccer is 3-way: a draw grades ML picks as losses on both sides, so each
+      // side's WP is its outright win prob, never 1 - opponent.
+      let soccerTrio = null, soccerPreTrio = null;
+      let homeWpNow = null, wpSource = 'model';
+      if (family === 'soccer') {
+        soccerTrio    = soccerProbs({ homeScore: state.homeScore, awayScore: state.awayScore, progress: gp, preHome3: pregameHomeProb });
+        soccerPreTrio = soccerProbs({ homeScore: 0, awayScore: 0, progress: 0, preHome3: pregameHomeProb });
+        homeWpNow = soccerTrio.home;
+      } else {
+        const fresh = (family === 'basketball' && typeof state.lastPlayHomeWP === 'number') ? state.lastPlayHomeWP
+                    : (coreProbs?.latest?.homeWin ?? espnWp?.latestHome ?? null);
+        if (fresh != null) {
+          // MLB: ESPN's number moves per plate appearance; the homegrown count
+          // leverage keeps the pulse twitching per pitch between refreshes.
+          homeWpNow = family === 'baseball' ? mlbCountAdjust(fresh, state) : fresh;
+          wpSource = 'espn';
+        } else if (family === 'baseball') {
+          homeWpNow = liveHomeWinProb(state, pregameHomeProb);
+        } else {
+          homeWpNow = anchoredWP(clockHomeWP(family, state.homeScore, state.awayScore, gp), pregameHomeProb, gp);
+        }
+      }
+      if (homeWpNow != null) winProb = { source: wpSource, home: Math.round(homeWpNow * 1000) / 1000 };
+
+      // Model-only sports (NHL, Soccer) accumulate a win-prob series here so the
+      // feed endpoint can still draw a chart (ESPN publishes none for them).
+      if (!mock && state.status === 'in' && homeWpNow != null && (family === 'hockey' || family === 'soccer')) {
+        pushWpHistory(espn_game_id, gp, homeWpNow);
+      }
+
+      const totalPts = (state.homeScore || 0) + (state.awayScore || 0);
       const preOverRaw = (() => {
         const o = _americanToProb(game.ou_over_odds), u = _americanToProb(game.ou_under_odds);
         return (o != null && u != null && o + u > 0) ? o / (o + u) : 0.5;
       })();
+      const clamp01 = (x) => Math.max(0, Math.min(1, x));
       const pb = getPublicBettingForGame(espn_game_id);   // public lean at game start (conviction blend)
       for (const p of picks) {
         const slot = _slotKey(p);
         if (!slot) continue;
         const type = (p.pick_type || '').toLowerCase();
         const home = p.is_home_team === 1 || p.is_home_team === true;
-        let now = null, pre = null;
-        if (type === 'ml' || type === 'spread') {
-          const side = home ? 'home' : 'away';
-          now = liveWinProb(state, pregameHomeProb, side);
-          pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
+        let now = null, pre = null, approx = true;
+        if (type === 'ml') {
+          if (soccerTrio) {
+            now = home ? soccerTrio.home : soccerTrio.away;
+            pre = home ? soccerPreTrio.home : soccerPreTrio.away;
+          } else {
+            if (homeWpNow == null) continue;
+            now = home ? homeWpNow : 1 - homeWpNow;
+            pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
+          }
+          approx = false;
+        } else if (type === 'spread') {
+          const cov = coreProbs?.latest?.spreadCoverHome;
+          if (cov != null) {
+            // ESPN's live cover probability — the real read, not an approximation.
+            now = home ? cov : clamp01(1 - cov - (coreProbs.latest.spreadPush || 0));
+            const cov0 = coreProbs.first?.spreadCoverHome;
+            pre = (cov0 != null)
+              ? (home ? cov0 : clamp01(1 - cov0 - (coreProbs.first?.spreadPush || 0)))
+              : 0.5;
+            approx = false;
+          } else {
+            // Fallback: read the spread pick off the ML win prob (approximate).
+            if (homeWpNow == null) continue;
+            now = home ? homeWpNow : (soccerTrio ? soccerTrio.away : 1 - homeWpNow);
+            pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
+            approx = true;
+          }
         } else if (type === 'over' || type === 'under') {
-          const op = liveOverProb(totalRuns, game.over_under, gp);
-          if (op == null) continue;
-          now = type === 'over' ? op : 1 - op;
-          pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
+          const tOver = coreProbs?.latest?.totalOver;
+          if (tOver != null) {
+            now = type === 'over' ? tOver : clamp01(1 - tOver - (coreProbs.latest.totalPush || 0));
+            const t0 = coreProbs.first?.totalOver;
+            const preOver = (t0 != null) ? t0 : preOverRaw;
+            pre = type === 'over' ? preOver : 1 - preOver;
+            approx = false;
+          } else {
+            const op = family === 'baseball'
+              ? liveOverProb(totalPts, game.over_under, gp)
+              : genericOverProb(totalPts, game.over_under, gp, family);
+            if (op == null) continue;
+            now = type === 'over' ? op : 1 - op;
+            pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
+            approx = true;
+          }
         } else { continue; }
 
         if (!paid) { pulses[slot] = { locked: true, pickType: type }; continue; }
@@ -1339,16 +1441,58 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         }
         pulses[slot] = {
           ...pulse, pickType: type, history,
-          approx: type === 'spread' || type === 'over' || type === 'under',
+          approx,
           winPct: Math.round(now * 100),
         };
       }
     }
 
-    res.json({ state, pulses, paid });
+    res.json({ state, winProb, pulses, paid });
   } catch (err) {
     console.error('[api/game/live]', err.message);
     res.status(500).json({ error: 'live unavailable' });
+  }
+});
+
+// ── GET /api/game/:id/live/feed — lazy tabs data (~25s poll), free content ─────
+// Play-by-play, ESPN win-prob series, per-game stat leaders, and team stats for
+// the tracker tabs. All FREE (the paid layer is the pulse + cover probabilities
+// inside /live). On-demand only: nothing is fetched unless someone is viewing.
+app.get('/api/game/:espn_game_id/live/feed', async (req, res) => {
+  const { espn_game_id } = req.params;
+  try {
+    if (isMockId(espn_game_id)) {
+      const { mockLiveFeed } = require('./src/mock_live');
+      return res.json(typeof mockLiveFeed === 'function' ? mockLiveFeed() : { unsupported: true });
+    }
+    let game = db.prepare(`SELECT sport, league_path FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+    if (!game && MIRROR_URL) {
+      try {
+        const mr = await fetch(`${MIRROR_URL}/api/game/${encodeURIComponent(espn_game_id)}`, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6000) });
+        if (mr.ok) { const pd = await mr.json(); game = pd.game || null; }
+      } catch (_) {}
+    }
+    if (!game) return res.status(404).json({ error: 'Game not found' });
+
+    const sport  = String(game.sport || '').toUpperCase();
+    const family = SPORT_FAMILY[sport] || null;
+    if (!family || family === 'tennis') return res.json({ unsupported: true });
+
+    const feed = await getFeed(sport, espn_game_id, { leaguePath: game.league_path || null });
+    if (!feed) return res.json({ unsupported: true });
+
+    // NHL/Soccer have no ESPN win-prob series — serve the model series the live
+    // endpoint accumulates poll-by-poll, labeled honestly as a model estimate.
+    if (!feed.winprob && (family === 'hockey' || family === 'soccer')) {
+      const pts = getWpHistory(espn_game_id);
+      if (pts.length >= 2) {
+        feed.winprob = { source: 'model', latestHome: pts[pts.length - 1].home / 100, series: pts, scoring: [] };
+      }
+    }
+    res.json(feed);
+  } catch (err) {
+    console.error('[api/game/live/feed]', err.message);
+    res.status(500).json({ error: 'feed unavailable' });
   }
 });
 

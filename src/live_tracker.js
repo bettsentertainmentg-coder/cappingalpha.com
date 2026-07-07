@@ -5,107 +5,133 @@
 // an in-flight guard so concurrent viewers collapse to ~1 ESPN call per window.
 //
 // No DB writes (ephemeral — keeps clear of the do-not-touch espn_live.js upserts).
-// The win-prob math + value pulse live in win_prob.js / live_value.js (pure); this
-// module only owns the ESPN fetch/cache and the per-pick EMA continuity.
+// The win-prob math + value pulse live in win_prob.js / win_prob_generic.js /
+// live_value.js (pure); the per-sport state SHAPE lives in live_state.js. This
+// module owns the ESPN fetch/cache, event lookup (incl. soccer's per-league
+// scoreboards and tennis's tournament nesting), and per-pick EMA continuity.
 
 const axios = require('axios');
+const db = require('./db');
+const { parseLiveState } = require('./live_state');
 
-// ESPN free scoreboard per sport. MLB is the v1 template (rich situation); the
-// others are wired for fresh score/period only until their live models land.
+const SB_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
+
+// ESPN free scoreboard per sport. College scoreboards default to ranked teams
+// only, so NCAAF/CBB/WCBB carry groups (80 = FBS, 50 = all D1) + a high limit.
+// Soccer is per-competition (resolved from today_games.league_path below).
 const SCOREBOARD = {
-  MLB:   'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard',
-  NBA:   'https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard',
-  WNBA:  'https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard',
-  NHL:   'https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard',
-  NFL:   'https://site.api.espn.com/apis/site/v2/sports/americanfootball/nfl/scoreboard',
+  MLB:   `${SB_BASE}/baseball/mlb/scoreboard`,
+  NBA:   `${SB_BASE}/basketball/nba/scoreboard`,
+  WNBA:  `${SB_BASE}/basketball/wnba/scoreboard`,
+  NHL:   `${SB_BASE}/hockey/nhl/scoreboard`,
+  NFL:   `${SB_BASE}/football/nfl/scoreboard`,
+  NCAAF: `${SB_BASE}/football/college-football/scoreboard?groups=80&limit=400`,
+  CBB:   `${SB_BASE}/basketball/mens-college-basketball/scoreboard?groups=50&limit=400`,
+  WCBB:  `${SB_BASE}/basketball/womens-college-basketball/scoreboard?groups=50&limit=400`,
+  ATP:   `${SB_BASE}/tennis/atp/scoreboard`,
+  WTA:   `${SB_BASE}/tennis/wta/scoreboard`,
 };
 
-const SB_TTL    = 10_000;        // per-sport scoreboard cache window
+const SB_TTL    = 10_000;        // per-scoreboard cache window
 const EMA_TTL   = 30 * 60_000;   // forget a pick's pulse state after 30 min idle
+const WP_TTL    = 6 * 60 * 60_000; // model win-prob series lives for the game's day
 
-const _sb       = new Map();     // sport -> { ts, events }
-const _inflight = new Map();     // sport -> Promise (collapse concurrent fetches)
+const _sb       = new Map();     // cache key -> { ts, events }
+const _inflight = new Map();     // cache key -> Promise (collapse concurrent fetches)
 const _ema      = new Map();     // `${gameId}:${pickId}` -> { m, ts }
-const _hist     = new Map();     // `${gameId}:${pickId}` -> [magnitude, ...] (value over the game)
-const HIST_MAX  = 80;
+const _hist     = new Map();     // `${gameId}:${pickId}` -> [{v, p}, ...] (value over the game)
+const _wpHist   = new Map();     // gameId -> { ts, pts: [{x, home}] } (model-sport win prob series)
+const _soccerPath = new Map();   // gameId -> league path (probe cache)
+const HIST_MAX    = 80;
+const WP_HIST_MAX = 200;
 
-async function fetchScoreboard(sport) {
-  const url = SCOREBOARD[sport];
-  if (!url) return null;
-  const cached = _sb.get(sport);
+async function _fetchEvents(key, url) {
+  const cached = _sb.get(key);
   if (cached && Date.now() - cached.ts < SB_TTL) return cached.events;
-  if (_inflight.has(sport)) return _inflight.get(sport);
+  if (_inflight.has(key)) return _inflight.get(key);
   const p = (async () => {
     try {
       const res = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
       const events = res.data?.events || [];
-      _sb.set(sport, { ts: Date.now(), events });
+      _sb.set(key, { ts: Date.now(), events });
       return events;
     } catch (e) {
-      const stale = _sb.get(sport);   // serve stale on a transient error
+      const stale = _sb.get(key);   // serve stale on a transient error
       return stale ? stale.events : null;
     } finally {
-      _inflight.delete(sport);
+      _inflight.delete(key);
     }
   })();
-  _inflight.set(sport, p);
+  _inflight.set(key, p);
   return p;
 }
 
-function athleteName(o) { return o?.athlete?.shortName || o?.athlete?.displayName || null; }
+async function fetchScoreboard(sport) {
+  const sp = String(sport || '').toUpperCase();
+  const url = SCOREBOARD[sp];
+  if (!url) return null;
+  return _fetchEvents(sp, url);
+}
+
+// ── Event lookup per sport ─────────────────────────────────────────────────────
+// Soccer: the scoreboard is per competition. The league path is stamped on the
+// row by soccer_espn.js (today_games.league_path); when missing (older rows) we
+// probe the known competition set once and remember the hit.
+async function _findSoccerEvent(espnGameId) {
+  const id = String(espnGameId);
+  let path = _soccerPath.get(id);
+  if (!path) {
+    try {
+      const row = db.prepare(`SELECT league_path FROM today_games WHERE espn_game_id = ?`).get(id);
+      if (row?.league_path) path = row.league_path;
+    } catch (_) {}
+  }
+  if (path) {
+    const events = await _fetchEvents(`SOCCER:${path}`, `${SB_BASE}/${path}/scoreboard`);
+    const ev = (events || []).find(e => String(e.id) === id);
+    if (ev) { _soccerPath.set(id, path); return ev; }
+  }
+  // Probe fallback (league_path unknown): check each competition, cache the hit.
+  const { SOCCER_PATHS } = require('./soccer_espn');
+  for (const p of SOCCER_PATHS) {
+    if (p === path) continue;
+    const events = await _fetchEvents(`SOCCER:${p}`, `${SB_BASE}/${p}/scoreboard`);
+    const ev = (events || []).find(e => String(e.id) === id);
+    if (ev) { _soccerPath.set(id, p); return ev; }
+  }
+  return null;
+}
+
+// Tennis: the scoreboard nests matches under tournament events -> groupings.
+// Returns the match competition wrapped like a scoreboard event so the shared
+// parser can read it. Doubles are skipped (same rule as tennis_espn.js).
+function _findTennisComp(events, espnGameId) {
+  const id = String(espnGameId);
+  for (const t of (events || [])) {
+    for (const g of (t.groupings || [])) {
+      if ((g.grouping?.slug || '').toLowerCase().includes('double')) continue;
+      for (const comp of (g.competitions || [])) {
+        if (String(comp.id) === id) return { competitions: [comp], status: comp.status };
+      }
+    }
+  }
+  return null;
+}
 
 // Fresh live state for one game from the cached scoreboard, or null if not found.
 async function getLiveState(sport, espnGameId) {
   const sp = String(sport || '').toUpperCase();
-  const events = await fetchScoreboard(sp);
-  if (!events) return null;
-  const ev = events.find(e => String(e.id) === String(espnGameId));
-  if (!ev) return null;
-  const comp = (ev.competitions || [])[0];
-  if (!comp) return null;
-
-  const stType = comp.status?.type || {};
-  const competitors = comp.competitors || [];
-  const homeC = competitors.find(c => c.homeAway === 'home');
-  const awayC = competitors.find(c => c.homeAway === 'away');
-  const detail = stType.shortDetail || stType.detail || null;
-
-  const intOr = (v, d = null) => { const n = parseInt(v, 10); return Number.isNaN(n) ? d : n; };
-  const out = {
-    status:    stType.state || null,        // 'pre' | 'in' | 'post'
-    detail,
-    period:    comp.status?.period ?? null,
-    clock:     comp.status?.displayClock ?? null,
-    homeScore: homeC ? (parseInt(homeC.score, 10) || 0) : null,
-    awayScore: awayC ? (parseInt(awayC.score, 10) || 0) : null,
-    homeAbbr:  homeC?.team?.abbreviation || null,
-    awayAbbr:  awayC?.team?.abbreviation || null,
-  };
-
-  if (sp === 'MLB') {
-    const sit = comp.situation || {};
-    out.homeHits   = intOr(homeC?.hits);
-    out.awayHits   = intOr(awayC?.hits);
-    out.homeErrors = intOr(homeC?.errors);
-    out.awayErrors = intOr(awayC?.errors);
-    out.inning     = comp.status?.period ?? null;
-    out.half       = /bot/i.test(detail || '') ? 'bot' : (/top/i.test(detail || '') ? 'top' : null);
-    out.outs       = (typeof sit.outs === 'number') ? sit.outs : null;
-    out.bases      = (sit.onFirst ? 1 : 0) | (sit.onSecond ? 2 : 0) | (sit.onThird ? 4 : 0);
-    out.balls      = (typeof sit.balls === 'number') ? sit.balls : null;
-    out.strikes    = (typeof sit.strikes === 'number') ? sit.strikes : null;
-    out.batter     = athleteName(sit.batter);
-    out.batterLine = sit.batter?.summary || null;
-    out.pitcher    = athleteName(sit.pitcher);
-    out.pitcherLine = sit.pitcher?.summary || null;
-    out.dueUp      = Array.isArray(sit.dueUp) ? sit.dueUp.map(athleteName).filter(Boolean).slice(0, 3) : [];
-    out.lastPlay   = sit.lastPlay?.text || null;
-    // Per-inning runs (the line score), so the client can show when runs scored.
-    const lineOf = (c) => Array.isArray(c?.linescores) ? c.linescores.map(l => intOr(l.value, 0)) : [];
-    out.homeLine  = lineOf(homeC);
-    out.awayLine  = lineOf(awayC);
+  let ev = null;
+  if (sp === 'SOCCER') {
+    ev = await _findSoccerEvent(espnGameId);
+  } else if (sp === 'ATP' || sp === 'WTA') {
+    ev = _findTennisComp(await fetchScoreboard(sp), espnGameId);
+  } else {
+    const events = await fetchScoreboard(sp);
+    ev = (events || []).find(e => String(e.id) === String(espnGameId)) || null;
   }
-  return out;
+  if (!ev) return null;
+  return parseLiveState(sp, ev);
 }
 
 // EMA continuity store for the value pulse (per game+pick).
@@ -128,12 +154,32 @@ function pushPulseHistory(key, mag, period) {
 }
 function getPulseHistory(key) { return (_hist.get(key) || []).slice(); }
 
+// Model win-prob series for sports where ESPN publishes none (NHL, Soccer): the
+// live endpoint pushes one point per poll so the feed can still draw a chart.
+function pushWpHistory(gameId, x, home) {
+  const id = String(gameId);
+  let e = _wpHist.get(id);
+  if (!e) { e = { ts: Date.now(), pts: [] }; _wpHist.set(id, e); }
+  e.ts = Date.now();
+  const last = e.pts[e.pts.length - 1];
+  const xr = Math.round((Number(x) || 0) * 1000) / 1000;
+  const hr = Math.round((Number(home) || 0) * 1000) / 10;    // pct, 1 decimal
+  if (last && last.x === xr && last.home === hr) return;
+  e.pts.push({ x: xr, home: hr });
+  if (e.pts.length > WP_HIST_MAX) e.pts.shift();
+}
+function getWpHistory(gameId) { return (_wpHist.get(String(gameId))?.pts || []).slice(); }
+
 // Periodic prune (unref so it never holds the process open).
 setInterval(() => {
   const now = Date.now();
   for (const [k, e] of _ema) if (now - e.ts > EMA_TTL) _ema.delete(k);
   for (const [k, e] of _sb)  if (now - e.ts > 60 * 60_000) _sb.delete(k);
   for (const k of _hist.keys()) if (!_ema.has(k)) _hist.delete(k);
+  for (const [k, e] of _wpHist) if (now - e.ts > WP_TTL) _wpHist.delete(k);
 }, EMA_TTL).unref();
 
-module.exports = { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, SCOREBOARD };
+module.exports = {
+  getLiveState, fetchScoreboard, prevPulseMag, savePulseMag,
+  pushPulseHistory, getPulseHistory, pushWpHistory, getWpHistory, SCOREBOARD,
+};

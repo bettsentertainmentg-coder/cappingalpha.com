@@ -19,6 +19,8 @@
 // it shows its line/conviction value as "value holding". Constants tunable on localhost.
 
 const EMA_ALPHA   = 0.6;   // light smoothing — stays reactive per play
+const EMA_FAST    = 0.85;  // catch-up smoothing when the target jumps hard
+const EMA_JUMP    = 25;    // |target - prev| beyond this switches to EMA_FAST
 const ALIVE_LO    = 0.10;  // at/below this live WP the pick is ~hopeless
 const ALIVE_HI    = 0.50;  // at/above this live WP the pick is fully "alive"
 const HOPELESS    = 1.10;  // how hard a hopeless spot pulls the swing negative
@@ -77,7 +79,10 @@ function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress =
 
   const prevN = Number(prevMagnitude);
   const prev = (prevMagnitude == null || isNaN(prevN)) ? target : clamp(prevN, -100, 100);
-  const value = round1(prev + EMA_ALPHA * (target - prev));
+  // Adaptive smoothing: a pick-six / three-goal-period swing catches up in one
+  // poll instead of three; routine movement stays lightly smoothed.
+  const alpha = Math.abs(target - prev) > EMA_JUMP ? EMA_FAST : EMA_ALPHA;
+  const value = round1(prev + alpha * (target - prev));
   const trend = round1(value - prev);
 
   let sign, color, label;

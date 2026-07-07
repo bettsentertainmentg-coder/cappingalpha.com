@@ -48,7 +48,7 @@ function parseEspnOdds(comp) {
   };
 }
 
-function upsertSoccerGame(ev) {
+function upsertSoccerGame(ev, leaguePath = null) {
   const comp = ev.competitions?.[0] || {};
   const home = comp.competitors?.find(c => c.homeAway === 'home') || {};
   const away = comp.competitors?.find(c => c.homeAway === 'away') || {};
@@ -63,10 +63,12 @@ function upsertSoccerGame(ev) {
       home_score, away_score,
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
+      league_path,
       ml_home, ml_away, spread_home, spread_away,
       over_under, ou_over_odds, ou_under_odds, odds_updated_at,
       fetched_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?,
               ?, ?, ?, ?, ?, ?, ?,
               CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE NULL END,
               datetime('now'))
@@ -77,6 +79,7 @@ function upsertSoccerGame(ev) {
       home_score = excluded.home_score,
       away_score = excluded.away_score,
       fetched_at = excluded.fetched_at,
+      league_path = COALESCE(excluded.league_path, league_path),
       ml_home       = COALESCE(ml_home,       excluded.ml_home),
       ml_away       = COALESCE(ml_away,       excluded.ml_away),
       spread_home   = COALESCE(spread_home,   excluded.spread_home),
@@ -100,6 +103,7 @@ function upsertSoccerGame(ev) {
     away.team?.shortDisplayName || null,
     away.team?.name || null,
     away.team?.abbreviation || null,
+    leaguePath,
     o.ml_home, o.ml_away, o.spread_home, o.spread_away,
     o.over_under, o.ou_over_odds, o.ou_under_odds,
     o.ml_home
@@ -117,7 +121,7 @@ async function fetchTodaysSoccerGames() {
   for (const path of SOCCER_PATHS) {
     try {
       const events = await fetchScoreboardForDate(path, dateStr);
-      for (const ev of events) { upsertSoccerGame(ev); total++; }
+      for (const ev of events) { upsertSoccerGame(ev, path); total++; }
     } catch (err) {
       console.warn(`[soccer_espn] ${path}:`, err.message);
     }
@@ -148,7 +152,7 @@ async function updateSoccerLiveScores() {
     try {
       const events = await fetchScoreboard(path);
       for (const ev of events) {
-        if (onBoard.has(String(ev.id))) upsertSoccerGame(ev);
+        if (onBoard.has(String(ev.id))) upsertSoccerGame(ev, path);
       }
     } catch (_) { /* per-competition failures are fine */ }
   }
