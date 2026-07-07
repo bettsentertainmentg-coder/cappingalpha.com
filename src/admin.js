@@ -612,6 +612,21 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }
   } catch (_) {}
 
+  // Source Feed: every pick recorded by the wave-1 scrapers (no message scanner),
+  // newest first. Provenance meta (units, notional, live, contest) rides in
+  // sources_json. today_games enriches the matchup while the game is still on board.
+  let sourceFeed = [];
+  try {
+    sourceFeed = db.prepare(`
+      SELECT ch.*, tg.home_team AS g_home, tg.away_team AS g_away, tg.status AS g_status
+      FROM capper_history ch
+      LEFT JOIN today_games tg ON tg.espn_game_id = ch.espn_game_id
+      WHERE ch.source != 'discord'
+      ORDER BY ch.saved_at DESC, ch.id DESC
+      LIMIT 400
+    `).all();
+  } catch (_) {}
+
   // Sort: most resolved picks first, then win%
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
@@ -898,6 +913,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
+      <button class="atab${ta('sourcefeed')}" data-tab="sourcefeed" onclick="adminTab('sourcefeed')">Source Feed</button>
       <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
@@ -1147,6 +1163,61 @@ router.get('/dashboard', requireAuth, (req, res) => {
     </div>
 
     <!-- MESSAGES PANEL -->
+    <div class="apanel${ta('sourcefeed')}" id="panel-sourcefeed">
+      <h1>Source Feed</h1>
+      <p style="color:#8892a4;font-size:12px;margin-bottom:14px;">Every pick recorded by the structured-data scrapers (no message scanner): Action Network experts, Polymarket wallets, Covers contests. Track-only rows, graded like everything else. Newest first, last 400.</p>
+      <div style="margin-bottom:14px;display:flex;gap:10px;align-items:center;">
+        <input type="text" id="feed-search" placeholder="Filter by capper, team, or sport..." oninput="filterFeedTable()" style="max-width:380px;flex:1;" />
+        <select id="feed-src-filter" onchange="filterFeedTable()" style="background:#1e2330;border:1px solid #252c3b;color:#e2e8f0;padding:8px 12px;border-radius:6px;font-size:13px;">
+          <option value="">All sources</option>
+          <option value="actionnetwork">Action Network</option>
+          <option value="polymarket">Polymarket</option>
+          <option value="covers">Covers</option>
+        </select>
+        <span style="color:#8892a4;font-size:12px;">${sourceFeed.length} picks recorded</span>
+      </div>
+      ${sourceFeed.length ? `
+      <table id="feed-table">
+        <thead><tr><th>Time in</th><th>Source</th><th>Capper</th><th>Sport</th><th>Bet recorded</th><th>Game</th><th>Extra</th><th>Result</th></tr></thead>
+        <tbody>
+          ${sourceFeed.map(r => {
+            const ts = (r.saved_at || '').slice(0, 16).replace('T', ' ');
+            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'] };
+            const [srcLabel, srcColor] = SRC[r.source] || [r.source, '#8892a4'];
+            const srcChip = `<span style="background:${srcColor}22;color:${srcColor};border:1px solid ${srcColor}44;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;">${srcLabel}</span>`;
+            const pt = (r.pick_type || '').toUpperCase();
+            const lineStr = r.spread != null ? ' ' + (r.pick_type === 'over' || r.pick_type === 'under' ? Math.abs(r.spread) : (r.spread > 0 ? '+' + r.spread : r.spread)) : '';
+            const oddsStr = (r.odds != null && !isNaN(parseFloat(r.odds))) ? ' @ ' + (parseFloat(r.odds) > 0 ? '+' + Math.round(r.odds) : Math.round(r.odds)) : '';
+            const bet = `<span style="font-weight:600;">${escHtml(r.team || '—')}</span> <span style="color:#8892a4;">${pt}${lineStr}${oddsStr}</span>`;
+            const game = r.g_home ? `${escHtml(r.g_away || '')} @ ${escHtml(r.g_home || '')}` : `<span style="color:#8892a4;">${escHtml(r.game_date || '—')}</span>`;
+            let extra = [];
+            try {
+              const prov = JSON.parse(r.sources_json || '[]');
+              const m = prov[0]?.meta || {};
+              if (m.units != null) extra.push(m.units + 'u');
+              if (m.notional_usd != null) extra.push('$' + m.notional_usd);
+              if (m.verified) extra.push('verified');
+              if (m.is_live || prov[0]?.live) extra.push('<span style="color:#f59e0b;">live</span>');
+              if (m.contest) extra.push(escHtml(m.contest));
+              if (prov.length > 1) extra.push(prov.length + ' systems');
+            } catch (_) {}
+            const rl = (r.result || 'pending').toLowerCase();
+            const rColor = { win: '#16a34a', loss: '#ef4444', push: '#8892a4', pending: '#f59e0b' }[rl] || '#8892a4';
+            return `<tr class="feed-row" data-src="${escHtml(r.source || '')}" data-text="${escHtml(((r.capper_name || '') + ' ' + (r.team || '') + ' ' + (r.sport || '')).toLowerCase())}">
+              <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
+              <td>${srcChip}</td>
+              <td style="font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;color:#93c5fd;" onclick="showCapperDetail('${escHtml(r.capper_name || '').replace(/'/g, '&#39;')}')">${escHtml(r.capper_name || '—')}</td>
+              <td style="font-size:12px;color:#8892a4;">${escHtml(r.sport || '—')}</td>
+              <td style="font-size:12px;">${bet}</td>
+              <td style="font-size:12px;">${game}</td>
+              <td style="font-size:11px;color:#8892a4;">${extra.join(' · ') || '—'}</td>
+              <td><span style="background:${rColor}22;color:${rColor};border:1px solid ${rColor}44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">${rl.toUpperCase()}</span></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>` : '<div class="empty">No source picks recorded yet. The scrapers write here as they run (server only).</div>'}
+    </div>
+
     <div class="apanel${ta('messages')}" id="panel-messages">
       <h1>Messages</h1>
       <div style="display:flex;gap:4px;margin-bottom:20px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:4px;width:fit-content;">
@@ -2644,6 +2715,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
         }
       }
 
+      // ── Source Feed tab ─────────────────────────────────────────────────────────
+      function filterFeedTable() {
+        const q   = (document.getElementById('feed-search').value || '').toLowerCase();
+        const src = document.getElementById('feed-src-filter').value || '';
+        document.querySelectorAll('#feed-table .feed-row').forEach(row => {
+          const okSrc = !src || row.getAttribute('data-src') === src;
+          const okQ   = !q || (row.getAttribute('data-text') || '').includes(q);
+          row.style.display = okSrc && okQ ? '' : 'none';
+        });
+      }
+
       // ── Messages tab ───────────────────────────────────────────────────────────
       function showMsgSection(name) {
         ['recorded','skipped','corrections'].forEach(s => {
@@ -3272,7 +3354,7 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
              SUM(CASE WHEN fade = 'watch'  THEN 1 ELSE 0 END) fade_watch,
              SUM(CASE WHEN fade = 'active' THEN 1 ELSE 0 END) fade_active,
              MAX(computed_at) computed_at
-      FROM capper_ratings WHERE scope = 'overall'
+      FROM capper_ratings WHERE scope = 'overall' AND tier != 'entity'
     `);
     const fadeList = all(`
       SELECT canonical_name, fade, picks, ROUND(units, 1) units, ROUND(blend * 100, 1) blend_pct

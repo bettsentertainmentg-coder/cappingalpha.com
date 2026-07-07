@@ -1194,6 +1194,11 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_away_odds REAL`); } cat
 // v3 component logging (log-only until scoring_version flips) + era markers
 try { db.exec(`ALTER TABLE score_breakdown ADD COLUMN v3_total REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE score_breakdown ADD COLUMN v3_json  TEXT`); } catch (_) {}
+// Leak rule state (display score ramps; engaged only when scoring_version='v3')
+try { db.exec(`ALTER TABLE picks ADD COLUMN display_score   REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN leak_target     REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN leak_started_at TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE picks ADD COLUMN leak_window_sec INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 

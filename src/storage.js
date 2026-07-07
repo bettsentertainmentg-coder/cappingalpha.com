@@ -410,6 +410,10 @@ function updateSlot(slot, pick) {
   upsertScoreBreakdown(slot.id, scored);
   saveRawMessage(slot.id, pick);
 
+  // v3 dual logging: compute the v3 component vector alongside v2 on every
+  // mention. Lazy require avoids a startup cycle; failures never break scoring.
+  try { require('./scoring_v3').computeAndLogV3(slot.id); } catch (_) {}
+
   // Lock the live line the moment the pick crosses 35 (captured once, reused by MVP).
   const cap = scored.total >= 35
     ? captureLineAtThreshold(slot.id, slot.espn_game_id, slot.team, slot.pick_type)
@@ -481,6 +485,7 @@ function insertNewPick(pick) {
   const pick_id = result.lastInsertRowid;
   upsertScoreBreakdown(pick_id, scored);
   saveRawMessage(pick_id, pick);
+  try { require('./scoring_v3').computeAndLogV3(pick_id); } catch (_) {}
 
   const cap = scored.total >= 35
     ? captureLineAtThreshold(pick_id, espn_game_id, team, pick_type)
