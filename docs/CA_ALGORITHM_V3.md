@@ -124,9 +124,19 @@ plus fades), components 4, 5, and 7 are context signals (13 max at launch). An e
 advocate resume reaches gold ALONE: flat base 45 + elite resume 53 + sport 5 = 103. Signal maxes can grow only after football-season data validates them.
 
 Gold MVP: 100+. Silver: 75 to 99 (public styling only, not saved to mvp_picks).
-mvp_picks and pick_history gain a scale_version column ('v2' historical, 'v3' new) so
-the all-time MVP record never mixes eras. Every number in this document is on the new
-100 scale; the old 50/65 scale exists only as history.
+
+ONE SCALE EVERYWHERE (Jack, 2026-07-07, replacing the earlier era-separation idea):
+ALL historical scores are rescaled onto the 100 scale by new = round(old * 20/13),
+capped at 135. Old 65 (the publicly tracked tier floor) lands exactly on 100, so
+every past tracked MVP shows 100+; the old 50-64 MVP band lands on 77-98, inside
+silver; order is preserved below that. Verified exact on migration: the gold tier
+contains precisely the old 65+ picks (100 of 100) and silver precisely the old
+50-64 band (140 of 140), so the public record's membership and W-L never change,
+only the displayed numbers. Originals are preserved in score_v2_original and rows
+are marked scale_version='v2-rescaled'; nothing is destroyed. The migration runs
+once, only where scoring_version='v3' (prod migrates on flip day). All threshold
+consumers (public MVP page, /results, admin dashboards, capper profiles, drift
+monitor) are scale-aware.
 
 ### Score display: the leak rule (conviction curve)
 

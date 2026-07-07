@@ -301,7 +301,9 @@ app.get('/faq', (req, res) => {
 // the /api/mvp/public query.
 app.get('/results', (req, res) => {
   try {
-    const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+    const threshold = getSetting('scoring_version', 'v2') === 'v3'
+      ? 100
+      : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
     const picks = db.prepare(`
       SELECT m.*,
              COALESCE(m.home_team, tg.home_team) AS home_team,
@@ -613,7 +615,9 @@ app.get('/api/picks/top', (req, res) => {
 // Free users get /api/mvp/public instead. requirePaid returns 403 otherwise so
 // the full pick list is never sent to non-paying clients.
 app.get('/api/mvp', auth.requirePaid, (req, res) => {
-  const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  const threshold = getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   res.json({
     picks:  getRecentMvpPicks(threshold),
     record: getAllTimeRecord(threshold),
@@ -622,7 +626,9 @@ app.get('/api/mvp', auth.requirePaid, (req, res) => {
 
 // GET /api/mvp/public — resolved MVP picks + record for all users (home page)
 app.get('/api/mvp/public', (req, res) => {
-  const threshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  const threshold = getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   const picks = db.prepare(`
     SELECT m.*,
            COALESCE(m.home_team, tg.home_team) AS home_team,

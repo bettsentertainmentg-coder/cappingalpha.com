@@ -235,7 +235,9 @@ router.get('/', requireAuth, (_req, res) => res.redirect('/admin/dashboard'));
 router.get('/dashboard', requireAuth, (req, res) => {
   const activeTab = req.query.tab || 'picks';
   const today = getCycleDate();
-  const mvpDisplayThreshold = parseInt(db.getSetting('mvp_display_threshold', 50), 10);
+  const v3Now = db.getSetting('scoring_version', 'v2') === 'v3';
+  const MVP_LINE = v3Now ? 100 : MVP_THRESHOLD; // gold line on the active scale
+  const mvpDisplayThreshold = v3Now ? 100 : parseInt(db.getSetting('mvp_display_threshold', 50), 10);
   const betUnit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
 
   // ── Picks panel ─────────────────────────────────────────────────────────────
@@ -284,7 +286,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }
 
   const pickRowsHtml = picks.map((p, i) => {
-    const isMvp = (p.score || 0) >= MVP_THRESHOLD;
+    const isMvp = (p.score || 0) >= MVP_LINE;
     const raws  = rawByPick[p.id] || [];
     const capperLabel = p.capper_name ? escHtml(p.capper_name) : '<span style="color:#3b4560;">—</span>';
     const matchBadge = p.capper_name
@@ -3379,11 +3381,13 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
       SELECT canonical_name, fade, picks, ROUND(units, 1) units, ROUND(blend * 100, 1) blend_pct
       FROM capper_ratings WHERE scope = 'overall' AND fade IS NOT NULL ORDER BY blend ASC LIMIT 8
     `);
-    // Drift skeleton: trailing 30d record of the publicly tracked tier (v2: 65+).
+    // Drift: trailing 30d record of the publicly tracked tier. Scale-aware:
+    // after the v3 flip + history rescale the tier line is 100 on every row.
+    const tierLine = db.getSetting('scoring_version', 'v2') === 'v3' ? 100 : 65;
     const drift = one(`
       SELECT SUM(result='win') w, SUM(result='loss') l
       FROM pick_history
-      WHERE score >= 65 AND result IN ('win','loss') AND game_date >= date('now','-30 days')
+      WHERE score >= ${tierLine} AND result IN ('win','loss') AND game_date >= date('now','-30 days')
     `);
     const registry = one(`SELECT (SELECT COUNT(*) FROM capper_registry) cappers, (SELECT COUNT(*) FROM capper_source_handles) handles`);
     res.json({
@@ -3479,9 +3483,12 @@ function buildCapperDetail(name) {
       mvpSet.add(mvpKey(r.espn_game_id, r.team, r.pick_type));
     }
   } catch (_) {}
+  const v3Now = db.getSetting('scoring_version', 'v2') === 'v3';
+  const mvpLine  = v3Now ? 100 : MVP_THRESHOLD;
+  const highLine = v3Now ? 55  : 35;
   for (const p of picks) {
-    p.is_mvp  = (p.score != null && p.score >= MVP_THRESHOLD) || mvpSet.has(mvpKey(p.espn_game_id, p.team, p.pick_type));
-    p.is_high = p.score != null && p.score >= 35; // includes MVPs (50+)
+    p.is_mvp  = (p.score != null && p.score >= mvpLine) || mvpSet.has(mvpKey(p.espn_game_id, p.team, p.pick_type));
+    p.is_high = p.score != null && p.score >= highLine; // includes gold
   }
 
   const unit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
@@ -3496,7 +3503,7 @@ function buildCapperDetail(name) {
     handles      = db.prepare(`SELECT source, handle, meta_json FROM capper_source_handles WHERE canonical_name = ?`).all(canonicalName);
   } catch (_) {}
 
-  return { name, picks, unit, mvpThreshold: MVP_THRESHOLD, highThreshold: 35, rating, sportRatings, typeRatings, handles };
+  return { name, picks, unit, mvpThreshold: mvpLine, highThreshold: highLine, rating, sportRatings, typeRatings, handles };
 }
 
 // ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────

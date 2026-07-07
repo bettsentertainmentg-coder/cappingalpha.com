@@ -1205,6 +1205,41 @@ try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL D
 // home) is wiped daily, so pick_history carries the calibration series forever.
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN v3_total REAL`); } catch (_) {}
 
+// ── ONE SCALE EVERYWHERE (Jack, 2026-07-07): rescale ALL historical scores onto
+// the v3 100-scale. Mapping: new = round(old * 20/13), capped 135. Old 65 (the
+// publicly tracked tier floor) lands exactly on 100, old 50-64 (the old MVP
+// band) lands 77-98 inside silver, order preserved everywhere below. Originals
+// are kept in score_v2_original so nothing is ever destroyed. Runs ONCE, and
+// only when v3 is actually live (prod stays untouched until the flip).
+try { db.exec(`ALTER TABLE mvp_picks     ADD COLUMN score_v2_original REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pick_history  ADD COLUMN score_v2_original REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN score_v2_original REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE golf_picks    ADD COLUMN score_v2_original REAL`); } catch (_) {}
+try {
+  const live = db.prepare(`SELECT value FROM settings WHERE key = 'scoring_version'`).get();
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'v3_history_rescale'`).get();
+  if (live && live.value === 'v3' && !done) {
+    db.exec(`
+      UPDATE mvp_picks SET score_v2_original = score,
+        score = MIN(135, ROUND(score * 20.0 / 13.0)), scale_version = 'v2-rescaled'
+        WHERE scale_version = 'v2' AND score IS NOT NULL;
+      UPDATE pick_history SET score_v2_original = score,
+        score = MIN(135, ROUND(score * 20.0 / 13.0)), scale_version = 'v2-rescaled'
+        WHERE scale_version = 'v2' AND score IS NOT NULL;
+      UPDATE capper_history SET score_v2_original = score,
+        score = MIN(135, ROUND(score * 20.0 / 13.0))
+        WHERE score IS NOT NULL AND score_v2_original IS NULL;
+      UPDATE golf_picks SET score_v2_original = score,
+        score = MIN(135, ROUND(score * 20.0 / 13.0))
+        WHERE score IS NOT NULL AND score_v2_original IS NULL;
+    `);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('v3_history_rescale', datetime('now'))`).run();
+    console.log('[db] v3 history rescale complete: all historical scores now on the 100 scale (originals in score_v2_original)');
+  }
+} catch (err) {
+  console.warn('[db] v3 history rescale failed:', err.message);
+}
+
 // Materialized capper ratings — the scorer and leaderboard read THIS, never raw
 // history. Recomputed nightly + on demand (src/capper_ratings.js).
 // scope: 'overall' | 'sport:MLB' | 'type:MLB/over'
