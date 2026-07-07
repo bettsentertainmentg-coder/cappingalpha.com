@@ -159,4 +159,17 @@ function engineEventsFor(yyyymmdd) {
   } catch (_) { return []; }
 }
 
+// Kalshi reference prices for custom-only events (fight cards, race winners).
+// The custom form fetches this when a fight/race row is tapped and shows the
+// prices as tappable fills. The module's cache keeps Kalshi traffic to ~4 calls
+// per 10 minutes regardless of how many users open the form.
+router.get('/kalshi-events', async (req, res) => {
+  try {
+    const { getKalshiEventOdds } = require('./kalshi_events');
+    res.json({ events: await getKalshiEventOdds() });
+  } catch (_) {
+    res.json({ events: [] });
+  }
+});
+
 module.exports = router;

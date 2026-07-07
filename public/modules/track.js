@@ -825,6 +825,71 @@ export function trackFutureGame(sport, matchup) {
   if (sportSel && sport) sportSel.value = sport;
   const sel = document.getElementById('cf-selection');
   if (sel && matchup) sel.placeholder = `Your pick for ${matchup}`;
+  loadKalshiEventStrip(sport, matchup);
+}
+
+// ── Kalshi reference prices for custom-only events (fights, races) ────────────
+// Fight and race rows have no odds board, so the custom form pulls Kalshi's live
+// market for the tapped event and shows tappable prices: tap a fighter/driver and
+// the pick, odds, and book fill themselves. Reference only; the bet stays custom.
+const FIGHT_SPORTS = new Set(['MMA', 'UFC', 'BOXING']);
+const RACE_SPORTS  = new Set(['F1', 'NASCAR', 'RACING']);
+let _kalshiEvents = null; // session cache of the (already server-cached) feed
+
+async function loadKalshiEventStrip(sport, matchup) {
+  const s = (sport || '').toUpperCase();
+  const isFight = FIGHT_SPORTS.has(s), isRace = RACE_SPORTS.has(s);
+  if (!isFight && !isRace) return;
+  const holder = document.getElementById('cf-kalshi');
+  if (!holder) return;
+  try {
+    if (!_kalshiEvents) {
+      const r = await fetch('/api/track/kalshi-events');
+      _kalshiEvents = r.ok ? (await r.json()).events || [] : [];
+    }
+  } catch (_) { _kalshiEvents = []; }
+  if (!document.getElementById('cf-kalshi')) return; // form closed while loading
+
+  const words = (t) => (t || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length >= 3);
+  let ev = null;
+  if (isFight) {
+    // Match both fighters' last names against the event's outcome names.
+    const names = (matchup || '').split('@').map(x => x.trim()).filter(Boolean);
+    const lasts = names.map(n => n.split(' ').pop().toLowerCase()).filter(l => l.length >= 3);
+    if (lasts.length === 2) {
+      ev = _kalshiEvents.find(e => e.kind === 'fight' &&
+        lasts.every(l => e.outcomes.some(o => o.name.toLowerCase().includes(l))));
+    }
+  } else {
+    // Match the race title by word overlap; a lone open race for the sport wins by default.
+    const races = _kalshiEvents.filter(e => e.kind === 'race' && e.sport.toUpperCase() === (s === 'RACING' ? e.sport.toUpperCase() : s));
+    const mw = new Set(words(matchup));
+    ev = races.find(e => words(e.title).filter(w => mw.has(w)).length >= 2) || (races.length === 1 ? races[0] : null);
+  }
+  if (!ev) return;
+
+  const fmtO = o => (o > 0 ? '+' + o : '' + o);
+  const raceName = ev.title.replace(/\s*winner\s*$/i, '');
+  const chips = ev.outcomes.map(o => {
+    const selText = ev.kind === 'fight' ? `${o.name} to win` : `${o.name} to win ${raceName}`;
+    return `<button type="button" class="lc-book" onclick="fillFromKalshiEvent(this)" data-sel="${esc(selText)}" data-odds="${o.american}">${esc(o.name)}<span class="lc-bk"><span class="lc-bk-odds">${fmtO(o.american)}</span></span></button>`;
+  }).join('');
+  holder.innerHTML = `
+    <div class="settings-field">
+      <label>Kalshi market${ev.kind === 'race' ? ` · ${esc(raceName)}` : ''} <span style="font-weight:400;text-transform:none;letter-spacing:0;">(tap to fill)</span></label>
+      <div class="lc-books">${chips}</div>
+    </div>`;
+}
+export function fillFromKalshiEvent(btn) {
+  const sel = document.getElementById('cf-selection');
+  const odds = document.getElementById('cf-odds');
+  if (sel) sel.value = btn.getAttribute('data-sel') || '';
+  if (odds) odds.value = btn.getAttribute('data-odds') || '';
+  // Mark the book as Kalshi in the segmented book row (it's in BOOKS).
+  const bookBtn = [...document.querySelectorAll('.bet-seg')].find(b => b.textContent.trim() === 'Kalshi' && (b.getAttribute('onclick') || '').includes('setFormBook'));
+  if (bookBtn && _form.book !== 'Kalshi') bookBtn.click();
+  document.querySelectorAll('#cf-kalshi .lc-book').forEach(b => b.classList.toggle('active', b === btn));
+  updatePayoutPreview();
 }
 
 function renderTrackGames() {
@@ -1653,6 +1718,7 @@ function customFormHtml() {
           ${seg('totalSide', 'under', _form.totalSide || 'over', 'Under')}
         </div>
       </div>
+      <div id="cf-kalshi"></div>
       <div class="settings-field">
         <label for="cf-selection">Your pick</label>
         <input type="text" id="cf-selection" placeholder='e.g. "Yankees ML" or "Judge 2+ HR"' maxlength="80" />
@@ -1798,7 +1864,7 @@ Object.assign(window, {
   showBetScan, scanBetslip, backToTrackMenu,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet, openTrackForSlot,
   addLegToParlay, removeParlayLeg, clearParlay, reviewParlay, onParlayField,
-  setParlayBook, toggleParlayNote, toggleParlayFreeBet, submitParlay,
+  setParlayBook, toggleParlayNote, toggleParlayFreeBet, submitParlay, fillFromKalshiEvent,
   toggleConfirmFreeBet, toggleAddNote, toggleBookCompare,
 });
 

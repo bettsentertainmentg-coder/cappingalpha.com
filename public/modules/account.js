@@ -3,9 +3,9 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=39';
+import { loadUserBets, setBetsData } from './track.js?v=40';
 
-const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf'];
+const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
 
 // ── Loaders ───────────────────────────────────────────────────────────────────
 export async function loadTracking() {
