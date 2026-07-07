@@ -229,10 +229,11 @@ app.get('/', (req, res) => {
 app.get('/api/summary', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {
-    const [site, health, books, pm2, disk] = await Promise.all([
+    const [site, health, books, cappers, pm2, disk] = await Promise.all([
       probeSite(),
       section('/admin/api/health.json'),
       section('/admin/api/books.json'),
+      section('/admin/api/capper-sources.json'),
       getPm2(),
       getDisk(),
     ]);
@@ -241,6 +242,7 @@ app.get('/api/summary', async (req, res) => {
       site,
       health,
       books,
+      cappers,
       pm2,
       host: { ...getHostBasics(), disk },
     });

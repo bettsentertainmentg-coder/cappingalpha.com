@@ -603,13 +603,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
     .slice(0, 7)
     .map(([s]) => s);
 
+  // v3 ratings context (materialized nightly): rating number, tier, fade, sources
+  const ratingsMap = new Map();
+  try {
+    for (const r of db.prepare(`SELECT * FROM capper_ratings WHERE scope = 'overall'`).all()) {
+      ratingsMap.set(r.canonical_name, r);
+    }
+  } catch (_) {}
+
   // Sort: most resolved picks first, then win%
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
       const total = c.wins + c.losses + c.pushes;
       const winPct = total > 0 ? Math.round((c.wins / total) * 100) : null;
       const units  = c.wins - c.losses;
-      return { name, ...c, total, winPct, units };
+      const r = ratingsMap.get(name) || null;
+      return { name, ...c, total, winPct, units,
+               rating: r ? (r.resume_points ?? 0) : null,
+               tier: r?.tier ?? null, fade: r?.fade ?? null,
+               srcList: r?.sources ? r.sources.split(',') : ['discord'] };
     })
     .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
@@ -684,12 +696,38 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const sortable = (label, type, title) =>
     `<th data-type="${type}"${title ? ` title="${title}"` : ''} onclick="sortCapperLB(this)" style="cursor:pointer;user-select:none;">${label}</th>`;
 
+  // v3 chips: source labels (multi-source cappers show every system they appear in)
+  const SRC_CHIP = {
+    discord:       ['DC', '#5865F2'],
+    actionnetwork: ['AN', '#16a34a'],
+    polymarket:    ['PM', '#8b5cf6'],
+    covers:        ['CV', '#f59e0b'],
+    telegram:      ['TG', '#0ea5e9'],
+    reddit:        ['RD', '#f97316'],
+  };
+  const srcChips = (list) => (list || []).map(s => {
+    const [label, color] = SRC_CHIP[s] || [s.slice(0, 2).toUpperCase(), '#8892a4'];
+    return `<span title="${escHtml(s)}" style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:0 4px;font-size:9px;font-weight:800;letter-spacing:0.5px;margin-left:4px;vertical-align:1px;">${label}</span>`;
+  }).join('');
+  const TIER_CHIP = {
+    proven: ['PROVEN', '#16a34a'], rated: ['RATED', '#0ea5e9'],
+    building: ['', ''], tracking: ['', ''],
+  };
+  const tierChip = (c) => {
+    if (c.fade) {
+      const label = c.fade === 'active' ? 'FADE' : 'FADE WATCH';
+      return `<span style="background:#ef444422;color:#ef4444;border:1px solid #ef444455;border-radius:3px;padding:0 5px;font-size:9px;font-weight:800;margin-left:6px;">${label}</span>`;
+    }
+    const [label, color] = TIER_CHIP[c.tier] || ['', ''];
+    return label ? `<span style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:0 5px;font-size:9px;font-weight:800;margin-left:6px;">${label}</span>` : '';
+  };
+
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click a column to sort (click again to reverse). Click any row for full pick history.</p>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click a column to sort (click again to reverse). Click any row for the full capper profile. Rating = resume points the scoring system gives this capper today. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Rating', 'num', 'Resume points (0-55 scale) from the materialized ratings')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -701,19 +739,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const moneyColor = c.money > 0.005 ? '#16a34a' : c.money < -0.005 ? '#ef4444' : '#8892a4';
         const moneyStr   = (c.money >= 0 ? '+$' : '-$') + Math.abs(c.money).toFixed(0);
         const pushStr    = c.pushes > 0 ? `-<span style="color:#8892a4;">${c.pushes}</span>` : '';
+        const ratingStr  = c.rating != null ? c.rating : '—';
+        const ratingColor = c.rating == null ? '#3b4560' : c.rating >= 40 ? '#FFD700' : c.rating >= 20 ? '#16a34a' : c.rating > 0 ? '#8892a4' : '#3b4560';
         const sportCols  = allSports.map(s => {
           const sr = c.sports[s];
           if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td data-sv="-9999" style="color:#3b4560;">—</td>`;
           const stotal = sr.wins + sr.losses + sr.pushes;
           const swp    = stotal > 0 ? Math.round((sr.wins / stotal) * 100) : null;
           const sc     = swp === null ? '#8892a4' : swp >= 55 ? '#16a34a' : swp >= 50 ? '#f59e0b' : '#ef4444';
-          return `<td data-sv="${sr.wins - sr.losses}" style="font-size:12px;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span></td>`;
+          const smColor = sr.money > 0.005 ? '#16a34a' : sr.money < -0.005 ? '#ef4444' : '#8892a4';
+          const smStr   = (sr.money >= 0 ? '+$' : '-$') + Math.abs(sr.money).toFixed(0);
+          return `<td data-sv="${sr.money}" style="font-size:12px;white-space:nowrap;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span><br><span style="color:${smColor};font-size:10px;font-weight:600;">${smStr}</span></td>`;
         }).join('');
-        return `<tr class="capper-row" style="cursor:pointer;" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
+        const fadeRow = c.fade ? 'box-shadow:inset 3px 0 0 #ef4444;' : '';
+        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
-          <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">${escHtml(c.name)}</td>
+          <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;white-space:nowrap;">${escHtml(c.name)}${tierChip(c)}${srcChips(c.srcList)}</td>
           <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
+          <td data-sv="${c.rating ?? -1}" style="color:${ratingColor};font-weight:700;">${ratingStr}</td>
           <td data-sv="${c.units}" style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
           <td data-sv="${c.money}" style="color:${moneyColor};font-weight:700;">${c.total > 0 ? moneyStr : '—'}</td>
           ${sportCols}
@@ -2300,6 +2344,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         }
       }
 
+      async function recomputeRatings(btn) {
+        if (btn) { btn.disabled = true; btn.textContent = 'Recomputing...'; }
+        try {
+          await fetch('/admin/api/recompute-ratings', { method: 'POST' });
+          location.reload();
+        } catch (_) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Recompute ratings'; }
+        }
+      }
+
       // Scan button: re-resolve finished games, then re-render with fresh data.
       async function scanCapper(name, btn) {
         if (btn) { btn.disabled = true; btn.textContent = 'Scanning...'; }
@@ -2401,19 +2455,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const wpStr      = winPct !== null ? '<span style="color:' + wpColor + ';font-size:16px;font-weight:700;">' + winPct + '%</span>' : '';
           const pendingStr = pending > 0 ? '<span style="color:#f59e0b;font-size:13px;">' + pending + ' pending</span>' : '';
 
-          // Per-sport breakdown (record + money), most active first.
+          // Per-sport breakdown (record + money + resume points today), most active first.
+          const sportPtsMap = {};
+          for (const sr of (data.sportRatings || [])) sportPtsMap[sr.sport] = sr.resume_points;
           const sportRows = Object.entries(sportAgg)
             .filter(([s]) => s !== 'Unknown')
             .sort((a, b) => (b[1].wins + b[1].losses + b[1].pushes) - (a[1].wins + a[1].losses + a[1].pushes))
-            .map(([s, a]) =>
-              '<tr>'
+            .map(([s, a]) => {
+              const pts = sportPtsMap[s];
+              const ptsColor = pts == null ? '#3b4560' : pts >= 40 ? '#FFD700' : pts >= 20 ? '#16a34a' : '#8892a4';
+              return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
-              + '</tr>').join('');
+              + '<td style="text-align:right;color:' + ptsColor + ';font-weight:700;">' + (pts != null ? pts : '—') + '</td>'
+              + '</tr>';
+            }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:280px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:340px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Resume points a pick in this sport earns today (of 55)">Pts today</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
@@ -2456,10 +2516,108 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const mvpChip  = '<span style="background:#FFD70022;color:#FFD700;border:1px solid #FFD70044;border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;">★ ' + mvpList.length + ' MVP</span>';
           const highChip = '<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;border-radius:4px;padding:2px 8px;font-size:12px;font-weight:700;">' + highList.length + ' @ ' + HIGH + '+</span>';
 
+          // ── v3 profile extensions: ratings, chips, equity curve, type table, fade ──
+          const rating = data.rating || null;
+          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const chip = (label, color) => '<span style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:800;">' + label + '</span>';
+          let headerChips = '';
+          if (rating) {
+            if (rating.fade) headerChips += chip(rating.fade === 'active' ? 'FADE ACTIVE' : 'FADE WATCH', '#ef4444');
+            else if (rating.tier === 'proven') headerChips += chip('PROVEN', '#16a34a');
+            else if (rating.tier === 'rated')  headerChips += chip('RATED', '#0ea5e9');
+            headerChips += ' ' + chip('RATING ' + (rating.resume_points ?? 0), rating.resume_points >= 40 ? '#FFD700' : '#8892a4');
+            for (const s of (rating.sources || '').split(',').filter(Boolean)) {
+              const sc = SRC_COLORS[s] || [s.slice(0,2).toUpperCase(), '#8892a4'];
+              headerChips += ' ' + chip(sc[0], sc[1]);
+            }
+          }
+
+          // Resume points per sport (what a pick would earn TODAY)
+          const sportPts = {};
+          for (const sr of (data.sportRatings || [])) sportPts[sr.sport] = sr.resume_points;
+
+          // Equity curve: cumulative units over graded picks, oldest first (inline SVG)
+          function equityCurveSvg() {
+            const graded = picks.filter(p => ['win','loss','push'].includes((p.result||'').toLowerCase()))
+              .slice().sort((a,b) => ((a.game_date||a.saved_at||'') < (b.game_date||b.saved_at||'') ? -1 : 1));
+            if (graded.length < 3) return '';
+            let run = 0; const pts = [0];
+            for (const p of graded) { run += pickProfit((p.result||'').toLowerCase(), p.odds, p.pick_type, 1); pts.push(run); }
+            const W = 560, H = 120, PAD = 6;
+            const min = Math.min(0, ...pts), max = Math.max(0, ...pts);
+            const x = (i) => PAD + (W - 2*PAD) * (i / (pts.length - 1));
+            const y = (v) => max === min ? H/2 : PAD + (H - 2*PAD) * (1 - (v - min) / (max - min));
+            const path = pts.map((v,i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1)).join(' ');
+            const zero = y(0).toFixed(1);
+            const endColor = run >= 0 ? '#16a34a' : '#ef4444';
+            return '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">Equity curve (units, all graded picks)</div>'
+              + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;height:' + H + 'px;background:#0e1118;border:1px solid #1e2330;border-radius:8px;">'
+              + '<line x1="0" y1="' + zero + '" x2="' + W + '" y2="' + zero + '" stroke="#3b4560" stroke-dasharray="3,3" stroke-width="1"/>'
+              + '<path d="' + path + '" fill="none" stroke="' + endColor + '" stroke-width="2"/>'
+              + '</svg>'
+              + '<div style="font-size:11px;color:#8892a4;margin-top:4px;">Ends at <span style="color:' + endColor + ';font-weight:700;">' + (run>=0?'+':'') + run.toFixed(1) + 'u</span> over ' + graded.length + ' graded picks</div></div>';
+          }
+
+          // Monthly win% bars
+          function monthlyBarsSvg() {
+            const byMonth = {};
+            for (const p of picks) {
+              const rl = (p.result||'').toLowerCase();
+              if (rl !== 'win' && rl !== 'loss') continue;
+              const m = (p.game_date || p.saved_at || '').slice(0, 7);
+              if (!m) continue;
+              (byMonth[m] ||= { w:0, n:0 });
+              byMonth[m].n++; if (rl === 'win') byMonth[m].w++;
+            }
+            const months = Object.keys(byMonth).sort();
+            if (months.length < 2) return '';
+            const W = 560, H = 90, bw = Math.min(70, (W - 20) / months.length - 10);
+            let bars = '';
+            months.forEach((m, i) => {
+              const pct = byMonth[m].w / byMonth[m].n;
+              const h = Math.max(3, (H - 30) * pct);
+              const xPos = 10 + i * (bw + 10);
+              const color = pct >= 0.55 ? '#16a34a' : pct >= 0.5 ? '#f59e0b' : '#ef4444';
+              bars += '<rect x="' + xPos + '" y="' + (H - 20 - h) + '" width="' + bw + '" height="' + h + '" rx="3" fill="' + color + '66" stroke="' + color + '"/>'
+                + '<text x="' + (xPos + bw/2) + '" y="' + (H - 24 - h) + '" text-anchor="middle" font-size="10" fill="' + color + '">' + Math.round(pct*100) + '% (' + byMonth[m].n + ')</text>'
+                + '<text x="' + (xPos + bw/2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="9" fill="#8892a4">' + m.slice(2) + '</text>';
+            });
+            return '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">Monthly win%</div>'
+              + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;height:' + H + 'px;background:#0e1118;border:1px solid #1e2330;border-radius:8px;">' + bars + '</svg></div>';
+          }
+
+          // Per bet type WITHIN sport (from the materialized ratings)
+          const typeRows = (data.typeRatings || []).filter(t => t.picks >= 3).map(t =>
+            '<tr>'
+            + '<td style="font-weight:600;">' + (t.sport || '—') + '</td>'
+            + '<td style="color:#8892a4;">' + (t.pick_type || '—').toUpperCase() + '</td>'
+            + '<td><span style="color:#16a34a;">' + t.wins + '</span>-<span style="color:#ef4444;">' + t.losses + '</span>' + (t.pushes ? '-' + t.pushes + 'P' : '') + '</td>'
+            + '<td style="text-align:right;color:' + (t.units > 0 ? '#16a34a' : t.units < 0 ? '#ef4444' : '#8892a4') + ';font-weight:600;">' + (t.units >= 0 ? '+' : '') + t.units.toFixed(1) + 'u</td>'
+            + '<td style="text-align:right;color:' + (t.blend > 0 ? '#16a34a' : '#ef4444') + ';font-size:11px;">' + (t.blend > 0 ? '+' : '') + (t.blend * 100).toFixed(1) + '%</td>'
+            + '</tr>').join('');
+          const typeTableHtml = typeRows
+            ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By bet type within sport</div>'
+              + '<table style="width:auto;min-width:340px;"><thead><tr><th>Sport</th><th>Type</th><th>Record</th><th style="text-align:right;">Units</th><th style="text-align:right;" title="Shrunk ROI blend used by scoring and fades">Blend</th></tr></thead><tbody>'
+              + typeRows + '</tbody></table></div>'
+            : '';
+
+          // Fade panel: which sport/type combos would trigger opposite-slot points
+          let fadePanelHtml = '';
+          if (rating && rating.fade) {
+            const badTypes = (data.typeRatings || []).filter(t => t.blend < 0 && t.picks >= 3)
+              .sort((a, b) => a.blend - b.blend).slice(0, 6)
+              .map(t => (t.sport || '?') + ' ' + (t.pick_type || '?').toUpperCase() + ' (' + t.wins + '-' + t.losses + ', ' + (t.blend*100).toFixed(1) + '%)')
+              .join(' · ');
+            fadePanelHtml = '<div style="margin-bottom:18px;padding:12px;border:1px solid #ef444455;border-radius:8px;background:#ef44440d;">'
+              + '<div style="font-size:12px;font-weight:800;color:#ef4444;letter-spacing:0.5px;margin-bottom:6px;">' + (rating.fade === 'active' ? 'FADE ACTIVE — opposite slots gain points when this capper posts' : 'FADE WATCH — flagged, no score effect yet') + '</div>'
+              + '<div style="font-size:12px;color:#c7cbd6;">Overall shrunk ROI ' + (rating.blend*100).toFixed(1) + '% over ' + rating.picks + ' graded picks.'
+              + (badTypes ? '<br>Bleeding spots: ' + badTypes : '') + '</div></div>';
+          }
+
           content.innerHTML =
             '<div style="margin-bottom:20px;">'
             + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;">'
-            + '<div style="font-size:20px;font-weight:700;">' + name + '</div>'
+            + '<div style="font-size:20px;font-weight:700;">' + name + ' <span style="margin-left:6px;">' + headerChips + '</span></div>'
             + '<button class="btn-sm btn-primary" onclick="scanCapper(' + JSON.stringify(name).replace(/"/g, '&quot;') + ', this)">Scan &amp; Update</button>'
             + '</div>'
             + '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">'
@@ -2471,9 +2629,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
             + highChip
             + pendingStr
             + '</div></div>'
+            + fadePanelHtml
+            + equityCurveSvg()
+            + monthlyBarsSvg()
             + mvpSectionHtml
             + highSectionHtml
             + sportTableHtml
+            + typeTableHtml
             + tableHtml;
         } catch (_) {
           content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
@@ -3077,6 +3239,62 @@ router.post('/api/recompute-ratings', requireAuth, (_req, res) => {
   }
 });
 
+// ── GET /admin/api/capper-sources.json — CA Ops capper pipeline health ────────
+// Consumed by the desktop ops console (ops/server.js). One JSON with: per-source
+// ingestion health, ratings summary, fade list, and the drift-monitor skeleton
+// (v2 tracked-tier trailing record until the v3 tiers go live). v3 Phase 2.
+router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
+  const one = (sql, ...args) => { try { return db.prepare(sql).get(...args); } catch (_) { return null; } };
+  const all = (sql, ...args) => { try { return db.prepare(sql).all(...args); } catch (_) { return []; } };
+  try {
+    const sources = all(`
+      SELECT source, COUNT(*) rows_total,
+             SUM(CASE WHEN saved_at >= datetime('now','-1 day') THEN 1 ELSE 0 END) rows_24h,
+             MAX(saved_at) last_write
+      FROM capper_history GROUP BY source ORDER BY rows_total DESC
+    `);
+    const discordToday = one(`
+      SELECT COUNT(*) picks_today,
+             SUM(CASE WHEN capper_name IS NOT NULL AND capper_name != '' THEN 1 ELSE 0 END) with_capper
+      FROM picks
+    `);
+    const unresolved24h = one(`
+      SELECT COUNT(*) n FROM raw_messages_archive
+      WHERE archived_at >= datetime('now','-1 day') AND (capper_matched IS NULL OR capper_matched = 0)
+        AND capper_raw IS NOT NULL AND capper_raw != ''
+    `);
+    const ratings = one(`
+      SELECT COUNT(*) cappers,
+             SUM(CASE WHEN tier IN ('rated','proven') THEN 1 ELSE 0 END) rated,
+             SUM(CASE WHEN tier = 'proven' THEN 1 ELSE 0 END) proven,
+             SUM(CASE WHEN fade = 'watch'  THEN 1 ELSE 0 END) fade_watch,
+             SUM(CASE WHEN fade = 'active' THEN 1 ELSE 0 END) fade_active,
+             MAX(computed_at) computed_at
+      FROM capper_ratings WHERE scope = 'overall'
+    `);
+    const fadeList = all(`
+      SELECT canonical_name, fade, picks, ROUND(units, 1) units, ROUND(blend * 100, 1) blend_pct
+      FROM capper_ratings WHERE scope = 'overall' AND fade IS NOT NULL ORDER BY blend ASC LIMIT 8
+    `);
+    // Drift skeleton: trailing 30d record of the publicly tracked tier (v2: 65+).
+    const drift = one(`
+      SELECT SUM(result='win') w, SUM(result='loss') l
+      FROM pick_history
+      WHERE score >= 65 AND result IN ('win','loss') AND game_date >= date('now','-30 days')
+    `);
+    const registry = one(`SELECT (SELECT COUNT(*) FROM capper_registry) cappers, (SELECT COUNT(*) FROM capper_source_handles) handles`);
+    res.json({
+      generatedAt: new Date().toISOString(),
+      sources, discordToday, unresolved24h: unresolved24h?.n ?? 0,
+      ratings, fadeList, registry,
+      drift: { window: '30d', tier: 'v2-65plus', wins: drift?.w ?? 0, losses: drift?.l ?? 0,
+               alarm: (drift?.w ?? 0) + (drift?.l ?? 0) >= 20 && (drift?.w ?? 0) / Math.max(1, (drift?.w ?? 0) + (drift?.l ?? 0)) < 0.524 },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
 router.post('/import-mvp', adminLoginRateLimit, express.json({ limit: '5mb' }), (req, res) => {
   const pw = req.headers['x-admin-password'];
@@ -3164,7 +3382,18 @@ function buildCapperDetail(name) {
   }
 
   const unit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
-  return { name, picks, unit, mvpThreshold: MVP_THRESHOLD, highThreshold: 35 };
+
+  // v3 Phase 2: ratings + registry context for the expanded profile popup.
+  const canonicalName = allNames[0];
+  let rating = null, sportRatings = [], typeRatings = [], handles = [];
+  try {
+    rating       = db.prepare(`SELECT * FROM capper_ratings WHERE canonical_name = ? AND scope = 'overall'`).get(canonicalName) || null;
+    sportRatings = db.prepare(`SELECT * FROM capper_ratings WHERE canonical_name = ? AND scope LIKE 'sport:%' ORDER BY picks DESC`).all(canonicalName);
+    typeRatings  = db.prepare(`SELECT * FROM capper_ratings WHERE canonical_name = ? AND scope LIKE 'type:%' ORDER BY sport, picks DESC`).all(canonicalName);
+    handles      = db.prepare(`SELECT source, handle, meta_json FROM capper_source_handles WHERE canonical_name = ?`).all(canonicalName);
+  } catch (_) {}
+
+  return { name, picks, unit, mvpThreshold: MVP_THRESHOLD, highThreshold: 35, rating, sportRatings, typeRatings, handles };
 }
 
 // ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────

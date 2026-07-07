@@ -241,6 +241,9 @@
   <div class="sec-label">Data sources</div>
   <div id="sourcesHost"></div>
 
+  <div class="sec-label">Capper sources <span class="sec-note">scanner ingestion by system, ratings, fades, tracked-tier drift</span></div>
+  <div id="cappersHost"></div>
+
   <div class="sec-label">Reader and spend</div>
   <div id="readerHost"></div>
 </div>
@@ -358,6 +361,7 @@ function collectIssues(d) {
     });
   }
   if (d.books && d.books.error) issues.push('books.json failed: ' + d.books.error);
+  if (d.cappers && d.cappers.drift && d.cappers.drift.alarm) issues.push('tracked tier below breakeven over trailing 30d');
   if (d.pm2) {
     if (d.pm2.note && (!d.pm2.processes || !d.pm2.processes.length)) issues.push(d.pm2.note);
     (d.pm2.processes || []).forEach(function (p) {
@@ -616,6 +620,56 @@ function findSpend(obj, depth) {
   return null;
 }
 
+function renderCappers(d) {
+  var c = d.cappers || {};
+  if (c.error) { el('cappersHost').innerHTML = downCard('capper-sources.json', c.error); return; }
+  if (!c.ratings) { el('cappersHost').innerHTML = '<div class="card"><div class="sub">No capper data yet (endpoint not deployed?).</div></div>'; return; }
+
+  var cards = '';
+  var r = c.ratings || {};
+  cards += '<div class="card"><div class="k">Ratings</div>' +
+    '<div class="big">' + esc(String(r.cappers || 0)) + ' cappers</div>' +
+    '<div class="sub">' + esc(String(r.rated || 0)) + ' rated · ' + esc(String(r.proven || 0)) + ' proven · recomputed ' + esc((r.computed_at || '—').slice(5, 16)) + '</div></div>';
+
+  var fw = r.fade_watch || 0, fa = r.fade_active || 0;
+  var fadeNames = (c.fadeList || []).map(function (f) {
+    return esc(f.canonical_name) + ' (' + esc(String(f.blend_pct)) + '%, ' + esc(String(f.picks)) + 'p' + (f.fade === 'active' ? ', ACTIVE' : '') + ')';
+  }).join(' · ');
+  cards += '<div class="card"><div class="k">Fade list</div>' +
+    '<div class="big' + (fa ? ' err' : '') + '">' + fa + ' active / ' + fw + ' watch</div>' +
+    '<div class="sub" style="white-space:normal">' + (fadeNames || 'nobody qualifies') + '</div></div>';
+
+  var dr = c.drift || {};
+  var dn = (dr.wins || 0) + (dr.losses || 0);
+  var dpct = dn ? Math.round(100 * (dr.wins || 0) / dn) : null;
+  cards += '<div class="card"><div class="k">Tracked tier, trailing 30d</div>' +
+    '<div class="big' + (dr.alarm ? ' err' : '') + '">' + (dn ? (dr.wins + '-' + dr.losses + ' (' + dpct + '%)') : 'no graded picks') + '</div>' +
+    '<div class="sub">' + (dr.alarm ? 'ALARM: below breakeven over a meaningful sample' : 'drift monitor, ' + esc(dr.tier || '')) + '</div></div>';
+
+  var reg = c.registry || {};
+  cards += '<div class="card"><div class="k">Identity registry</div>' +
+    '<div class="big">' + esc(String(reg.cappers || 0)) + '</div>' +
+    '<div class="sub">' + esc(String(reg.handles || 0)) + ' source handles · ' + esc(String(c.unresolved24h || 0)) + ' unresolved names (24h)</div></div>';
+
+  var srcRows = (c.sources || []).map(function (s) {
+    var stale = !s.rows_24h;
+    return '<tr>' +
+      '<td>' + esc(s.source || '?') + '</td>' +
+      '<td class="num">' + esc(String(s.rows_24h || 0)) + '</td>' +
+      '<td class="num">' + esc(String(s.rows_total || 0)) + '</td>' +
+      '<td class="dim">' + esc((s.last_write || '—').slice(0, 16)) + '</td>' +
+      '<td>' + pill(stale ? 'quiet' : 'ok') + '</td>' +
+    '</tr>';
+  }).join('');
+  var srcTable = srcRows
+    ? '<div class="tbl-wrap" style="margin-top:10px"><table>' +
+      '<thead><tr><th>system</th><th class="num">graded 24h</th><th class="num">total</th><th>last write</th><th>status</th></tr></thead>' +
+      '<tbody>' + srcRows + '</tbody></table></div>'
+    : '';
+
+  el('cappersHost').innerHTML = '<div class="cards">' + cards + '</div>' + srcTable;
+}
+
 function renderReader(d) {
   var health = d.health || {};
   if (health.error) { el('readerHost').innerHTML = downCard('health.json', health.error); return; }
@@ -671,6 +725,7 @@ function renderAll(d) {
   renderHeartbeats(d);
   renderMatrix(d);
   renderSources(d);
+  renderCappers(d);
   renderReader(d);
 
   var t = new Date();
