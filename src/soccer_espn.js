@@ -125,15 +125,27 @@ async function fetchTodaysSoccerGames() {
 // Refresh every soccer match still on the board that hasn't gone final, so
 // scores flip live and picks grade the moment matches end. ESPN is free; a
 // handful of scoreboard calls per cycle costs nothing.
+//
+// Refresh-only: the undated scoreboard endpoint returns an out-of-season
+// competition's LAST played round (old Champions League semis, last year's
+// Copa America, ...), so upserting everything it returns would drag stale
+// finished matches onto the board. Only matches already on the board are
+// updated here; new matches enter via the dated fetch (5am + startup).
 async function updateSoccerLiveScores() {
   const open = db.prepare(
     `SELECT COUNT(*) n FROM today_games WHERE sport = 'Soccer' AND status != 'post'`
   ).get();
   if (!open || open.n === 0) return;
+  const onBoard = new Set(
+    db.prepare(`SELECT espn_game_id FROM today_games WHERE sport = 'Soccer'`).all()
+      .map(r => String(r.espn_game_id))
+  );
   for (const path of SOCCER_PATHS) {
     try {
       const events = await fetchScoreboard(path);
-      for (const ev of events) upsertSoccerGame(ev);
+      for (const ev of events) {
+        if (onBoard.has(String(ev.id))) upsertSoccerGame(ev);
+      }
     } catch (_) { /* per-competition failures are fine */ }
   }
 }
