@@ -18,7 +18,7 @@ const db = require('./db');
 const ratingsLib = require('./capper_ratings');
 
 // ── Constants (starting values; Phase-5 backtest fits the final numbers) ──────
-const BASE = 40;
+const BASE = 45;  // calibrated 2026-07-07 (backtest grid: 1.06 gold/day at the conservative floor)
 const CONSENSUS_CAP = 12;
 const MARKET_CAP = 8;
 const FADE_CAP = 8;

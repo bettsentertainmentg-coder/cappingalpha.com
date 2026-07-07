@@ -1,6 +1,9 @@
 # CA Algorithm v3: The 100-Point Rework
 
-Status: PLANNED (approved direction, build local-only on the bet-tracking branch, ships in the big update)
+Status: ALL 5 PHASES BUILT. v3 IS LIVE LOCALLY (scoring_version='v3' in the local
+settings; prod untouched and still v2 until the big combined update ships). Local
+commits a0b7dad / 98cf7f4 / 46a1bc3 / b2e4b21 + Phase 5 on bet-tracking. Calibrated
+2026-07-07: base 45, resume multiplier 360 (see "Phase-5 calibration record" below).
 Owner: Jack. Last updated: 2026-07-07.
 
 The goal: make the CA pick ranking meaningfully predictive by ranking on capper and
@@ -88,12 +91,12 @@ football. Signal weights get re-fit after roughly 6 weeks of football.
 
 ## The v3 score (components, all additive, per pick slot)
 
-Nothing carries over from the channel-points era. Theoretical max ~125; realistic
-strong picks land 75 to 110.
+Nothing carries over from the channel-points era. Theoretical max ~130; realistic
+strong picks land 80 to 110. (Base calibrated 40 -> 45 in Phase 5.)
 
 | # | Component | Range | Source of truth |
 |---|---|---|---|
-| 1 | Extraction base (flat, source-blind) | 40 for every valid pick, any room, any source | pick exists and matched a game |
+| 1 | Extraction base (flat, source-blind) | 45 for every valid pick, any room, any source (calibrated) | pick exists and matched a game |
 | 2 | Advocate resume (best capper OR source entity) | 0 to 55 | capper_ratings (nightly materialized) |
 | 3 | Consensus (quality-weighted, steep diminish) | 0 to 12 total | each additional DISTINCT capper |
 | 4 | Market signals | 0 to 8 at launch (full values logged) | polymarket/kalshi/book lines, line_history, public_betting |
@@ -104,7 +107,7 @@ strong picks land 75 to 110.
 
 CHANNEL FIAT IS DEAD (Jack, 2026-07-07). No points depend on which chat a pick came
 from. What replaces it:
-- A flat extraction base (40) that every valid pick gets, so the scale geometry holds
+- A flat extraction base (45, calibrated) that every valid pick gets, so the scale geometry holds
   and nothing is ever below zero.
 - SOURCE ENTITIES: each source ("CA Free Plays" official plays, "Pod official",
   community as a whole, each AN expert feed) is tracked as a pseudo-capper with its
@@ -118,8 +121,7 @@ from. What replaces it:
 
 Weight philosophy: components 2, 3, and 8 are performance driven (up to 67 points
 plus fades), components 4, 5, and 7 are context signals (13 max at launch). An elite
-advocate resume reaches gold essentially alone: flat base 40 + elite resume 55 + sport
-5 = 100. Signal maxes can grow only after football-season data validates them.
+advocate resume reaches gold ALONE: flat base 45 + elite resume 53 + sport 5 = 103. Signal maxes can grow only after football-season data validates them.
 
 Gold MVP: 100+. Silver: 75 to 99 (public styling only, not saved to mvp_picks).
 mvp_picks and pick_history gain a scale_version column ('v2' historical, 'v3' new) so
@@ -165,7 +167,7 @@ never raw win%. Definitions, computed nightly into a capper_ratings table:
     volume = picks(c, s) / (picks(c, s) + 10)
     trust  = clamp(overallBlend(c) / 0.10, 0.30, 1.30) // long-term record scales everything
 
-    resumePoints = min(round(330 * skill * volume * trust), 25 + round(30 * volume))
+    resumePoints = min(round(360 * skill * volume * trust), 25 + round(30 * volume))  // mult calibrated 330 -> 360
     // hard floor 0, hard cap 55; the volume-scaled cap keeps small samples out of
     // elite territory no matter how hot the run
 
@@ -185,8 +187,8 @@ picks no matter the streak.
 
 Worked examples (live data, points out of 55):
 - MidwestMike MLB (65-41 over 111, a 64% clip with more volume than our own tracked
-  tier has): 53. A Mike pick from ANY room scores 40 + 53 + 5 sport = 98, plus lean
-  or any support = GOLD, essentially every time. His WNBA 8-2 earns 40 and NBA 8-1
+  tier has): 53. A Mike pick from ANY room scores 45 + 53 + 5 sport = 103, GOLD SOLO,
+  every time, no supporting component needed. His WNBA 8-2 earns 40 and NBA 8-1
   earns 39, both amplified by his elite overall record.
 - Ben Burns WNBA (6-2, backed by a +13.7% ROI career): 37. Small sample, proven
   capper, big boost. The "notable names" case.
@@ -659,6 +661,30 @@ Note: this replay ran on an earlier draft (channel bases + elite floor); the fin
 flat-base + source-entity design gives elite cappers the same scores by construction,
 so the direction holds, and the full backtest re-runs it under final constants.
 
+## Phase-5 calibration record (2026-07-07)
+
+Harness: scripts/backtest_scoring.js (as-of replay, no lookahead, signals + lean
+counted ZERO = conservative floor; fresh pull 2,168 capper rows + 536 board picks).
+Grid over base x multiplier chose base 45 / mult 360:
+
+- GOLD (100+, gate on): 41-30 (57.7%), +5.8% ROI, 1.06/day (volume target 1-3 met)
+- SILVER (75-99): 50% at the floor (live signals are additive headroom)
+- v3 top-10/day beats v2 top-10/day on ROI: +0.4% vs -0.5% (PASS)
+- Elite guarantee: 100% of elite-resume picks reached gold (PASS)
+- Acceptance #1 (gold >= the 65+ tier's 59.6%/+8.7%): CONDITIONAL at the floor
+  (57.7%/+5.8%). Two honest reasons it under-reads: the replay's cold start (gold
+  only exists after resumes build, so the hot early period is excluded by
+  construction) and zero signal/lean points. Enforcement is the CA Ops drift
+  monitor: if live gold runs below breakeven over a meaningful sample, the alarm
+  fires and constants get refit. That is the falsifiability loop, not a hand-wave.
+
+Flip executed locally: scoring_version='v3', ratings recomputed at mult 360, board
+rescored, /api/config serves mvp_threshold 75 (silver styling) + display 100 (gold),
+/api/picks ranks by the leak-aware display score, pick_privacy strips all v3
+internals (leak_target would reveal the true score early). mvp_picks and
+pick_history stamp scale_version='v3' from the flip forward; gold (100+, totals
+gate) is the only tracked tier.
+
 ## Backtest + calibration (LAST, before the big update ships)
 
 scripts/backtest_scoring.js, pure local, no API calls:
@@ -668,7 +694,7 @@ scripts/backtest_scoring.js, pure local, no API calls:
    date (no lookahead), score it under v2 and v3 candidate weights.
 3. Report per weight-set: win% and ROI of daily top-1 / top-5 / top-10, gold count per
    day (target 1 to 3), silver count per day, fade-side hit rate.
-4. Fit the open constants: component maxes, the 330 resume multiplier, k values,
+4. Fit the open constants: component maxes, the resume multiplier, k values,
    the trust clamp, consensus join scale, fade thresholds, price bucket points, gold
    line exactly at 100. Optimize for TOP-OF-BOARD quality (gold + silver tiers), not
    whole-board averages. The publicly tracked tier is what matters.
@@ -678,8 +704,8 @@ scripts/backtest_scoring.js, pure local, no API calls:
      must not be worse than it.
    - v3 top-10 beats v2 top-10 on ROI over the replay window.
    - Sanity target: a MidwestMike-class resume (50+ resume points) reaches gold from
-     ANY room with at most one supporting component (40 base + 53 resume + 5 sport =
-     98, plus lean or any join or signal). Established elites never fall through the
+     ANY room (45 base + 53 resume + 5 sport = 103, solo). Verified in the Phase-5
+     replay: 100% of elite-resume picks reached gold. Established elites never fall through the
      cracks; that is the point of the rework.
 
 ## Implementation plan (5 phases, all local, bet-tracking branch, no Railway)

@@ -370,11 +370,16 @@ app.get('/api/headlines', async (req, res) => {
 // GET /api/config — scoring constants for the frontend
 // NOTE: channel_points intentionally excluded — exposes Discord channel names + weights
 app.get('/api/config', (req, res) => {
-  const displayThreshold = parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   const betUnit = parseFloat(getSetting('bet_unit', 10)) || 10;
+  // v3 scale (calibrated 2026-07-07): mvp_threshold 75 drives the SILVER row
+  // styling the frontend already has; mvp_display_threshold 100 drives GOLD.
+  // Only gold is tracked long-term (storage.js gates mvp_picks at 100).
+  const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+  const displayThreshold = v3Live ? 100 : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
   res.json({
-    mvp_threshold: MVP_THRESHOLD,
+    mvp_threshold: v3Live ? 75 : MVP_THRESHOLD,
     mvp_display_threshold: displayThreshold,
+    scale_version: v3Live ? 'v3' : 'v2',
     bet_unit: betUnit,
     paid_rank_max: PAID_RANK_MAX(),
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
@@ -495,7 +500,7 @@ app.get('/api/picks', (req, res) => {
   // (a stale graded loss was showing up as the #1 pick). Scope to the board day.
   const boardDate = currentBoardDate();
   const PICKS_QUERY = `
-    SELECT p.*,
+    SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
            tg.start_time AS start_time,
@@ -508,12 +513,25 @@ app.get('/api/picks', (req, res) => {
            tg.live_outs   AS game_live_outs,
            tg.live_bases  AS game_live_bases
     FROM picks p
+    LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
     GROUP BY p.id
     ORDER BY p.score DESC, p.id ASC
   `;
   const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
+
+  // v3 scale: the shown/ranked score is the leak-aware DISPLAY score (the
+  // conviction curve). True v3 totals stay internal (stripped by pick_privacy).
+  if (getSetting('scoring_version', 'v2') === 'v3') {
+    const { effectiveDisplayScore } = require('./src/scoring_v3');
+    for (const p of picks) {
+      p.score = p.leak_target != null
+        ? effectiveDisplayScore(p)
+        : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
+    }
+    picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
+  }
 
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
@@ -558,7 +576,7 @@ app.get('/api/picks/top', (req, res) => {
   // for final scores) and a stale graded loss could win as "Today's #1 Pick".
   const boardDate = currentBoardDate();
   const rows = db.prepare(`
-    SELECT p.*,
+    SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
            tg.start_time AS start_time,
@@ -571,11 +589,23 @@ app.get('/api/picks/top', (req, res) => {
            tg.live_outs   AS game_live_outs,
            tg.live_bases  AS game_live_bases
     FROM picks p
+    LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.mention_count > 0
+    GROUP BY p.id
     ORDER BY p.score DESC, p.id ASC
   `).all();
-  const pick = rows.find(p => isOnBoard(p.start_time, boardDate)) || null;
+  let onBoard = rows.filter(p => isOnBoard(p.start_time, boardDate));
+  if (getSetting('scoring_version', 'v2') === 'v3') {
+    const { effectiveDisplayScore } = require('./src/scoring_v3');
+    for (const p of onBoard) {
+      p.score = p.leak_target != null
+        ? effectiveDisplayScore(p)
+        : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
+    }
+    onBoard.sort((a, b) => (b.score - a.score) || (a.id - b.id));
+  }
+  const pick = onBoard[0] || null;
   res.json(pick ? publicPick(pick, { paid: auth.isPaid(req) }) : pick);
 });
 
