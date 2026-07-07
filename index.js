@@ -34,6 +34,8 @@ const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/ten
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
+const { fetchTodaysNcaafGames }     = require('./src/ncaaf_espn');
+const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
@@ -62,6 +64,7 @@ const { getFeed } = require('./src/espn_summary');
 const { getEspnWinProb } = require('./src/espn_summary');
 const { getCoreProbs } = require('./src/espn_probs');
 const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive } = require('./src/mock_live');
+const { replayActive, isReplayId, installReplay, replayLiveState, replayFeed, clearReplays } = require('./src/replay_live');
 const { computeValuePulse } = require('./src/live_value');
 const { impliedLineForGame } = require('./src/implied_lines');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
@@ -212,6 +215,28 @@ if (MIRROR_URL) {
 // a timer so it survives the daily wipe that clears today_games (idempotent upsert).
 installMockLive(db);
 if (mockActive()) setInterval(() => installMockLive(db), 60 * 1000).unref();
+
+// Local-dev archived-game replay (route-only, nothing auto-installs at startup).
+// GET /dev/replay?event=<espnId>&sport=NFL&speed=8 installs a finished real game
+// as 'replay_<id>' and replays it through the tracker; ?clear=1 removes replay
+// rows. Registered only when replayActive(), so the route does not exist in prod.
+if (replayActive()) {
+  app.get('/dev/replay', async (req, res) => {
+    try {
+      if (req.query.clear === '1') {
+        return res.json({ cleared: clearReplays(db) });
+      }
+      const event = String(req.query.event || '').trim();
+      const sport = String(req.query.sport || '').trim().toUpperCase();
+      if (!event || !sport) return res.status(400).json({ error: 'event and sport are required, e.g. /dev/replay?event=401772966&sport=NFL&speed=8' });
+      const speed = req.query.speed ? Number(req.query.speed) : 8;
+      const out = await installReplay(db, event, sport, speed);
+      res.json({ ok: true, url: `/game/${out.replayId}`, replayId: out.replayId, frames: out.frames, sport, speed: out.speed });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+}
 
 // Terms of Service page
 app.get('/terms', (req, res) => {
@@ -1268,14 +1293,29 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
       outs: game.live_outs ?? null, bases: game.live_bases ?? null,
       balls: null, strikes: null, batter: null, batterLine: null, pitcher: null, pitcherLine: null, dueUp: [], lastPlay: null,
     };
-    // Local-dev mock uses an evolving synthesized state (no ESPN); real games use
-    // the cached ESPN scoreboard, falling back to the stored row.
+    // Local-dev mock uses an evolving synthesized state (no ESPN); dev replays
+    // use the archived-game frame at the current wall-clock position; real games
+    // use the cached ESPN scoreboard, falling back to the stored row.
+    const isReplay = replayActive() && isReplayId(espn_game_id);
     const wantFinal = isMockId(espn_game_id) && req.query.final === '1';
     const state = wantFinal
-      ? mockFinalState()
+      ? mockFinalState(espn_game_id)
       : (isMockId(espn_game_id)
-          ? mockLiveState()
-          : ((await getLiveState(sport, espn_game_id)) || fallbackState));
+          ? mockLiveState(espn_game_id)
+          : (isReplay
+              ? (replayLiveState(espn_game_id) || fallbackState)
+              : ((await getLiveState(sport, espn_game_id)) || fallbackState)));
+
+    // NHL scorebug extras (SOG + power play) from the free official NHL api —
+    // ESPN's hockey scoreboard carries neither. Null-safe: skipped on any miss.
+    if (family === 'hockey' && state.status === 'in' && !isMockId(espn_game_id) && !isReplay) {
+      const nhl = await getNhlLive(game).catch(() => null);
+      if (nhl) {
+        state.strength = nhl.strength ?? state.strength;
+        state.homeSOG  = nhl.homeSOG ?? state.homeSOG;
+        state.awaySOG  = nhl.awaySOG ?? state.awaySOG;
+      }
+    }
 
     // Pulse magnitude is paid-gated (mirrors /api/picks). In local UI_ONLY dev we
     // treat the viewer as paid so the real bar is reviewable without a local paid
@@ -1286,8 +1326,9 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
     // Pulses compute while live AND on the finished game (the completed curve) for
     // every sport with a win-prob read. Tennis has none (set state only).
     if ((state.status === 'in' || state.status === 'post') && family && family !== 'tennis') {
-      // Free ESPN sources, cached + request-collapsed. Mock games skip both.
-      const mock = isMockId(espn_game_id);
+      // Free ESPN sources, cached + request-collapsed. Mock games skip both;
+      // replays too (their espn_game_id is synthetic, ESPN would 404 each poll).
+      const mock = isMockId(espn_game_id) || isReplay;
       const [coreProbs, espnWp] = mock ? [null, null] : await Promise.all([
         getCoreProbs(sport, espn_game_id).catch(() => null),
         getEspnWinProb(sport, espn_game_id).catch(() => null),
@@ -1433,8 +1474,8 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         if (isMockId(espn_game_id)) {
           const mside = home ? 'home' : 'away';
           history = wantFinal
-            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct)
-            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct);
+            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct, espn_game_id)
+            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct, espn_game_id);
         } else {
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);
@@ -1463,7 +1504,13 @@ app.get('/api/game/:espn_game_id/live/feed', async (req, res) => {
   try {
     if (isMockId(espn_game_id)) {
       const { mockLiveFeed } = require('./src/mock_live');
-      return res.json(typeof mockLiveFeed === 'function' ? mockLiveFeed() : { unsupported: true });
+      return res.json(typeof mockLiveFeed === 'function' ? mockLiveFeed(espn_game_id) : { unsupported: true });
+    }
+    // Dev replay: serve the REAL archived game's feed (passthrough) so the tabs
+    // show real plays/leaders/win prob while the header state replays.
+    if (replayActive() && isReplayId(espn_game_id)) {
+      const feed = await replayFeed(espn_game_id);
+      return res.json(feed || { unsupported: true });
     }
     let game = db.prepare(`SELECT sport, league_path FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
     if (!game && MIRROR_URL) {
@@ -1487,6 +1534,15 @@ app.get('/api/game/:espn_game_id/live/feed', async (req, res) => {
       const pts = getWpHistory(espn_game_id);
       if (pts.length >= 2) {
         feed.winprob = { source: 'model', latestHome: pts[pts.length - 1].home / 100, series: pts, scoring: [] };
+      }
+    }
+    // Hockey extras from the free official NHL api: SOG, power play, scoring
+    // summary, three stars. Null-safe (the tabs render without it).
+    if (family === 'hockey') {
+      const fullGame = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+      if (fullGame) {
+        const nhl = await getNhlLive(fullGame).catch(() => null);
+        if (nhl) feed.hockey = nhl;
       }
     }
     res.json(feed);
@@ -2052,6 +2108,7 @@ app.listen(PORT, () => {
   await fetchTennisLines().catch(err => console.error('[startup] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[startup] fetchTodaysSoccerGames error:', err.message));
+  await fetchTodaysNcaafGames().catch(err => console.error('[startup] fetchTodaysNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
   await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
@@ -2189,6 +2246,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTennisLines().catch(err => console.error('[cron] fetchTennisLines error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[cron] fetchTodaysSoccerGames error:', err.message));
+  await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
   await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
@@ -2290,6 +2348,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Golf already refreshes all active leaderboards below.
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
+  await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames (live scores) error:', err.message));
   await updateSoccerLiveScores().catch(err => console.error('[cron] updateSoccerLiveScores error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
@@ -2335,6 +2394,7 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
   try {
     await fetchTodaysGames();
     await fetchTodaysWnbaGames();
+    await fetchTodaysNcaafGames();
     await updateSoccerLiveScores();
     await syncLiveSituations();
     // A game that just flipped to Final needs to settle, not sit on its last inning.

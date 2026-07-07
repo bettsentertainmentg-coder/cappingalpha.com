@@ -14,9 +14,12 @@ const db    = require('./db');
 const axios = require('axios');
 
 // ESPN free scoreboard per sport. Returns every game today with a `situation`
-// block (bases/outs) and status.type.shortDetail ("Bot 5th") for live games.
+// block (bases/outs for MLB, down/distance for football) and
+// status.type.shortDetail ("Bot 5th") for live games.
 const SCOREBOARD = {
-  MLB: 'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard',
+  MLB:   'https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard',
+  NFL:   'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
+  NCAAF: 'https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=400',
 };
 
 // Parse one ESPN competition into { detail, outs, bases } for the given sport, or
@@ -31,6 +34,16 @@ function parseSituation(sport, comp) {
     const bases = (sit.onFirst ? 1 : 0) | (sit.onSecond ? 2 : 0) | (sit.onThird ? 4 : 0);
     const outs  = (typeof sit.outs === 'number') ? sit.outs : null;
     return { detail, outs, bases };
+  }
+
+  if (sport === 'NFL' || sport === 'NCAAF') {
+    // Board tiles show "Q3 7:42 · 3rd & 4 at CIN 24" — down/distance folded into
+    // live_detail (live_outs/live_bases stay MLB-only).
+    const sit = comp.situation || {};
+    const dd = sit.shortDownDistanceText || sit.downDistanceText || null;
+    const at = sit.possessionText || null;
+    const parts = [detail, dd ? `${dd}${at && !dd.includes(at) ? ` at ${at}` : ''}` : null].filter(Boolean);
+    return { detail: parts.join(' · ') || detail, outs: null, bases: null };
   }
 
   // Other sports: keep the half/period detail text, no bases/outs.

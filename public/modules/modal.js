@@ -281,6 +281,9 @@ export function renderGameModal(data, clickedType, clickedTeam) {
         <div class="game-modal-meta">
           <span class="sport-badge">${game.sport || ''}</span>
           ${statusStr}
+          ${(game.status === 'in' || game.status === 'post') && (game.sport || '').toUpperCase() !== 'GOLF'
+            ? `<a class="modal-live-link" href="/game/${encodeURIComponent(game.espn_game_id)}">${game.status === 'in' ? 'Live tracker' : 'Game tracker'} <i class="fa-solid fa-arrow-up-right-from-square"></i></a>`
+            : ''}
         </div>
       </div>
     </div>

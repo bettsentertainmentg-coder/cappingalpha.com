@@ -1166,6 +1166,13 @@
     }
     .game-modal-meta .game-time { font-size: 13px; color: var(--muted); }
     .game-modal-meta .game-score-live { font-size: 14px; font-weight: 700; color: #38bdf8; }
+    .modal-live-link {
+      font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--accent); text-decoration: none; border: 1px solid var(--border);
+      border-radius: 12px; padding: 3px 10px; white-space: nowrap;
+    }
+    .modal-live-link:hover { border-color: var(--accent); }
+    .modal-live-link i { font-size: 9px; margin-left: 2px; }
 
     /* Ticker */
     .game-ticker {
@@ -2470,6 +2477,9 @@
           <button class="sport-tab-btn active" data-sport="MLB" onclick="setSport('MLB')">MLB</button>
           <button class="sport-tab-btn" data-sport="NBA" onclick="setSport('NBA')">NBA</button>
           <button class="sport-tab-btn" data-sport="WNBA" onclick="setSport('WNBA')">WNBA</button>
+          <button class="sport-tab-btn" data-sport="NFL" onclick="setSport('NFL')">NFL</button>
+          <button class="sport-tab-btn" data-sport="NCAAF" onclick="setSport('NCAAF')">NCAAF</button>
+          <button class="sport-tab-btn" data-sport="CBB" onclick="setSport('CBB')">CBB</button>
           <button class="sport-tab-btn" data-sport="NHL" onclick="setSport('NHL')">NHL</button>
           <button class="sport-tab-btn" data-sport="Soccer" onclick="setSport('Soccer')">Soccer</button>
           <button class="sport-tab-btn" data-sport="Tennis" onclick="setSport('Tennis')">Tennis</button>

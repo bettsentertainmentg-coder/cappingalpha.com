@@ -1,34 +1,66 @@
 // public/modules/live_tracker.js
-// The live "command bar" on the game detail page (MLB v1): a clear R/H/E
-// scoreboard, the game state (diamond + count + outs), the matchup (batter /
-// pitcher / on deck), and the VALUE PULSE as a sparkline that builds over the game.
-// Polls GET /api/game/:id/live every ~12s while the page is visible and the game
-// is live. Re-renders fully each poll (the sparkline data is the animation).
+// The live "command bar" on the game detail page, for every tracked sport: a
+// line-score scoreboard, a sport-specific situation cell (MLB diamond + count,
+// NFL down-and-distance, NBA clock + run, NHL power play + shots, soccer minute
+// + key events, tennis set board), and the VALUE PULSE sparkline.
+//
+// Below the grid: a tab strip (Live | Plays | Leaders | Stats) fed by
+// GET /api/game/:id/live/feed (~25s, lazy) — ESPN win probability chart,
+// play-by-play, per-game stat leaders, and team stat bars. All free content;
+// the pulse stays members-only.
+//
+// Polls GET /api/game/:id/live every ~12s while the page is visible and the
+// game is live. The grid re-renders fully each poll; the tabs keep their own
+// state so the active tab never resets mid-game.
 
 let _timer = null;
-let _ctx   = null;   // { gameId, activeSlot, teams, betsHtml, startLabel }
+let _feedTimer = null;
+let _ctx   = null;   // { gameId, sport, activeSlot, teams, betsHtml, startLabel, on404 }
 let _visBound = false;
+let _feed = null;         // last /live/feed payload
+let _feedSupported = true;
+let _activeTab = 'live';
+let _playsScoringOnly = false;
+let _run = null;          // basketball run detector: { lastH, lastA, team, pts }
 
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+const FAMILY = {
+  MLB: 'baseball', NFL: 'football', NCAAF: 'football',
+  NBA: 'basketball', WNBA: 'basketball', CBB: 'basketball', WCBB: 'basketball',
+  NHL: 'hockey', SOCCER: 'soccer', ATP: 'tennis', WTA: 'tennis',
+};
+const famOf = () => FAMILY[String(_ctx?.sport || 'MLB').toUpperCase()] || 'baseball';
+
 export function unmountLiveCommand() {
-  if (_timer) { clearInterval(_timer); _timer = null; }
-  _ctx = null;
+  _stopPolling();
+  _ctx = null; _feed = null; _feedSupported = true; _activeTab = 'live'; _playsScoringOnly = false; _run = null;
 }
 
-export async function mountLiveCommand({ gameId, activeSlot, teams, betsHtml, startLabel }) {
-  unmountLiveCommand();
-  _ctx = { gameId, activeSlot, teams: teams || {}, betsHtml: betsHtml || '', startLabel: startLabel || '' };
+function _stopPolling() {
+  if (_timer) { clearInterval(_timer); _timer = null; }
+  if (_feedTimer) { clearInterval(_feedTimer); _feedTimer = null; }
+}
+
+export async function mountLiveCommand({ gameId, sport, activeSlot, teams, betsHtml, startLabel, on404 }) {
+  const sameGame = _ctx && _ctx.gameId === gameId;
+  _stopPolling();
+  _ctx = { gameId, sport: sport || 'MLB', activeSlot, teams: teams || {}, betsHtml: betsHtml || '', startLabel: startLabel || '', on404: on404 || null };
+  if (!sameGame) { _feed = null; _feedSupported = famOf() !== 'tennis'; _activeTab = 'live'; _playsScoringOnly = false; _run = null; }
   const el = document.getElementById('ca-live-command');
   if (!el) return;
   el.innerHTML = `<div class="ca-lc-loading">Loading live game...</div>`;
   if (!_visBound) { document.addEventListener('visibilitychange', _onVis); _visBound = true; }
   await tick();
   _timer = setInterval(() => { if (document.visibilityState === 'visible') tick(); }, 12000);
+  if (_feedSupported) {
+    await feedTick();
+    _feedTimer = setInterval(() => { if (document.visibilityState === 'visible') feedTick(); }, 25000);
+  }
 }
 
-function _onVis() { if (document.visibilityState === 'visible' && _ctx) tick(); }
+function _onVis() { if (document.visibilityState === 'visible' && _ctx) { tick(); if (_feedSupported) feedTick(); } }
 
 async function tick() {
   if (!_ctx) return;
@@ -38,28 +70,79 @@ async function tick() {
   try {
     const q = (location.search.indexOf('final=1') !== -1) ? '?final=1' : '';   // local finished-game preview
     const r = await fetch(`/api/game/${encodeURIComponent(_ctx.gameId)}/live${q}`);
+    if (r.status === 404) {
+      // Wiped historical game: the detail page reconstructs from snapshots but
+      // there is no live row to track. Hand back to the classic layout.
+      const cb = _ctx.on404; unmountLiveCommand();
+      if (typeof cb === 'function') cb();
+      return;
+    }
     if (!r.ok) return;            // keep last render on a transient error
     data = await r.json();
   } catch (_) { return; }
   if (!data || !data.state) return;
   render(el, data);
-  if (data.state.status !== 'in') unmountLiveCommand();   // game ended/final -> stop polling
+  if (data.state.status !== 'in') {
+    // Final: stop the polls but keep ctx/feed so the tabs stay browsable.
+    _stopPolling();
+    if (_feedSupported) feedTick();   // one last feed refresh for the completed chart
+  }
 }
 
-// ── Scoreboard cell: line score (innings build out) + R / H / E ───────────────
+async function feedTick() {
+  if (!_ctx || !_feedSupported) return;
+  try {
+    const r = await fetch(`/api/game/${encodeURIComponent(_ctx.gameId)}/live/feed`);
+    if (!r.ok) return;
+    const f = await r.json();
+    if (f && f.unsupported) { _feedSupported = false; renderTabs(); return; }
+    _feed = f;
+    renderTabs();
+  } catch (_) {}
+}
+
+// ── Scoreboard cell: line score (periods build out) + totals ──────────────────
+function periodHeaders(fam, nCols) {
+  // Numeric period columns everywhere; the situation cell names the format
+  // (Q3 / P2 / 2H / Set 3), matching how scoreboards read at a glance.
+  return Array.from({ length: nCols }, (_, i) => `<span class="ca-ls-i">${i + 1}</span>`).join('');
+}
+
 function boxscoreHtml(s) {
   const t = (_ctx && _ctx.teams) || {};
+  const fam = famOf();
   const awayName = esc(t.awayName || t.awayAbbr || s.awayAbbr || 'Away');
   const homeName = esc(t.homeName || t.homeAbbr || s.homeAbbr || 'Home');
-  const aR = s.awayScore ?? 0, hR = s.homeScore ?? 0;
+  const aT = s.awayScore ?? 0, hT = s.homeScore ?? 0;
+  const aLead = aT > hT, hLead = hT > aT;
+
+  // Tennis: the line score IS the set board (games per set, tiebreaks raised).
+  if (fam === 'tennis') {
+    const sets = Array.isArray(s.sets) ? s.sets : [];
+    const hd = sets.map((_, i) => `<span class="ca-ls-i">${i + 1}</span>`).join('');
+    const cell = (v, tb, won) => `<span class="ca-ls-i${won ? ' ca-ls-i--won' : ''}">${v ?? ''}${tb != null ? `<sup>${tb}</sup>` : ''}</span>`;
+    const row = (name, lead, side) => `
+      <div class="ca-ls-row${lead ? ' ca-ls-row--lead' : ''}">
+        <span class="ca-ls-team">${name}${s.serving === side ? ' <span class="ca-lc-serve" title="Serving"></span>' : ''}</span>
+        <span class="ca-ls-inns">${sets.map(st => cell(st[side], st[side + 'Tb'], st.winner === side)).join('')}</span>
+        <span class="ca-ls-r">${side === 'home' ? hT : aT}</span>
+      </div>`;
+    return `
+      <div class="ca-ls">
+        <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team"></span><span class="ca-ls-inns">${hd}</span><span class="ca-ls-r">Sets</span></div>
+        ${row(awayName, aLead, 'away')}
+        ${row(homeName, hLead, 'home')}
+      </div>`;
+  }
+
   const aLine = Array.isArray(s.awayLine) ? s.awayLine : [];
   const hLine = Array.isArray(s.homeLine) ? s.homeLine : [];
-  const nInn = Math.max(aLine.length, hLine.length, 0);
+  const nCols = Math.max(aLine.length, hLine.length, 0);
   const hasHE = (s.homeHits != null || s.awayHits != null);
-  const aLead = aR > hR, hLead = hR > aR;
+  const totLbl = fam === 'baseball' ? 'R' : 'T';
 
-  const innHd = Array.from({ length: nInn }, (_, i) => `<span class="ca-ls-i">${i + 1}</span>`).join('');
-  const innCells = (line) => Array.from({ length: nInn }, (_, i) => `<span class="ca-ls-i">${line[i] == null ? '' : line[i]}</span>`).join('');
+  const innHd = periodHeaders(fam, nCols);
+  const innCells = (line) => Array.from({ length: nCols }, (_, i) => `<span class="ca-ls-i">${line[i] == null ? '' : line[i]}</span>`).join('');
   const heHd  = hasHE ? `<span class="ca-ls-c">H</span><span class="ca-ls-c">E</span>` : '';
   const heRow = (h, e) => hasHE ? `<span class="ca-ls-c">${h ?? '-'}</span><span class="ca-ls-c">${e ?? '-'}</span>` : '';
   const row = (name, lead, line, r, h, e) => `
@@ -70,9 +153,9 @@ function boxscoreHtml(s) {
     </div>`;
   return `
     <div class="ca-ls">
-      <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team"></span><span class="ca-ls-inns">${innHd}</span><span class="ca-ls-r">R</span>${heHd}</div>
-      ${row(awayName, aLead, aLine, aR, s.awayHits, s.awayErrors)}
-      ${row(homeName, hLead, hLine, hR, s.homeHits, s.homeErrors)}
+      <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team"></span><span class="ca-ls-inns">${innHd}</span><span class="ca-ls-r">${totLbl}</span>${heHd}</div>
+      ${row(awayName, aLead, aLine, aT, s.awayHits, s.awayErrors)}
+      ${row(homeName, hLead, hLine, hT, s.homeHits, s.homeErrors)}
     </div>`;
 }
 
@@ -92,7 +175,8 @@ function pips(filled, total, cls) {
   return out;
 }
 
-function stateLineHtml(s) {
+// ── Situation cell (column 2) per sport ────────────────────────────────────────
+function baseballStateHtml(s) {
   const isMlb = s.bases != null || s.outs != null || s.balls != null;
   const half = esc(s.detail || (s.period ? `Inn ${s.period}` : 'Live'));
   if (!isMlb) return `<div class="ca-lc-stateline"><span class="ca-lc-half">${esc(s.detail || s.clock || 'Live')}</span></div>`;
@@ -110,23 +194,118 @@ function stateLineHtml(s) {
     </div>`;
 }
 
+function footballStateHtml(s) {
+  const t = (_ctx && _ctx.teams) || {};
+  const posAbbr = s.possession === 'home' ? (t.homeAbbr || s.homeAbbr) : s.possession === 'away' ? (t.awayAbbr || s.awayAbbr) : null;
+  const dd = s.downDistanceText || (s.down ? `${s.down} & ${s.distance ?? '-'}` : null);
+  const rz = s.isRedZone ? `<span class="ca-lc-rz">Red zone</span>` : '';
+  const to = (n) => (typeof n === 'number') ? pips(Math.min(n, 3), 3, 'ca-lc-pip--to') : '';
+  return `
+    <div class="ca-lc-stateline ca-lc-stateline--col">
+      <div class="ca-lc-half">${esc(s.detail || 'Live')}</div>
+      ${dd ? `<div class="ca-lc-dd${s.isRedZone ? ' ca-lc-dd--rz' : ''}">${posAbbr ? `<span class="ca-lc-poss">${esc(posAbbr)} <i class="fa-solid fa-football"></i></span>` : ''} ${esc(dd)}${s.yardLineText && !dd.includes(String(s.yardLineText)) ? ` at ${esc(s.yardLineText)}` : ''} ${rz}</div>` : ''}
+      <div class="ca-lc-count"><span class="ca-lc-count-lbl">TO ${esc(t.awayAbbr || s.awayAbbr || '')}</span>${to(s.awayTimeouts)}<span class="ca-lc-count-lbl">${esc(t.homeAbbr || s.homeAbbr || '')}</span>${to(s.homeTimeouts)}</div>
+      ${s.lastPlay ? `<div class="ca-lc-lastplay">${esc(s.lastPlay)}</div>` : ''}
+    </div>`;
+}
+
+function basketballStateHtml(s) {
+  const runChip = (_run && _run.pts >= 6 && _run.team)
+    ? `<span class="ca-lc-run">${_run.pts}-0 run, ${esc(_run.team === 'home' ? (_ctx?.teams?.homeAbbr || s.homeAbbr || 'home') : (_ctx?.teams?.awayAbbr || s.awayAbbr || 'away'))}</span>`
+    : '';
+  return `
+    <div class="ca-lc-stateline ca-lc-stateline--col">
+      <div class="ca-lc-half">${esc(s.detail || s.clock || 'Live')}</div>
+      ${runChip}
+      ${s.lastPlay ? `<div class="ca-lc-lastplay">${esc(s.lastPlay)}</div>` : ''}
+    </div>`;
+}
+
+function hockeyStateHtml(s) {
+  const t = (_ctx && _ctx.teams) || {};
+  const st = String(s.strength || '').toLowerCase();
+  const pp = st.includes('pp-home') ? `<span class="ca-lc-pp">Power play, ${esc(t.homeAbbr || s.homeAbbr || 'home')}</span>`
+           : st.includes('pp-away') ? `<span class="ca-lc-pp">Power play, ${esc(t.awayAbbr || s.awayAbbr || 'away')}</span>`
+           : st.includes('en') ? `<span class="ca-lc-pp ca-lc-pp--en">Empty net</span>` : '';
+  const sog = (s.homeSOG != null || s.awaySOG != null)
+    ? `<div class="ca-lc-sog"><span class="ca-lc-count-lbl">Shots</span> ${esc(t.awayAbbr || s.awayAbbr || '')} <b>${s.awaySOG ?? '-'}</b> · ${esc(t.homeAbbr || s.homeAbbr || '')} <b>${s.homeSOG ?? '-'}</b></div>`
+    : '';
+  return `
+    <div class="ca-lc-stateline ca-lc-stateline--col">
+      <div class="ca-lc-half">${esc(s.detail || s.clock || 'Live')}</div>
+      ${pp}${sog}
+      ${s.lastPlay ? `<div class="ca-lc-lastplay">${esc(s.lastPlay)}</div>` : ''}
+    </div>`;
+}
+
+const SOCCER_ICON = { goal: 'fa-solid fa-futbol', yellow: 'ca-card ca-card--y', red: 'ca-card ca-card--r', sub: 'fa-solid fa-right-left', pen: 'fa-solid fa-futbol' };
+function soccerStateHtml(s) {
+  const evs = Array.isArray(s.keyEventsCompact) ? s.keyEventsCompact.slice(-5) : [];
+  const evHtml = evs.map(e => {
+    const ic = e.type === 'yellow' || e.type === 'red'
+      ? `<span class="${SOCCER_ICON[e.type]}"></span>`
+      : `<i class="${SOCCER_ICON[e.type] || 'fa-regular fa-circle'}"></i>`;
+    return `<div class="ca-lc-kev">${ic}<span class="ca-lc-kev-min">${esc(e.min || '')}</span><span class="ca-lc-kev-p">${esc(e.player || '')}</span></div>`;
+  }).join('');
+  const bar = (lbl, hv, av) => (hv == null && av == null) ? '' : (() => {
+    const h = Number(hv) || 0, a = Number(av) || 0, tot = h + a;
+    const hp = tot > 0 ? Math.round((h / tot) * 100) : 50;
+    return `<div class="ca-lc-sbar"><span class="ca-lc-sbar-a">${a}</span><div class="ca-lc-sbar-t"><div class="ca-lc-sbar-h" style="width:${100 - hp}%"></div></div><span class="ca-lc-sbar-hv">${h}</span><span class="ca-lc-sbar-lbl">${lbl}</span></div>`;
+  })();
+  const poss = s.possessionPct ? bar('Poss %', s.possessionPct.home, s.possessionPct.away) : '';
+  const shots = s.shots ? bar('Shots', s.shots.home, s.shots.away) : '';
+  return `
+    <div class="ca-lc-stateline ca-lc-stateline--col">
+      <div class="ca-lc-half">${esc(s.detail || s.minute || 'Live')}</div>
+      ${evHtml ? `<div class="ca-lc-kevents">${evHtml}</div>` : ''}
+      ${poss}${shots}
+    </div>`;
+}
+
+function tennisStateHtml(s) {
+  const cur = s.currentSetGames;
+  const t = (_ctx && _ctx.teams) || {};
+  const serveName = s.serving === 'home' ? (t.homeName || s.homeAbbr) : s.serving === 'away' ? (t.awayName || s.awayAbbr) : null;
+  return `
+    <div class="ca-lc-stateline ca-lc-stateline--col">
+      <div class="ca-lc-half">${esc(s.detail || 'Live')}</div>
+      ${cur ? `<div class="ca-lc-lastplay">Current set: ${cur.away ?? 0}-${cur.home ?? 0}</div>` : ''}
+      ${serveName ? `<div class="ca-lc-lastplay"><span class="ca-lc-serve"></span> ${esc(serveName)} serving</div>` : ''}
+    </div>`;
+}
+
+function situationHtml(s) {
+  const fam = famOf();
+  if (fam === 'baseball')   return baseballStateHtml(s);
+  if (fam === 'football')   return footballStateHtml(s);
+  if (fam === 'basketball') return basketballStateHtml(s);
+  if (fam === 'hockey')     return hockeyStateHtml(s);
+  if (fam === 'soccer')     return soccerStateHtml(s);
+  if (fam === 'tennis')     return tennisStateHtml(s);
+  return `<div class="ca-lc-stateline"><span class="ca-lc-half">${esc(s.detail || s.clock || 'Live')}</span></div>`;
+}
+
 function matchupHtml(s) {
-  const rows = [];
-  if (s.batter)  rows.push(`<div class="ca-lc-mrow"><span class="ca-lc-mlbl">AB</span><span class="ca-lc-mname">${esc(s.batter)}</span>${s.batterLine ? `<span class="ca-lc-mline">${esc(s.batterLine)}</span>` : ''}</div>`);
-  if (s.pitcher) rows.push(`<div class="ca-lc-mrow"><span class="ca-lc-mlbl">P</span><span class="ca-lc-mname">${esc(s.pitcher)}</span>${s.pitcherLine ? `<span class="ca-lc-mline">${esc(s.pitcherLine)}</span>` : ''}</div>`);
-  if (Array.isArray(s.dueUp) && s.dueUp.length) rows.push(`<div class="ca-lc-mrow ca-lc-mrow--ondeck"><span class="ca-lc-mlbl">On deck</span><span class="ca-lc-mname">${esc(s.dueUp[0])}</span></div>`);
-  if (!rows.length) return `<div class="ca-lc-mrow ca-lc-mrow--empty">Between batters</div>`;
-  return rows.join('');
+  const fam = famOf();
+  if (fam === 'baseball') {
+    const rows = [];
+    if (s.batter)  rows.push(`<div class="ca-lc-mrow"><span class="ca-lc-mlbl">AB</span><span class="ca-lc-mname">${esc(s.batter)}</span>${s.batterLine ? `<span class="ca-lc-mline">${esc(s.batterLine)}</span>` : ''}</div>`);
+    if (s.pitcher) rows.push(`<div class="ca-lc-mrow"><span class="ca-lc-mlbl">P</span><span class="ca-lc-mname">${esc(s.pitcher)}</span>${s.pitcherLine ? `<span class="ca-lc-mline">${esc(s.pitcherLine)}</span>` : ''}</div>`);
+    if (Array.isArray(s.dueUp) && s.dueUp.length) rows.push(`<div class="ca-lc-mrow ca-lc-mrow--ondeck"><span class="ca-lc-mlbl">On deck</span><span class="ca-lc-mname">${esc(s.dueUp[0])}</span></div>`);
+    if (!rows.length) return `<div class="ca-lc-mrow ca-lc-mrow--empty">Between batters</div>`;
+    return rows.join('');
+  }
+  // Clock sports: the situation cell already carries the story; show the last
+  // play here when the situation cell didn't (keeps the middle column useful).
+  if (s.lastPlay) return `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Last</span><span class="ca-lc-mname">${esc(s.lastPlay)}</span></div>`;
+  return `<div class="ca-lc-mrow ca-lc-mrow--empty">Game on</div>`;
 }
 
 // ── Value pulse: signed (-100..+100) windowed line chart ─────────────────────
-// High value at the top, low at the bottom, a zero reference line, and a y-window
-// that frames the recent swings (min 50 points tall) instead of the full range, so
-// per-play moves are legible. Default preserveAspectRatio so the axis text stays crisp.
+// (unchanged from the MLB v1 — sport-agnostic)
 function valuePulseSvg(history, color, live = true) {
   const W = 260, H = 100, padL = 28, padR = 8, padT = 8, padB = 16;
   const innerW = W - padL - padR, innerH = H - padT - padB;
-  // Accept either a plain number[] (locked teaser) or [{v, p}] (live, p = period).
   const raw  = Array.isArray(history) ? history : [];
   const hist = raw.map(h => (typeof h === 'number' ? h : (h && typeof h.v === 'number' ? h.v : null))).filter(v => v !== null);
   const pers = raw.map(h => (typeof h === 'number' ? null : (h ? h.p : null)));
@@ -135,7 +314,6 @@ function valuePulseSvg(history, color, live = true) {
       <line x1="${padL}" y1="${padT + innerH / 2}" x2="${W - padR}" y2="${padT + innerH / 2}" class="ca-vp-zero"/>
       <text x="${W / 2}" y="${padT + innerH / 2 - 5}" class="ca-vp-axis" text-anchor="middle">building...</text></svg>`;
   }
-  // Window: frame the data, at least 50 tall, clamped into [-100, 100].
   const dmin = Math.min(...hist), dmax = Math.max(...hist);
   const mid = (dmin + dmax) / 2;
   const range = Math.max(50, (dmax - dmin) * 1.35);
@@ -147,10 +325,6 @@ function valuePulseSvg(history, color, live = true) {
   const n = hist.length;
   const yBot = padT + innerH, yLab = (H - 3).toFixed(1);
 
-  // X mapping: bucket points by inning/period so periods are EVENLY spaced and their
-  // labels line up under them on a level axis. The line still shows every sample inside
-  // its period bucket. Falls back to even index spacing when periods aren't available
-  // (e.g. the blurred teaser, which uses plain numbers).
   const allHaveP = pers.length === n && pers.every(p => p != null);
   let x, xaxis = '';
   if (allHaveP) {
@@ -166,7 +340,7 @@ function valuePulseSvg(history, color, live = true) {
     x = (i) => padL + ((unit[i] - lo) / uspan) * innerW;
     innings.forEach((p, k) => {
       if (k > 0) {
-        const bx = (padL + ((p - lo) / uspan) * innerW).toFixed(1);   // faint divider before this inning
+        const bx = (padL + ((p - lo) / uspan) * innerW).toFixed(1);
         xaxis += `<line x1="${bx}" y1="${padT.toFixed(1)}" x2="${bx}" y2="${yBot.toFixed(1)}" class="ca-vp-xgrid"/>`;
       }
       const cx = (padL + ((p + 0.5 - lo) / uspan) * innerW).toFixed(1);
@@ -223,21 +397,19 @@ function pulseCellHtml(pulse, isFinal) {
   const caret = pulse.sign > 0 ? '▲' : pulse.sign < 0 ? '▼' : '•';
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
   const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx">approx</span>` : '';
+  const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num">${pulse.winPct}%</span>` : '';
   const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `
     <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color, !isFinal)}</div>
-    <div class="ca-lc-pulse-label">${lead}${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}</div>
-    <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the score, inning, outs, baserunners and count versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
+    <div class="ca-lc-pulse-label">${lead}${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}${winPct}</div>
+    <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the game state versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
 }
 
-// Footer: tracked bets (left) + start / scheduled time (right), inside the card so
-// neither sits flush against the panel edge. No top border (keeps the card clean).
-// Finished game: the matchup cell becomes a result summary (no live at-bat).
 function resultHtml(s) {
   const t = (_ctx && _ctx.teams) || {};
   const aN = esc(t.awayName || s.awayAbbr || 'Away'), hN = esc(t.homeName || s.homeAbbr || 'Home');
   const aR = s.awayScore ?? 0, hR = s.homeScore ?? 0;
-  const winName = s.winner === 'home' ? hN : (s.winner === 'away' ? aN : null);
+  const winName = hR > aR ? hN : (aR > hR ? aN : null);
   const top = winName
     ? `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Final</span><span class="ca-lc-mname">${winName} win ${Math.max(aR, hR)}-${Math.min(aR, hR)}</span></div>`
     : `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Final</span><span class="ca-lc-mname">${aR}-${hR}</span></div>`;
@@ -245,22 +417,36 @@ function resultHtml(s) {
   return top + last;
 }
 
+// Basketball run detector: unanswered points across successive polls.
+function trackRun(s) {
+  if (famOf() !== 'basketball' || s.status !== 'in') { _run = null; return; }
+  const h = s.homeScore ?? 0, a = s.awayScore ?? 0;
+  if (!_run) { _run = { lastH: h, lastA: a, team: null, pts: 0 }; return; }
+  const dh = h - _run.lastH, da = a - _run.lastA;
+  if (dh > 0 && da === 0)      _run = { lastH: h, lastA: a, team: 'home', pts: (_run.team === 'home' ? _run.pts : 0) + dh };
+  else if (da > 0 && dh === 0) _run = { lastH: h, lastA: a, team: 'away', pts: (_run.team === 'away' ? _run.pts : 0) + da };
+  else if (dh > 0 || da > 0)   _run = { lastH: h, lastA: a, team: null, pts: 0 };
+  else { _run.lastH = h; _run.lastA = a; }
+}
+
+// ── Main grid render (per poll) ────────────────────────────────────────────────
 function render(el, data) {
   const s = data.state;
+  const fam = famOf();
   const isFinal = s.status === 'post';
+  trackRun(s);
   const pulse = pickPulse(data.pulses);
   const bets  = (_ctx && _ctx.betsHtml) || '';
-  const start = (_ctx && _ctx.startLabel) || '';   // app-generated HTML (has a <span>)
+  const start = (_ctx && _ctx.startLabel) || '';
   const scoreHd = isFinal
     ? `<div class="ca-lc-cell-hd ca-lc-hd-final">Final</div>`
     : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>`;
   const pulseHd = isFinal
     ? `<div class="ca-lc-cell-hd">Value pulse</div>`
     : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>`;
-  // Score column: scoreboard top, tracked bets pinned to the bottom. Matchup column:
-  // vertically centered. Pulse column: chart at top, start time pinned to the bottom.
-  el.innerHTML = `
-    <div class="ca-lc">
+  const midHd = fam === 'baseball' ? (isFinal ? 'Result' : 'At the plate') : (isFinal ? 'Result' : 'Situation');
+
+  const gridHtml = `
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
           ${scoreHd}
@@ -268,8 +454,8 @@ function render(el, data) {
           ${bets ? `<div class="ca-lc-bets"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : ''}
         </div>
         <div class="ca-lc-cell ca-lc-cell--matchup">
-          ${isFinal ? '' : stateLineHtml(s)}
-          <div class="ca-lc-cell-hd">${isFinal ? 'Result' : 'At the plate'}</div>
+          ${isFinal ? '' : situationHtml(s)}
+          <div class="ca-lc-cell-hd">${midHd}</div>
           <div class="ca-lc-matchup">${isFinal ? resultHtml(s) : matchupHtml(s)}</div>
         </div>
         <div class="ca-lc-cell ca-lc-cell--pulse">
@@ -277,6 +463,190 @@ function render(el, data) {
           ${pulseCellHtml(pulse, isFinal)}
           ${start ? `<div class="ca-lc-time">${start}</div>` : ''}
         </div>
-      </div>
+      </div>`;
+
+  // First render builds the shell (grid + tabs + panel); later polls only swap
+  // the grid so the active tab and its scroll never reset.
+  let grid = el.querySelector('#ca-lc-grid-wrap');
+  if (!grid) {
+    el.innerHTML = `
+      <div class="ca-lc">
+        <div id="ca-lc-grid-wrap">${gridHtml}</div>
+        <div id="ca-lc-tabs-wrap"></div>
+      </div>`;
+    renderTabs();
+  } else {
+    grid.innerHTML = gridHtml;
+  }
+}
+
+// ── Tabs: Live (win prob chart) | Plays | Leaders | Stats ──────────────────────
+const TABS = [
+  { id: 'live',    label: 'Live' },
+  { id: 'plays',   label: 'Plays' },
+  { id: 'leaders', label: 'Leaders' },
+  { id: 'stats',   label: 'Stats' },
+];
+
+export function caLcSetTab(id) { _activeTab = id; renderTabs(); }
+export function caLcToggleScoring(el) { _playsScoringOnly = !!el.checked; renderTabs(); }
+if (typeof window !== 'undefined') { window.caLcSetTab = caLcSetTab; window.caLcToggleScoring = caLcToggleScoring; }
+
+function renderTabs() {
+  const wrap = document.getElementById('ca-lc-tabs-wrap');
+  if (!wrap) return;
+  if (!_feedSupported) { wrap.innerHTML = ''; return; }   // tennis: grid only
+
+  const strip = TABS.map(t =>
+    `<button class="ca-lc-tab${_activeTab === t.id ? ' ca-lc-tab--on' : ''}" onclick="caLcSetTab('${t.id}')">${t.label}</button>`
+  ).join('');
+  let panel = '';
+  if (_activeTab === 'live')         panel = winProbPanel();
+  else if (_activeTab === 'plays')   panel = playsPanel();
+  else if (_activeTab === 'leaders') panel = leadersPanel();
+  else if (_activeTab === 'stats')   panel = statsPanel();
+  wrap.innerHTML = `
+    <div class="ca-lc-tabs">${strip}</div>
+    <div class="ca-lc-panel">${panel}</div>`;
+}
+
+function winProbPanel() {
+  const wp = _feed?.winprob;
+  const t = (_ctx && _ctx.teams) || {};
+  if (!wp || !Array.isArray(wp.series) || wp.series.length < 2) {
+    return `<div class="ca-lc-panel-empty">The win probability chart builds as the game is played.</div>`;
+  }
+  const W = 560, H = 150, padL = 34, padR = 10, padT = 10, padB = 18;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const x = (v) => padL + Math.max(0, Math.min(1, v)) * innerW;
+  const y = (pct) => padT + (1 - Math.max(0, Math.min(100, pct)) / 100) * innerH;
+  const pts = wp.series.map(p => `${x(p.x).toFixed(1)},${y(p.home).toFixed(1)}`).join(' ');
+  const mid = y(50).toFixed(1);
+  const dots = (wp.scoring || []).map(m => {
+    const px = wp.series.reduce((best, p) => Math.abs(p.x - m.x) < Math.abs(best.x - m.x) ? p : best, wp.series[0]);
+    const fill = m.team === 'home' ? '#FFD700' : (m.team === 'away' ? '#38bdf8' : '#8892a4');
+    return `<circle cx="${x(m.x).toFixed(1)}" cy="${y(px.home).toFixed(1)}" r="3.4" fill="${fill}" stroke="#0d1117" stroke-width="1.2"><title>${esc((m.clock ? m.clock + ' ' : '') + (m.text || ''))}</title></circle>`;
+  }).join('');
+  const latest = wp.series[wp.series.length - 1];
+  const srcLabel = wp.source === 'espn' ? 'ESPN win probability' : 'Model estimate';
+  const homePct = Math.round(latest.home);
+  const lead = homePct >= 50
+    ? `${esc(t.homeAbbr || 'Home')} ${homePct}%`
+    : `${esc(t.awayAbbr || 'Away')} ${100 - homePct}%`;
+  return `
+    <div class="ca-wp-chart">
+      <div class="ca-wp-head"><span class="ca-wp-now">${lead}</span><span class="ca-wp-src">${srcLabel}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" class="ca-wp-svg">
+        <text x="${padL - 5}" y="${y(100).toFixed(1)}" dominant-baseline="hanging" text-anchor="end" class="ca-vp-axis">${esc(t.homeAbbr || 'HOME')}</text>
+        <text x="${padL - 5}" y="${y(0).toFixed(1)}" dominant-baseline="auto" text-anchor="end" class="ca-vp-axis">${esc(t.awayAbbr || 'AWAY')}</text>
+        <line x1="${padL}" y1="${mid}" x2="${W - padR}" y2="${mid}" class="ca-vp-zero"/>
+        <text x="${padL - 5}" y="${mid}" dominant-baseline="middle" text-anchor="end" class="ca-vp-axis">50</text>
+        <polyline points="${pts}" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        ${dots}
+        <circle cx="${x(latest.x).toFixed(1)}" cy="${y(latest.home).toFixed(1)}" r="3.5" fill="#38bdf8" stroke="#0d1117" stroke-width="1.5"/>
+      </svg>
+      <div class="ca-wp-foot">Gold dots: ${esc(t.homeAbbr || 'home')} scores. Blue dots: ${esc(t.awayAbbr || 'away')} scores.</div>
     </div>`;
+}
+
+function periodTag(p) {
+  if (p.period == null) return null;
+  const sp = String(_ctx?.sport || '').toUpperCase();
+  const fam = famOf();
+  if (fam === 'baseball') return `${p.half === 'top' ? 'T' : p.half === 'bot' ? 'B' : ''}${p.period}`;
+  const pre = fam === 'hockey' ? 'P' : (sp === 'CBB' || sp === 'WCBB' || fam === 'soccer') ? 'H' : 'Q';
+  return `${pre}${p.period}`;
+}
+
+function playRow(p) {
+  const t = (_ctx && _ctx.teams) || {};
+  const who = p.team === 'home' ? (t.homeAbbr || 'HOME') : p.team === 'away' ? (t.awayAbbr || 'AWAY') : '';
+  const score = (p.scoring && p.homeScore != null)
+    ? `<span class="ca-lc-play-score ca-num">${p.awayScore}-${p.homeScore}</span>` : '';
+  const when = [periodTag(p), p.clock].filter(Boolean).join(' ');
+  return `<div class="ca-lc-play${p.scoring ? ' ca-lc-play--score' : ''}">
+    <span class="ca-lc-play-when">${esc(when)}</span>
+    <span class="ca-lc-play-team">${esc(who)}</span>
+    <span class="ca-lc-play-text">${esc(p.text || '')}</span>${score}
+  </div>`;
+}
+
+function playsPanel() {
+  const fam = famOf();
+  let plays = fam === 'soccer' ? (_feed?.soccer?.keyEvents || []) : (_feed?.plays || []);
+  const scoringAll = _feed?.scoringPlays || [];
+  if (_playsScoringOnly) plays = scoringAll;
+  if (!plays.length) return `<div class="ca-lc-panel-empty">Play-by-play appears once the game starts.</div>`;
+  const drive = (_feed?.drive && !_playsScoringOnly)
+    ? `<div class="ca-lc-drive">Current drive: ${esc(_feed.drive.team === 'home' ? (_ctx?.teams?.homeAbbr || 'HOME') : (_ctx?.teams?.awayAbbr || 'AWAY'))}${_feed.drive.desc ? `, ${esc(_feed.drive.desc)}` : ''}${_feed.drive.start ? ` (from ${esc(_feed.drive.start)})` : ''}</div>`
+    : '';
+  const rows = plays.slice().reverse().map(p => fam === 'soccer'
+    ? playRow({ ...p, clock: p.min, period: null })
+    : playRow(p)).join('');
+  return `
+    <label class="ca-lc-scoring-toggle"><input type="checkbox" ${_playsScoringOnly ? 'checked' : ''} onchange="caLcToggleScoring(this)"> Scoring plays only</label>
+    ${drive}
+    <div class="ca-lc-plays">${rows}</div>`;
+}
+
+function leaderCol(list, name) {
+  if (!Array.isArray(list) || !list.length) return `<div class="ca-lc-panel-empty">No leaders yet.</div>`;
+  return `<div class="ca-lc-ldr-team">${esc(name)}</div>` + list.slice(0, 5).map(l => `
+    <div class="ca-lc-ldr">
+      ${l.headshot ? `<img class="ca-lc-ldr-hs" src="${esc(l.headshot)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+      <div class="ca-lc-ldr-body">
+        <div class="ca-lc-ldr-name">${esc(l.name || '')}${l.pos ? ` <span class="ca-lc-ldr-pos">${esc(l.pos)}</span>` : ''}</div>
+        <div class="ca-lc-ldr-line"><span class="ca-lc-ldr-cat">${esc(l.cat || '')}</span> ${esc(l.value || '')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function leadersPanel() {
+  const L = _feed?.leaders;
+  const t = (_ctx && _ctx.teams) || {};
+  // NHL: three stars lead the panel once awarded (finished games).
+  const stars = (_feed?.hockey?.threeStars || []).slice(0, 3);
+  const starsHtml = stars.length ? `
+    <div class="ca-lc-ldr-team">Three stars</div>
+    <div class="ca-lc-stars">${stars.map(s => `
+      <div class="ca-lc-ldr">
+        ${s.headshot ? `<img class="ca-lc-ldr-hs" src="${esc(s.headshot)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+        <div class="ca-lc-ldr-body">
+          <div class="ca-lc-ldr-name">${'★'.repeat(s.star || 1)} ${esc(s.name || '')}</div>
+          <div class="ca-lc-ldr-line">${esc([s.team, s.position].filter(Boolean).join(' · '))}</div>
+        </div>
+      </div>`).join('')}</div>` : '';
+  if (!L || (!L.home?.length && !L.away?.length)) {
+    return starsHtml || `<div class="ca-lc-panel-empty">Top performers appear once the game gets going.</div>`;
+  }
+  return `${starsHtml}<div class="ca-lc-ldr-grid">
+    <div>${leaderCol(L.away, t.awayName || t.awayAbbr || 'Away')}</div>
+    <div>${leaderCol(L.home, t.homeName || t.homeAbbr || 'Home')}</div>
+  </div>`;
+}
+
+function statsPanel() {
+  const ts = _feed?.teamStats;
+  const t = (_ctx && _ctx.teams) || {};
+  if (!ts || (!ts.home?.length && !ts.away?.length)) return `<div class="ca-lc-panel-empty">Team stats appear once the game gets going.</div>`;
+  const homeMap = new Map((ts.home || []).map(s => [s.label, s.value]));
+  const labels = [...new Set([...(ts.away || []).map(s => s.label), ...(ts.home || []).map(s => s.label)])];
+  const rows = labels.map(lbl => {
+    const av = (ts.away || []).find(s => s.label === lbl)?.value ?? '—';
+    const hv = homeMap.get(lbl) ?? '—';
+    const an = parseFloat(String(av).replace(/[^\d.\-]/g, '')), hn = parseFloat(String(hv).replace(/[^\d.\-]/g, ''));
+    let bar = '';
+    if (!isNaN(an) && !isNaN(hn) && (an > 0 || hn > 0)) {
+      const hp = Math.round((hn / (an + hn)) * 100);
+      bar = `<div class="ca-lc-sbar-t ca-lc-sbar-t--stats"><div class="ca-lc-sbar-h" style="width:${100 - hp}%"></div></div>`;
+    }
+    return `<div class="ca-lc-stat-row">
+      <span class="ca-lc-stat-v ca-num">${esc(String(av))}</span>
+      <span class="ca-lc-stat-mid">${bar}<span class="ca-lc-stat-lbl">${esc(lbl)}</span></span>
+      <span class="ca-lc-stat-v ca-num">${esc(String(hv))}</span>
+    </div>`;
+  }).join('');
+  return `
+    <div class="ca-lc-stat-head"><span>${esc(t.awayAbbr || 'Away')}</span><span></span><span>${esc(t.homeAbbr || 'Home')}</span></div>
+    <div class="ca-lc-stats">${rows}</div>`;
 }

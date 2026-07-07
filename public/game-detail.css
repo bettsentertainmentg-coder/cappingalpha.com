@@ -1966,6 +1966,88 @@ nav {
 .ca-live-tag { font-size: 12px; font-weight: 700; color: var(--text); background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 4px 11px; }
 .ca-live-tag--none { color: var(--text-tertiary); font-weight: 600; }
 
+/* ── Per-sport situation cells (football / basketball / hockey / soccer / tennis) ── */
+.ca-lc-stateline--col { flex-direction: column; align-items: flex-start; gap: 6px; }
+.ca-lc-lastplay { font-size: 11.5px; color: var(--text-secondary); line-height: 1.35; }
+.ca-lc-pip--on.ca-lc-pip--to { background: #38bdf8; border-color: #38bdf8; }
+.ca-lc-dd { font-size: 13px; font-weight: 800; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ca-lc-dd--rz { color: #f87171; }
+.ca-lc-poss { color: var(--accent); font-weight: 800; }
+.ca-lc-poss i { font-size: 10px; }
+.ca-lc-rz { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #f87171; border: 1px solid rgba(248,113,113,0.4); border-radius: 4px; padding: 1px 5px; }
+.ca-lc-run { font-size: 10.5px; font-weight: 800; color: #FFD700; border: 1px solid rgba(255,215,0,0.35); border-radius: 10px; padding: 2px 8px; }
+.ca-lc-pp { font-size: 10.5px; font-weight: 800; color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); border-radius: 10px; padding: 2px 8px; }
+.ca-lc-pp--en { color: #f87171; border-color: rgba(248,113,113,0.4); }
+.ca-lc-sog { font-size: 11.5px; color: var(--text-secondary); }
+.ca-lc-sog b { color: var(--text); }
+.ca-lc-serve { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #a3e635; vertical-align: middle; }
+.ca-lc-kevents { display: flex; flex-direction: column; gap: 3px; }
+.ca-lc-kev { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+.ca-lc-kev i { font-size: 10px; color: var(--text); width: 12px; text-align: center; }
+.ca-lc-kev-min { font-weight: 700; color: var(--text-tertiary); min-width: 26px; }
+.ca-card { display: inline-block; width: 8px; height: 11px; border-radius: 2px; }
+.ca-card--y { background: #facc15; }
+.ca-card--r { background: #ef4444; }
+.ca-lc-sbar { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-secondary); width: 100%; }
+.ca-lc-sbar-t { flex: 1 1 auto; height: 5px; background: rgba(56,189,248,0.7); border-radius: 3px; overflow: hidden; min-width: 50px; }
+.ca-lc-sbar-h { height: 100%; background: rgba(255,215,0,0.75); float: right; }
+.ca-lc-sbar-lbl { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-tertiary); }
+.ca-ls-i--won { color: var(--text); font-weight: 800; }
+.ca-ls-i sup { font-size: 7.5px; margin-left: 1px; color: var(--text-tertiary); }
+.ca-lc-pulse-wp { font-size: 10.5px; font-weight: 800; color: var(--text-secondary); margin-left: 6px; }
+
+/* ── Tab strip + panels under the command grid ─────────────────────────────── */
+.ca-lc-tabs { display: flex; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--border); }
+.ca-lc-tab { appearance: none; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-tertiary); font: inherit; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 7px 12px; cursor: pointer; }
+.ca-lc-tab:hover { color: var(--text-secondary); }
+.ca-lc-tab--on { color: var(--text); border-bottom-color: var(--accent); }
+.ca-lc-panel { padding: 12px 2px 4px; }
+.ca-lc-panel-empty { font-size: 12px; color: var(--text-tertiary); padding: 10px 4px; }
+
+/* Win probability chart */
+.ca-wp-chart { display: flex; flex-direction: column; gap: 4px; }
+.ca-wp-head { display: flex; align-items: baseline; gap: 10px; }
+.ca-wp-now { font-size: 14px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; }
+.ca-wp-src { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+.ca-wp-svg { display: block; width: 100%; max-width: 620px; height: auto; }
+.ca-wp-foot { font-size: 10px; color: var(--text-tertiary); }
+
+/* Play-by-play feed */
+.ca-lc-scoring-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-secondary); cursor: pointer; margin-bottom: 8px; }
+.ca-lc-drive { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px; }
+.ca-lc-plays { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; }
+.ca-lc-play { display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--text-secondary); padding: 4px 6px; border-radius: 6px; }
+.ca-lc-play--score { background: var(--surface2); color: var(--text); font-weight: 600; }
+.ca-lc-play-when { flex: none; min-width: 52px; font-size: 10.5px; font-weight: 700; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.ca-lc-play-team { flex: none; min-width: 34px; font-size: 10.5px; font-weight: 800; color: var(--text-tertiary); }
+.ca-lc-play-text { flex: 1 1 auto; line-height: 1.35; }
+.ca-lc-play-score { flex: none; font-weight: 800; color: var(--text); }
+
+/* Leaders */
+.ca-lc-ldr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ca-lc-ldr-team { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); margin-bottom: 7px; }
+.ca-lc-ldr { display: flex; align-items: center; gap: 9px; padding: 5px 0; }
+.ca-lc-ldr-hs { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--surface2); flex: none; }
+.ca-lc-ldr-body { min-width: 0; }
+.ca-lc-ldr-name { font-size: 12.5px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ca-lc-ldr-pos { font-size: 10px; font-weight: 700; color: var(--text-tertiary); }
+.ca-lc-ldr-line { font-size: 11px; color: var(--text-secondary); }
+.ca-lc-ldr-cat { font-weight: 800; text-transform: uppercase; font-size: 9px; letter-spacing: 0.04em; color: var(--text-tertiary); margin-right: 3px; }
+
+/* Team stats bars */
+.ca-lc-stat-head { display: flex; justify-content: space-between; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); margin-bottom: 6px; }
+.ca-lc-stats { display: flex; flex-direction: column; gap: 7px; max-width: 620px; }
+.ca-lc-stat-row { display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; gap: 10px; }
+.ca-lc-stat-v { font-size: 12px; font-weight: 700; color: var(--text); text-align: center; }
+.ca-lc-stat-mid { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.ca-lc-sbar-t--stats { width: 100%; }
+.ca-lc-stat-lbl { font-size: 10px; font-weight: 700; color: var(--text-tertiary); }
+
+@media (max-width: 720px) {
+  .ca-lc-ldr-grid { grid-template-columns: 1fr; }
+  .ca-lc-stat-row { grid-template-columns: 44px 1fr 44px; }
+}
+
 /* Header unlock badge (live games, non-paid): clickable pay prompt that centers in the
    gap between the conviction graph and the score, vertically centered in the header. */
 .ca-dp-hdr-unlock {

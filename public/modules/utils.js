@@ -161,8 +161,9 @@ export function scoreDisplay(p) {
     const clock  = (p.game_clock && sport !== 'MLB') ? ` · ${p.game_clock}` : '';
     const periodLabel = (n) => {
       if (sport === 'MLB') return ` ${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`} Inn`;
-      if (sport === 'NHL' || sport === 'CBB' || sport === 'WCBB') return ` P${n}`;
-      if (sport === 'NFL' || sport === 'NCAAF') return ` Q${n}`;
+      if (sport === 'NHL') return ` P${n}`;
+      if (sport === 'CBB') return ` H${n}`;   // men's college hoops plays halves
+      if (sport === 'NFL' || sport === 'NCAAF' || sport === 'WCBB') return ` Q${n}`;
       return ` Q${n}`;
     };
     const period = p.game_period ? periodLabel(p.game_period) : '';
@@ -344,6 +345,10 @@ export function liveStateHtml(g) {
     const outs  = g.game_live_outs  ?? g.live_outs  ?? null;
     const bases = g.game_live_bases ?? g.live_bases ?? 0;
     return `<span class="bb-state">${basesDiamond(bases)}${outsDots(outs)}<span class="bb-half">${detail}</span></span>`;
+  }
+  // Football: live_detail carries "Q3 7:42 · 3rd & 4 at CIN 24" from live_situation.
+  if ((sport === 'NFL' || sport === 'NCAAF') && detail) {
+    return `<span class="bb-state"><span class="bb-half">${detail}</span></span>`;
   }
   return '';
 }

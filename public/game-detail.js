@@ -913,10 +913,12 @@ function renderDetailPanel() {
   const hdrMod = isGoldMvp ? ' ca-dp-header--mvp-gold' : isSilverMvp ? ' ca-dp-header--mvp-silver' : '';
 
   // Once live, the conviction curve collapses into a fixed-size graph inside the
-  // header (right of the pick name). isMlbCmd drives the command-bar layout for BOTH
-  // live ('in') and finished ('post') MLB games — the finished view is the same tracker,
-  // completed. The client adapts each cell by the live state's status.
-  const liveNow         = ((game.status === 'in') || (game.status === 'post')) && (game.sport || '').toUpperCase() === 'MLB';
+  // header (right of the pick name). liveNow drives the command-bar layout for BOTH
+  // live ('in') and finished ('post') games — the finished view is the same tracker,
+  // completed. The client adapts each cell by the live state's status. Every sport
+  // with a live tracker qualifies; Golf keeps the classic layout.
+  const LIVE_TRACKER_SPORTS = new Set(['MLB', 'NBA', 'WNBA', 'CBB', 'WCBB', 'NHL', 'NFL', 'NCAAF', 'SOCCER', 'ATP', 'WTA']);
+  const liveNow         = ((game.status === 'in') || (game.status === 'post')) && LIVE_TRACKER_SPORTS.has((game.sport || '').toUpperCase());
   const timelineVisible = isPaying() || rank === 1;       // pre-game chart: #1 stays a free reveal
   const convVisible     = isPaying();                     // live conviction: paid only (blurred otherwise, incl. #1)
   const hasTimeline     = !!(p?.timeline && p.timeline.length > 0);
@@ -1039,19 +1041,20 @@ function renderDetailPanel() {
 
   destroyPickTimeline();
 
-  const isMlbLive = liveNow;
-  if (isMlbLive) {
-    // Live MLB: the command bar takes over the body. The conviction curve already
-    // lives in the header (per-pick); votes + start time ride in the command bar.
-    el.innerHTML = headerHtml +
-      `<div id="ca-live-command" class="ca-live-command"></div>`;
-  } else {
-    el.innerHTML = headerHtml +
-      `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
+  const isTrackerLive = liveNow;
+  const classicBodyHtml = headerHtml +
+    `<div class="ca-dp-grid${game.status === 'in' ? ' ca-dp-grid--live' : ''}">
       <div class="ca-dp-col">${pubHtml}</div>
       <div class="ca-dp-divider"></div>
       <div class="ca-dp-col ca-dp-vote-col">${voteHtml}</div>
     </div>`;
+  if (isTrackerLive) {
+    // Live game: the command bar takes over the body. The conviction curve already
+    // lives in the header (per-pick); votes + start time ride in the command bar.
+    el.innerHTML = headerHtml +
+      `<div id="ca-live-command" class="ca-live-command"></div>`;
+  } else {
+    el.innerHTML = classicBodyHtml;
   }
 
   // Render the chart after innerHTML has settled. Always draw, even when
@@ -1059,7 +1062,7 @@ function renderDetailPanel() {
   // users get a synthetic teaser (no real data on the canvas), not the real
   // curve blurred — that used to be legible through the blur. Skipped when live
   // (no chart canvas — the conviction bubble carries it instead).
-  if (!isMlbLive && typeof Chart !== 'undefined') {
+  if (!isTrackerLive && typeof Chart !== 'undefined') {
     requestAnimationFrame(() => {
       if (timelineVisible) {
         drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart');
@@ -1070,12 +1073,14 @@ function renderDetailPanel() {
     });
   }
 
-  // Live command bar (MLB v1): mount + start the ~12s visibility-gated poll once
-  // the game is live; tear it down otherwise. Re-runs on every slot change so the
-  // pulse tracks the slot the user is viewing. Votes + start time are game-level, so
-  // they ride along unchanged as the slot flips.
-  if (isMlbLive) mountLiveCommand({
-    gameId, activeSlot: _activeSlot,
+  // Live command bar: mount + start the ~12s visibility-gated poll once the game
+  // is live; tear it down otherwise. Re-runs on every slot change so the pulse
+  // tracks the slot the user is viewing. Votes + start time are game-level, so
+  // they ride along unchanged as the slot flips. on404: wiped historical games
+  // have no live row — fall back to the classic post-game grid instead of
+  // sitting on the loading state.
+  if (isTrackerLive) mountLiveCommand({
+    gameId, sport: (game.sport || 'MLB').toUpperCase(), activeSlot: _activeSlot,
     teams: {
       awayAbbr: (game.away_abbr || game.away_short || teamNick(game.away_team) || 'AWY').toUpperCase(),
       homeAbbr: (game.home_abbr || game.home_short || teamNick(game.home_team) || 'HOM').toUpperCase(),
@@ -1084,6 +1089,7 @@ function renderDetailPanel() {
     },
     betsHtml: liveBetsInlineHtml(),
     startLabel,
+    on404: () => { el.innerHTML = classicBodyHtml; },
   });
   else unmountLiveCommand();
 

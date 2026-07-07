@@ -155,6 +155,19 @@ or country name as written.
   - Soccer props are skipped like all props: BTTS / both teams to score,
     corners, cards, anytime goalscorer.
 
+── FOOTBALL (NFL vs NCAAF) + COLLEGE HOOPS (CBB) ─────────────────────────────
+NFL uses pro team names ("Chiefs -3", "Bengals ML", "Ravens/Steelers under 41.5").
+NCAAF uses school names ("Alabama -7", "Ohio State ML", "Georgia -3.5"). A school
+name means the COLLEGE sport, never the pro one.
+  Examples: "Chiefs -6.5" → NFL. "Michigan +3" → NCAAF (football season) or
+  CBB (basketball season) — pick by bet context: "ML/spread vs another school
+  with a football-sized total (40s-60s)" → NCAAF; basketball-sized totals
+  (120+) or "CBB"/"college hoops" keywords → CBB.
+  - Teasers, parlays and player props are skipped as always; a lone leg written
+    as its own pick ("Bills -2.5") still counts.
+  - CBB = men's college basketball; use WCBB only when the message says
+    women's/WCBB explicitly.
+
 ── GAME MATCHING ─────────────────────────────────────────────────────────────
 When today's games are listed, match each pick to a game by team name.
 Return espn_game_id + picked_side (home/away) when confident.
