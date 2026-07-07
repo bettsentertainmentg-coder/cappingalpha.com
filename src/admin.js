@@ -715,28 +715,43 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
   // v3 chips: source labels (multi-source cappers show every system they appear in)
   const SRC_CHIP = {
-    discord:       ['DC', '#5865F2'],
-    actionnetwork: ['AN', '#16a34a'],
-    polymarket:    ['PM', '#8b5cf6'],
-    covers:        ['CV', '#f59e0b'],
-    telegram:      ['TG', '#0ea5e9'],
-    reddit:        ['RD', '#f97316'],
+    discord:       ['DC', '#5865F2', 'Discord scanner (free-plays / pod-thread / community-leaks)'],
+    actionnetwork: ['AN', '#16a34a', 'Action Network expert. Picks pulled from their public feed, graded by us. Track-only until enabled for scoring.'],
+    polymarket:    ['PM', '#8b5cf6', 'Polymarket pro wallet. Real positions from a top-P/L trader; entries before game start count as picks.'],
+    covers:        ['CV', '#f59e0b', 'Covers.com contest player. Contest picks are platform-graded and lock at game start.'],
+    telegram:      ['TG', '#0ea5e9', 'Telegram channel (wave 2, not live yet)'],
+    reddit:        ['RD', '#f97316', 'Reddit (wave 2, not live yet)'],
   };
   const srcChips = (list) => (list || []).map(s => {
-    const [label, color] = SRC_CHIP[s] || [s.slice(0, 2).toUpperCase(), '#8892a4'];
-    return `<span title="${escHtml(s)}" style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:0 4px;font-size:9px;font-weight:800;letter-spacing:0.5px;margin-left:4px;vertical-align:1px;">${label}</span>`;
+    const [label, color, tip] = SRC_CHIP[s] || [s.slice(0, 2).toUpperCase(), '#8892a4', s];
+    return `<span title="${escHtml(tip)}" style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:0 4px;font-size:9px;font-weight:800;letter-spacing:0.5px;margin-right:4px;">${label}</span>`;
   }).join('');
-  const TIER_CHIP = {
-    proven: ['PROVEN', '#16a34a'], rated: ['RATED', '#0ea5e9'],
-    building: ['', ''], tracking: ['', ''],
+  // Status column chips: tier + fade, each with a plain-language tooltip that
+  // explains what the badge means and how it is computed.
+  const TIER_TIPS = {
+    proven:   ['PROVEN', '#16a34a', '50 or more graded picks with a positive shrunk ROI. The rating formula trusts this capper the most.'],
+    rated:    ['RATED', '#0ea5e9', '25 or more graded picks. Enough volume for a meaningful rating; still building toward Proven.'],
+    building: ['BUILDING', '#8892a4', '10 to 24 graded picks. Rating exists but is heavily shrunk toward breakeven until volume grows.'],
+    tracking: ['TRACKING', '#3b4560', 'Under 10 graded picks. Nearly all rating credit is withheld until we see more.'],
   };
-  const tierChip = (c) => {
-    if (c.fade) {
-      const label = c.fade === 'active' ? 'FADE' : 'FADE WATCH';
-      return `<span style="background:#ef444422;color:#ef4444;border:1px solid #ef444455;border-radius:3px;padding:0 5px;font-size:9px;font-weight:800;margin-left:6px;">${label}</span>`;
+  const FADE_TIPS = {
+    watch:  ['FADE WATCH', '#f59e0b', '25+ picks with shrunk ROI at or below -8%. Display only: no score effect yet, could be variance.'],
+    active: ['FADE ACTIVE', '#ef4444', '40+ picks with shrunk ROI at or below -10% and losing in the specific sport/type. Their picks ADD points to the opposite side, scaled by how much we have seen them in that sport.'],
+  };
+  const statusChips = (c) => {
+    const chips = [];
+    const t = TIER_TIPS[c.tier];
+    if (t && (c.tier === 'proven' || c.tier === 'rated')) {
+      chips.push(`<span title="${escHtml(t[2])}" style="background:${t[1]}22;color:${t[1]};border:1px solid ${t[1]}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${t[0]}</span>`);
     }
-    const [label, color] = TIER_CHIP[c.tier] || ['', ''];
-    return label ? `<span style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:0 5px;font-size:9px;font-weight:800;margin-left:6px;">${label}</span>` : '';
+    if (c.fade && FADE_TIPS[c.fade]) {
+      const f = FADE_TIPS[c.fade];
+      chips.push(`<span title="${escHtml(f[2])}" style="background:${f[1]}22;color:${f[1]};border:1px solid ${f[1]}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${f[0]}</span>`);
+    }
+    if (!chips.length && t) {
+      chips.push(`<span title="${escHtml(t[2])}" style="color:${t[1]};font-size:9px;font-weight:700;">${t[0]}</span>`);
+    }
+    return chips.join(' ') || '<span style="color:#3b4560;">—</span>';
   };
 
   const capperLeaderboardHtml = sortedCappers.length ? `
@@ -744,7 +759,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Rating', 'num', 'Resume points (0-55 scale) from the materialized ratings')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Rating', 'num', 'Resume points the scoring formula gives this capper today (0-55). Computed from shrunk ROI x sport volume x long-term trust, recomputed nightly.')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -771,7 +786,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const fadeRow = c.fade ? 'box-shadow:inset 3px 0 0 #ef4444;' : '';
         return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
-          <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;white-space:nowrap;">${escHtml(c.name)}${tierChip(c)}${srcChips(c.srcList)}</td>
+          <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">
+            <div style="white-space:nowrap;">${escHtml(c.name)}</div>
+            <div style="margin-top:2px;line-height:1;">${srcChips(c.srcList)}</div>
+          </td>
+          <td data-sv="${c.fade ? (c.fade === 'active' ? 4 : 3) : (c.tier === 'proven' ? 2 : c.tier === 'rated' ? 1 : 0)}" style="white-space:nowrap;">${statusChips(c)}</td>
           <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
           <td data-sv="${c.rating ?? -1}" style="color:${ratingColor};font-weight:700;">${ratingStr}</td>

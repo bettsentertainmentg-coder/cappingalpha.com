@@ -86,6 +86,10 @@ function oppositeSlot(pick) {
 }
 
 // Fade points a slot RECEIVES from fade-active cappers on its opposite slot.
+// SPORT-VOLUME SCALED (Jack, 2026-07-07): a fade capper's 0-2 in NBA is nearly
+// zero evidence about NBA, so fade points scale by their graded volume in the
+// pick's sport (n/(n+10)). Breaking-Bank-style: full-ish fade in his 31-pick
+// MLB, essentially nothing in his 2-pick NBA.
 function fadePointsInto(pick, sport) {
   const opp = oppositeSlot(pick);
   if (!opp) return { pts: 0, from: [] };
@@ -101,8 +105,11 @@ function fadePointsInto(pick, sport) {
     const t = typeRow(name, sport, opp.pick_type);
     const worst = Math.min(s?.blend ?? 0, t?.blend ?? 0, o.blend ?? 0);
     if (worst >= 0) continue; // sport/type being faded must itself be negative
-    const p = Math.max(3, Math.min(8, Math.round(-100 * worst)));
-    pts += p; from.push({ capper: name, pts: p });
+    const raw = Math.max(3, Math.min(8, Math.round(-100 * worst)));
+    const sportN = s?.picks ?? 0;
+    const scaled = Math.round(raw * (sportN / (sportN + 10)));
+    if (scaled < 2) continue; // not enough sport evidence to act on
+    pts += scaled; from.push({ capper: name, pts: scaled, sport_picks: sportN });
   }
   return { pts: Math.min(FADE_CAP, pts), from };
 }
@@ -313,6 +320,11 @@ function computeAndLogV3(pickId) {
   try {
     db.prepare(`UPDATE score_breakdown SET v3_total = ?, v3_json = ? WHERE pick_id = ?`)
       .run(scored.total, JSON.stringify(scored.breakdown), pickId);
+  } catch (_) {}
+  // score_breakdown is wiped daily; pick_history is forever. Mirror the v3 total
+  // there so the calibration series survives (row exists once the pick archived).
+  try {
+    db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(scored.total, pickId);
   } catch (_) {}
   if (db.getSetting('scoring_version', 'v2') === 'v3') {
     try { applyLeak(pickId, scored.total); } catch (_) {}

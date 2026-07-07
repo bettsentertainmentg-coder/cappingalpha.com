@@ -441,7 +441,14 @@ function updateSlot(slot, pick) {
     });
   }
 
-  if (archives) upsertPickHistory(slot.id, scored, cap, v3Live ? 'v3' : 'v2');
+  if (archives) {
+    upsertPickHistory(slot.id, scored, cap, v3Live ? 'v3' : 'v2');
+    // The archive row may not have existed when computeAndLogV3 ran above —
+    // mirror the v3 total now that it does (calibration series lives here).
+    if (v3 && v3.total != null) {
+      try { db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(v3.total, slot.id); } catch (_) {}
+    }
+  }
 
   return slot.id;
 }
@@ -510,7 +517,12 @@ function insertNewPick(pick) {
     saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id, score: effTotal, cap, scale: v3Live ? 'v3' : 'v2' });
   }
 
-  if (archives) upsertPickHistory(pick_id, scored, cap, v3Live ? 'v3' : 'v2');
+  if (archives) {
+    upsertPickHistory(pick_id, scored, cap, v3Live ? 'v3' : 'v2');
+    if (v3 && v3.total != null) {
+      try { db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(v3.total, pick_id); } catch (_) {}
+    }
+  }
 
   return pick_id;
 }

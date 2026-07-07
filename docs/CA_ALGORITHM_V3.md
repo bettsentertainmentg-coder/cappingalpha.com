@@ -316,9 +316,15 @@ by luck (see credibility principle):
 A capper drops off either tier automatically as their record improves.
 
 When a FADE ACTIVE capper posts a pick:
-    fadePoints = clamp(round(-100 * worstBlend), 3, 8)
-    where worstBlend = min(sportBlend, typeBlend) for the pick's sport and bet type
+    raw        = clamp(round(-100 * worstBlend), 3, 8)
+    fadePoints = round(raw * sportVolume), dropped when under 2
+    where worstBlend = min(sportBlend, typeBlend, overallBlend) for the pick's
+    sport and bet type, and sportVolume = their graded picks in THAT sport /
+    (picks + 10)
 applied to the OPPOSITE slot (other ML side, other spread side, other total side).
+The sport-volume scale is Jack's rule (2026-07-07): a fade capper who is 0-2 in
+NBA has shown us nearly nothing about NBA, so his NBA picks trigger essentially
+no fade, while his 31-pick MLB record fades at close to full strength.
 
 Conflict rule (Jack's spec): fade points only apply in full when NO positive-resume
 capper is on the original side. Because mentions arrive in any order, this is handled

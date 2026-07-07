@@ -1201,6 +1201,9 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN leak_started_at TEXT`); } catch (_) 
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_window_sec INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
+// Persist the v3 total on the permanent archive: score_breakdown (the dual-log
+// home) is wiped daily, so pick_history carries the calibration series forever.
+try { db.exec(`ALTER TABLE pick_history ADD COLUMN v3_total REAL`); } catch (_) {}
 
 // Materialized capper ratings — the scorer and leaderboard read THIS, never raw
 // history. Recomputed nightly + on demand (src/capper_ratings.js).
