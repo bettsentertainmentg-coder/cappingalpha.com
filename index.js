@@ -528,13 +528,11 @@ app.get('/api/picks', (req, res) => {
 
   // v3 scale: the shown/ranked score is the leak-aware DISPLAY score (the
   // conviction curve). True v3 totals stay internal (stripped by pick_privacy).
+  // Same helper feeds /api/game/:id so the list and the detail popup never
+  // disagree on a pick's number.
   if (getSetting('scoring_version', 'v2') === 'v3') {
-    const { effectiveDisplayScore } = require('./src/scoring_v3');
-    for (const p of picks) {
-      p.score = p.leak_target != null
-        ? effectiveDisplayScore(p)
-        : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
-    }
+    const { v3DisplayScore } = require('./src/scoring_v3');
+    for (const p of picks) p.score = v3DisplayScore(p);
     picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
 
@@ -1266,8 +1264,21 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   }
 
   const picks = db.prepare(`
-    SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC
+    SELECT p.*, sb.v3_total AS v3_total
+    FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+    WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
   `).all(espn_game_id);
+
+  // v3 scale: show the SAME leak-aware display score the picks list shows, so the
+  // popup never disagrees with the board (was showing the raw un-rescaled v2
+  // column — Djokovic 61 on the list vs 45 here). True v3 totals never leave the
+  // server (pick_privacy strips v3_total/display_score/leak_target below).
+  const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+  if (v3Live) {
+    const { v3DisplayScore } = require('./src/scoring_v3');
+    for (const p of picks) p.score = v3DisplayScore(p);
+    picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
+  }
 
   // Vote tallies
   const voteRows = db.prepare(`
@@ -1292,10 +1303,21 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // Global rank among ALL of today's picks (by score). Free users unlock the
   // CappingAlpha score + conviction curve for the overall #1 pick only — this is
   // how the popup knows whether a pick is that single #1 (not just top of its game).
+  // Order by the SAME leak-aware display score as /api/picks so "global #1"
+  // (the free unlock) is the same pick on both surfaces. Under v2 this collapses
+  // to the raw-score order it always used.
   const allRanked = db.prepare(
-    `SELECT p.id FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-     WHERE p.mention_count > 0 ORDER BY p.score DESC, p.id ASC`
+    `SELECT p.id, p.score, p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+            sb.v3_total AS v3_total
+     FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+     LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+     WHERE p.mention_count > 0`
   ).all();
+  if (v3Live) {
+    const { v3DisplayScore } = require('./src/scoring_v3');
+    for (const r of allRanked) r.score = v3DisplayScore(r);
+  }
+  allRanked.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   const globalRank = new Map();
   allRanked.forEach((r, i) => globalRank.set(r.id, i + 1));
 
@@ -2350,11 +2372,19 @@ app.listen(PORT, () => {
     fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
   }
 
-  // Seed line history + prediction market caches on startup (free APIs, no credits)
+  // Seed line history + prediction market caches on startup (free APIs, no credits).
+  // Line history is a pre-game concept, so it stays scoped to games with odds. The
+  // market-volume syncs (Polymarket + Kalshi) run over the WHOLE board — pre/in/post —
+  // exactly like the 15-min cron does. Finished games carry the day's biggest volume
+  // (a settled World Cup match tops the board), and soccer often has no ml_home stored
+  // (ESPN free odds), so the old status='pre' AND ml_home filter left every finished or
+  // oddless soccer game with zero market data until the next active-hours cron tick.
+  // Backfilling the full board on boot makes a redeploy self-heal that immediately.
   const preGamesOnStart = db.prepare("SELECT * FROM today_games WHERE status='pre' AND ml_home IS NOT NULL").all();
+  const allGamesOnStart = db.prepare("SELECT * FROM today_games").all();
   syncLineHistory(preGamesOnStart).catch(e => console.error('[startup] syncLineHistory:', e.message));
-  syncPolymarketData(preGamesOnStart).catch(e => console.error('[startup] syncPolymarket:', e.message));
-  syncKalshiData(preGamesOnStart).catch(e => console.error('[startup] syncKalshi:', e.message));
+  syncPolymarketData(allGamesOnStart).catch(e => console.error('[startup] syncPolymarket:', e.message));
+  syncKalshiData(allGamesOnStart).catch(e => console.error('[startup] syncKalshi:', e.message));
   // Esports markets are global + self-contained (no today_games dependency). Free APIs.
   syncEsportsMarkets().catch(e => console.error('[startup] syncEsports:', e.message));
 })();
@@ -2467,11 +2497,14 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1, Soccer:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
   }
-  // Seed initial line history + prediction market data
+  // Seed initial line history + prediction market data. Line history is pre-game;
+  // market volume covers the whole board (a game already live/finished at 5am still
+  // needs its volume for the ranking), matching the 15-min cron.
   const morningGames = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
+  const allMorningGames = db.prepare(`SELECT * FROM today_games`).all();
   syncLineHistory(morningGames).catch(e => console.error('[cron] 5am syncLineHistory:', e.message));
-  syncPolymarketData(morningGames).catch(e => console.error('[cron] 5am syncPolymarket:', e.message));
-  syncKalshiData(morningGames).catch(e => console.error('[cron] 5am syncKalshi:', e.message));
+  syncPolymarketData(allMorningGames).catch(e => console.error('[cron] 5am syncPolymarket:', e.message));
+  syncKalshiData(allMorningGames).catch(e => console.error('[cron] 5am syncKalshi:', e.message));
   syncEsportsMarkets().catch(e => console.error('[cron] 5am syncEsports:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();

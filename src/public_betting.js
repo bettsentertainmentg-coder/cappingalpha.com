@@ -122,12 +122,16 @@ function storePublicBettingGames(sport, games) {
     const homeNick = teamNick(homeTeam.full_name);
     const awayNick = teamNick(awayTeam.full_name);
 
+    // Prefer a pre-game row (so a multi-game series still lands on the upcoming
+    // game), but fall back to a live/finished row when that's all that's on the
+    // board — otherwise live and finished games (e.g. a World Cup match that has
+    // already kicked off) never get their public-betting split matched at all.
     const dbGame = db.prepare(`
       SELECT espn_game_id FROM today_games
       WHERE sport = ?
-        AND status = 'pre'
         AND (home_abbr = ? OR LOWER(home_team) LIKE ?)
         AND (away_abbr = ? OR LOWER(away_team) LIKE ?)
+      ORDER BY CASE status WHEN 'pre' THEN 0 WHEN 'in' THEN 1 ELSE 2 END, start_time ASC
       LIMIT 1
     `).get(sport, homeAbbr, `%${homeNick}%`, awayAbbr, `%${awayNick}%`);
 
