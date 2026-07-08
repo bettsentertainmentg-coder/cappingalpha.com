@@ -8,7 +8,15 @@
 // awayWinPercentage / tiePercentage / spreadCoverProbHome / spreadPushProb /
 // totalOverProb, ordered by sequenceNumber; limit=1000 returns every item in
 // one page. NFL/NBA/WNBA verified rich; NCAAF/CBB are try-once with a dead
-// flag; MLB carries win prob only; NHL/Soccer/Tennis 400 (skipped entirely).
+// flag; MLB carries win prob only (cover/total fields absent entirely);
+// NHL/Soccer/Tennis 400 (skipped entirely).
+//
+// ZERO-FILL HAZARD (found 2026-07-07, WNBA): some games carry the cover/total
+// FIELDS but every sample is a literal 0 — the model isn't running, the field
+// is a placeholder. Field presence is NOT validity. A real pregame cover/over
+// prob is never exactly 0 (a -3.5 favorite covers about half the time), so a
+// zero FIRST sample marks that block fake; see the scrub in getCoreProbs.
+// Without it the paid pulse layer showed 0%/100% cover reads.
 
 const axios = require('axios');
 
@@ -68,6 +76,18 @@ async function getCoreProbs(sport, gameId) {
         if (s >= (Number(latest.sequenceNumber) || 0)) latest = it;
       }
       const data = { first: normItem(first), latest: normItem(latest) };
+      // Scrub zero-filled blocks (see header): an exactly-0 pregame sample means
+      // the cover/total model isn't running for this game — null the block so the
+      // pulse falls back to its approx read instead of shipping 0%/100%. The
+      // latest sample keeps an exact 0 only when the FIRST sample proves the
+      // model was really running (a real pregame value near 0.5): that is a
+      // cover genuinely dead late, not a placeholder.
+      for (const [prob, push] of [['spreadCoverHome', 'spreadPush'], ['totalOver', 'totalPush']]) {
+        const f = data.first, l = data.latest;
+        const firstReal = !!(f && typeof f[prob] === 'number' && f[prob] !== 0);
+        if (f && f[prob] === 0) { f[prob] = null; f[push] = null; }
+        if (l && l[prob] === 0 && !firstReal) { l[prob] = null; l[push] = null; }
+      }
       _cache.set(key, { ts: Date.now(), data });
       return data;
     } catch (e) {

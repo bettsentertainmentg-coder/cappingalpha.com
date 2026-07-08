@@ -383,17 +383,19 @@ function valuePulseSvg(history, color, live = true, dims = null) {
   </svg>`;
 }
 
-// The pulse tracks the slot the user is viewing; when that side has no CA pick
-// the first tracked slot stands in — returning the key lets the panel say which.
+// The pulse tracks the slot the user is viewing — the server prices every slot
+// now, CA pick or not. If the viewed slot genuinely has no read (market never
+// existed on the board), show the empty state instead of substituting the other
+// side's chart, which read as the wrong pick.
 function pickPulse(pulses) {
   if (!pulses) return { pulse: null, slot: null };
-  if (_ctx && pulses[_ctx.activeSlot]) return { pulse: pulses[_ctx.activeSlot], slot: _ctx.activeSlot };
+  if (_ctx && _ctx.activeSlot) return { pulse: pulses[_ctx.activeSlot] || null, slot: _ctx.activeSlot };
   const keys = Object.keys(pulses);
   return keys.length ? { pulse: pulses[keys[0]], slot: keys[0] } : { pulse: null, slot: null };
 }
 
 function pulseCellHtml(pulse, isFinal, dims = null, pickName = '') {
-  if (!pulse) return `<div class="ca-lc-pulse-empty">No CA pick tracked on this game.</div>`;
+  if (!pulse) return `<div class="ca-lc-pulse-empty">No live value read on this pick yet.</div>`;
   if (pulse.locked) {
     // No pick name here on purpose — the locked view must not reveal which
     // slots carry CA picks (same anti-leak rule as the blurred scores).
@@ -408,12 +410,13 @@ function pulseCellHtml(pulse, isFinal, dims = null, pickName = '') {
   const caret = pulse.sign > 0 ? '▲' : pulse.sign < 0 ? '▼' : '•';
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
   const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx">approx</span>` : '';
+  const noPick = pulse.hasPick === false ? ` <span class="ca-lc-pulse-approx">no CA pick</span>` : '';
   const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num">${pulse.winPct}%</span>` : '';
   const pick = pickName ? `<span class="ca-lc-pulse-pick">${esc(pickName)}</span> ` : '';
   const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `
     <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color, !isFinal, dims)}</div>
-    <div class="ca-lc-pulse-label">${pick}${lead}<span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span> ${esc(pulse.label || '')}${approx}${winPct}</div>
+    <div class="ca-lc-pulse-label">${pick}${lead}<span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span> ${esc(pulse.label || '')}${noPick}${approx}${winPct}</div>
     <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the game state versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
 }
 

@@ -1554,11 +1554,32 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
       })();
       const clamp01 = (x) => Math.max(0, Math.min(1, x));
       const pb = getPublicBettingForGame(espn_game_id);   // public lean at game start (conviction blend)
-      for (const p of picks) {
-        const slot = _slotKey(p);
-        if (!slot) continue;
-        const type = (p.pick_type || '').toLowerCase();
-        const home = p.is_home_team === 1 || p.is_home_team === true;
+
+      // Every slot gets a live value read, not just the ones carrying CA picks —
+      // the chart must track whichever slot the viewer selected, never substitute
+      // the other side's pick. A pickless slot runs at zero CA conviction, so
+      // computeValuePulse dampens its swings but still prices the market (e.g. a
+      // pre-game favorite trailing mid-game is a buy-low read with or without CA).
+      // caScore rides the version-aware DISPLAY scale: raw picks.score is v2-only
+      // (the same one-score rule as every other surface).
+      const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+      const { v3DisplayScore } = require('./src/scoring_v3');
+      const caThreshold = v3Live ? 100 : MVP_THRESHOLD;   // conviction anchor = the tracked tier line
+      const bySlot = {};
+      for (const p of picks) { const k = _slotKey(p); if (k && !(k in bySlot)) bySlot[k] = p; }
+      const SLOT_DEFS = [
+        { slot: 'home_ml',     type: 'ml',     home: true  },
+        { slot: 'away_ml',     type: 'ml',     home: false },
+        { slot: 'home_spread', type: 'spread', home: true  },
+        { slot: 'away_spread', type: 'spread', home: false },
+        { slot: 'over',        type: 'over',   home: false },
+        { slot: 'under',       type: 'under',  home: false },
+      ];
+      for (const { slot, type, home } of SLOT_DEFS) {
+        const p = bySlot[slot] || null;
+        // Pickless slot on a market the board never had -> nothing to price.
+        if (!p && type === 'spread' && game.spread_home == null && game.spread_away == null) continue;
+        if (!p && (type === 'over' || type === 'under') && game.over_under == null) continue;
         let now = null, pre = null, approx = true;
         if (type === 'ml') {
           if (soccerTrio) {
@@ -1622,10 +1643,13 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
           publicPct = (raw == null) ? null : raw / 100;
         }
 
-        const key = `${espn_game_id}:${p.id}`;
+        // Display-scale CA score (mirror rows arrive pre-mapped; v3DisplayScore
+        // falls through to .score on them, and reads display_score on local rows).
+        const caScore = p ? (v3Live ? v3DisplayScore(p) : (p.score || 0)) : 0;
+        const key = `${espn_game_id}:${slot}`;
         const pulse = computeValuePulse({
-          pickWP_now: now, pickWP_pre: pre, caScore: p.score || 0, trailing, publicPct,
-          gameProgress: gp, prevMagnitude: prevPulseMag(key), mvpThreshold: MVP_THRESHOLD,
+          pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
+          gameProgress: gp, prevMagnitude: prevPulseMag(key), mvpThreshold: caThreshold,
         });
         savePulseMag(key, pulse.magnitude);
         // Value-over-game series for the sparkline: the mock synthesizes a full
@@ -1634,8 +1658,8 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         if (isMockId(espn_game_id)) {
           const mside = home ? 'home' : 'away';
           history = wantFinal
-            ? mockFullPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct, espn_game_id)
-            : mockPulseHistory(pregameHomeProb, p.score || 0, MVP_THRESHOLD, mside, publicPct, espn_game_id);
+            ? mockFullPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id)
+            : mockPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id);
         } else {
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);
@@ -1644,6 +1668,7 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
           ...pulse, pickType: type, history,
           approx,
           winPct: Math.round(now * 100),
+          hasPick: !!p,
         };
       }
     }
