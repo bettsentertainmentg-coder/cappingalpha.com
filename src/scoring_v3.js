@@ -333,9 +333,16 @@ function computeAndLogV3(pickId) {
 }
 
 // ── Leak rule (Jack): >25-point jumps never display at once ───────────────────
-// True score updates instantly (internal); the DISPLAY score ramps to it over a
-// randomized 20-50 minute window that always finishes before game start. Only
-// engaged when scoring_version === 'v3'.
+// True score updates instantly (internal); the DISPLAY score reveals the gap in
+// RANDOM CHUNKS at random times (Jack 2026-07-08: "show 25, then 5, then 10"),
+// not a smooth line. Window scales with urgency: >3h to start = leisurely 5-30
+// min, 1-3h = very fast (90s-5min), <1h = instant — members always get a real
+// window to act on the pick. Only engaged when scoring_version === 'v3'.
+const LEAK_URGENT_MIN = 60;    // <1h to start: reveal instantly
+const LEAK_FAST_MIN   = 180;   // 1-3h: fast window
+const LEAK_FAST_SEC   = [90, 300];
+const LEAK_SLOW_SEC   = [300, 1800]; // >3h: 5-30 min
+
 function applyLeak(pickId, trueTotal) {
   const p = db.prepare(`SELECT id, espn_game_id, display_score, leak_target, leak_started_at, leak_window_sec FROM picks WHERE id = ?`).get(pickId);
   if (!p) return;
@@ -347,26 +354,73 @@ function applyLeak(pickId, trueTotal) {
       .run(trueTotal, pickId);
     return;
   }
-  // Big jump: start (or retarget) a ramp from current + LEAK_STEP
-  let windowSec = Math.round((LEAK_MIN_MIN + Math.random() * (LEAK_MAX_MIN - LEAK_MIN_MIN)) * 60);
+  // Big jump: start (or retarget) a chunked reveal from current + LEAK_STEP.
+  // Window by time-to-start (finish 3 min early in every case).
+  let lo = LEAK_SLOW_SEC[0], hi = LEAK_SLOW_SEC[1];
   const game = p.espn_game_id ? db.prepare(`SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(p.espn_game_id) : null;
   if (game?.start_time) {
     const iso = game.start_time.includes('T') ? game.start_time : game.start_time.replace(' ', 'T') + 'Z';
     const startMs = new Date(iso).getTime();
-    const untilStart = Math.floor((startMs - now) / 1000) - 180; // finish 3 min early
-    if (Number.isFinite(untilStart)) {
-      if (untilStart <= 60) {
-        // Game imminent: full value must be visible by start
+    const untilStartSec = Math.floor((startMs - now) / 1000) - 180;
+    if (Number.isFinite(untilStartSec)) {
+      if (untilStartSec <= LEAK_URGENT_MIN * 60) {
+        // Inside an hour: full value must be visible NOW — the pick window is short
         db.prepare(`UPDATE picks SET display_score = ?, leak_target = NULL, leak_started_at = NULL, leak_window_sec = NULL WHERE id = ?`)
           .run(trueTotal, pickId);
         return;
       }
-      windowSec = Math.min(windowSec, untilStart);
+      if (untilStartSec <= LEAK_FAST_MIN * 60) { lo = LEAK_FAST_SEC[0]; hi = LEAK_FAST_SEC[1]; }
+      hi = Math.min(hi, untilStartSec);
+      lo = Math.min(lo, hi);
     }
   }
+  const windowSec = Math.round(lo + Math.random() * (hi - lo));
   db.prepare(`
     UPDATE picks SET display_score = ?, leak_target = ?, leak_started_at = datetime('now'), leak_window_sec = ? WHERE id = ?
   `).run(Math.min(trueTotal, current + LEAK_STEP), trueTotal, windowSec, pickId);
+}
+
+// ── The chunk schedule: ONE deterministic reveal path per ramp ────────────────
+// Seeded by (pick id, ramp start), so every request — the picks list, the game
+// popup, the conviction curve — replays the identical steps without storing a
+// schedule. Chunks are random sizes (each <= LEAK_STEP) at random times inside
+// the window, monotone, and always finish the full gap by the window end.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Returns [{frac, cum}] — at window fraction >= frac, cumulative revealed points
+// (above the ramp's shown base) are cum. Last entry always covers the full gap.
+function leakSchedule(pickRow) {
+  const gap = (pickRow.leak_target ?? 0) - (pickRow.display_score ?? 0);
+  if (gap <= 0) return [];
+  const startedMs = new Date(String(pickRow.leak_started_at || '').replace(' ', 'T') + 'Z').getTime();
+  const seed = ((pickRow.id * 2654435761) ^ (Number.isFinite(startedMs) ? Math.floor(startedMs / 1000) : 0)) >>> 0;
+  const rnd = mulberry32(seed);
+  const k = Math.max(2, Math.min(5, Math.ceil(gap / 15)));
+  // Sizes: jittered shares, each capped at LEAK_STEP
+  let sizes = Array.from({ length: k }, () => 0.6 + rnd() * 0.9);
+  const sum = sizes.reduce((a, b) => a + b, 0);
+  sizes = sizes.map(s => Math.min(LEAK_STEP, Math.round((s / sum) * gap)));
+  // Times: stratified jitter — one chunk per window slice so reveals SPREAD
+  // across the ramp instead of bunching, still random within each slice.
+  const fracs = Array.from({ length: k }, (_, i) => {
+    const span = 0.86 / k;
+    return 0.10 + span * i + rnd() * span;
+  });
+  fracs[k - 1] = Math.max(fracs[k - 1], 0.80 + rnd() * 0.18);
+  fracs.sort((a, b) => a - b);
+  const out = [];
+  let cum = 0;
+  for (let i = 0; i < k; i++) { cum += sizes[i]; out.push({ frac: Math.min(1, fracs[i]), cum }); }
+  out[k - 1].cum = gap; // rounding guard: the last chunk always completes the gap
+  return out;
 }
 
 // Read-side: the score any public surface should show right now.
@@ -376,7 +430,10 @@ function effectiveDisplayScore(pickRow, nowMs = Date.now()) {
   const startedMs = new Date(pickRow.leak_started_at.replace(' ', 'T') + 'Z').getTime();
   if (!Number.isFinite(startedMs)) return base;
   const frac = Math.max(0, Math.min(1, (nowMs - startedMs) / (pickRow.leak_window_sec * 1000)));
-  return Math.round(base + (pickRow.leak_target - base) * frac);
+  if (frac >= 1) return Math.round(pickRow.leak_target);
+  let revealed = 0;
+  for (const step of leakSchedule(pickRow)) { if (frac >= step.frac) revealed = step.cum; }
+  return Math.round(base + revealed);
 }
 
 // The single, canonical "score to show right now" for a pick under v3. EVERY
@@ -393,7 +450,7 @@ function v3DisplayScore(p) {
     : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
 }
 
-module.exports = { computeV3, computeAndLogV3, applyLeak, effectiveDisplayScore, v3DisplayScore };
+module.exports = { computeV3, computeAndLogV3, applyLeak, effectiveDisplayScore, v3DisplayScore, leakSchedule };
 
 // CLI: node src/scoring_v3.js — v2 vs v3 on today's board, top of each
 if (require.main === module) {

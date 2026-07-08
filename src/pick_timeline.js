@@ -62,8 +62,52 @@ function buildV3Timeline(pick) {
   }
   const trueTotal = steps.reduce((s, e) => s + e.pts, 0);
 
-  // No breakdown yet, or a degenerate scale (leaking pick whose display is at/below
-  // base): a clean two-point rise to the display score so the chart still draws.
+  // THE SAME REVEAL PATH THE BIG NUMBER WALKED (Jack 2026-07-08): when the pick
+  // has ramp state, replay the seeded chunk schedule — identical times and sizes
+  // to what effectiveDisplayScore showed members — so the curve and the number
+  // are one story. Each chunk is labeled by the component whose cumulative range
+  // covers it (Resume, Consensus, ...), keeping the paid annotations meaningful.
+  // This runs BEFORE the degenerate guard: early in a ramp the display sits at or
+  // below the true base, and that is exactly when the replay matters most.
+  const rampStartMs = parseDbTs(pick.leak_started_at);
+  if (pick.leak_target != null && rampStartMs && pick.leak_window_sec) {
+    const { leakSchedule } = require('./scoring_v3');
+    const shownBase = pick.display_score ?? 0;
+    const sched = leakSchedule(pick);
+    if (sched.length) {
+      // Component boundaries in cumulative-points space (above the true base),
+      // scaled onto the ramp's gap so labels track the chunk that reveals them.
+      const gap = pick.leak_target - shownBase;
+      const compScale = gap / Math.max(1, trueTotal - base);
+      let cumComp = 0;
+      const bounds = steps.slice(1).map(st => {
+        cumComp += st.pts;
+        return { upto: cumComp * compScale, label: st.label };
+      });
+      const labelFor = (cum) => (bounds.find(b => cum <= b.upto + 0.5) || bounds[bounds.length - 1] || { label: 'Aggregate' }).label;
+      const events = [{ ts: new Date(Math.min(firstMs, rampStartMs)).toISOString(), delta: shownBase, label: `+${shownBase}`, step: 'Base', score: shownBase }];
+      const nowMs = Date.now();
+      let prev = 0;
+      for (const step of sched) {
+        const ts = rampStartMs + Math.round(step.frac * pick.leak_window_sec * 1000);
+        if (ts > nowMs) break; // future chunks stay hidden — the curve never front-runs the number
+        const delta = step.cum - prev;
+        prev = step.cum;
+        events.push({ ts: new Date(ts).toISOString(), delta, label: `+${delta}`, step: labelFor(step.cum), score: shownBase + step.cum });
+      }
+      // Land exactly on today's display score (mid-ramp: partial; done: full).
+      const last = events[events.length - 1];
+      if (last.score !== displayScore) {
+        const d = displayScore - last.score;
+        if (events.length > 1) { last.delta += d; last.score = displayScore; last.label = `+${last.delta}`; }
+        else events.push({ ts: new Date(nowMs).toISOString(), delta: d, label: `+${d}`, step: 'Aggregate', score: displayScore });
+      }
+      return events;
+    }
+  }
+
+  // No breakdown yet, or a degenerate scale (non-ramping pick whose display is
+  // at/below base): a clean two-point rise so the chart still draws.
   if (!bd || trueTotal <= base || displayScore <= base) {
     const lo = Math.max(0, Math.min(base, Math.round(displayScore * 0.6)));
     return [
@@ -72,8 +116,7 @@ function buildV3Timeline(pick) {
     ];
   }
 
-  // Scale the ABOVE-BASE portion so the curve ends exactly on the display score
-  // (a mid-ramp pick shows less than its true total; the true total never ships).
+  // No ramp state (small-step picks): the component steps spread over the window.
   const scale = (displayScore - base) / (trueTotal - base);
   const n = steps.length;
   const events = [];
