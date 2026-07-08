@@ -1,0 +1,373 @@
+<title>The CappingAlpha Score: Owner's Playbook</title>
+<style>
+  :root {
+    --bg: #F7F4EE; --panel: #FFFFFF; --panel2: #EFEBE2;
+    --ink: #1D2433; --muted: #5C6577; --line: #D9D3C6;
+    --gold: #96731D; --gold-soft: #F0E5C9;
+    --win: #2E7D4F; --loss: #B34A4A;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --serif: Charter, Georgia, "Times New Roman", serif;
+    --cond: "Avenir Next Condensed", "HelveticaNeue-CondensedBold", "Arial Narrow", "Roboto Condensed", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0E1320; --panel: #161D2E; --panel2: #1C2437;
+      --ink: #E8ECF5; --muted: #8A93A8; --line: #2A3346;
+      --gold: #E0B04A; --gold-soft: #2A2412;
+      --win: #4CAF77; --loss: #D97070;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1320; --panel: #161D2E; --panel2: #1C2437;
+    --ink: #E8ECF5; --muted: #8A93A8; --line: #2A3346;
+    --gold: #E0B04A; --gold-soft: #2A2412;
+    --win: #4CAF77; --loss: #D97070;
+  }
+  :root[data-theme="light"] {
+    --bg: #F7F4EE; --panel: #FFFFFF; --panel2: #EFEBE2;
+    --ink: #1D2433; --muted: #5C6577; --line: #D9D3C6;
+    --gold: #96731D; --gold-soft: #F0E5C9;
+    --win: #2E7D4F; --loss: #B34A4A;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--serif); margin: 0; line-height: 1.65; font-size: 17px; }
+  .wrap { display: flex; max-width: 1180px; margin: 0 auto; gap: 40px; padding: 0 20px; }
+  nav.toc { width: 240px; flex: 0 0 auto; position: sticky; top: 0; align-self: flex-start; max-height: 100vh; overflow-y: auto; padding: 36px 0 24px; }
+  main { flex: 1; min-width: 0; max-width: 720px; padding: 36px 0 90px; }
+
+  .brand { font-family: var(--cond); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; font-size: 14px; color: var(--gold); margin-bottom: 4px; }
+  .toc-title { font-family: var(--cond); font-weight: 800; font-size: 21px; line-height: 1.15; margin-bottom: 18px; text-wrap: balance; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  nav.toc li { border-bottom: 1px solid var(--line); }
+  nav.toc a { display: flex; gap: 10px; padding: 9px 4px; color: var(--muted); text-decoration: none; font-family: var(--cond); font-size: 14.5px; letter-spacing: .01em; }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); outline: none; }
+  nav.toc a.active { color: var(--gold); }
+  nav.toc .n { font-family: var(--mono); font-size: 12px; color: var(--gold); min-width: 18px; padding-top: 2px; }
+
+  header.hero { padding: 40px 0 8px; }
+  h1 { font-family: var(--cond); font-weight: 800; font-size: clamp(34px, 5vw, 52px); line-height: 1.02; margin: 6px 0 14px; letter-spacing: .005em; text-wrap: balance; }
+  .kicker { font-family: var(--cond); text-transform: uppercase; letter-spacing: .14em; font-size: 13px; color: var(--gold); font-weight: 700; }
+  .dek { font-size: 19px; color: var(--muted); max-width: 60ch; margin: 0; }
+  .meta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 18px; }
+
+  section { margin-top: 64px; scroll-margin-top: 24px; }
+  .chap { display: flex; align-items: baseline; gap: 14px; border-bottom: 3px solid var(--ink); padding-bottom: 8px; margin-bottom: 22px; }
+  .chap .num { font-family: var(--mono); color: var(--gold); font-size: 15px; font-weight: 700; }
+  h2 { font-family: var(--cond); font-weight: 800; font-size: 30px; margin: 0; letter-spacing: .01em; text-wrap: balance; }
+  h3 { font-family: var(--cond); font-weight: 700; font-size: 20px; margin: 30px 0 8px; }
+  p { margin: 0 0 16px; max-width: 66ch; }
+  .note { background: var(--gold-soft); border-left: 3px solid var(--gold); padding: 12px 16px; margin: 20px 0; max-width: 66ch; font-size: 15.5px; }
+  .note b { color: var(--gold); }
+
+  table { border-collapse: collapse; width: 100%; margin: 18px 0 24px; font-size: 15px; }
+  th { font-family: var(--cond); text-transform: uppercase; letter-spacing: .06em; font-size: 12px; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--ink); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+
+  /* ingredient cards with range meters */
+  .ing { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px 20px 16px; margin: 0 0 14px; }
+  .ing-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .ing-name { font-family: var(--cond); font-weight: 800; font-size: 18px; }
+  .ing-range { font-family: var(--mono); font-size: 13px; color: var(--gold); font-weight: 700; }
+  .meter { height: 6px; background: var(--panel2); border-radius: 3px; margin: 10px 0 12px; position: relative; overflow: hidden; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold); border-radius: 3px; }
+  .ing p { font-size: 15.5px; margin-bottom: 6px; }
+  .ing p:last-child { margin-bottom: 0; }
+
+  /* bet-slip ledger */
+  .slip { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; max-width: 480px; margin: 22px 0; overflow: hidden; }
+  .slip-head { background: var(--panel2); padding: 12px 18px; font-family: var(--cond); font-weight: 800; font-size: 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .slip-head .tag { font-family: var(--mono); font-size: 11px; color: var(--muted); font-weight: 400; }
+  .slip-rows { padding: 8px 18px 14px; }
+  .slip-row { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 15px; }
+  .slip-row:last-child { border-bottom: none; }
+  .slip-row .lbl { color: var(--muted); }
+  .slip-row .lbl b { color: var(--ink); font-weight: 600; }
+  .slip-row .val { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; }
+  .slip-total { border-top: 2px solid var(--ink); display: flex; justify-content: space-between; padding: 12px 18px; font-family: var(--cond); font-weight: 800; font-size: 18px; }
+  .slip-total .val { font-family: var(--mono); color: var(--gold); }
+  .gold-badge { display: inline-block; background: var(--gold); color: var(--bg); font-family: var(--cond); font-weight: 800; font-size: 11px; letter-spacing: .08em; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
+  .silver-badge { display: inline-block; background: var(--muted); color: var(--bg); font-family: var(--cond); font-weight: 800; font-size: 11px; letter-spacing: .08em; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
+
+  .timeline { list-style: none; margin: 18px 0; padding: 0; max-width: 66ch; }
+  .timeline li { display: flex; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+  .timeline .t { font-family: var(--mono); font-size: 13px; color: var(--gold); font-weight: 700; min-width: 88px; padding-top: 2px; white-space: nowrap; }
+
+  dl.gloss { max-width: 66ch; margin: 18px 0; }
+  dl.gloss dt { font-family: var(--cond); font-weight: 800; font-size: 16px; margin-top: 16px; }
+  dl.gloss dd { margin: 2px 0 0; font-size: 15.5px; color: var(--muted); }
+  dl.gloss dd b { color: var(--ink); }
+
+  .pill { display: inline-block; font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); border-radius: 3px; padding: 1px 7px; background: var(--panel); white-space: nowrap; }
+  .win { color: var(--win); font-weight: 700; }
+  .loss { color: var(--loss); font-weight: 700; }
+
+  @media (max-width: 860px) {
+    .wrap { flex-direction: column; gap: 0; }
+    nav.toc { position: static; width: 100%; max-height: none; padding-bottom: 0; }
+    main { padding-top: 10px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Table of contents">
+  <div class="brand">CappingAlpha</div>
+  <div class="toc-title">How the score works, front to back</div>
+  <ol>
+    <li><a href="#big-picture"><span class="n">1</span>The big picture</a></li>
+    <li><a href="#sources"><span class="n">2</span>Where picks come from</a></li>
+    <li><a href="#recipe"><span class="n">3</span>The score recipe</a></li>
+    <li><a href="#ratings"><span class="n">4</span>How a capper earns points</a></li>
+    <li><a href="#consensus"><span class="n">5</span>Consensus, the new way</a></li>
+    <li><a href="#reveal"><span class="n">6</span>The reveal</a></li>
+    <li><a href="#tiers"><span class="n">7</span>Gold, silver, the record</a></li>
+    <li><a href="#day"><span class="n">8</span>A day in the life</a></li>
+    <li><a href="#brewers"><span class="n">9</span>Worked example: the Brewers</a></li>
+    <li><a href="#glossary"><span class="n">10</span>Glossary</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="kicker">Owner's Playbook · Algorithm v3</div>
+  <h1>How a pick earns its number</h1>
+  <p class="dek">Every pick on the board carries a score from 45 to about 135. This is the complete story of where that number comes from, in plain betting language. No formulas required, though the real ones are here when you want them.</p>
+  <div class="meta">Current as of July 8, 2026 · reflects the resume-stacking consensus and the chunked reveal shipped today</div>
+</header>
+
+<section id="big-picture">
+  <div class="chap"><span class="num">01</span><h2>The big picture</h2></div>
+  <p>The score answers one question: <b>how much verified evidence stands behind this side of this game today?</b> Not hype, not follower counts, not which chat room it appeared in. Evidence means graded results in our own ledger.</p>
+  <p>Three rules shape everything underneath:</p>
+  <table>
+    <tr><th>Rule</th><th>What it means</th></tr>
+    <tr><td><b>Credibility is earned</b></td><td>Every capper, expert, wallet, and source starts near zero and earns points only through picks we graded ourselves. A famous handle walks in as a credible newcomer, never as a star.</td></tr>
+    <tr><td><b>Points are never subtracted</b></td><td>Nothing ever removes points from a pick. When a losing capper backs a side, the penalty lands as bonus points on the <i>opposite</i> side instead (chapter 3, fade points).</td></tr>
+    <tr><td><b>One scale everywhere</b></td><td>The picks list, the game popup, the detail page, and the history archive all show the same number for the same pick. 100 or more is gold. 75 to 99 is silver.</td></tr>
+  </table>
+  <div class="note"><b>Why 45 is the floor.</b> Any real, matchable pick from any tracked source starts at 45. Everything above 45 has to be earned by the people and signals behind it. The numbers you sometimes see below 45 on the live board are picks still revealing (chapter 6), not settled scores.</div>
+</section>
+
+<section id="sources">
+  <div class="chap"><span class="num">02</span><h2>Where picks come from</h2></div>
+  <p>Four systems feed the board. All of them are free to run, and all of them are held to the same standard: we grade every pick ourselves against the final score. Nobody gets to bring their own record.</p>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Source</th><th>Who</th><th>How often we check</th><th>Notes</th></tr>
+    <tr><td><b>Discord</b></td><td>Cappers posting in the tracked channels</td><td>Instantly, the moment a message posts</td><td>An AI reader extracts the pick, the team, and the capper name from each message.</td></tr>
+    <tr><td><b>Action Network</b></td><td>About 52 public experts</td><td>Every 10 minutes during the day</td><td>Their site record is shown on profiles for context but never counts toward scoring.</td></tr>
+    <tr><td><b>Polymarket</b></td><td>Top 50 traders by lifetime profit</td><td>Every 15 minutes</td><td>Real money positions of 200 dollars or more on game markets count as picks. Bet size versus their usual is logged for future study.</td></tr>
+    <tr><td><b>Covers</b></td><td>Top 50 contest players (King of Covers)</td><td>Every 30 minutes</td><td>Contest picks lock at game start, so pending picks are provably pregame.</td></tr>
+  </table>
+  </div>
+  <h3>House rules for every source</h3>
+  <p><b>Pregame only.</b> A pick counts for the board only if the source's own timestamp is before the game started. Anything placed mid game is kept for the capper's record but never touches the board.</p>
+  <p><b>One person, one voice.</b> If the same capper shows up on the same side of the same game from two systems, that is one pick with two receipts, not two picks. The systems can never stack points by echoing each other.</p>
+</section>
+
+<section id="recipe">
+  <div class="chap"><span class="num">03</span><h2>The score recipe</h2></div>
+  <p>Seven ingredients, all additive. The width of each bar shows how much of the total that ingredient can contribute at most.</p>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Base</span><span class="ing-range">45, flat</span></div>
+    <div class="meter"><i style="width:45%"></i></div>
+    <p>Every valid pick starts here, from any source, any room, any capper. The old system where the channel decided the points is gone.</p>
+    <p><b>The base is not a signal, and it adds nothing to accuracy on purpose.</b> A number given to every pick equally can never change which pick ranks above which. All of the accuracy lives in the ingredients below, the ones that differ between picks. The base only sets where the whole population sits against the fixed tier lines: it was chosen so that an elite capper's full resume plus the sport bonus lands right at gold (45 + 55 + 5 is just past 100), and an unknown's pick sits near 50, never near silver. Change the base and you relabel the axis, not the rankings.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Advocate resume</span><span class="ing-range">0 to 55</span></div>
+    <div class="meter"><i style="width:55%"></i></div>
+    <p>The single biggest ingredient. The <b>advocate</b> is the strongest voice backing the pick: either the best capper on it, or the source itself acting as a pseudo-capper (chapter 4). Their resume points in <i>this sport</i> get added in full.</p>
+    <p>Only the strongest voice counts here. Everyone else contributes through consensus below.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Consensus</span><span class="ing-range">0 to 30</span></div>
+    <div class="meter"><i style="width:30%"></i></div>
+    <p>What the <i>other</i> backers add. As of today, each additional capper contributes 60 percent of their own resume, with each extra voice tapering. Full detail in chapter 5.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Market signals</span><span class="ing-range">0 to 8</span></div>
+    <div class="meter"><i style="width:8%"></i></div>
+    <p>Three small, independent checks against real markets: prediction markets pricing this side higher than the sportsbook implies (up to 5), the betting line having moved toward this side since morning (2), and 65 percent or more of public tickets sitting on the <i>other</i> side (1). Deliberately small caps for now. The full values are logged so their weights can be re-fit on evidence later.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Side lean</span><span class="ing-range">0 to 5</span></div>
+    <div class="meter"><i style="width:5%"></i></div>
+    <p>The replacement for the old automatic home team bonus. Each night the system measures whether home or away sides have actually been more profitable per sport over the last 120 days (minimum 100 graded picks each way) and leans that direction. Tennis and golf are excluded because their home and away labels are just listing order.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Sport bonus</span><span class="ing-range">0 or 5</span></div>
+    <div class="meter"><i style="width:5%"></i></div>
+    <p>A flat 5 for the major markets: MLB, NBA, NFL, NCAAF, CBB, NHL, tennis, golf, soccer. WNBA currently gets no sport bonus.</p>
+  </div>
+
+  <div class="ing">
+    <div class="ing-head"><span class="ing-name">Fade points</span><span class="ing-range">0 to 8, plus offset</span></div>
+    <div class="meter"><i style="width:8%"></i></div>
+    <p>When a capper on the official fade list (chapter 4) backs one side, the <i>opposite</i> side receives 3 to 8 bonus points. Scaled by how much we have seen that capper in this sport, so a losing MLB record fades MLB picks but says almost nothing about their rare NBA pick. If a proven capper is standing on the faded side, that side gets an offsetting bonus too. Nothing is ever taken away from anyone.</p>
+  </div>
+
+  <div class="note"><b>The totals gate.</b> One extra check for over/under picks only: a pick cannot be tracked as gold if its advocate has a losing record specifically on totals. Board totals have historically bled money, so gold totals require an advocate who has actually won them.</div>
+</section>
+
+<section id="ratings">
+  <div class="chap"><span class="num">04</span><h2>How a capper earns points</h2></div>
+  <p>Every graded pick lands in a permanent ledger that survives the daily reset. Each night at 5:20am the system recomputes every capper's standing from that full ledger. Three ideas drive the math:</p>
+  <h3>1. Profit, not win percentage</h3>
+  <p>Records are measured in <b>units</b>: profit at the actual odds of each bet. Winning 55 percent of coin flips at heavy juice can lose money; a 45 percent record on underdogs can win it. Units capture that, win percentage alone does not.</p>
+  <h3>2. Skepticism that fades with volume</h3>
+  <p>A raw record gets blended with a skeptical baseline before it earns anything, roughly like adding 25 imaginary break-even picks to everyone's ledger. A 10-1 heater barely moves the needle. A 60-40 run over 100 picks moves it a lot. As real volume grows, the imaginary picks matter less and the true record shines through. This is why a hot start cannot fake its way to a big rating.</p>
+  <h3>3. Sport by sport</h3>
+  <p>Points are earned per sport. A capper who crushes MLB carries a big MLB resume and a small one everywhere else. Their overall career still matters as a trust multiplier: a proven long-term winner gets more benefit of the doubt on a newer sport, a long-term loser gets less.</p>
+
+  <div class="tablewrap">
+  <table>
+    <tr><th>Standing</th><th>Requirement</th><th>What it means</th></tr>
+    <tr><td><span class="pill">TRACKING</span></td><td class="num">under 10 graded</td><td>Nearly all rating credit withheld. Add points at the minimum floor.</td></tr>
+    <tr><td><span class="pill">BUILDING</span></td><td class="num">10 to 24</td><td>A rating exists but is heavily shrunk toward break even.</td></tr>
+    <tr><td><span class="pill">RATED</span></td><td class="num">25 or more</td><td>Enough volume for a meaningful rating.</td></tr>
+    <tr><td><span class="pill">PROVEN</span></td><td class="num">50 or more, profitable</td><td>The formula's highest trust. These are the cappers who can carry a pick to gold alone.</td></tr>
+    <tr><td><span class="pill loss">FADE WATCH</span></td><td class="num">25+, roughly -8% or worse</td><td>Flagged, no scoring effect yet. Could still be variance.</td></tr>
+    <tr><td><span class="pill loss">FADE ACTIVE</span></td><td class="num">40+, roughly -10% or worse</td><td>Their picks now add points to the opposite side.</td></tr>
+  </table>
+  </div>
+  <h3>Sources are cappers too</h3>
+  <p>Each channel and each system (the pod thread, the community room, Action Network as a whole, Polymarket as a whole) is tracked as its own pseudo-capper and earns advocate points through the exact same formula. A room whose anonymous picks win builds a resume just like a person does. That is the entire replacement for the old fixed channel points.</p>
+</section>
+
+<section id="consensus">
+  <div class="chap"><span class="num">05</span><h2>Consensus, the new way</h2></div>
+  <p>Changed today, and worth understanding precisely. The question consensus answers: <b>when several tracked cappers independently land on the same side, how much extra is that agreement worth?</b></p>
+  <p>The old answer gave each joiner a small score capped at 8, mostly rewarding how <i>many</i> voices piled on. The replay showed that was backwards: picks that reached gold mainly through that kind of crowding won only 38 percent. Crowd size is not evidence. Credibility is.</p>
+  <h3>The new rule</h3>
+  <p>Each additional capper on the pick contributes <b>60 percent of their own resume</b> in that sport. Voices are counted strongest first, and each extra voice counts 60 percent as much as the one before it. The total is capped at 30. Two floors and one gate stay in place:</p>
+  <table>
+    <tr><th>Case</th><th>Contribution</th></tr>
+    <tr><td>Proven capper with a 40 resume joins</td><td class="num">+24</td></tr>
+    <tr><td>Solid capper with a 20 resume joins</td><td class="num">+12</td></tr>
+    <tr><td>Unknown capper, no graded record yet</td><td class="num">+2 (the floor)</td></tr>
+    <tr><td>Capper on the fade list joins</td><td class="num">0, always</td></tr>
+  </table>
+  <p>So your instinct from the Brewers board is now literally the formula: a hypothetical CeeJ Sports carrying a strong 10-1-earned resume would add real points, roughly 15 to 25 depending on volume, instead of half a point. Today he adds 2, because today his record with us is empty. The points arrive exactly when the proof does.</p>
+  <div class="note"><b>Why the replay endorsed this.</b> Golds driven by the old consensus: 38 percent wins, badly unprofitable. Golds driven by resume-stacking consensus: 56 percent wins, strongly profitable. Same number of golds per day. Agreement among proven winners is signal; agreement among strangers is noise.</div>
+</section>
+
+<section id="reveal">
+  <div class="chap"><span class="num">06</span><h2>The reveal</h2></div>
+  <p>The true score updates internally the instant anything changes. What members <i>see</i> is deliberately different: any jump bigger than 25 points reveals in <b>2 to 5 random-sized chunks at random times</b>. A pick worth 85 might appear at 60, sit for a few minutes, jump 9, then 12, then land its last 4. The chunk schedule is generated per pick, so no two picks climb the same way, and the big number and the conviction curve on the detail page replay the exact same steps. One story, two views.</p>
+  <h3>The clock matters</h3>
+  <ul class="timeline" style="list-style:none">
+    <li><span class="t">3+ hours out</span><span>Leisurely reveal, 5 to 30 minutes. There is time to be dramatic.</span></li>
+    <li><span class="t">1 to 3 hours</span><span>Fast reveal, 90 seconds to 5 minutes. The window to act is shrinking.</span></li>
+    <li><span class="t">Under 1 hour</span><span>Instant. Members always get the full number with a real window to place the bet.</span></li>
+  </ul>
+  <p>Every reveal finishes at least 3 minutes before first pitch, tip, or kick. And the reveal only ever climbs. Nothing shown ever goes down.</p>
+  <p><b>Why it exists:</b> a score that jumps 40 points the instant a top capper posts is a free relay service for anyone screenshotting the board. The climb keeps the edge inside the product while still getting members the full picture in time to use it.</p>
+</section>
+
+<section id="tiers">
+  <div class="chap"><span class="num">07</span><h2>Gold, silver, and the record</h2></div>
+  <table>
+    <tr><th>Tier</th><th>Line</th><th>Treatment</th></tr>
+    <tr><td><span class="gold-badge">Gold</span></td><td class="num">100+</td><td>The tracked tier. Saved permanently, graded publicly, and it is the record the site stands on. Totals must also pass the totals gate.</td></tr>
+    <tr><td><span class="silver-badge">Silver</span></td><td class="num">75 to 99</td><td>Styled on the board so strong picks stand out. Never tracked, never part of the public record.</td></tr>
+    <tr><td>Archive</td><td class="num">50+</td><td>Quietly saved into the permanent pick history for research and capper grading. Not a public tier.</td></tr>
+  </table>
+  <p>Gold is intentionally hard. Right now the board produces roughly one to two golds a day, arriving in bunches: quiet days with none, busy slates with four or five. As the Action Network, Polymarket, and Covers people build graded resumes over the coming weeks, both the advocate and consensus ingredients grow, and the target is a sustained average in the 1 to 10 a day band without lowering the bar.</p>
+  <p>A standing alarm watches the gold tier's trailing 30-day record. If gold ever stops beating the old system's benchmark, that alarm is the signal to recalibrate, and it is checked on real results, not vibes.</p>
+</section>
+
+<section id="day">
+  <div class="chap"><span class="num">08</span><h2>A day in the life</h2></div>
+  <ul class="timeline">
+    <li><span class="t">12:30am ET</span><span>The pick cycle opens. Overnight posts count toward the coming day.</span></li>
+    <li><span class="t">4:58am</span><span>Final grading pass for late West Coast games, then the daily reset wipes the board. Permanent ledgers (capper history, pick history, gold record) are never touched.</span></li>
+    <li><span class="t">5:00am</span><span>Morning build: game slate from ESPN, betting lines, the six pick slots per game, then a full re-scan of overnight messages.</span></li>
+    <li><span class="t">5:05am</span><span>Source refresh: Action Network roster, Polymarket wallet list, Covers contestants.</span></li>
+    <li><span class="t">5:20am</span><span>The nightly ratings recompute. Every capper and every source pseudo-capper gets fresh resume points, tiers, and fade flags from the full graded ledger. This is the moment yesterday's results become today's scoring power.</span></li>
+    <li><span class="t">All day</span><span>Discord picks land instantly. Action Network polls every 10 minutes, Polymarket every 15, Covers every 30. Every arrival rescores its pick slot and, if needed, starts a reveal.</span></li>
+    <li><span class="t">4:00pm</span><span>Afternoon line refresh for evening games.</span></li>
+    <li><span class="t">Every 5 min</span><span>Live scores update and finished games get graded, feeding straight back into capper ledgers.</span></li>
+  </ul>
+</section>
+
+<section id="brewers">
+  <div class="chap"><span class="num">09</span><h2>Worked example: the Brewers gold</h2></div>
+  <p>The July 8 pick you flagged, scored exactly as the engine saw it. Docs 11th Hour, a hot MLB capper, was the advocate. Four Action Network experts backed the same side, all with empty ledgers so far.</p>
+  <div class="slip">
+    <div class="slip-head"><span>Milwaukee Brewers ML -131</span><span class="tag">MLB · Jul 8</span></div>
+    <div class="slip-rows">
+      <div class="slip-row"><span class="lbl">Base <b>(every pick)</b></span><span class="val">45</span></div>
+      <div class="slip-row"><span class="lbl">Advocate resume <b>Docs 11th Hour, MLB</b></span><span class="val">+43</span></div>
+      <div class="slip-row"><span class="lbl">Consensus <b>4 AN experts, unrated</b></span><span class="val">+4</span></div>
+      <div class="slip-row"><span class="lbl">Market signals <b>prediction market edge</b></span><span class="val">+2</span></div>
+      <div class="slip-row"><span class="lbl">Side lean <b>away, MLB</b></span><span class="val">+1</span></div>
+      <div class="slip-row"><span class="lbl">Sport bonus <b>MLB</b></span><span class="val">+5</span></div>
+    </div>
+    <div class="slip-total"><span>Total <span class="gold-badge">Gold</span></span><span class="val">100</span></div>
+  </div>
+  <p>Now the same pick a month from now, if two of those Action Network experts have graded out well (say resumes of 30 and 20) while the others stay unproven:</p>
+  <div class="slip">
+    <div class="slip-head"><span>The same pick, matured</span><span class="tag">hypothetical</span></div>
+    <div class="slip-rows">
+      <div class="slip-row"><span class="lbl">Base + advocate + signals + sport <b>(as before)</b></span><span class="val">96</span></div>
+      <div class="slip-row"><span class="lbl">Joiner 1 <b>resume 30 × 60%</b></span><span class="val">+18</span></div>
+      <div class="slip-row"><span class="lbl">Joiner 2 <b>resume 20 × 60% × taper</b></span><span class="val">+7</span></div>
+      <div class="slip-row"><span class="lbl">Joiners 3 and 4 <b>still unrated</b></span><span class="val">+1</span></div>
+    </div>
+    <div class="slip-total"><span>Total <span class="gold-badge">Gold</span></span><span class="val">122</span></div>
+  </div>
+  <p>That is the 120 to 125 you were feeling for this pick, and the system gets there the honest way: when the confirmers have receipts, not before.</p>
+</section>
+
+<section id="glossary">
+  <div class="chap"><span class="num">10</span><h2>Glossary</h2></div>
+  <dl class="gloss">
+    <dt>ML (moneyline)</dt><dd>A bet on who wins the game, no point spread involved. Soccer moneylines have three outcomes; a draw grades both sides as losses.</dd>
+    <dt>Spread</dt><dd>A bet on the margin of victory. Brewers -1.5 means they must win by 2 or more.</dd>
+    <dt>O/U (over/under, totals)</dt><dd>A bet on combined points scored, over or under a line like 8.5. The line is the number; the <b>juice</b> is the price you pay to bet it (often -110 or -115).</dd>
+    <dt>Odds, American</dt><dd>-131 means risk 131 to win 100. +150 means risk 100 to win 150. Negative numbers are favorites.</dd>
+    <dt>Units</dt><dd>Profit measured in equal-sized bets at real odds. The site's honest currency for records: it accounts for whether wins came on favorites or underdogs.</dd>
+    <dt>ROI (return on investment)</dt><dd>Units won divided by units risked, as a percentage. A +8% ROI capper makes 8 cents per dollar bet over time.</dd>
+    <dt>Shrunk record (blend)</dt><dd>A capper's ROI after mixing in a skeptical baseline of imaginary break-even picks. Small samples get pulled hard toward zero; big samples earn their true number.</dd>
+    <dt>Resume points</dt><dd>The 0 to 55 score a capper carries per sport, recomputed nightly from their shrunk record, volume, and career trust. The main input to pick scoring.</dd>
+    <dt>Advocate</dt><dd>The strongest single voice on a pick: best capper or the source pseudo-capper. Their resume adds in full.</dd>
+    <dt>Joiner</dt><dd>Any other capper backing the same pick. Joiners add 60 percent of their own resume, tapered, through consensus.</dd>
+    <dt>Source entity</dt><dd>A channel or system tracked as its own pseudo-capper (for example the pod thread, or Action Network as a whole). Earns advocate points through the same nightly formula as a person.</dd>
+    <dt>Fade</dt><dd>Betting against someone. A fade-active capper's picks add points to the opposite side of whatever they back.</dd>
+    <dt>Slot</dt><dd>One of six bettable sides per game the board pre-creates: home ML, away ML, home spread, away spread, over, under. Picks attach to slots.</dd>
+    <dt>Mention</dt><dd>One capper backing one slot, from any source. A slot's score recomputes on every new mention.</dd>
+    <dt>Leak rule / reveal</dt><dd>The chunked climb from chapter 6. The public number rises in random steps and finishes before game start; the true score stays internal until revealed.</dd>
+    <dt>Conviction curve</dt><dd>The score-over-time chart on a pick's detail page. Replays the exact reveal steps the big number walked.</dd>
+    <dt>Steam</dt><dd>The betting line moving toward a side since morning, usually meaning real money arrived on it.</dd>
+    <dt>Contrarian</dt><dd>Backing the side most public tickets are against. Historically the public loses slightly more than it wins.</dd>
+    <dt>Notional</dt><dd>The dollar size of a Polymarket trade. Each wallet's bet size versus their own usual is logged today, worth zero points until tested.</dd>
+    <dt>Grading</dt><dd>Marking a pick win, loss, or push from the final score. We grade everything ourselves; no source's claimed record is ever trusted.</dd>
+  </dl>
+</section>
+</main>
+</div>
+
+<script>
+  // TOC active-state tracking
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const secs = links.map(a => document.querySelector(a.getAttribute('href')));
+  const obs = new IntersectionObserver((ents) => {
+    for (const e of ents) {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id));
+      }
+    }
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  secs.forEach(s => s && obs.observe(s));
+</script>
