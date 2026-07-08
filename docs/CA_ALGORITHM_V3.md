@@ -793,6 +793,27 @@ Post-ship backlog (not in these phases): wave-2 prose sources (Telegram, Reddit,
 new Discord servers), Kalshi social leaderboard, BettingPros/Tallysight revisits,
 signal weight re-fit after ~6 weeks of football.
 
+## Amendment 2026-07-08 (evening): resume-stacking consensus + chunked reveal
+
+Jack reviewed the live board (Brewers ML gold, 4 AN joiners at +0.5 each) and asked
+why proven confirmers add so little. Replay answer: the join-points formula was
+actively bad — consensus-driven golds (consensus >= 10) under it ran 38% win,
+-20% ROI (crowd size sneaking back in). Reworked, replay-verified:
+
+- CONSENSUS = RESUME STACKING: each joining capper contributes 60% of their OWN
+  sport resume (JOIN_RESUME_FRAC), extra voices taper by 0.6 each (JOIN_TAPER),
+  cap 30 (CONSENSUS_CAP). Unrated joiners keep the +2 floor; fade-list joiners
+  still add 0. A proven 40-resume confirmer now adds ~24; four unknown AN
+  experts still add ~4 total until their records earn more. Replay: gold 59% /
+  +10.6% ROI at 1.17/day, consensus-driven golds 56% / +13.1%.
+- LEAK RULE v2 (chunked reveal): the display gap reveals in 2-5 seeded random
+  chunks (each <=25) instead of a smooth line; window by urgency (>3h: 5-30 min,
+  1-3h: 90-300s, <1h: instant; always done 3 min pre-start). leakSchedule() is
+  deterministic per ramp and shared by the picks list AND the conviction curve,
+  so the number and the chart replay the identical path.
+- Solo picks unchanged: base + advocate resume + signals (solo official picks
+  remain the best-performing bucket; crowd size is never the primary driver).
+
 ## Amendment 2026-07-08: wave-1 sources graduated to board scoring
 
 Jack's call (one day after the v17.1.3 ship): wave-1 picks now add points to the

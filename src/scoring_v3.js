@@ -19,7 +19,14 @@ const ratingsLib = require('./capper_ratings');
 
 // ── Constants (starting values; Phase-5 backtest fits the final numbers) ──────
 const BASE = 45;  // calibrated 2026-07-07 (backtest grid: 1.06 gold/day at the conservative floor)
-const CONSENSUS_CAP = 12;
+// Consensus rework (Jack 2026-07-08, replay-verified): joiners contribute a
+// FRACTION OF THEIR OWN RESUME, not a capped join score. Under the old join
+// points the consensus-driven golds ran 38% / -20% ROI (crowd size sneaking
+// back in); resume-stacking flips them to 56% / +13% — big consensus now only
+// happens when PROVEN cappers confirm. Extra voices taper by 0.6 each.
+const CONSENSUS_CAP = 30;
+const JOIN_RESUME_FRAC = 0.6;
+const JOIN_TAPER = 0.6;
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const SPORT_BONUS = 5;
@@ -58,15 +65,15 @@ function mentionsFor(pickId) {
   } catch (_) { return []; }
 }
 
-// Join points for one additional capper (doc formula)
+// One joining capper's raw contribution: a fraction of their own sport resume.
+// No record yet = the floor (+2, presence noted, nothing pretended). Fade-list
+// joiners add 0 — agreement from a losing capper is not evidence.
 function joinPointsFor(name, sport) {
   const o = overallRow(name);
   if (!o) return 2;
   if (o.fade === 'active' || o.fade === 'watch') return 0;
-  if (o.picks < 10) return 2;
   const s = sportRow(name, sport);
-  const blend = s ? s.blend : o.blend;
-  return Math.max(2, Math.min(8, Math.round(3 + 120 * Math.max(0, blend || 0))));
+  return Math.max(2, (s?.resume_points ?? 0) * JOIN_RESUME_FRAC);
 }
 
 // ── Opposite slot (fade target) ───────────────────────────────────────────────
@@ -236,10 +243,10 @@ function computeV3(pickId) {
   let consensus = 0;
   const joinLog = [];
   joinRaw.forEach((j, i) => {
-    const factor = i === 0 ? 1 : i === 1 ? 0.5 : 0.25;
+    const factor = Math.pow(JOIN_TAPER, i);
     const p = j.pts * factor;
     consensus += p;
-    joinLog.push({ ...j, applied: +p.toFixed(1) });
+    joinLog.push({ name: j.name, pts: +j.pts.toFixed(1), applied: +p.toFixed(1) });
   });
   consensus = Math.min(CONSENSUS_CAP, Math.round(consensus));
 
@@ -278,7 +285,7 @@ function computeV3(pickId) {
       // what this slot's fade-active capper sent to the opposite side
       const opp = oppositeSlot(pick);
       const sentPts = opp ? fadePointsInto(opp, sport).pts : 0;
-      offset = Math.min(sentPts, joinPointsFor(proven.name, sport));
+      offset = Math.round(Math.min(sentPts, joinPointsFor(proven.name, sport)));
     }
   }
 
