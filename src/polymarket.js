@@ -20,6 +20,10 @@ const TAG_MAP = {
   // by player last name, same as team nicknames.
   ATP:   'tennis',
   WTA:   'tennis',
+  // One umbrella tag for every competition (World Cup, EPL, MLS, ...). The tag
+  // holds hundreds of events, so soccer fetches volume-ordered pages — real match
+  // events carry the volume; futures and props boards sink.
+  Soccer: 'soccer',
 };
 
 // Sync every game with a Polymarket tag, any status — live and just-finished games
@@ -59,8 +63,8 @@ async function _syncGames(games) {
       // The 'tennis' tag has 100+ active events (and the API caps at 100/page),
       // so page through several to cover today's AND upcoming matches. Free API,
       // generous rate limit — extra pages are cheap.
-      const pages  = tag === 'tennis' ? 6 : 1;
-      const events = await fetchEvents(tag, pages);
+      const pages  = tag === 'tennis' ? 6 : tag === 'soccer' ? 4 : 1;
+      const events = await fetchEvents(tag, pages, tag === 'soccer');
       if (!events.length) continue;
 
       // Accumulate markets across events — first match per type wins
@@ -74,6 +78,11 @@ async function _syncGames(games) {
         if (tl.includes('series') || tl.includes('champion') || tl.includes('total games') ||
             tl.includes('conference') || tl.includes('mvp') || tl.includes('award') ||
             tl.includes('retire') || tl.includes('play-in') || tl.includes('season')) continue;
+
+        // Soccer: only true match events. The tag also carries futures ("...: Winner",
+        // "Stage of Elimination") and derivative boards ("X vs. Y - Player Props",
+        // "- Exact Score", "- Total Corners"), which share the team names.
+        if (tag === 'soccer' && (!/ vs\.? /i.test(ev.title || '') || / - /.test(ev.title || ''))) continue;
 
         const matched = matchGameToEvent(ev, sportGames);
         if (!matched) continue;
@@ -100,11 +109,13 @@ async function _syncGames(games) {
 }
 
 // Fetch up to `pages` pages (100 events each) for a tag, concatenated.
-async function fetchEvents(tag, pages = 1) {
+// byVolume orders pages most-traded-first (soccer: main match events float up,
+// so the merged "first market per type wins" pass prefers them over props).
+async function fetchEvents(tag, pages = 1, byVolume = false) {
   const out = [];
   for (let p = 0; p < pages; p++) {
     try {
-      const url = `https://gamma-api.polymarket.com/events?tag_slug=${tag}&active=true&closed=false&limit=100&offset=${p * 100}`;
+      const url = `https://gamma-api.polymarket.com/events?tag_slug=${tag}&active=true&closed=false&limit=100&offset=${p * 100}${byVolume ? '&order=volume&ascending=false' : ''}`;
       const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!r.ok) break;
       const evs = await r.json();
@@ -129,6 +140,7 @@ function extractAllMarkets(ev, game) {
   const result = {};
   const spreadCandidates = []; // collect all spread markets, pick best at end
   const totalCandidates  = []; // collect all total markets, pick the main one at end
+  const soccer3 = {};          // 3-way accumulator: { home, away, draw } yes-probs
 
   const processMarket = (q, outcomes, priceStr, vol = 0) => {
     try {
@@ -149,12 +161,27 @@ function extractAllMarkets(ev, game) {
       if (!Array.isArray(prices) || prices.length < 2) return;
       if (!Array.isArray(outs)   || outs.length < 2)   return;
 
-      // Skip "Yes"/"No" outcomes (player props or other binary questions)
-      if (outs[0] === 'Yes' || outs[0] === 'No') return;
-
       const p0 = parseFloat(prices[0]);
       const p1 = parseFloat(prices[1]);
       if (isNaN(p0) || isNaN(p1)) return;
+
+      // Soccer's 3-way moneyline arrives as three Yes/No markets on the match
+      // event ("Will X win on <date>?" x2 + "Will X vs. Y end in a draw?").
+      // Everything else Yes/No on a soccer event is a prop — dropped.
+      if ((game.sport || '').toUpperCase() === 'SOCCER' && (outs[0] === 'Yes' || outs[0] === 'No')) {
+        const yesP = outs[0] === 'Yes' ? p0 : p1;
+        if (/end in a draw/.test(ql)) {
+          soccer3.draw = yesP;
+        } else {
+          const wm = ql.match(/^will (.+?) win\b/);
+          if (wm && nameMatch(wm[1], game.home_team))      soccer3.home = yesP;
+          else if (wm && nameMatch(wm[1], game.away_team)) soccer3.away = yesP;
+        }
+        return;
+      }
+
+      // Skip "Yes"/"No" outcomes (player props or other binary questions)
+      if (outs[0] === 'Yes' || outs[0] === 'No') return;
 
       if (type === 'total') {
         // Outcomes: ["Over", "Under"] — line is in the question like "O/U 216.5".
@@ -226,6 +253,17 @@ function extractAllMarkets(ev, game) {
       (b.vol - a.vol) || (Math.abs(a.over_prob - 0.5) - Math.abs(b.over_prob - 0.5)));
     const t = totalCandidates[0];
     result.total = { over_prob: t.over_prob, under_prob: t.under_prob, line: t.line };
+  }
+
+  // Resolve the soccer 3-way: de-vig across all legs seen, keep the draw in the
+  // denominator so home+away honestly sum below 100% — same shape as kalshi.js.
+  if (!result.moneyline && soccer3.home != null && soccer3.away != null) {
+    const tot = soccer3.home + soccer3.away + (soccer3.draw || 0);
+    if (tot > 0) {
+      const ml = { home_prob: soccer3.home / tot, away_prob: soccer3.away / tot };
+      if (soccer3.draw != null) ml.draw_prob = soccer3.draw / tot;
+      result.moneyline = ml;
+    }
   }
 
   return result;

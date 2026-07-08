@@ -57,7 +57,7 @@ function formatStartLabel(actualIso, scheduledIso) {
 Object.assign(window, {
   openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
   doLogout, showForgotPassword, showLoginForm, doForgotPassword,
-  setLinesType, selectSlot, doBack,
+  setLinesType, selectSlot, doBack, gdToggleLinesGroup,
   selectHistoryTeam, openHistGame, closeHistGame,
 });
 
@@ -86,6 +86,8 @@ let _tfTeam   = 'away';       // 'away' | 'home' — local Team Form toggle
 let _tfBlockIdx = 0;          // selected offense/defense block for the active team
 let _tfBlockType = null;      // its type (e.g. 'pitching') — preserved across team switches
 const _tfCache = {};          // `${sport}:${teamId}` (team) or `T:${sport}:${player}` (tennis)
+let _gdMyBooks   = null;      // Settings -> My Sportsbooks keys; pins those rows in the lines table
+const _gdGroupOpen = {};      // lines-table group id -> user-toggled open/closed
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -107,6 +109,15 @@ async function init() {
   // no bogus "upgrade to see picks" prompts), then reconcile against /auth/me.
   if (_data.user) { state.currentUser = _data.user; updateNavAuth(); }
   await checkAuth();
+
+  // "My books" (Settings -> My Sportsbooks) pins the user's books atop the lines
+  // table. Loaded after auth so logged-out visitors never make the call; the table
+  // re-renders when it lands.
+  if (state.currentUser) {
+    fetch('/api/account').then(r => (r.ok ? r.json() : null)).then(d => {
+      if (d && Array.isArray(d.myBooks) && d.myBooks.length) { _gdMyBooks = d.myBooks; renderLines(); }
+    }).catch(() => {});
+  }
 
   // Determine initial slot from ?slot= query param, else top-scored
   _activeSlot = resolveInitialSlot();
@@ -400,6 +411,14 @@ function teamColors(game, isHome) {
   if (sport === 'ATP' || sport === 'WTA') {
     const tc = tennisColors(game);
     if (tc) return isHome ? tc.home : tc.away;
+  }
+  // Soccer national teams (World Cup, Copa America, Euros, Gold Cup): color by
+  // country like tennis. ESPN's abbr for a national side IS its country code.
+  // Club competitions fall through to the team-colors path.
+  if (sport === 'SOCCER' && /fifa|conmebol|uefa\.euro|concacaf/.test(game.league_path || '')) {
+    const code = ((isHome ? game.home_abbr : game.away_abbr) || '').toLowerCase();
+    const c = _countryColor(code);
+    if (c) return { primary: c, secondary: '' };
   }
   if (!_teamColors) return FALLBACK_COLORS;
   const abbr   = isHome
@@ -1087,6 +1106,9 @@ function renderDetailPanel() {
       awayName: teamNick(game.away_team) || game.away_short || '',
       homeName: teamNick(game.home_team) || game.home_short || '',
     },
+    // Slot key -> display label ("Reds Win", "Reds -1.5", "Over 8.5") so the
+    // pulse panel can name the pick it's reading.
+    slotLabels: Object.fromEntries(buildSlots(game).map(s => [s.key, s.label])),
     betsHtml: liveBetsInlineHtml(),
     startLabel,
     on404: () => { el.innerHTML = classicBodyHtml; },
@@ -1300,6 +1322,11 @@ function renderLines() {
     homeFn = (src) => src?.ml_home != null ? fmtOdds(src.ml_home) : null;
   }
 
+  // Soccer moneylines are 3-way: the draw leg renders as its own last column on
+  // the ML tab (display only — draw is never a pick slot).
+  const threeWay = _linesType === 'ml' && (game.sport || '').toUpperCase() === 'SOCCER';
+  const drawFn = (src) => (src?.ml_draw != null ? fmtOdds(src.ml_draw) : null);
+
   // Build delta fn for DK (prev values)
   const delta = (cur, prev) => {
     if (prev == null || cur == null) return '';
@@ -1331,7 +1358,7 @@ function renderLines() {
 
   const openGame = {
     spread_away: game.spread_away, spread_home: game.spread_home,
-    ml_away: game.ml_away,         ml_home: game.ml_home,
+    ml_away: game.ml_away,         ml_home: game.ml_home,         ml_draw: game.ml_draw,
     over_under: game.over_under,   ou_over_odds: game.ou_over_odds, ou_under_odds: game.ou_under_odds,
   };
 
@@ -1339,18 +1366,20 @@ function renderLines() {
   // books first; offshore books group after them with a visible tag (their lines
   // are shown as information only, never linked).
   const OFFSHORE = new Set(['bovada', 'betonline', 'mybookie', 'betus', 'thunderpick', 'pinnacle']);
-  const BOOK_LABEL = { draftkings: 'DraftKings', fanduel: 'FanDuel', betrivers: 'BetRivers', caesars: 'Caesars', betmgm: 'BetMGM', hardrock: 'Hard Rock', bovada: 'Bovada', betonline: 'BetOnline', pinnacle: 'Pinnacle', thunderpick: 'Thunderpick' };
+  const BOOK_LABEL = { draftkings: 'DraftKings', fanduel: 'FanDuel', betrivers: 'BetRivers', caesars: 'Caesars', betmgm: 'BetMGM', hardrock: 'Hard Rock', bet365: 'bet365', bovada: 'Bovada', betonline: 'BetOnline', pinnacle: 'Pinnacle', thunderpick: 'Thunderpick' };
   const label = (k) => BOOK_LABEL[k] || (k.charAt(0).toUpperCase() + k.slice(1));
   const offTag = `<span class="ca-lt-offshore" title="Offshore book. Line shown for information only.">offshore</span>`;
 
-  const rows = [
-    { book: 'Open (ESPN)', src: openGame,     prev: null },
-    { book: 'DraftKings',  src: dk,           prev: dk   },
-    { book: 'FanDuel',     src: fd,           prev: null },
+  const regulated = [
+    { key: 'open',       book: 'Open (ESPN)', src: openGame, prev: null },
+    { key: 'draftkings', book: 'DraftKings',  src: dk,       prev: dk   },
+    { key: 'fanduel',    book: 'FanDuel',     src: fd,       prev: null },
   ];
+  const offshore = [];
   const extraKeys = Object.keys(lines || {}).filter(k => k !== 'draftkings' && k !== 'fanduel');
-  for (const k of extraKeys.filter(k => !OFFSHORE.has(k)).sort()) rows.push({ book: label(k), src: lines[k], prev: null });
-  for (const k of extraKeys.filter(k => OFFSHORE.has(k)).sort())  rows.push({ book: `${label(k)} ${offTag}`, src: lines[k], prev: null });
+  for (const k of extraKeys.filter(k => !OFFSHORE.has(k)).sort()) regulated.push({ key: k, book: label(k), src: lines[k], prev: null });
+  for (const k of extraKeys.filter(k => OFFSHORE.has(k)).sort())  offshore.push({ key: k, book: `${label(k)} ${offTag}`, src: lines[k], prev: null });
+  const rows = [...regulated, ...offshore];
 
   const hasAny = rows.some(r => awayFn(r.src) != null || homeFn(r.src) != null);
   if (!hasAny) {
@@ -1359,7 +1388,7 @@ function renderLines() {
   }
 
   const headerHtml = `<div class="ca-lt-header-row">
-    <div>Market</div><div>${awayLabel}</div><div>${homeLabel}</div><div></div>
+    <div>Market</div><div>${awayLabel}</div><div>${homeLabel}</div>${threeWay ? '<div>Draw</div>' : ''}<div></div>
   </div>`;
 
   // Shared helpers for market rows
@@ -1393,7 +1422,7 @@ function renderLines() {
   const awayNick = game.away_short || teamNick(game.away_team) || game.away_abbr || 'Away';
   const homeNick = game.home_short || teamNick(game.home_team) || game.home_abbr || 'Home';
 
-  const rowsHtml = rows.map(r => {
+  const rowHtml = (r) => {
     const awayVal = awayFn(r.src);
     const homeVal = homeFn(r.src);
 
@@ -1431,13 +1460,15 @@ function renderLines() {
       }
     }
 
+    const drawVal = threeWay ? drawFn(r.src) : null;
     return `<div class="ca-lt-row">
       <div class="ca-lt-book">${r.book}</div>
       <div class="ca-lt-val ca-num">${awayVal != null ? awayVal : '<span class="ca-lt-na">—</span>'}${awayDelta}</div>
       <div class="ca-lt-val ca-num">${homeVal != null ? homeVal : '<span class="ca-lt-na">—</span>'}${homeDelta}</div>
+      ${threeWay ? `<div class="ca-lt-val ca-num">${drawVal != null ? drawVal : '<span class="ca-lt-na">—</span>'}</div>` : ''}
       <div class="ca-lt-row-blurb-cell">${rowBlurb}</div>
     </div>`;
-  }).join('');
+  };
 
   // ── Polymarket row ────────────────────────────────────────────────────────────
   let polyHtml = '';
@@ -1490,6 +1521,7 @@ function renderLines() {
           </div>
           ${awayCell}
           ${homeCell}
+          ${threeWay ? (cur?.moneyline?.draw_prob != null ? mktCell('', '', cur.moneyline.draw_prob) : '<div class="ca-lt-na">—</div>') : ''}
           <div class="ca-lt-row-blurb-cell">${pmBlurb}</div>
         </div>`;
       }
@@ -1541,6 +1573,9 @@ function renderLines() {
         }
 
         const vol = fmtVol(km.volume_yes);
+        // Kalshi's 3-way de-vig keeps the draw leg (moneyline.draw_prob) — show it.
+        const kalshiDrawCell = !threeWay ? ''
+          : (cur?.moneyline?.draw_prob != null ? mktCell('', '', cur.moneyline.draw_prob) : '<div class="ca-lt-na">—</div>');
         kalshiHtml = `<div class="ca-lt-row ca-lt-kalshi-row">
           <div class="ca-lt-book ca-lt-book--mkt">
             <span>Kalshi</span>
@@ -1548,13 +1583,62 @@ function renderLines() {
           </div>
           ${awayCell}
           ${homeCell}
+          ${kalshiDrawCell}
           <div class="ca-lt-row-blurb-cell">${kalshiBlurb}</div>
         </div>`;
       }
     } catch (_) {}
   }
 
-  el.innerHTML = `<div class="ca-lines-table-wrap">${headerHtml}${rowsHtml}${polyHtml}${kalshiHtml}</div>`;
+  // ── Grouped assembly: My books → Books → Public markets → Offshore, each with
+  // a colored title. With 7+ total rows the titles become collapsible dropdowns
+  // (My books + Books open by default, markets/offshore closed); under 7 rows
+  // the table renders flat with plain titles.
+  const mine = Array.isArray(_gdMyBooks) ? _gdMyBooks : [];
+  let mineN = 0;
+  const mineHtml = mine.map(k => {
+    const h = k === 'polymarket' ? polyHtml
+            : k === 'kalshi'     ? kalshiHtml
+            : (() => { const r = rows.find(x => x.key === k); return r ? rowHtml(r) : ''; })();
+    if (h) mineN++;
+    return h;
+  }).join('');
+  const hasMine = mineHtml !== '';
+
+  // The lower groups skip books already pinned under My books.
+  const restReg = hasMine ? regulated.filter(r => r.key === 'open' || !mine.includes(r.key)) : regulated;
+  const restOff = hasMine ? offshore.filter(r => !mine.includes(r.key)) : offshore;
+  const pubRows = [
+    (hasMine && mine.includes('polymarket')) ? '' : polyHtml,
+    (hasMine && mine.includes('kalshi'))     ? '' : kalshiHtml,
+  ].filter(Boolean);
+
+  const groups = [];
+  if (hasMine)          groups.push({ id: 'mine',     label: 'My books',       color: 'var(--green, #4ade80)', html: mineHtml,                       n: mineN });
+  if (restReg.length)   groups.push({ id: 'books',    label: 'Books',          color: '#3b82f6', html: restReg.map(rowHtml).join(''), n: restReg.length });
+  if (pubRows.length)   groups.push({ id: 'markets',  label: 'Public markets', color: '#a78bfa', html: pubRows.join(''),              n: pubRows.length });
+  if (restOff.length)   groups.push({ id: 'offshore', label: 'Offshore',       color: '#f59e0b', html: restOff.map(rowHtml).join(''), n: restOff.length });
+
+  const totalRows   = groups.reduce((s, g) => s + g.n, 0);
+  const collapsible = totalRows >= 7;
+  const OPEN_DEFAULT = { mine: true, books: true, markets: false, offshore: false };
+  const sect = (g) => {
+    if (!collapsible) return `<div class="ca-lt-group" style="color:${g.color};">${g.label}</div>${g.html}`;
+    const open = (g.id in _gdGroupOpen) ? _gdGroupOpen[g.id] : OPEN_DEFAULT[g.id];
+    return `<div class="ca-lt-group ca-lt-group-toggle" style="color:${g.color};" onclick="gdToggleLinesGroup('${g.id}')">
+        ${g.label}<span class="ca-lt-grp-n">${g.n}</span><span class="ca-lt-grp-chev">${open ? '▴' : '▾'}</span>
+      </div>${open ? g.html : ''}`;
+  };
+
+  const wrapCls = `ca-lines-table-wrap${threeWay ? ' three-way' : ''}`;
+  el.innerHTML = `<div class="${wrapCls}">${headerHtml}${groups.map(sect).join('')}</div>`;
+}
+
+function gdToggleLinesGroup(id) {
+  const OPEN_DEFAULT = { mine: true, books: true, markets: false, offshore: false };
+  const cur = (id in _gdGroupOpen) ? _gdGroupOpen[id] : OPEN_DEFAULT[id];
+  _gdGroupOpen[id] = !cur;
+  renderLines();
 }
 
 // ── Sentiment + Community: shared bet-type config ─────────────────────────────

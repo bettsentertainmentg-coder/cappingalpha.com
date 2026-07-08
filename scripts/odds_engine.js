@@ -42,7 +42,11 @@ if (!RELAY_SECRET || !RAILWAY_URL) {
   process.exit(1);
 }
 
-const american = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+const american = (v) => {
+  if (v === 'EVEN') return 100; // Bovada spells +100 as EVEN
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 async function getJson(url) {
   const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(15000) });
@@ -106,6 +110,32 @@ function bovadaParseEvent(sport, ev) {
   return usable ? row : null;
 }
 
+// Soccer coupon hygiene. The soccer coupon is sport-root (every competition in
+// one response), which drags in three things the league-scoped coupons never see:
+//   1. Promo groups ('Go Ahead Get Paid') — boosted off-market prices that would
+//      overwrite the real Bovada line. Promos sit directly under /soccer with no
+//      league level, i.e. a 2-element path; real leagues have 3+.
+//   2. Esoccer — videogame matches named after real clubs ("Real Madrid (EDEN) vs
+//      Bayern Munich (RESISTANCE)") that name-match real fixtures on the board.
+//   3. Meetings weeks out — the same two clubs meet again in league/cup, and the
+//      later-listed future event would overwrite today's fixture (rows match
+//      today_games by name only). Anything starting >40h out can't be on today's
+//      board, so it's dropped; live/past events stay (the live board wants them).
+//   4. Squad variants — reserve/women/youth sides carry the first team's name
+//      ("Sporting Kansas City (R)", "River Plate (W)", "Denmark U19") and play
+//      the same days; the board only tracks men's first teams, so their rows
+//      would overwrite the real fixture's line.
+const SQUAD_VARIANT = /\((?:r|w|b|res|reserves?|am)\)|\b(?:u-?\d{2}|under-?\d{2})\b|\bii\b|\bwomen\b/i;
+
+function soccerEventOk(ev, grp) {
+  const path = (ev.path && ev.path.length ? ev.path : grp.path) || [];
+  if (path.length < 3) return false;
+  if (/esoccer|e-soccer|mins play|gg league/i.test(path[0]?.description || '')) return false;
+  if (ev.startTime && ev.startTime - Date.now() > 40 * 3600 * 1000) return false;
+  if ((ev.competitors || []).some(c => SQUAD_VARIANT.test(c.name || ''))) return false;
+  return true;
+}
+
 async function fetchBovada() {
   const rows = [];
   for (const [sport, path] of Object.entries(BOVADA_SPORTS)) {
@@ -117,6 +147,7 @@ async function fetchBovada() {
       if (!Array.isArray(groups)) continue;
       for (const grp of groups) {
         for (const ev of grp.events || []) {
+          if (sport === 'Soccer' && !soccerEventOk(ev, grp)) continue;
           const row = bovadaParseEvent(sport, ev);
           if (row) rows.push(row);
         }
@@ -273,9 +304,16 @@ async function cycle() {
 
   try {
     if (all.length) {
-      const out = await relay('/admin/ingest-book-lines', { rows: all });
-      stats.stored = out.stored; stats.unmatched = out.unmatched;
-      console.log(`[odds-engine] relayed ${all.length} rows -> stored ${out.stored}, unmatched ${out.unmatched}`);
+      // storeEngineBookLines caps each POST at 800 rows and silently drops the
+      // rest; a full slate plus the soccer coupon can exceed that. Chunk under
+      // the cap so every row is considered.
+      let stored = 0, unmatched = 0;
+      for (let i = 0; i < all.length; i += 700) {
+        const out = await relay('/admin/ingest-book-lines', { rows: all.slice(i, i + 700) });
+        stored += out.stored || 0; unmatched += out.unmatched || 0;
+      }
+      stats.stored = stored; stats.unmatched = unmatched;
+      console.log(`[odds-engine] relayed ${all.length} rows -> stored ${stored}, unmatched ${unmatched}`);
     } else {
       console.log('[odds-engine] no rows this cycle');
     }

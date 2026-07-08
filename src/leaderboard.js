@@ -98,9 +98,20 @@ function statify(agg) {
 // A small minimum so a sport with only a pick or two doesn't get its own bot.
 const HOUSE_SPORT_MIN = 3;
 
+// The house record must show the SAME population as the public Track record page
+// (/results) and the CA Rankings tab, so the CappingAlpha row on the board never
+// disagrees with the record those pages print. Mirrors the threshold logic in
+// index.js: tracked tier is 100 on the v3 scale (old 65 rescaled), otherwise the
+// admin-set display threshold on the v2 scale.
+function houseThreshold() {
+  if (db.getSetting('scoring_version', 'v2') === 'v3') return 100;
+  const t = parseInt(db.getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  return Number.isFinite(t) ? t : MVP_THRESHOLD;
+}
+
 // Aggregate the tracked MVP picks (optionally one sport) into a units record.
 function houseAgg(window, sport) {
-  const params = sport ? [MVP_THRESHOLD, sport] : [MVP_THRESHOLD];
+  const params = sport ? [houseThreshold(), sport] : [houseThreshold()];
   const rows = db.prepare(`
     SELECT pick_type, result, ml_odds, ou_odds
     FROM mvp_picks
@@ -140,7 +151,7 @@ function houseEntries(window) {
     SELECT DISTINCT sport FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void') AND sport IS NOT NULL
       ${houseWindowClause(window)}
-  `).all(MVP_THRESHOLD).map(r => r.sport).filter(Boolean);
+  `).all(houseThreshold()).map(r => r.sport).filter(Boolean);
 
   for (const sp of sports) {
     const agg = houseAgg(window, sp);
@@ -194,6 +205,9 @@ function getLeaderboard(window, meId) {
   const w = ['week', 'month', 'all'].includes(window) ? window : 'week';
   const ranked = rankAll(w);
 
+  // Who the caller already follows — lets the board render inline Follow buttons.
+  const followed = meId != null ? new Set(followeeIds(meId)) : new Set();
+
   // Public board: house + public members, plus the caller's OWN row even when it's
   // private. Other people's private rows stay hidden; the caller-only inclusion is
   // safe because this is filtered per-request against meId.
@@ -206,6 +220,7 @@ function getLeaderboard(window, meId) {
       wins: u.wins, losses: u.losses, pushes: u.pushes, total_votes: u.total_votes,
       win_pct: u.win_pct, units: u.units, roi: u.roi,
       is_me: meId != null && u.user_id === meId,
+      is_following: !u.is_house && followed.has(u.user_id) ? 1 : 0,
     }));
 
   let me = null;
@@ -383,8 +398,10 @@ function getMemberProfile(userId, meId, window) {
   const isMe = meId != null && meId === userId;
   const iFollow = isFollowing(meId, userId);   // I follow them
   const followsMe = isFollowing(userId, meId); // they follow me
-  // A private member stays visible to people who already follow them (and to self).
-  if (!isPublic && !isMe && !iFollow) return { error: 'private' };
+  // A private member is visible to self and to MUTUAL follows (friends) only.
+  // A one-way follow is not enough: following is instant + approval-free, so a
+  // unilateral follow would let anyone bypass the private flag with one click.
+  if (!isPublic && !isMe && !(iFollow && followsMe)) return { error: 'private' };
 
   const { stats, chart, recentPicks, clv } = memberWindowData(userId, w);
   const counts = followCounts(userId);

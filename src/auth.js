@@ -185,8 +185,11 @@ router.post('/redeem-code', express.json(), (req, res) => {
   if (row.type === 'annual')   expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   if (row.type === 'lifetime') expires = null; // lifetime = no expiry, single-use
 
+  // Never shorten access the user already has (e.g. a day code on top of an annual).
+  const cur = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(req.session.user.id);
+  const merged = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, expires);
   db.prepare(`UPDATE users SET subscription_tier = 'code', subscription_expires = ? WHERE id = ?`)
-    .run(expires, req.session.user.id);
+    .run(merged, req.session.user.id);
 
   // Lock the code — always single-use now
   db.prepare(`UPDATE access_codes SET activated_by = ?, activated_at = datetime('now') WHERE id = ?`)
@@ -200,6 +203,20 @@ router.post('/redeem-code', express.json(), (req, res) => {
 
 // ── Stripe ────────────────────────────────────────────────────────────────────
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+
+// Never shorten access a user already paid for. A null expiry on a paying tier means
+// lifetime/comp and must never be overwritten with a dated one; otherwise keep the
+// later of the current and new expiry. Used by the day-pass grant + code redemption.
+function mergedExpiry(curTier, curExpires, newExpires) {
+  const paying = curTier && curTier !== 'free';
+  if (paying && curExpires == null) return null;   // lifetime — keep it
+  if (curExpires == null) return newExpires;        // was free — take the grant
+  if (newExpires == null) return null;              // granting lifetime
+  const cur = Date.parse(curExpires), nw = Date.parse(newExpires);
+  if (isNaN(cur)) return newExpires;
+  if (isNaN(nw))  return curExpires;
+  return nw > cur ? newExpires : curExpires;        // keep whichever lasts longer
+}
 
 const PLANS = {
   'price_1TMhkAB0ohior8iouVKseqmk': { label: 'Day Pass', mode: 'payment',      hours: 24 },
@@ -253,15 +270,31 @@ async function stripeWebhook(req, res) {
       if (!userId) return res.json({ received: true });
 
       if (session.mode === 'payment') {
-        // Day pass — 24h
-        const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-        db.prepare(`UPDATE users SET subscription_tier='paid', subscription_expires=? WHERE id=?`).run(expires, userId);
+        // Day pass — only grant on a confirmed-paid checkout (never on an
+        // incomplete/failed/processing session).
+        if (session.payment_status !== 'paid') {
+          console.warn(`[stripe] day-pass session for user ${userId} not paid (payment_status=${session.payment_status}) — skipping grant`);
+          return res.json({ received: true });
+        }
+        const cur = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id=?`).get(userId);
+        const newExp  = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        const expires = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, newExp); // never shorten a longer plan
+        // Keep a lifetime/code grant's tier; only lift a free user to 'paid'.
+        const tier = (cur?.subscription_tier && cur.subscription_tier !== 'free') ? cur.subscription_tier : 'paid';
+        db.prepare(`UPDATE users SET subscription_tier=?, subscription_expires=? WHERE id=?`).run(tier, expires, userId);
         console.log(`[stripe] Day pass granted to user ${userId}, expires ${expires}`);
 
       } else if (session.mode === 'subscription') {
         // Weekly or annual — get period end from subscription object
-        const sub     = await stripe.subscriptions.retrieve(session.subscription);
-        const expires = new Date(sub.current_period_end * 1000).toISOString();
+        const sub = await stripe.subscriptions.retrieve(session.subscription);
+        // Only grant for an active/trialing subscription.
+        if (!['active', 'trialing'].includes(sub.status)) {
+          console.warn(`[stripe] subscription ${session.subscription} for user ${userId} status=${sub.status} — skipping grant`);
+          return res.json({ received: true });
+        }
+        const newExp  = new Date(sub.current_period_end * 1000).toISOString();
+        const cur     = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id=?`).get(userId);
+        const expires = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, newExp);
         db.prepare(`
           UPDATE users SET subscription_tier='paid', subscription_expires=?,
             stripe_customer_id=?, stripe_subscription_id=? WHERE id=?
@@ -284,13 +317,14 @@ async function stripeWebhook(req, res) {
     }
 
     if (type === 'customer.subscription.deleted') {
-      // Cancelled — downgrade to free
+      // Cancelled — clear the dead subscription id, and downgrade to free ONLY if the
+      // user's current access came from THIS subscription ('paid'). A separately
+      // redeemed code/lifetime grant ('code') must survive the cancellation.
       const sub  = data.object;
       const user = db.prepare(`SELECT id FROM users WHERE stripe_subscription_id=?`).get(sub.id);
       if (user) {
-        db.prepare(`
-          UPDATE users SET subscription_tier='free', subscription_expires=NULL, stripe_subscription_id=NULL WHERE id=?
-        `).run(user.id);
+        db.prepare(`UPDATE users SET subscription_tier='free', subscription_expires=NULL WHERE id=? AND subscription_tier='paid'`).run(user.id);
+        db.prepare(`UPDATE users SET stripe_subscription_id=NULL WHERE id=?`).run(user.id);
         console.log(`[stripe] Subscription cancelled for user ${user.id}`);
       }
     }
@@ -457,16 +491,23 @@ router.post('/reset-password', express.json(), async (req, res) => {
 // and honor subscription_expires. NULL expiry = lifetime / comp access.
 function isPaid(req) {
   const u = req?.session?.user;
-  if (!u || u.tier === 'free') return false;
+  if (!u) return false;
+  // The DB is authoritative, NOT the session tier. A just-completed Stripe webhook
+  // updates the DB row but the in-memory session still says 'free', so short-
+  // circuiting on u.tier would lock a paying customer out until they re-login. Always
+  // read the row and sync the session tier back so /auth/me + the client stay fresh.
   try {
     const row = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(u.id);
-    if (!row || row.subscription_tier === 'free') return false;
-    if (!row.subscription_expires) return true; // lifetime / comp
+    if (!row || row.subscription_tier === 'free') { u.tier = 'free'; return false; }
+    if (u.tier !== row.subscription_tier) u.tier = row.subscription_tier; // reflect the grant in-session
+    if (!row.subscription_expires) return true;  // lifetime / comp
     const exp = new Date(row.subscription_expires);
-    if (isNaN(exp.getTime())) return true;       // unparseable -> fail open, don't lock out
-    return exp.getTime() > Date.now();
+    if (isNaN(exp.getTime())) return true;        // unparseable -> fail open, don't lock out
+    if (exp.getTime() > Date.now()) return true;
+    u.tier = 'free';                              // expired -> reflect the downgrade in-session
+    return false;
   } catch (_) {
-    return u.tier !== 'free'; // DB error -> fall back to session tier
+    return !!u.tier && u.tier !== 'free'; // DB error -> fall back to session tier
   }
 }
 

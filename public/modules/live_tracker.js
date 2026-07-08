@@ -1,13 +1,14 @@
 // public/modules/live_tracker.js
 // The live "command bar" on the game detail page, for every tracked sport: a
-// line-score scoreboard, a sport-specific situation cell (MLB diamond + count,
-// NFL down-and-distance, NBA clock + run, NHL power play + shots, soccer minute
-// + key events, tennis set board), and the VALUE PULSE sparkline.
+// line-score scoreboard and a sport-specific situation cell (MLB diamond +
+// count, NFL down-and-distance, NBA clock + run, NHL power play + shots,
+// soccer minute + key events, tennis set board).
 //
-// Below the grid: a tab strip (Live | Plays | Leaders | Stats) fed by
-// GET /api/game/:id/live/feed (~25s, lazy) — ESPN win probability chart,
-// play-by-play, per-game stat leaders, and team stat bars. All free content;
-// the pulse stays members-only.
+// Below the grid: the tracked-bets row, then a tab strip (Value pulse | Plays |
+// Leaders | Stats). The VALUE PULSE is the tracker's only chart (members-only,
+// fed by the ~12s /live poll); Plays/Leaders/Stats are free content fed by
+// GET /api/game/:id/live/feed (~25s, lazy). Tennis has no feed, so its strip
+// carries the pulse tab alone.
 //
 // Polls GET /api/game/:id/live every ~12s while the page is visible and the
 // game is live. The grid re-renders fully each poll; the tabs keep their own
@@ -15,13 +16,16 @@
 
 let _timer = null;
 let _feedTimer = null;
-let _ctx   = null;   // { gameId, sport, activeSlot, teams, betsHtml, startLabel, on404 }
+let _ctx   = null;   // { gameId, sport, activeSlot, teams, slotLabels, betsHtml, startLabel, on404 }
 let _visBound = false;
 let _feed = null;         // last /live/feed payload
 let _feedSupported = true;
-let _activeTab = 'live';
+let _activeTab = 'pulse';
 let _playsScoringOnly = false;
 let _run = null;          // basketball run detector: { lastH, lastA, team, pts }
+let _lastPulse = null;    // latest per-slot pulse from /live — the pulse tab reads it
+let _lastPulseSlot = null; // which slot that pulse belongs to (names the pick in the panel)
+let _lastFinal = false;
 
 const esc = (s) => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -35,7 +39,8 @@ const famOf = () => FAMILY[String(_ctx?.sport || 'MLB').toUpperCase()] || 'baseb
 
 export function unmountLiveCommand() {
   _stopPolling();
-  _ctx = null; _feed = null; _feedSupported = true; _activeTab = 'live'; _playsScoringOnly = false; _run = null;
+  _ctx = null; _feed = null; _feedSupported = true; _activeTab = 'pulse'; _playsScoringOnly = false; _run = null;
+  _lastPulse = null; _lastPulseSlot = null; _lastFinal = false;
 }
 
 function _stopPolling() {
@@ -43,11 +48,11 @@ function _stopPolling() {
   if (_feedTimer) { clearInterval(_feedTimer); _feedTimer = null; }
 }
 
-export async function mountLiveCommand({ gameId, sport, activeSlot, teams, betsHtml, startLabel, on404 }) {
+export async function mountLiveCommand({ gameId, sport, activeSlot, teams, slotLabels, betsHtml, startLabel, on404 }) {
   const sameGame = _ctx && _ctx.gameId === gameId;
   _stopPolling();
-  _ctx = { gameId, sport: sport || 'MLB', activeSlot, teams: teams || {}, betsHtml: betsHtml || '', startLabel: startLabel || '', on404: on404 || null };
-  if (!sameGame) { _feed = null; _feedSupported = famOf() !== 'tennis'; _activeTab = 'live'; _playsScoringOnly = false; _run = null; }
+  _ctx = { gameId, sport: sport || 'MLB', activeSlot, teams: teams || {}, slotLabels: slotLabels || {}, betsHtml: betsHtml || '', startLabel: startLabel || '', on404: on404 || null };
+  if (!sameGame) { _feed = null; _feedSupported = famOf() !== 'tennis'; _activeTab = 'pulse'; _playsScoringOnly = false; _run = null; _lastPulse = null; _lastPulseSlot = null; _lastFinal = false; }
   const el = document.getElementById('ca-live-command');
   if (!el) return;
   el.innerHTML = `<div class="ca-lc-loading">Loading live game...</div>`;
@@ -108,7 +113,7 @@ function periodHeaders(fam, nCols) {
   return Array.from({ length: nCols }, (_, i) => `<span class="ca-ls-i">${i + 1}</span>`).join('');
 }
 
-function boxscoreHtml(s) {
+function boxscoreHtml(s, statusHtml = '') {
   const t = (_ctx && _ctx.teams) || {};
   const fam = famOf();
   const awayName = esc(t.awayName || t.awayAbbr || s.awayAbbr || 'Away');
@@ -129,7 +134,7 @@ function boxscoreHtml(s) {
       </div>`;
     return `
       <div class="ca-ls">
-        <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team"></span><span class="ca-ls-inns">${hd}</span><span class="ca-ls-r">Sets</span></div>
+        <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team">${statusHtml}</span><span class="ca-ls-inns">${hd}</span><span class="ca-ls-r">Sets</span></div>
         ${row(awayName, aLead, 'away')}
         ${row(homeName, hLead, 'home')}
       </div>`;
@@ -153,7 +158,7 @@ function boxscoreHtml(s) {
     </div>`;
   return `
     <div class="ca-ls">
-      <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team"></span><span class="ca-ls-inns">${innHd}</span><span class="ca-ls-r">${totLbl}</span>${heHd}</div>
+      <div class="ca-ls-row ca-ls-hd"><span class="ca-ls-team">${statusHtml}</span><span class="ca-ls-inns">${innHd}</span><span class="ca-ls-r">${totLbl}</span>${heHd}</div>
       ${row(awayName, aLead, aLine, aT, s.awayHits, s.awayErrors)}
       ${row(homeName, hLead, hLine, hT, s.homeHits, s.homeErrors)}
     </div>`;
@@ -295,16 +300,18 @@ function matchupHtml(s) {
     if (!rows.length) return `<div class="ca-lc-mrow ca-lc-mrow--empty">Between batters</div>`;
     return rows.join('');
   }
-  // Clock sports: the situation cell already carries the story; show the last
-  // play here when the situation cell didn't (keeps the middle column useful).
+  // Football/basketball/hockey statelines already render lastPlay — repeating it
+  // here just doubled the text. Soccer/tennis statelines don't, so the last play
+  // (when present) still earns the row; otherwise the cell stays situation-only.
+  if (fam === 'football' || fam === 'basketball' || fam === 'hockey') return '';
   if (s.lastPlay) return `<div class="ca-lc-mrow"><span class="ca-lc-mlbl">Last</span><span class="ca-lc-mname">${esc(s.lastPlay)}</span></div>`;
-  return `<div class="ca-lc-mrow ca-lc-mrow--empty">Game on</div>`;
+  return '';
 }
 
 // ── Value pulse: signed (-100..+100) windowed line chart ─────────────────────
-// (unchanged from the MLB v1 — sport-agnostic)
-function valuePulseSvg(history, color, live = true) {
-  const W = 260, H = 100, padL = 28, padR = 8, padT = 8, padB = 16;
+// (sport-agnostic; dims vary by container — the tab panel draws it wider)
+function valuePulseSvg(history, color, live = true, dims = null) {
+  const W = dims?.W || 260, H = dims?.H || 100, padL = 28, padR = 8, padT = 8, padB = 16;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const raw  = Array.isArray(history) ? history : [];
   const hist = raw.map(h => (typeof h === 'number' ? h : (h && typeof h.v === 'number' ? h.v : null))).filter(v => v !== null);
@@ -376,18 +383,22 @@ function valuePulseSvg(history, color, live = true) {
   </svg>`;
 }
 
+// The pulse tracks the slot the user is viewing; when that side has no CA pick
+// the first tracked slot stands in — returning the key lets the panel say which.
 function pickPulse(pulses) {
-  if (!pulses) return null;
-  if (_ctx && pulses[_ctx.activeSlot]) return pulses[_ctx.activeSlot];
+  if (!pulses) return { pulse: null, slot: null };
+  if (_ctx && pulses[_ctx.activeSlot]) return { pulse: pulses[_ctx.activeSlot], slot: _ctx.activeSlot };
   const keys = Object.keys(pulses);
-  return keys.length ? pulses[keys[0]] : null;
+  return keys.length ? { pulse: pulses[keys[0]], slot: keys[0] } : { pulse: null, slot: null };
 }
 
-function pulseCellHtml(pulse, isFinal) {
+function pulseCellHtml(pulse, isFinal, dims = null, pickName = '') {
   if (!pulse) return `<div class="ca-lc-pulse-empty">No CA pick tracked on this game.</div>`;
   if (pulse.locked) {
+    // No pick name here on purpose — the locked view must not reveal which
+    // slots carry CA picks (same anti-leak rule as the blurred scores).
     return `<div class="ca-lc-pulse-locked" onclick="openSignup()" title="Members only">
-      <div class="ca-vp-wrap ca-blurred">${valuePulseSvg([12, -8, 24, -16, 30, 5, -12, 22], '#FFD700', !isFinal)}</div>
+      <div class="ca-vp-wrap ca-blurred">${valuePulseSvg([12, -8, 24, -16, 30, 5, -12, 22], '#FFD700', !isFinal, dims)}</div>
       <div class="ca-lc-pulse-lock"><i class="fa-solid fa-lock"></i> Unlock the ${isFinal ? 'value read' : 'live value read'}</div>
       <div class="ca-lc-pulse-sub"><a onclick="event.stopPropagation();openLogin()">Log in</a> or <a onclick="event.stopPropagation();openSignup()">create a free account</a></div>
     </div>`;
@@ -398,10 +409,11 @@ function pulseCellHtml(pulse, isFinal) {
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
   const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx">approx</span>` : '';
   const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num">${pulse.winPct}%</span>` : '';
+  const pick = pickName ? `<span class="ca-lc-pulse-pick">${esc(pickName)}</span> ` : '';
   const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `
-    <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color, !isFinal)}</div>
-    <div class="ca-lc-pulse-label">${lead}${esc(pulse.label || '')} <span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span>${approx}${winPct}</div>
+    <div class="ca-vp-wrap">${valuePulseSvg(pulse.history, color, !isFinal, dims)}</div>
+    <div class="ca-lc-pulse-label">${pick}${lead}<span class="ca-vp-val" style="color:${esc(color)}">${vtxt}</span> ${esc(pulse.label || '')}${approx}${winPct}</div>
     <a class="ca-lc-pulse-note" href="/faq#value-pulse" title="Our model rates this pick's live value from the game state versus where it locked. A probabilistic read, not a promise.">What this means</a>`;
 }
 
@@ -435,38 +447,36 @@ function render(el, data) {
   const fam = famOf();
   const isFinal = s.status === 'post';
   trackRun(s);
-  const pulse = pickPulse(data.pulses);
+  const pp = pickPulse(data.pulses);     // the pulse tab reads these
+  _lastPulse = pp.pulse; _lastPulseSlot = pp.slot;
+  _lastFinal = isFinal;
   const bets  = (_ctx && _ctx.betsHtml) || '';
-  const start = (_ctx && _ctx.startLabel) || '';
-  const scoreHd = isFinal
-    ? `<div class="ca-lc-cell-hd ca-lc-hd-final">Final</div>`
-    : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live <span class="ca-lc-livedot"></span></div>`;
-  const pulseHd = isFinal
-    ? `<div class="ca-lc-cell-hd">Value pulse</div>`
-    : `<div class="ca-lc-cell-hd ca-lc-hd-live">Live value pulse <span class="ca-lc-livedot"></span></div>`;
+  // Live/Final rides inside the line score's empty header cell — a full header
+  // row above the scoreboard was a wasted line, especially on phones.
+  const statusHtml = isFinal
+    ? `<span class="ca-ls-status ca-ls-status--final">Final</span>`
+    : `<span class="ca-ls-status ca-ls-status--live">Live <span class="ca-lc-livedot"></span></span>`;
   const midHd = fam === 'baseball' ? (isFinal ? 'Result' : 'At the plate') : (isFinal ? 'Result' : 'Situation');
+  const matchupInner = isFinal ? resultHtml(s) : matchupHtml(s);
 
   const gridHtml = `
       <div class="ca-lc-grid">
         <div class="ca-lc-cell ca-lc-cell--score">
-          ${scoreHd}
-          ${boxscoreHtml(s)}
-          ${bets ? `<div class="ca-lc-bets"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : ''}
+          ${boxscoreHtml(s, statusHtml)}
         </div>
-        <div class="ca-lc-cell ca-lc-cell--matchup">
+        <div class="ca-lc-cell ca-lc-cell--matchup ca-lc-fam-${fam}">
           ${isFinal ? '' : situationHtml(s)}
-          <div class="ca-lc-cell-hd">${midHd}</div>
-          <div class="ca-lc-matchup">${isFinal ? resultHtml(s) : matchupHtml(s)}</div>
+          ${matchupInner ? `<div class="ca-lc-matchwrap">
+            <div class="ca-lc-cell-hd">${midHd}</div>
+            <div class="ca-lc-matchup">${matchupInner}</div>
+          </div>` : ''}
         </div>
-        <div class="ca-lc-cell ca-lc-cell--pulse">
-          ${pulseHd}
-          ${pulseCellHtml(pulse, isFinal)}
-          ${start ? `<div class="ca-lc-time">${start}</div>` : ''}
-        </div>
-      </div>`;
+      </div>
+      ${bets ? `<div class="ca-lc-betsrow"><span class="ca-lc-foot-lbl">Your tracked bets</span><div class="ca-lc-foot-bets">${bets}</div></div>` : ''}`;
 
   // First render builds the shell (grid + tabs + panel); later polls only swap
-  // the grid so the active tab and its scroll never reset.
+  // the grid so the active tab and its scroll never reset. The pulse tab is the
+  // exception: it draws from this poll's data, so refresh it while it's active.
   let grid = el.querySelector('#ca-lc-grid-wrap');
   if (!grid) {
     el.innerHTML = `
@@ -477,12 +487,13 @@ function render(el, data) {
     renderTabs();
   } else {
     grid.innerHTML = gridHtml;
+    if (_activeTab === 'pulse') renderTabs();
   }
 }
 
-// ── Tabs: Live (win prob chart) | Plays | Leaders | Stats ──────────────────────
+// ── Tabs: Value pulse (the only chart) | Plays | Leaders | Stats ───────────────
 const TABS = [
-  { id: 'live',    label: 'Live' },
+  { id: 'pulse',   label: 'Value pulse' },
   { id: 'plays',   label: 'Plays' },
   { id: 'leaders', label: 'Leaders' },
   { id: 'stats',   label: 'Stats' },
@@ -495,13 +506,16 @@ if (typeof window !== 'undefined') { window.caLcSetTab = caLcSetTab; window.caLc
 function renderTabs() {
   const wrap = document.getElementById('ca-lc-tabs-wrap');
   if (!wrap) return;
-  if (!_feedSupported) { wrap.innerHTML = ''; return; }   // tennis: grid only
+  // No feed (tennis): the strip still carries the pulse; the feed tabs drop off.
+  const tabs = _feedSupported ? TABS : TABS.filter(t => t.id === 'pulse');
+  if (!tabs.some(t => t.id === _activeTab)) _activeTab = 'pulse';
 
-  const strip = TABS.map(t =>
-    `<button class="ca-lc-tab${_activeTab === t.id ? ' ca-lc-tab--on' : ''}" onclick="caLcSetTab('${t.id}')">${t.label}</button>`
-  ).join('');
+  const strip = tabs.map(t => {
+    const dot = (t.id === 'pulse' && !_lastFinal) ? ' <span class="ca-lc-livedot"></span>' : '';
+    return `<button class="ca-lc-tab${_activeTab === t.id ? ' ca-lc-tab--on' : ''}" onclick="caLcSetTab('${t.id}')">${t.label}${dot}</button>`;
+  }).join('');
   let panel = '';
-  if (_activeTab === 'live')         panel = winProbPanel();
+  if (_activeTab === 'pulse')        panel = pulsePanel();
   else if (_activeTab === 'plays')   panel = playsPanel();
   else if (_activeTab === 'leaders') panel = leadersPanel();
   else if (_activeTab === 'stats')   panel = statsPanel();
@@ -510,43 +524,18 @@ function renderTabs() {
     <div class="ca-lc-panel">${panel}</div>`;
 }
 
-function winProbPanel() {
-  const wp = _feed?.winprob;
-  const t = (_ctx && _ctx.teams) || {};
-  if (!wp || !Array.isArray(wp.series) || wp.series.length < 2) {
-    return `<div class="ca-lc-panel-empty">The win probability chart builds as the game is played.</div>`;
-  }
-  const W = 560, H = 150, padL = 34, padR = 10, padT = 10, padB = 18;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
-  const x = (v) => padL + Math.max(0, Math.min(1, v)) * innerW;
-  const y = (pct) => padT + (1 - Math.max(0, Math.min(100, pct)) / 100) * innerH;
-  const pts = wp.series.map(p => `${x(p.x).toFixed(1)},${y(p.home).toFixed(1)}`).join(' ');
-  const mid = y(50).toFixed(1);
-  const dots = (wp.scoring || []).map(m => {
-    const px = wp.series.reduce((best, p) => Math.abs(p.x - m.x) < Math.abs(best.x - m.x) ? p : best, wp.series[0]);
-    const fill = m.team === 'home' ? '#FFD700' : (m.team === 'away' ? '#38bdf8' : '#8892a4');
-    return `<circle cx="${x(m.x).toFixed(1)}" cy="${y(px.home).toFixed(1)}" r="3.4" fill="${fill}" stroke="#0d1117" stroke-width="1.2"><title>${esc((m.clock ? m.clock + ' ' : '') + (m.text || ''))}</title></circle>`;
-  }).join('');
-  const latest = wp.series[wp.series.length - 1];
-  const srcLabel = wp.source === 'espn' ? 'ESPN win probability' : 'Model estimate';
-  const homePct = Math.round(latest.home);
-  const lead = homePct >= 50
-    ? `${esc(t.homeAbbr || 'Home')} ${homePct}%`
-    : `${esc(t.awayAbbr || 'Away')} ${100 - homePct}%`;
-  return `
-    <div class="ca-wp-chart">
-      <div class="ca-wp-head"><span class="ca-wp-now">${lead}</span><span class="ca-wp-src">${srcLabel}</span></div>
-      <svg viewBox="0 0 ${W} ${H}" class="ca-wp-svg">
-        <text x="${padL - 5}" y="${y(100).toFixed(1)}" dominant-baseline="hanging" text-anchor="end" class="ca-vp-axis">${esc(t.homeAbbr || 'HOME')}</text>
-        <text x="${padL - 5}" y="${y(0).toFixed(1)}" dominant-baseline="auto" text-anchor="end" class="ca-vp-axis">${esc(t.awayAbbr || 'AWAY')}</text>
-        <line x1="${padL}" y1="${mid}" x2="${W - padR}" y2="${mid}" class="ca-vp-zero"/>
-        <text x="${padL - 5}" y="${mid}" dominant-baseline="middle" text-anchor="end" class="ca-vp-axis">50</text>
-        <polyline points="${pts}" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-        ${dots}
-        <circle cx="${x(latest.x).toFixed(1)}" cy="${y(latest.home).toFixed(1)}" r="3.5" fill="#38bdf8" stroke="#0d1117" stroke-width="1.5"/>
-      </svg>
-      <div class="ca-wp-foot">Gold dots: ${esc(t.homeAbbr || 'home')} scores. Blue dots: ${esc(t.awayAbbr || 'away')} scores.</div>
-    </div>`;
+// The value pulse panel — the tracker's one and only chart. Drawn wider than the
+// old grid cell because the panel spans the full command bar; refreshed by every
+// ~12s /live poll while active.
+function pulsePanel() {
+  const dims = (typeof window !== 'undefined' && window.innerWidth <= 720)
+    ? { W: 320, H: 120 } : { W: 560, H: 150 };
+  const start = (_ctx && _ctx.startLabel) || '';
+  const pickName = (_lastPulseSlot && _ctx?.slotLabels?.[_lastPulseSlot]) || '';
+  return `<div class="ca-lc-pulse-panel">
+    ${pulseCellHtml(_lastPulse, _lastFinal, dims, pickName)}
+    ${start ? `<div class="ca-lc-time">${start}</div>` : ''}
+  </div>`;
 }
 
 function periodTag(p) {

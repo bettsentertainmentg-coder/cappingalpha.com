@@ -227,7 +227,10 @@ if (MIRROR_URL) {
   // cookies, so anything session-scoped MUST be here or it returns logged-out data.
   const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends'];
   app.use((req, res, next) => {
-    if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
+    // /results is mirrored too: it renders the same tracked record the (mirrored)
+    // CA Rankings tab shows, so serving it from the local DB would print a
+    // different record than every /api-fed surface next to it.
+    if (req.method !== 'GET' || (!req.path.startsWith('/api/') && req.path !== '/results')) return next();
     if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
     // Games + game detail are served LOCALLY: the local board now carries data
     // prod doesn't have yet (odds-engine books, soccer, engine events), and the

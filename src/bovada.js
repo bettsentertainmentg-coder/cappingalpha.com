@@ -3,6 +3,9 @@
 // moneyline. The Odds API and ESPN carry NO tennis spreads/totals, so this is the
 // only source. No auth, no API key, zero Odds API credits.
 //
+// (Bovada SOCCER lines come from the CA Odds Engine instead — scripts/odds_engine.js
+// has Soccer in its Bovada adapter and relays through /admin/ingest-book-lines.)
+//
 // Bovada geo/bot-blocks datacenter IPs (Railway gets nothing), so in production the
 // lines are fetched on the Mac (residential IP) and relayed to Railway via
 // POST /admin/ingest-tennis-lines, exactly like the public-betting relay. The split
@@ -22,7 +25,9 @@ const lastNameOf = (name) =>
   (name || '').trim().split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g, '');
 
 const americanOf = (o) => {
-  const a = parseFloat(o?.price?.american);
+  const raw = o?.price?.american;
+  if (raw === 'EVEN') return 100; // Bovada spells +100 as EVEN
+  const a = parseFloat(raw);
   return Number.isFinite(a) ? a : null;
 };
 const handicapOf = (o) => {

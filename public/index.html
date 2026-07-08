@@ -165,8 +165,10 @@
       background-color: #0b1d49;
       background-image:
         linear-gradient(180deg, rgba(7,14,36,0.34), rgba(7,14,36,0.50)),
-        url("/velvet-bar.png?v=3");
+        url("/velvet-bar.png?v=4");
       background-size: cover, cover;
+      /* Crop is a wide strip from the middle of the velvet photo: even texture,
+         no symmetrical vanishing-point convergence. Just center it. */
       background-position: center, center;
       background-repeat: no-repeat, no-repeat;
       border-bottom: 1px solid rgba(120,150,220,0.25);
@@ -241,6 +243,11 @@
     }
     .about-dropdown-item:hover { background: var(--surface2); }
 
+    /* Sports dropdown: 11 links read better as two columns than one long strip.
+       The ID selector outscores .about-dropdown.hidden, so hidden must be restated. */
+    #sports-dropdown { display: grid; grid-template-columns: 1fr 1fr; column-gap: 2px; min-width: 230px; }
+    #sports-dropdown.hidden { display: none; }
+
     /* ── Appearance theme toggle (Settings) ── */
     .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 3px; }
     .theme-opt {
@@ -249,6 +256,61 @@
     }
     .theme-opt:hover { color: var(--text); }
     .theme-opt.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px var(--shadow-soft); }
+
+    /* ── Account Set Up checklist (My Tracking) ── */
+    .setup-bar { position: relative; height: 10px; background: var(--surface2); border-radius: 999px; margin-right: 26px; }
+    .setup-bar-fill { height: 100%; border-radius: 999px; background: var(--green); transition: width .3s; }
+    .setup-bar-trophy { position: absolute; right: -26px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 15px; }
+    .setup-item { display: flex; align-items: center; gap: 14px; padding: 15px 20px; border-top: 1px solid var(--border); cursor: pointer; transition: background .12s; }
+    .setup-item:hover { background: var(--surface2); }
+    .setup-item.done { cursor: default; opacity: .5; }
+    .setup-item.done:hover { background: none; }
+    .setup-item-icon { width: 20px; text-align: center; font-size: 16px; color: var(--text); }
+    .setup-item.done .setup-item-icon { color: var(--muted); }
+    .setup-item-label { flex: 1; font-weight: 700; font-size: 14.5px; }
+    .setup-item-sub { font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+    .setup-item-check { color: var(--green); font-size: 17px; }
+    .setup-item-chev { color: var(--muted); font-size: 13px; }
+    /* Compact variant: slim header/bar, tighter rows, tail behind View more */
+    .setup-compact .setup-head { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 16px 6px; }
+    .setup-compact .setup-title { font-size: 14px; font-weight: 800; }
+    .setup-compact .setup-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+    .setup-compact .setup-bar-wrap { padding: 0 16px 10px; }
+    .setup-compact .setup-bar { height: 6px; }
+    .setup-compact .setup-bar-trophy { font-size: 12px; right: -22px; }
+    .setup-compact .setup-item { padding: 9px 16px; gap: 10px; }
+    .setup-compact .setup-item-label { font-size: 13px; }
+    .setup-compact .setup-item-icon { font-size: 14px; width: 18px; }
+    .setup-compact .setup-item-check { font-size: 15px; }
+    .setup-viewmore { display: block; width: 100%; background: none; border: none; border-top: 1px solid var(--border); color: var(--accent); font-family: inherit; font-size: 12px; font-weight: 700; padding: 9px 0; cursor: pointer; }
+    .setup-viewmore:hover { background: var(--surface2); }
+
+    /* ── My Profile ── */
+    .pf-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+    .pf-id { flex: 1; min-width: 0; }
+    .pf-name { font-size: 24px; font-weight: 800; }
+    .pf-name-hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pf-gear { background: none; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 15px; width: 38px; height: 38px; cursor: pointer; transition: color .12s, border-color .12s; }
+    .pf-gear:hover { color: var(--text); border-color: var(--muted); }
+    .pf-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    .pf-stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 8px; text-align: center; }
+    .pf-stat b { display: block; font-size: 19px; font-weight: 800; }
+    .pf-stat b.green { color: var(--green); }
+    .pf-stat b.red { color: var(--red); }
+    .pf-stat span { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .pf-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+    .pf-action-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-family: inherit; font-size: 14px; font-weight: 700; padding: 14px 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 9px; transition: border-color .12s, background .12s; }
+    .pf-action-btn:hover { border-color: var(--accent); background: var(--surface2); }
+    .pf-action-btn i { color: var(--muted); }
+    .pf-today { padding: 16px 18px; margin-bottom: 18px; }
+    .pf-today-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .pf-today-count { font-size: 15px; font-weight: 700; }
+    .pf-trackbtn { width: auto; padding: 9px 16px; font-size: 13px; }
+    .pf-today-empty { font-size: 13px; color: var(--muted); margin-top: 8px; }
+    .pf-mystats { padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; font-weight: 700; }
+    .pf-mystats:hover { background: var(--surface2); }
+    .pf-mystats-cta { font-size: 12.5px; color: var(--accent); font-weight: 600; }
+    @media (max-width: 560px) { .pf-stats { grid-template-columns: repeat(2, 1fr); } }
 
     /* ── My Tracking — stat strip (Action-Network-style) ── */
     .track-stats {
@@ -281,6 +343,74 @@
     .nu-val { font-size: 23px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; font-family: 'Space Grotesk', 'Inter', sans-serif; }
     .nu-val.pos { color: var(--green); } .nu-val.neg { color: var(--red); }
     .nu-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .nu-click { cursor: pointer; transition: border-color .12s, transform .12s; }
+    .nu-click:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+    /* ── Sport tiles (AN-style, open per-sport record pages) ── */
+    .sport-tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 10px; padding: 4px 0 6px; }
+    .sport-tile { position: relative; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 10px 12px; text-align: center; cursor: pointer; transition: border-color .12s, transform .12s; }
+    .sport-tile:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .sport-tile-star { position: absolute; top: 8px; left: 8px; color: var(--green); font-size: 11px; }
+    .sport-tile-name { font-size: 12px; font-weight: 800; letter-spacing: .04em; margin-bottom: 4px; }
+    .sport-tile-rec { font-size: 14px; font-weight: 700; color: var(--text); }
+    .sport-tile-net { font-size: 12.5px; font-weight: 700; margin-top: 3px; }
+    .sport-tile-net.pos { color: var(--green); } .sport-tile-net.neg { color: var(--red); }
+    .sport-tile-net.add { color: var(--accent); }
+    .sport-tile-add .sport-tile-rec { color: var(--muted); }
+
+    /* ── Record drill-down pages (Net / {SPORT} / Current Streak) ── */
+    .rec-page { max-width: 720px; margin: 0 auto; }
+    .rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .rec-back, .rec-filter-btn, .rec-share { background: none; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); width: 36px; height: 36px; cursor: pointer; font-size: 14px; transition: color .12s, border-color .12s; }
+    .rec-back:hover, .rec-filter-btn:hover, .rec-share:hover { color: var(--text); border-color: var(--muted); }
+    .rec-filter-btn.on { color: var(--accent); border-color: var(--accent); }
+    .rec-title { flex: 1; font-size: 22px; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+    .rec-streak-badge { font-size: 12px; font-weight: 800; border-radius: 6px; padding: 2px 8px; }
+    .rec-streak-badge.win { background: rgba(74,222,128,.15); color: var(--green); }
+    .rec-streak-badge.loss { background: rgba(248,113,113,.15); color: var(--red); }
+    .rec-tabs { display: inline-flex; padding: 3px; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; gap: 2px; margin-bottom: 16px; }
+    .rec-tab { background: none; border: none; color: var(--muted); font-family: inherit; font-weight: 700; font-size: 13px; padding: 7px 16px; border-radius: 999px; cursor: pointer; transition: background .12s, color .12s; }
+    .rec-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px var(--shadow-soft); }
+    .rec-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .rec-hero { position: relative; text-align: center; padding: 8px 0 4px; }
+    .rec-big { font-size: 52px; font-weight: 900; letter-spacing: -0.02em; font-family: 'Space Grotesk', 'Inter', sans-serif; }
+    .rec-big.pos { color: var(--green); } .rec-big.neg { color: var(--red); }
+    .rec-share { position: absolute; right: 0; top: 12px; }
+    .rec-risked { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .rec-stats { display: flex; justify-content: space-between; gap: 12px; max-width: 480px; margin: 16px auto 18px; font-size: 13.5px; color: var(--muted); }
+    .rec-stats b { color: var(--text); font-weight: 800; }
+    .rec-stats b.pos { color: var(--green); } .rec-stats b.neg { color: var(--red); }
+    .rec-chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; height: 190px; margin-bottom: 18px; position: relative; }
+    .rec-chart-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 13px; }
+    .rec-list { border-top: 1px solid var(--border); }
+    .rec-item { display: flex; align-items: center; gap: 13px; padding: 13px 4px; border-bottom: 1px solid var(--border); }
+    .rec-ic { font-size: 22px; }
+    .rec-ic.win { color: var(--green); } .rec-ic.loss { color: var(--red); } .rec-ic.push { color: var(--muted); }
+    .rec-item-main { flex: 1; min-width: 0; }
+    .rec-item-sel { font-size: 14.5px; font-weight: 700; }
+    .rec-item-odds { color: var(--muted); font-weight: 600; margin-left: 2px; }
+    .rec-item-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+    .rec-item-net { font-size: 15px; font-weight: 800; white-space: nowrap; }
+    .rec-item-net.pos { color: var(--green); } .rec-item-net.neg { color: var(--red); }
+    /* Custom (unverified) bets ride along greyed with a tag — personal view only */
+    .rec-custom { opacity: .55; }
+    .rec-custom-tag { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; margin-left: 8px; vertical-align: 2px; }
+    .rec-mystats-block { margin-top: 22px; }
+    .rec-mystats-title { font-size: 17px; font-weight: 800; margin-bottom: 10px; }
+    .rec-top-card { padding: 14px 16px; }
+    .rec-top-head { font-size: 13px; font-weight: 800; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .rec-top-row { display: flex; align-items: center; gap: 12px; padding: 9px 2px; border-top: 1px solid var(--border); cursor: pointer; font-size: 13.5px; }
+    .rec-top-row:hover { background: var(--surface2); }
+    .rec-top-name { flex: 1; font-weight: 700; }
+    .rec-top-rec { color: var(--muted); font-weight: 600; }
+    .rec-top-net { font-weight: 800; min-width: 74px; text-align: right; }
+    .rec-top-net.pos { color: var(--green); } .rec-top-net.neg { color: var(--red); }
+    .rec-viewall { display: block; width: 100%; max-width: 480px; margin: 22px auto 6px; background: none; border: 1px solid var(--border); border-radius: 999px; color: var(--text); font-family: inherit; font-size: 14.5px; font-weight: 700; padding: 13px; cursor: pointer; transition: border-color .12s, background .12s; }
+    .rec-viewall:hover { border-color: var(--accent); background: var(--surface2); }
+    .pf-recent-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .pf-recent-sub { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+    .pf-recent-sub b.green { color: var(--green); } .pf-recent-sub b.red { color: var(--red); }
+    @media (max-width: 560px) { .rec-big { font-size: 42px; } .rec-tabs { width: 100%; justify-content: space-between; } .rec-tab { padding: 7px 10px; font-size: 12px; } }
 
     /* AN-style Performance card (timeframe dropdown + headline P/L + ROI/Record/Win%) */
     .perf-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
@@ -511,6 +641,28 @@
     .lc-compare-toggle i { transition: transform .15s; }
     .lc-compare-toggle.open i { transform: rotate(180deg); }
     /* All-books compare table (line shopping for the picked side) */
+    /* My Books bubbles on the confirm slide (tap = put the bet on that book) */
+    .lc-bubbles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .lc-book-chip {
+      display: inline-flex; align-items: center; gap: 6px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px;
+      font-family: inherit; font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer;
+      transition: border-color .12s, background .12s;
+    }
+    .lc-book-chip:hover { border-color: var(--muted); }
+    .lc-book-chip.active { border-color: var(--accent); background: rgba(59,130,246,0.12); }
+    /* No-books-yet prompt: replaces the chip row until My Books are picked */
+    .lc-books-prompt {
+      display: block; width: 100%; background: none; border: 1px dashed var(--accent);
+      border-radius: 10px; color: var(--accent); font-family: inherit; font-size: 13.5px;
+      font-weight: 700; padding: 12px 14px; cursor: pointer; text-align: center;
+      transition: background .12s;
+    }
+    .lc-books-prompt:hover { background: rgba(59,130,246,0.08); }
+    .lc-books-prompt-sub { display: block; font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 3px; }
+    /* The picker opens above the track sheet (scrim z-300): its X drops back to the slide */
+    #book-picker-modal { z-index: 400; }
+    .lc-chip-odds { color: var(--muted); font-weight: 600; }
     .lc-compare { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
     .lc-cmp-head { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 7px 12px; background: var(--surface2, rgba(255,255,255,.03)); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
     .lc-cmp-head span:nth-child(2) { text-align: right; min-width: 46px; }
@@ -767,8 +919,8 @@
       cursor: pointer;
     }
     .ca-cookie-banner button:hover { opacity: 0.9; }
-    footer .footer-links a { color: var(--muted); text-decoration: none; }
-    footer .footer-links a:hover { color: var(--accent); }
+    footer .footer-col a { color: var(--muted); text-decoration: none; }
+    footer .footer-col a:hover { color: var(--accent); }
 
     .record-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .record-val.green { color: var(--green); }
@@ -874,6 +1026,15 @@
     .lb-rank.lb-r1 { color: var(--gold); }
     .lb-member { display: flex; align-items: center; gap: 10px; font-weight: 600; }
     .lb-house-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); padding: 2px 8px; border-radius: 999px; }
+    .lb-follow-cell { text-align: right; width: 96px; }
+    .lb-follow-btn {
+      background: none; border: 1px solid var(--accent); color: var(--accent);
+      border-radius: 999px; padding: 4px 14px; font-family: inherit; font-size: 12px;
+      font-weight: 700; cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+    }
+    .lb-follow-btn:hover { background: rgba(59,130,246,0.12); }
+    .lb-follow-btn.following { border-color: var(--border); color: var(--muted); }
+    .lb-follow-btn.following:hover { border-color: var(--red); color: var(--red); }
     .lb-units.pos { color: var(--green); font-weight: 700; }
     .lb-units.neg { color: var(--red); font-weight: 700; }
     .lb-mini-medal { font-size: 11px; margin-left: 4px; }
@@ -905,8 +1066,25 @@
     .mp-clv-pct span { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-left: 4px; }
     .mp-clv-sub { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 
-    footer { display: flex; justify-content: space-between; align-items: center; padding: 24px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 48px; }
+    /* ── Site footer: link columns + compliance rows ── */
+    footer { padding: 40px 24px 20px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); margin-top: 48px; }
+    .footer-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr 1fr; gap: 28px; max-width: 1200px; margin: 0 auto 24px; }
+    .footer-brand-name { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 16px; color: var(--text); margin-bottom: 8px; }
+    .footer-brand-name img { width: 22px; height: 22px; border-radius: 5px; }
+    .footer-tag { font-size: 12px; line-height: 1.6; margin: 0 0 14px; }
+    .footer-apps { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .footer-app-badge { display: inline-flex; align-items: center; gap: 9px; border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; color: var(--muted); opacity: .8; cursor: default; }
+    .footer-app-badge i { font-size: 17px; }
+    .footer-app-badge small { display: block; font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; opacity: .8; }
+    .footer-col h4 { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--text); margin: 0 0 10px; }
+    .footer-col a { display: block; padding: 3px 0; font-size: 13px; }
+    .footer-col-sports { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
+    .footer-rg { max-width: 1200px; margin: 0 auto 10px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text); }
+    .footer-disclaimer { max-width: 1200px; margin: 0 auto 14px; font-size: 11px; line-height: 1.7; opacity: .8; }
+    .footer-base { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .footer-version { opacity: 0.45; font-size: 11px; }
+    @media (max-width: 860px) { .footer-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 480px) { .footer-grid { grid-template-columns: 1fr; } }
 
     /* ── Inline paywall ── */
     .inline-paywall-wrap { position: relative; }
@@ -1118,6 +1296,26 @@
     .modal-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 24px; }
     .modal-close { position: absolute; top: 14px; right: 16px; background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; }
     .modal-close:hover { color: var(--text); }
+
+    /* ── My sportsbooks picker (books.js) ── */
+    .bp-card { max-width: 540px; width: 100%; max-height: 82vh; overflow-y: auto; padding: 28px 26px 20px; }
+    .bp-title { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+    .bp-sub { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
+    .bp-group { margin-bottom: 15px; }
+    .bp-group-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+    .bp-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .bp-chip {
+      background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600;
+      font-family: inherit; cursor: pointer; transition: border-color .12s, background .12s, color .12s;
+    }
+    .bp-chip:hover { border-color: var(--accent); }
+    .bp-chip.active { background: rgba(59,130,246,0.16); border-color: var(--accent); color: var(--accent); }
+    .bp-chip.active i { font-size: 10px; margin-left: 3px; }
+    .bp-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--border); }
+    .bp-count { font-size: 12px; color: var(--muted); }
+    .bp-save { padding: 9px 24px; }
+
     /* Continue with Google (login modal) + "or" divider */
     .btn-google { background: #fff; color: #1f2328; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; gap: 10px; font-weight: 700; }
     .btn-google:hover { opacity: 0.9; }
@@ -1719,6 +1917,7 @@
       font-size: 11px; color: var(--muted); text-align: center;
       letter-spacing: .03em; margin: 0 0 10px;
     }
+    .ca-tp-track-note { color: var(--gold); font-weight: 600; }
     .ca-tp-record {
       display: flex; justify-content: space-between; gap: 4px; padding: 10px 2px;
       border-top: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -2294,6 +2493,9 @@
         <div class="add-name"  id="account-dd-name"></div>
         <div class="add-email" id="account-dd-email"></div>
       </div>
+      <a class="account-dropdown-item" role="menuitem" onclick="switchTab('profile');closeAccountMenu();">
+        <i class="fa-regular fa-user"></i> My profile
+      </a>
       <a class="account-dropdown-item" role="menuitem" onclick="switchTab('tracking');closeAccountMenu();">
         <i class="fa-solid fa-chart-line"></i> My Tracking
       </a>
@@ -2586,7 +2788,7 @@
       <hr class="about-divider" />
 
       <h2 class="about-h2">Transparency and Disclaimers</h2>
-      <p class="about-p">Every CA pick is logged with the final game score and result. The hypothetical P/L shown in the CA Picks tab assumes a flat $10 unit against the locked morning line. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
+      <p class="about-p">Every CA pick is logged with the final game score and result. The hypothetical P/L shown in the CA Picks tab assumes a flat $10 unit at the line recorded when the pick qualified for tracking. No actual money is wagered. CappingAlpha does not place bets on any game, ever.</p>
       <p class="about-p">Scores generated by CappingAlpha are produced by an AI model trained on public capper data. A high score means more community agreement on a given side. It does not mean that side is likely to cover or win. Past hypothetical performance is not indicative of future results.</p>
       <p class="about-p">CappingAlpha is a research and data tool. Nothing on this site constitutes financial advice, sports betting advice, or a recommendation to wager. Use this data at your own discretion.</p>
 
@@ -2617,7 +2819,7 @@
         </div>
       </div>
 
-      <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit against the morning opening line. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
+      <p style="font-size:12px;color:var(--muted);margin-top:24px;line-height:1.7;">* CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit at the line recorded when each pick qualified for tracking. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</p>
 
       <hr class="about-divider" />
 
@@ -2721,15 +2923,62 @@
     </div>
   </div>
 
+  <!-- ── My Profile (AN-style hub: stats, quick actions, setup, today) ── -->
+  <div id="panel-profile" class="tab-panel">
+    <div class="container" style="max-width:760px;padding-top:26px;">
+      <div id="profile-content">
+        <div class="spinner-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
   <footer>
-    <span class="footer-links">
-      <a href="/results">Track record</a> &nbsp;·&nbsp;
-      <a href="/faq">FAQ</a> &nbsp;·&nbsp;
-      <a href="/terms" target="_blank">Terms</a> &nbsp;·&nbsp;
-      <a href="/privacy" target="_blank">Privacy</a> &nbsp;·&nbsp;
-      <a href="#about" onclick="switchTab('about'); setTimeout(function(){document.getElementById('support')?.scrollIntoView({behavior:'smooth'});}, 60); return false;">Contact</a>
-    </span>
-    <span class="footer-version">v3.1.0</span>
+    <div class="footer-grid">
+      <div class="footer-col">
+        <div class="footer-brand-name"><img src="/ca-logo.png" alt="" onerror="this.style.display='none'">CappingAlpha</div>
+        <p class="footer-tag">Daily ranked sports betting intelligence. Capper picks scored, ranked, and tracked long term, win or lose.</p>
+        <div class="footer-apps">
+          <span class="footer-app-badge" title="The CappingAlpha app is in the works"><i class="fa-brands fa-apple"></i><span><small>Coming soon to the</small>App Store</span></span>
+          <span class="footer-app-badge" title="The CappingAlpha app is in the works"><i class="fa-brands fa-google-play"></i><span><small>Coming soon to</small>Google Play</span></span>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h4>Sports</h4>
+        <div class="footer-col-sports">
+          <a href="/mlb">MLB</a><a href="/nba">NBA</a>
+          <a href="/wnba">WNBA</a><a href="/nfl">NFL</a>
+          <a href="/nhl">NHL</a><a href="/ncaaf">NCAAF</a>
+          <a href="/cbb">CBB</a><a href="/tennis">Tennis</a>
+          <a href="/golf">Golf</a><a href="/soccer">Soccer</a>
+          <a href="/mma">UFC / MMA</a>
+        </div>
+      </div>
+      <div class="footer-col">
+        <h4>Site</h4>
+        <a href="#" onclick="switchTab('home'); return false;">Home</a>
+        <a href="#" onclick="switchTab('sports'); return false;">Sports</a>
+        <a href="/results">Track record</a>
+        <a href="#" onclick="switchTab('unlock'); return false;">Unlock CA</a>
+      </div>
+      <div class="footer-col">
+        <h4>Resources</h4>
+        <a href="/faq">FAQ</a>
+        <a href="#" onclick="switchTab('about'); return false;">About</a>
+        <a href="#" onclick="goSupport(); return false;">Support</a>
+        <a href="mailto:support@cappingalpha.com">Contact us</a>
+      </div>
+      <div class="footer-col">
+        <h4>Legal</h4>
+        <a href="/terms" target="_blank">Terms of Service</a>
+        <a href="/privacy" target="_blank">Privacy Policy</a>
+      </div>
+    </div>
+    <div class="footer-rg">21+ where applicable. Gambling problem? Call 1-800-GAMBLER.</div>
+    <div class="footer-disclaimer">CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit at the line recorded when each pick qualified for tracking. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</div>
+    <div class="footer-base">
+      <span>© 2026 CappingAlpha</span>
+      <span class="footer-version">v3.1.0</span>
+    </div>
   </footer>
 
   <!-- Cookie disclosure (we use a notice, not a hard gate — analytics keep US-friendly compliance) -->
@@ -2953,6 +3202,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=59"></script>
+  <script type="module" src="app.js?v=62"></script>
 </body>
 </html>

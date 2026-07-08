@@ -98,4 +98,25 @@ function getHealthSnapshot() {
   return { sources, heartbeats: beats, generatedAt: new Date().toISOString() };
 }
 
-module.exports = { recordHeartbeat, getHealthSnapshot };
+// Per-book line receptions: when each sportsbook's lines last landed in
+// book_lines, what they cover on today's board, plus the Mac service heartbeats.
+// Powers the admin "CA Ops Receptions" tab; getHealthSnapshot() stays the
+// whole-system view on /admin/health.
+function getBookReceptions() {
+  const books = qa(`
+    SELECT bl.book,
+           MAX(bl.updated_at)              AS last_at,
+           COUNT(*)                        AS rows_total,
+           COUNT(DISTINCT CASE WHEN tg.espn_game_id IS NOT NULL THEN bl.espn_game_id END) AS games_today,
+           GROUP_CONCAT(DISTINCT tg.sport) AS sports_today
+    FROM book_lines bl
+    LEFT JOIN today_games tg ON tg.espn_game_id = bl.espn_game_id
+    GROUP BY bl.book
+    ORDER BY last_at DESC
+  `).map(b => ({ ...b, ageMin: ageMin(b.last_at) }));
+  const beats = qa(`SELECT service, last_seen, meta_json FROM service_heartbeats ORDER BY service`)
+    .map(b => ({ ...b, ageMin: ageMin(b.last_seen) }));
+  return { books, beats };
+}
+
+module.exports = { recordHeartbeat, getHealthSnapshot, getBookReceptions };

@@ -633,7 +633,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
       const total = c.wins + c.losses + c.pushes;
-      const winPct = total > 0 ? Math.round((c.wins / total) * 100) : null;
+      // Win% is over decided picks only (pushes excluded) — the same convention as
+      // the member leaderboard, capper ratings, and the public record pages.
+      const decided = c.wins + c.losses;
+      const winPct = decided > 0 ? Math.round((c.wins / decided) * 100) : null;
       const units  = c.wins - c.losses;
       const r = ratingsMap.get(name) || null;
       const srcUnion = new Set([...(c.srcs || []), ...(r?.sources ? r.sources.split(',') : [])]);
@@ -778,8 +781,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const sportCols  = allSports.map(s => {
           const sr = c.sports[s];
           if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td data-sv="-9999" style="color:#3b4560;">—</td>`;
-          const stotal = sr.wins + sr.losses + sr.pushes;
-          const swp    = stotal > 0 ? Math.round((sr.wins / stotal) * 100) : null;
+          const sdecided = sr.wins + sr.losses;
+          const swp    = sdecided > 0 ? Math.round((sr.wins / sdecided) * 100) : null;
           const sc     = swp === null ? '#8892a4' : swp >= 55 ? '#16a34a' : swp >= 50 ? '#f59e0b' : '#ef4444';
           const smColor = sr.money > 0.005 ? '#16a34a' : sr.money < -0.005 ? '#ef4444' : '#8892a4';
           const smStr   = (sr.money >= 0 ? '+$' : '-$') + Math.abs(sr.money).toFixed(0);
@@ -2470,8 +2473,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const losses  = picks.filter(p => p.result === 'loss').length;
           const pushes  = picks.filter(p => p.result === 'push').length;
           const pending = picks.filter(p => p.result !== 'win' && p.result !== 'loss' && p.result !== 'push').length;
-          const total   = wins + losses + pushes;
-          const winPct  = total > 0 ? Math.round((wins / total) * 100) : null;
+          // Decided-only win% — matches the cappers table and the public record pages.
+          const decided = wins + losses;
+          const winPct  = decided > 0 ? Math.round((wins / decided) * 100) : null;
           const units   = wins - losses;
           const unit    = parseFloat(data.unit) || 10;
           const wpColor = winPct === null ? '#8892a4' : winPct >= 55 ? '#16a34a' : winPct >= 50 ? '#f59e0b' : '#ef4444';

@@ -6,9 +6,10 @@ import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
-import { loadLeaderboard } from './modules/leaderboard.js?v=7';
-import { loadTracking, loadSettings } from './modules/account.js?v=46';
-import './modules/track.js?v=40';
+import { loadLeaderboard } from './modules/leaderboard.js?v=8';
+import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=49';
+import './modules/track.js?v=42';
+import './modules/books.js?v=2';
 import './modules/modal.js?v=2';
 import './modules/member_profile.js?v=6';
 import { resumePendingCheckout } from './modules/paywall.js';
@@ -97,6 +98,10 @@ export function switchTab(tabName) {
   }
   if (tabName === 'settings') {
     if (state.currentUser) loadSettings();
+    else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
+  }
+  if (tabName === 'profile') {
+    if (state.currentUser) loadProfile();
     else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
   }
 

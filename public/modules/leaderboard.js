@@ -307,6 +307,12 @@ function table(rows, minVotes, window) {
   if (!rows.length) {
     return `<div class="empty"><div class="empty-icon">🏆</div><h3>No ranked members yet</h3><p>Vote on picks and rack up at least ${minVotes} graded votes to claim a spot.</p></div>`;
   }
+  // Inline Follow pill — logged-in members only, never on the house row or yourself.
+  const followBtn = (r) => {
+    if (r.is_house || r.is_me || !state.currentUser) return '';
+    return `<button class="lb-follow-btn${r.is_following ? ' following' : ''}"
+      onclick="event.stopPropagation(); lbToggleFollow(${r.user_id}, this)">${r.is_following ? 'Following' : 'Follow'}</button>`;
+  };
   const body = sortedRows(rows).map(r => {
     const cls = r.is_house ? 'lb-row lb-house' : `lb-row${r.is_me ? ' lb-me' : ''}`;
     const member = r.is_house
@@ -319,6 +325,7 @@ function table(rows, minVotes, window) {
       <td>${fmtPct(r.win_pct)}</td>
       <td>${unitsHtml(r.units)}</td>
       <td>${fmtRoi(r.roi)}</td>
+      <td class="lb-follow-cell">${followBtn(r)}</td>
     </tr>`;
   }).join('');
 
@@ -332,6 +339,7 @@ function table(rows, minVotes, window) {
           ${th('win_pct', 'Win %')}
           ${th('units', 'Units')}
           ${th('roi', 'ROI')}
+          <th></th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
@@ -383,4 +391,22 @@ export async function toggleLbPrivacy(makePublic) {
   loadLeaderboard(state.leaderboardWindow);
 }
 
-Object.assign(window, { loadLeaderboard, switchLbWindow, toggleLbPrivacy, sortLeaderboard, showFriends, showBoard });
+// Follow/unfollow straight from a board row. Optimistic-ish: flip on 2xx only.
+export async function lbToggleFollow(userId, btn) {
+  if (!btn || btn.disabled) return;
+  const wasFollowing = btn.classList.contains('following');
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/follow/${userId}`, { method: wasFollowing ? 'DELETE' : 'POST' });
+    if (r.ok) {
+      btn.classList.toggle('following', !wasFollowing);
+      btn.textContent = wasFollowing ? 'Follow' : 'Following';
+      // Keep the cached payload honest so a re-sort doesn't revert the pill.
+      const row = (_data?.rows || []).find(x => x.user_id === userId);
+      if (row) row.is_following = wasFollowing ? 0 : 1;
+    }
+  } catch (_) {}
+  btn.disabled = false;
+}
+
+Object.assign(window, { loadLeaderboard, switchLbWindow, toggleLbPrivacy, sortLeaderboard, showFriends, showBoard, lbToggleFollow });

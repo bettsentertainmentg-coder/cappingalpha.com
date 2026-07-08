@@ -8,6 +8,9 @@
 
 import { state } from './state.js';
 import { sportBadge } from './utils.js?v=1';
+// Book picker modal + window._myBooks seeding. Imported here (not just app.js)
+// because this module also runs standalone on the game detail page.
+import './books.js?v=2';
 
 const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
 const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'MMA', 'WCBB', 'Boxing', 'F1', 'NASCAR', 'Cricket', 'Rugby'];
@@ -1249,6 +1252,61 @@ function impliedInfoForSlot(slot) {
   return { book: imp.source === 'kalshi' ? 'Kalshi' : 'Polymarket', odds: odds == null ? -110 : odds, line: line == null ? null : +line };
 }
 
+// "My books" bubbles for the confirm slide: the books the user actually bets at
+// (Settings -> My Sportsbooks), one tap to put the bet on that book. Books we have
+// numbers for show them on the chip; the rest are plain labels. When the user has
+// no My Books saved, every book with a price for this slot shows instead.
+function bookBubbleEntries() {
+  const c = _confirm; if (!c) return [];
+  const withNums = c.books.map((b, i) => ({ label: b.book, odds: b.odds, sel: String(i) }));
+  if (c.imp) withNums.push({ label: c.imp.book, odds: c.imp.odds, sel: 'imp' });
+  const mine = Array.isArray(window._myBooks) ? window._myBooks : [];
+  if (!mine.length) return withNums;
+  const byLabel = new Map(withNums.map(e => [e.label.toLowerCase(), e]));
+  return mine.map(k => {
+    const label = BOOK_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1));
+    return byLabel.get(label.toLowerCase()) || { label, odds: null, sel: 'name:' + label };
+  });
+}
+// Custom/parlay form book row: the user's My Books lead, the default set follows,
+// Other stays last. My Books can add books beyond the default five (BetMGM etc.).
+function orderedFormBooks() {
+  const mine = (Array.isArray(window._myBooks) ? window._myBooks : [])
+    .map(k => BOOK_LABELS[k] || (k.charAt(0).toUpperCase() + k.slice(1)))
+    .filter(b => b !== 'Other');
+  if (!mine.length) return BOOKS;
+  const rest = BOOKS.filter(b => b !== 'Other' && !mine.includes(b));
+  return [...new Set([...mine, ...rest])].concat('Other');
+}
+
+function renderBookBubbles() {
+  const c = _confirm; if (!c) return '';
+  // No My Books saved: don't guess with every priced book — prompt the picker
+  // instead. Its X closes straight back onto this slide, and the myBooksChanged
+  // listener below swaps this prompt for real chips the moment they save.
+  const mine = Array.isArray(window._myBooks) ? window._myBooks : [];
+  if (!mine.length) {
+    return `
+    <button type="button" class="lc-books-prompt" onclick="openBookPicker()">
+      <i class="fa-solid fa-book-open"></i> Select your sportsbooks
+      <span class="lc-books-prompt-sub">Pick where you bet to get one-tap book chips here. The compare table below still works.</span>
+    </button>`;
+  }
+  const fmtO = o => (o == null ? '' : o > 0 ? '+' + o : '' + o);
+  const chips = bookBubbleEntries().map(e => `
+    <button type="button" class="lc-book-chip${c.book === e.label ? ' active' : ''}" data-book="${e.label}" onclick="pickConfirmBook('${e.sel}')">
+      ${e.label}${e.odds != null ? `<span class="lc-chip-odds">${fmtO(e.odds)}</span>` : ''}
+    </button>`).join('');
+  return chips + `<button type="button" class="lc-book-chip${c.book === 'Other' ? ' active' : ''}" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`;
+}
+
+// Repaint the bubble row live when the picker modal saves while the slide is open.
+window.addEventListener('myBooksChanged', () => {
+  if (!_confirm) return;
+  const el = document.getElementById('lc-bubbles');
+  if (el) el.innerHTML = renderBookBubbles();
+});
+
 // Current selection label, reflecting any edit to the line (e.g. "Angels +2.5", "Over 9").
 function lcSelLabel() {
   const c = _confirm; if (!c) return '';
@@ -1310,9 +1368,10 @@ export function openLineConfirm(id, slot, label, caOdds) {
       <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
         <div class="lc-book-head">
-          <label style="margin:0;">Book<span class="lc-book-sel" id="lc-book-sel"></span></label>
+          <label style="margin:0;">My books<span class="lc-book-sel" id="lc-book-sel"></span></label>
           <button type="button" class="lc-compare-toggle" id="lc-compare-toggle" onclick="toggleBookCompare()">Compare ${_confirm.books.length + (_confirm.imp ? 1 : 0)} book${(_confirm.books.length + (_confirm.imp ? 1 : 0)) === 1 ? '' : 's'} <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></button>
         </div>
+        <div class="lc-bubbles" id="lc-bubbles">${renderBookBubbles()}</div>
         <div class="lc-compare" id="lc-compare" style="display:none;">${renderBookCompare()}</div>
       </div>
       <div id="lc-note-area">
@@ -1378,6 +1437,7 @@ export function pickConfirmBook(idx) {
   let info = null, book = 'Other';
   if (idx === 'other') book = 'Other';
   else if (idx === 'imp') { info = c.imp; book = c.imp.book; }
+  else if (typeof idx === 'string' && idx.startsWith('name:')) { book = idx.slice(5); } // plain My Books chip, no scraped number
   else { info = c.books[idx]; book = info.book; }
   // Toggle off if re-tapping the selected book.
   if (c.book === book) { c.book = ''; refreshBookHighlight(); return; }
@@ -1392,6 +1452,8 @@ export function pickConfirmBook(idx) {
 }
 function refreshBookHighlight() {
   document.querySelectorAll('#lc-compare .lc-cmp-row').forEach(el =>
+    el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
+  document.querySelectorAll('#lc-bubbles .lc-book-chip').forEach(el =>
     el.classList.toggle('active', el.getAttribute('data-book') === _confirm.book));
   // With the chips gone, the collapsed state still shows which book is on the ticket.
   const sel = document.getElementById('lc-book-sel');
@@ -1617,7 +1679,7 @@ export function reviewParlay() {
       <div class="settings-field">
         <label>Book (optional)</label>
         <div class="bet-seg-row" style="flex-wrap:wrap;">
-          ${BOOKS.map(b => `<button type="button" class="bet-seg${_parlayMeta.book === b ? ' active' : ''}" onclick="setParlayBook('${b}',this)">${b}</button>`).join('')}
+          ${orderedFormBooks().map(b => `<button type="button" class="bet-seg${_parlayMeta.book === b ? ' active' : ''}" onclick="setParlayBook('${b}',this)">${b}</button>`).join('')}
         </div>
       </div>
       <div id="pl-note-area">
@@ -1752,7 +1814,7 @@ function customFormHtml() {
       <div class="settings-field">
         <label>Book (optional)</label>
         <div class="bet-seg-row" style="flex-wrap:wrap;">
-          ${BOOKS.map(b => `<button type="button" class="bet-seg" onclick="setFormBook('${b}',this)">${b}</button>`).join('')}
+          ${orderedFormBooks().map(b => `<button type="button" class="bet-seg" onclick="setFormBook('${b}',this)">${b}</button>`).join('')}
         </div>
       </div>
       <div class="settings-field">

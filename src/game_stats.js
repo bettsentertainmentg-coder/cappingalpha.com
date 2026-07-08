@@ -20,7 +20,7 @@ const LEAGUE_PATH = {
 };
 
 // Outdoor sports that warrant weather data
-const OUTDOOR_SPORTS = new Set(['MLB', 'NFL', 'NCAAF']);
+const OUTDOOR_SPORTS = new Set(['MLB', 'NFL', 'NCAAF', 'Soccer']);
 
 // ── Static stadium coordinates (home_team full name → {lat, lng}) ─────────────
 const STADIUM_COORDS = {
@@ -136,8 +136,11 @@ async function getWeather(lat, lng) {
 }
 
 // ── Fetch ESPN event summary ──────────────────────────────────────────────────
-async function getGameStats(espn_game_id, sport) {
-  const leaguePath = LEAGUE_PATH[sport];
+// Soccer has no single league path (12+ competitions), so the caller threads the
+// per-game path from today_games.league_path (e.g. "soccer/fifa.world") through
+// leaguePathOverride; the fixed map covers every other sport.
+async function getGameStats(espn_game_id, sport, leaguePathOverride = null) {
+  const leaguePath = LEAGUE_PATH[sport] || leaguePathOverride;
   const EMPTY_INJURIES = { home: { abbr: null, shortName: null, players: [] }, away: { abbr: null, shortName: null, players: [] } };
   if (!leaguePath) return { pitchers: [], injuries: EMPTY_INJURIES, venue: null };
 
@@ -412,10 +415,10 @@ async function getTeamForm(teamId, leaguePath, n = 5) {
 }
 
 // ── Main export: stats + optional weather + team form ─────────────────────────
-async function getFullGameContext(espn_game_id, sport, homeTeamName) {
-  const stats = await getGameStats(espn_game_id, sport);
+async function getFullGameContext(espn_game_id, sport, homeTeamName, leaguePathOverride = null) {
+  const stats = await getGameStats(espn_game_id, sport, leaguePathOverride);
 
-  const leaguePath = LEAGUE_PATH[sport];
+  const leaguePath = LEAGUE_PATH[sport] || leaguePathOverride;
   const isTeamSport = leaguePath && sport !== 'ATP' && sport !== 'WTA';
 
   // Build weather promise

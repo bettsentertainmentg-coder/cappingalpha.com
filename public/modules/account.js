@@ -3,9 +3,18 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=40';
+import { loadUserBets, setBetsData } from './track.js?v=42';
+// Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
+import { bookLabel, openBookPicker } from './books.js?v=2';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
+
+// Re-render the books-dependent views after the picker modal saves.
+window.addEventListener('myBooksChanged', () => {
+  if (document.getElementById('panel-settings')?.classList.contains('active')) loadSettings();
+  if (document.getElementById('panel-tracking')?.classList.contains('active')) loadTracking();
+  if (document.getElementById('panel-profile')?.classList.contains('active')) loadProfile();
+});
 
 // ── Loaders ───────────────────────────────────────────────────────────────────
 export async function loadTracking() {
@@ -541,6 +550,30 @@ function americanProfit(odds, stake) {
   const o = (odds == null || isNaN(parseFloat(odds))) ? -110 : parseFloat(odds);
   return o < 0 ? stake * (100 / Math.abs(o)) : stake * (o / 100);
 }
+// Display bits for the record drill-down list: what was picked + the game line.
+function voteSelOf(v) {
+  const nick = (t) => (t || '').split(' ').pop();
+  const slot = v.pick_slot || '';
+  const spr  = v.spread != null ? (v.spread > 0 ? '+' + v.spread : String(v.spread)) : '';
+  if (slot === 'home_ml')     return `${nick(v.home_team)} ML`;
+  if (slot === 'away_ml')     return `${nick(v.away_team)} ML`;
+  if (slot === 'home_spread') return `${nick(v.home_team)} ${spr}`.trim();
+  if (slot === 'away_spread') return `${nick(v.away_team)} ${spr}`.trim();
+  if (slot === 'over')        return 'Over';
+  if (slot === 'under')       return 'Under';
+  return slot || 'Pick';
+}
+function voteSubOf(v) {
+  const nick = (t) => (t || '').split(' ').pop();
+  const t = v.start_time ? Date.parse(v.start_time) : tsOf(v.voted_at);
+  const d = t ? new Date(t) : null;
+  const ds = d ? `${d.getMonth() + 1}/${d.getDate()}` : '';
+  const finalWord = v.status === 'post' ? 'Final' : '';
+  if (v.home_score != null && v.away_score != null) {
+    return `${nick(v.away_team)} ${v.away_score} - ${v.home_score} ${nick(v.home_team)}${finalWord || ds ? ` · ${[finalWord, ds].filter(Boolean).join(' ')}` : ''}`;
+  }
+  return `${nick(v.away_team)} @ ${nick(v.home_team)}${ds ? ' · ' + ds : ''}`;
+}
 function buildItems(votes, bets, unit) {
   const items = [];
   for (const v of (votes || [])) {
@@ -556,7 +589,8 @@ function buildItems(votes, bets, unit) {
       if (r === 'push') dollars = 0;
       else if (r === 'loss') dollars = -stakeD;
       else dollars = (hasWager && v.user_odds != null) ? americanProfit(v.user_odds, stakeD) : calcVoteReturn(v, 1) * unit;
-      items.push({ units: unit > 0 ? dollars / unit : 0, dollars: +dollars.toFixed(2), riskedD: stakeD, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot), odds: voteOddsOf(v) });
+      items.push({ units: unit > 0 ? dollars / unit : 0, dollars: +dollars.toFixed(2), riskedD: stakeD, result: r, ts: tsOf(v.voted_at), sport: (v.sport || '').toUpperCase() || 'Other', type: slotType(v.pick_slot), odds: voteOddsOf(v),
+                   verified: true, sel: voteSelOf(v), sub: voteSubOf(v), gameId: v.espn_game_id || null });
     }
   }
   for (const b of (bets || [])) {
@@ -565,7 +599,9 @@ function buildItems(votes, bets, unit) {
     // Hiding the loss entirely inflates the record — the win rate has to stay honest.
     if (r === 'win' || r === 'loss' || r === 'push') {
       const d = b.payout != null ? b.payout : 0;
-      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type), odds: (b.odds != null && isFinite(b.odds)) ? b.odds : -110, book: b.book || null });
+      const bt = new Date(tsOf(b.settled_at || b.placed_at));
+      items.push({ units: unit > 0 ? d / unit : 0, dollars: d, riskedD: b.stake || 0, result: r, ts: tsOf(b.settled_at || b.placed_at), sport: (b.sport || '').toUpperCase() || 'Other', type: betType(b.bet_type), odds: (b.odds != null && isFinite(b.odds)) ? b.odds : -110, book: b.book || null,
+                   verified: false, sel: b.selection || betType(b.bet_type), sub: `${b.book ? b.book + ' · ' : ''}${bt.getMonth() + 1}/${bt.getDate()}` });
     }
   }
   return items;
@@ -581,6 +617,32 @@ function breakdownBy(items, key) {
     m.set(k, row);
   }
   return [...m.values()].map(r => ({ ...r, units: +r.units.toFixed(2) })).sort((a, b) => b.units - a.units);
+}
+// AN-style sport tiles: record + net per league, each opening that sport's record
+// page. Favorite sports with nothing settled yet become "+ Add Bets" tiles.
+function sportTilesHtml(items) {
+  const rows = breakdownBy(items, 'sport');
+  const have = new Set(rows.map(r => r.k));
+  const favs = (window._trackingFavSports || []).map(s => String(s).toUpperCase());
+  const addTiles = favs.filter(s => !have.has(s)).slice(0, 4);
+  if (!rows.length && !addTiles.length) {
+    return `<div style="padding:12px 0;color:var(--muted);font-size:13px;">No settled bets yet.</div>`;
+  }
+  const tile = (r, i) => {
+    const up = r.units >= 0;
+    return `<div class="sport-tile" onclick="openRecordView('sport','${r.k.replace(/'/g, '')}')" title="Open ${r.k} record">
+      ${i === 0 && r.units > 0 ? '<i class="fa-solid fa-star sport-tile-star"></i>' : ''}
+      <div class="sport-tile-name">${r.k}</div>
+      <div class="sport-tile-rec">${r.wins}-${r.losses}-${r.pushes || 0}</div>
+      <div class="sport-tile-net ${up ? 'pos' : 'neg'}">${up ? '+' : ''}${r.units.toFixed(2)}u <i class="fa-solid fa-caret-${up ? 'up' : 'down'}"></i></div>
+    </div>`;
+  };
+  const add = (s) => `<div class="sport-tile sport-tile-add" onclick="openTrackSheet()" title="Track a ${s} bet">
+      <div class="sport-tile-name">${s}</div>
+      <div class="sport-tile-rec">0-0-0</div>
+      <div class="sport-tile-net add">+ Add Bets</div>
+    </div>`;
+  return `<div class="sport-tile-grid">${rows.map(tile).join('')}${addTiles.map(add).join('')}</div>`;
 }
 function breakdownHtml(items) {
   const rows = (list, withBadge) => list.length === 0
@@ -600,7 +662,7 @@ function breakdownHtml(items) {
   const bookItems = items.filter(it => it.book);
   const byBook = bookItems.length ? breakdownBy(bookItems, 'book') : [];
   return `
-    <div class="brk-section">By sport</div>${rows(breakdownBy(items, 'sport'), true)}
+    <div class="brk-section">By sport</div>${sportTilesHtml(items)}
     <div class="brk-section" style="margin-top:10px;">By bet type</div>${rows(breakdownBy(items, 'type'), false)}
     ${byBook.length ? `<div class="brk-section" style="margin-top:10px;">By book</div>${rows(byBook, false)}` : ''}`;
 }
@@ -832,16 +894,17 @@ function startOfTodayTs() { const d = new Date(); d.setHours(0, 0, 0, 0); return
 function netUnitsCardsHtml(items) {
   const sToday = startOfTodayTs();
   const yest = items.filter(it => it.ts >= sToday - 864e5 && it.ts < sToday);
+  // Each tile opens the Net Record drill-down with its window pre-selected.
   const defs = [
-    ['Yesterday', statsOf(yest)],
-    ['Last 7',    statsOf(itemsInRange(items, 'week'))],
-    ['Last 30',   statsOf(itemsInRange(items, 'month'))],
-    ['All Time',  statsOf(items)],
+    ['Yesterday', statsOf(yest),                          'yesterday'],
+    ['Last 7',    statsOf(itemsInRange(items, 'week')),   'week'],
+    ['Last 30',   statsOf(itemsInRange(items, 'month')),  'month'],
+    ['All Time',  statsOf(items),                         'all'],
   ];
-  return defs.map(([label, s]) => {
+  return defs.map(([label, s, win]) => {
     const cls = s.netUnits >= 0 ? 'pos' : 'neg';
     const rec = `${s.wins}-${s.losses}${s.pushes ? '-' + s.pushes : ''}`;
-    return `<div class="nu-card">
+    return `<div class="nu-card nu-click" onclick="openRecordView('net','${win}')" title="Open ${label} record">
       <div class="nu-label">${label}</div>
       <div class="nu-val ${cls}">${s.netUnits >= 0 ? '+' : ''}${s.netUnits.toFixed(2)}u</div>
       <div class="nu-sub">${s.netD >= 0 ? '+' : ''}$${Math.abs(s.netD).toFixed(2)} · ${rec}</div>
@@ -990,9 +1053,246 @@ export function setTrackRange(r) {
 }
 
 // ── My Tracking view ──────────────────────────────────────────────────────────
+// ── Record drill-down pages (AN-style) ─────────────────────────────────────────
+// One template behind every stat surface: Net Record (window tiles), {SPORT}
+// Record (sport tiles), Current Streak (profile). Timeframe tabs + filters
+// re-scope in place; every page carries the cumulative chart; custom bets ride
+// along greyed with a tag (personal view — the leaderboard never sees them).
+let _recScope = null;   // { kind:'net'|'sport'|'streak', sport, window, fSport, fType, fBook, showFilters }
+let recChart = null;
+const escRec = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+export function openRecordView(kind, param) {
+  _recScope = {
+    kind,
+    sport: kind === 'sport' ? String(param || '').toUpperCase() : null,
+    window: kind === 'net' ? (param || 'all') : 'all',
+    fSport: '', fType: '', fBook: '', showFilters: false,
+  };
+  const panel = document.getElementById('panel-tracking');
+  if (!panel || !panel.classList.contains('active')) {
+    // Entered from the profile: switch tabs — loadTracking sees _recScope and
+    // renders the record view the moment the data lands.
+    window.switchTab('tracking');
+    return;
+  }
+  if (!window._trackingVotes && !window._trackingBets) { loadTracking(); return; }
+  renderRecordView();
+}
+export function closeRecordView() {
+  _recScope = null;
+  if (recChart) { recChart.destroy(); recChart = null; }
+  loadTracking();
+}
+export function recSetWindow(w) { if (_recScope) { _recScope.window = w; renderRecordView(); } }
+export function recToggleFilters() { if (_recScope) { _recScope.showFilters = !_recScope.showFilters; renderRecordView(); } }
+export function recSetFilter(kind, val) {
+  if (!_recScope) return;
+  if (kind === 'sport') _recScope.fSport = val;
+  else if (kind === 'type') _recScope.fType = val;
+  else _recScope.fBook = val;
+  renderRecordView();
+}
+
+function recAllItems() {
+  const unit = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
+  return buildItems(window._trackingVotes || [], window._trackingBets || [], unit);
+}
+// Items in scope: page kind -> filters -> timeframe, chronological for the chart.
+function recItems() {
+  const sc = _recScope;
+  let items = recAllItems();
+  if (sc.kind === 'sport') items = items.filter(i => i.sport === sc.sport);
+  if (sc.fSport) items = items.filter(i => i.sport === sc.fSport);
+  if (sc.fType)  items = items.filter(i => i.type === sc.fType);
+  if (sc.fBook)  items = items.filter(i => i.book === sc.fBook);
+  if (sc.kind === 'streak') {
+    items = items.slice().sort((a, b) => b.ts - a.ts).slice(0, 10);
+  } else if (sc.window === 'yesterday') {
+    const s = startOfTodayTs();
+    items = items.filter(i => i.ts >= s - 864e5 && i.ts < s);
+  } else {
+    items = itemsInRange(items, sc.window);
+  }
+  return items.sort((a, b) => a.ts - b.ts);
+}
+function recTitle() {
+  const sc = _recScope;
+  if (sc.kind === 'sport')  return `${sc.sport} Record`;
+  if (sc.kind === 'streak') return 'Current Streak';
+  return 'Net Record';
+}
+// Trailing same-result run across ALL graded items (newest first): W3 / L2 badge.
+function recStreakBadge() {
+  const graded = recAllItems().filter(i => i.result === 'win' || i.result === 'loss')
+    .sort((a, b) => b.ts - a.ts);
+  if (!graded.length) return '';
+  const r = graded[0].result;
+  let n = 0;
+  for (const it of graded) { if (it.result === r) n++; else break; }
+  return `<span class="rec-streak-badge ${r}">${r === 'win' ? 'W' : 'L'}${n}</span>`;
+}
+
+function renderRecordView() {
+  const el = document.getElementById('tracking-content');
+  if (!el || !_recScope) return;
+  const sc = _recScope;
+  const items = recItems();
+  const s = statsOf(items);
+  // Bankroll is an overview-only concept; record pages speak dollars or units.
+  const metric = _trackMetric === 'units' ? 'units' : 'dollars';
+  const fmt = (v) => metric === 'units'
+    ? `${v >= 0 ? '+' : '-'}${Math.abs(v).toFixed(2)}u`
+    : `${v >= 0 ? '+' : '-'}$${Math.abs(v).toFixed(2)}`;
+  const net = metric === 'units' ? s.netUnits : s.netD;
+
+  const tabs = sc.kind === 'streak' ? '' : `
+    <div class="rec-tabs">
+      ${[['today', 'Today'], ['yesterday', 'Yest'], ['week', 'Last 7'], ['month', 'Last 30'], ['all', 'All']]
+        .map(([w, lbl]) => `<button class="rec-tab${sc.window === w ? ' active' : ''}" onclick="recSetWindow('${w}')">${lbl}</button>`).join('')}
+    </div>`;
+
+  // Filter options come from everything this page COULD show (kind-scoped, unfiltered).
+  let fltSrc = recAllItems();
+  if (sc.kind === 'sport') fltSrc = fltSrc.filter(i => i.sport === sc.sport);
+  const opts = (list, cur, none) => [`<option value="">${none}</option>`]
+    .concat(list.map(v => `<option value="${v}"${cur === v ? ' selected' : ''}>${v}</option>`)).join('');
+  const fSports = [...new Set(fltSrc.map(i => i.sport).filter(Boolean))].sort();
+  const fTypes  = [...new Set(fltSrc.map(i => i.type).filter(Boolean))].sort();
+  const fBooks  = [...new Set(fltSrc.map(i => i.book).filter(Boolean))].sort();
+  const filters = !sc.showFilters ? '' : `
+    <div class="rec-filters">
+      ${sc.kind === 'sport' ? '' : `<select class="perf-range" onchange="recSetFilter('sport', this.value)">${opts(fSports, sc.fSport, 'All sports')}</select>`}
+      <select class="perf-range" onchange="recSetFilter('type', this.value)">${opts(fTypes, sc.fType, 'All bet types')}</select>
+      ${fBooks.length ? `<select class="perf-range" onchange="recSetFilter('book', this.value)">${opts(fBooks, sc.fBook, 'All books')}</select>` : ''}
+    </div>`;
+
+  const rows = items.slice().reverse().map(it => {
+    const icon = it.result === 'win' ? '<i class="fa-solid fa-circle-check rec-ic win"></i>'
+               : it.result === 'loss' ? '<i class="fa-solid fa-circle-xmark rec-ic loss"></i>'
+               : '<i class="fa-solid fa-circle-minus rec-ic push"></i>';
+    const v = metric === 'units' ? it.units : it.dollars;
+    const oddsStr = it.odds > 0 ? `+${it.odds}` : `${it.odds}`;
+    return `<div class="rec-item${it.verified ? '' : ' rec-custom'}">
+      ${icon}
+      <div class="rec-item-main">
+        <div class="rec-item-sel">${escRec(it.sel)} <span class="rec-item-odds">${oddsStr}</span>${it.verified ? '' : '<span class="rec-custom-tag">custom</span>'}</div>
+        <div class="rec-item-sub">${escRec(it.sub)}</div>
+      </div>
+      <div class="rec-item-net ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${it.result === 'push' ? 'Push' : fmt(v)}</div>
+    </div>`;
+  }).join('');
+
+  // Top Leagues mini card: the user's whole slate, not just this page's scope.
+  const top = breakdownBy(recAllItems(), 'sport').slice(0, 3);
+  const topRows = top.map(r => `
+    <div class="rec-top-row" onclick="openRecordView('sport','${r.k.replace(/'/g, '')}')">
+      <span class="rec-top-name">${r.k}</span>
+      <span class="rec-top-rec">${r.wins}-${r.losses}-${r.pushes || 0}</span>
+      <span class="rec-top-net ${r.units >= 0 ? 'pos' : 'neg'}">${r.units >= 0 ? '+' : ''}${r.units.toFixed(2)}u</span>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="rec-page">
+      <div class="rec-head">
+        <button class="rec-back" onclick="closeRecordView()" aria-label="Back to My Tracking"><i class="fa-solid fa-chevron-left"></i></button>
+        <span class="rec-title">${recTitle()}${sc.kind === 'streak' ? recStreakBadge() : ''}</span>
+        <button class="rec-filter-btn${(sc.fSport || sc.fType || sc.fBook) ? ' on' : ''}" onclick="recToggleFilters()" aria-label="Filters"><i class="fa-solid fa-sliders"></i></button>
+      </div>
+      ${tabs}${filters}
+      <div class="rec-hero">
+        <div class="rec-big ${net > 0 ? 'pos' : net < 0 ? 'neg' : ''}">${fmt(net)}</div>
+        <button class="rec-share" onclick="shareRecord()" aria-label="Share this record"><i class="fa-solid fa-arrow-up-from-bracket"></i></button>
+        <div class="rec-risked">Total Risked: ${metric === 'units' ? (window._trackUnitSize > 0 ? (s => `${s.toFixed(2)}u`)(items.reduce((a, i) => a + ((i.result === 'win' || i.result === 'loss') ? i.riskedD : 0), 0) / window._trackUnitSize) : '0u') : '$' + items.reduce((a, i) => a + ((i.result === 'win' || i.result === 'loss') ? i.riskedD : 0), 0).toFixed(2)}</div>
+      </div>
+      <div class="rec-stats">
+        <span>ROI: <b class="${s.roi == null ? '' : s.roi >= 0 ? 'pos' : 'neg'}">${s.roi == null ? '—' : s.roi + '%'}</b></span>
+        <span>Record: <b>${s.wins}-${s.losses}-${s.pushes}</b></span>
+        <span>Wins: <b>${s.winPct == null ? '—' : s.winPct + '%'}</b></span>
+      </div>
+      <div class="rec-chart-card">
+        ${items.length ? '<canvas id="rec-chart"></canvas>' : `<div class="rec-chart-empty">No settled bets ${sc.kind === 'streak' ? 'yet' : 'in this timeframe'}.</div>`}
+      </div>
+      <div class="rec-list">${rows || ''}</div>
+      ${top.length ? `
+      <div class="rec-mystats-block">
+        <div class="rec-mystats-title">My Stats</div>
+        <div class="card rec-top-card">
+          <div class="rec-top-head"><i class="fa-solid fa-trophy" style="color:var(--gold);"></i> Top Leagues</div>
+          ${topRows}
+        </div>
+      </div>` : ''}
+      <button class="rec-viewall" onclick="closeRecordView()">View All Bet History</button>
+    </div>`;
+  if (items.length) requestAnimationFrame(() => drawRecChart(items, metric));
+}
+
+function drawRecChart(items, field) {
+  const canvas = document.getElementById('rec-chart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  if (recChart) { recChart.destroy(); recChart = null; }
+  let cum = 0;
+  const pts = items.map(it => +(cum = +(cum + it[field]).toFixed(4)).toFixed(2));
+  const total = pts[pts.length - 1] || 0;
+  const line = total >= 0 ? '#4ade80' : '#f87171';
+  const css = getComputedStyle(document.documentElement);
+  const fmt = (v) => field === 'units' ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}u` : `${v >= 0 ? '+' : ''}$${Math.abs(v).toFixed(2)}`;
+  recChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels: pts.map((_, i) => i + 1), datasets: [{ data: pts, borderColor: line, backgroundColor: line + '22', borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, fill: true, tension: 0.35 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { title: () => '', label: (i) => fmt(Number(i.raw)) } } },
+      scales: {
+        x: { display: false },
+        y: { grid: { color: css.getPropertyValue('--grid-line').trim() || 'rgba(255,255,255,0.05)' }, ticks: { color: css.getPropertyValue('--muted').trim() || '#8892a4' } },
+      },
+    },
+  });
+}
+
+// Share the scoped record as a PNG card (numbers only on the canvas, no user text).
+export async function shareRecord() {
+  if (!_recScope) return;
+  const items = recItems();
+  const s = statsOf(items);
+  const metric = _trackMetric === 'units' ? 'units' : 'dollars';
+  const net = metric === 'units'
+    ? `${s.netUnits >= 0 ? '+' : '-'}${Math.abs(s.netUnits).toFixed(2)}u`
+    : `${s.netD >= 0 ? '+' : '-'}$${Math.abs(s.netD).toFixed(2)}`;
+  const winLbl = { today: 'Today', yesterday: 'Yesterday', week: 'Last 7', month: 'Last 30', all: 'All time' }[_recScope.window] || 'All time';
+  const c = document.createElement('canvas'); c.width = 1080; c.height = 566;
+  const x = c.getContext('2d');
+  x.fillStyle = '#0f1117'; x.fillRect(0, 0, 1080, 566);
+  x.fillStyle = '#171b24'; x.fillRect(40, 40, 1000, 486);
+  x.strokeStyle = '#252c3b'; x.lineWidth = 2; x.strokeRect(40, 40, 1000, 486);
+  x.fillStyle = '#FFD700'; x.font = '800 36px "Segoe UI", system-ui, sans-serif'; x.fillText('CappingAlpha', 80, 116);
+  x.fillStyle = '#8892a4'; x.font = '600 26px "Segoe UI", system-ui, sans-serif';
+  x.fillText(`${recTitle()}${_recScope.kind === 'streak' ? '' : ' · ' + winLbl}`, 80, 164);
+  x.fillStyle = s.netD >= 0 ? '#4ade80' : '#f87171'; x.font = '900 108px "Segoe UI", system-ui, sans-serif';
+  x.fillText(net, 80, 300);
+  x.fillStyle = '#e2e8f0'; x.font = '700 34px "Segoe UI", system-ui, sans-serif';
+  x.fillText(`Record ${s.wins}-${s.losses}-${s.pushes}`, 80, 386);
+  x.fillText(`ROI ${s.roi == null ? '—' : s.roi + '%'}`, 470, 386);
+  x.fillText(`Wins ${s.winPct == null ? '—' : s.winPct + '%'}`, 760, 386);
+  x.fillStyle = '#8892a4'; x.font = '500 24px "Segoe UI", system-ui, sans-serif';
+  x.fillText('cappingalpha.com', 80, 472);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  if (!blob) return;
+  const file = new File([blob], 'ca-record.png', { type: 'image/png' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'My CappingAlpha record' }); return; } catch (_) {}
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'ca-record.png'; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function renderTracking(data) {
   const el = document.getElementById('tracking-content');
-  const { votes = [], friends = [], bets = [], unitSize, startingBankroll } = data;
+  const { votes = [], friends = [], bets = [], unitSize, startingBankroll,
+          user = {}, avatarUrl = null, favoriteSports = [], myBooks = [] } = data;
   const unit = Number(unitSize) > 0 ? Number(unitSize) : 20;
 
   // Unified personal series: verified votes + settled custom bets.
@@ -1005,6 +1305,12 @@ function renderTracking(data) {
   window._trackingBets   = bets;
   window._trackUnitSize  = unit;
   window._trackBankroll  = Number(startingBankroll) || 0;
+  window._myBooks        = myBooks;
+  window._trackingFavSports = favoriteSports;
+
+  // A record drill-down is open (or queued from the profile): render it instead of
+  // the overview — the freshly stashed data above is exactly what it reads.
+  if (_recScope) return renderRecordView();
 
   // Global filter options come from the sports/types actually in the data; keep a
   // stale active filter visible (like the bet-history dropdown) instead of snapping.
@@ -1244,7 +1550,8 @@ function renderTracking(data) {
 // ── Settings view ─────────────────────────────────────────────────────────────
 function renderSettings(data) {
   const el = document.getElementById('settings-content');
-  const { user, favoriteSports = [], allPicks = [], isPublic, avatarUrl, unitSize, startingBankroll, defaultOdds = 'consensus' } = data;
+  const { user, favoriteSports = [], allPicks = [], isPublic, avatarUrl, unitSize, startingBankroll, defaultOdds = 'consensus', myBooks = [] } = data;
+  window._myBooks = myBooks;
   const unit = Number(unitSize) > 0 ? Number(unitSize) : 20;
   const bankroll = Number(startingBankroll) || 0;
   const lbPublic = isPublic == null ? true : isPublic === 1 || isPublic === true;
@@ -1389,6 +1696,17 @@ function renderSettings(data) {
           </div>
         </div>
 
+        <div class="card account-reveal" id="my-books-card" style="margin-bottom:20px;">
+          <div class="card-header"><span class="card-title">My Sportsbooks</span></div>
+          <div style="padding:16px 20px 18px;">
+            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick the books you actually bet with. They show first when you track a bet and on game page odds.</div>
+            ${myBooks.length
+              ? `<div class="sport-pill-grid" style="margin-bottom:12px;">${myBooks.map(k => `<div class="sport-pill active" style="cursor:default;">${bookLabel(k)}</div>`).join('')}</div>`
+              : `<div style="font-size:13px;color:var(--muted);margin-bottom:12px;">No books selected yet.</div>`}
+            <button class="sport-pill-save" onclick="openBookPicker()">${myBooks.length ? 'Manage my books' : 'Select your sportsbooks'}</button>
+          </div>
+        </div>
+
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Bankroll &amp; Units</span></div>
           <div style="padding:16px 20px 18px;">
@@ -1516,9 +1834,148 @@ export function showLeaderboardInfo() {
     </div>`;
 }
 
+// ── Account Set Up checklist — shared by My Tracking + My Profile ─────────────
+// Compact AN-style card: slim header + thin bar, top 2 unfinished items visible,
+// everything else (incl. completed, grayed) behind View more. Disappears once all
+// items are done. The notifications item only renders where push is supported.
+function buildSetupCard({ user = {}, avatarUrl = null, favoriteSports = [], myBooks = [], bets = [], votes = [] }) {
+  const setupItems = [];
+  if ('Notification' in window && 'serviceWorker' in navigator) {
+    setupItems.push({ icon: 'fa-regular fa-bell', label: 'Turn on notifications',
+      done: Notification.permission === 'granted', go: "switchTab('settings')" });
+  }
+  setupItems.push(
+    { icon: 'fa-solid fa-football', label: 'Set favorite sports',
+      done: favoriteSports.length > 0, go: "switchTab('settings')" },
+    { icon: 'fa-regular fa-user', label: 'Complete your profile',
+      sub: 'Add a username and photo so other members recognize you.',
+      done: !!(user.username && avatarUrl), go: "switchTab('settings')" },
+    { icon: 'fa-regular fa-circle-check', label: 'Track your first bet',
+      done: (bets.length + votes.length) > 0, go: 'openTrackSheet()' },
+    { icon: 'fa-solid fa-book-open', label: 'Select your sportsbooks',
+      done: myBooks.length > 0, go: 'openBookPicker()' },
+  );
+  const setupDone = setupItems.filter(i => i.done).length;
+  if (setupDone >= setupItems.length) return '';
+  const row = i => `
+    <div class="setup-item${i.done ? ' done' : ''}"${i.done ? '' : ` onclick="${i.go}"`}>
+      <i class="${i.icon} setup-item-icon"></i>
+      <div class="setup-item-label">${i.label}${i.sub && !i.done ? `<div class="setup-item-sub">${i.sub}</div>` : ''}</div>
+      ${i.done
+        ? '<i class="fa-solid fa-circle-check setup-item-check"></i>'
+        : '<i class="fa-solid fa-chevron-right setup-item-chev"></i>'}
+    </div>`;
+  const undone   = setupItems.filter(i => !i.done);
+  const finished = setupItems.filter(i => i.done);
+  const hidden   = [...undone.slice(2), ...finished];
+  return `
+    <div class="card account-reveal setup-compact" style="margin-bottom:20px;">
+      <div class="setup-head">
+        <span class="setup-title">Complete Set Up</span>
+        <span class="setup-count">${setupDone} of ${setupItems.length}</span>
+      </div>
+      <div class="setup-bar-wrap"><div class="setup-bar"><div class="setup-bar-fill" style="width:${Math.max(4, Math.round(setupDone / setupItems.length * 100))}%;"></div><i class="fa-solid fa-trophy setup-bar-trophy"></i></div></div>
+      ${undone.slice(0, 2).map(row).join('')}
+      ${hidden.length ? `
+        <div id="setup-more" style="display:none;">${hidden.map(row).join('')}</div>
+        <button type="button" class="setup-viewmore" id="setup-viewmore" onclick="toggleSetupMore()">View more <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></button>` : ''}
+    </div>`;
+}
+
+// ── My Profile (AN-style) — header stats + quick actions + setup + today ──────
+export async function loadProfile() {
+  const el = document.getElementById('profile-content');
+  if (!el) return;
+  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+  try {
+    const accountRes = await fetch('/api/account');
+    if (accountRes.status === 401) { window.switchTab('home'); window.openLogin(); return; }
+    const account = await accountRes.json();
+    const [memberRes, betsRes] = await Promise.all([
+      fetch(`/api/member/${account.user.id}?window=all`),
+      fetch('/api/bets?limit=300'),
+    ]);
+    const member   = memberRes.ok ? await memberRes.json() : null;
+    const betsData = betsRes.ok ? await betsRes.json() : {};
+    renderProfile(account, member, betsData.bets || []);
+  } catch (err) {
+    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load profile</h3><p>${err.message}</p></div>`;
+  }
+}
+
+function renderProfile(account, member, bets) {
+  const el = document.getElementById('profile-content');
+  if (!el) return;
+  const { user = {}, avatarUrl = null, favoriteSports = [], myBooks = [], votes = [], unitSize } = account;
+  const mu    = member?.user  || {};
+  const stats = member?.stats || {};
+  const name  = user.username || (user.email || '').split('@')[0] || 'Member';
+
+  // Recent Performance (last 7 days, verified + custom) — opens the Current Streak page.
+  const pUnit = Number(unitSize) > 0 ? Number(unitSize) : 20;
+  const rs = statsOf(buildItems(votes, bets, pUnit).filter(i => i.ts >= Date.now() - 7 * 864e5));
+
+  const totalBets = bets.length + (votes || []).length;
+  const units     = stats.units != null ? Number(stats.units) : 0;
+  const unitsStr  = `${units > 0 ? '+' : ''}${units.toFixed(1)}u`;
+  const unitsCls  = units > 0 ? 'green' : units < 0 ? 'red' : '';
+
+  const todayEt   = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const todayBets = bets.filter(b => String(b.game_date || b.created_at || '').slice(0, 10) === todayEt);
+
+  el.innerHTML = `
+    <div class="pf-head account-reveal">
+      ${avatarFor(name, 72, avatarUrl)}
+      <div class="pf-id">
+        <div class="pf-name">${name}</div>
+        ${user.username ? '' : `<div class="pf-name-hint">Set a username in Settings so other members recognize you.</div>`}
+      </div>
+      <button class="pf-gear" onclick="switchTab('settings')" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+    </div>
+    <div class="pf-stats account-reveal">
+      <div class="pf-stat"><b>${totalBets}</b><span>Total Bets</span></div>
+      <div class="pf-stat"><b class="${unitsCls}">${unitsStr}</b><span>Units</span></div>
+      <div class="pf-stat"><b>${mu.followers ?? 0}</b><span>Followers</span></div>
+      <div class="pf-stat"><b>${mu.following ?? 0}</b><span>Following</span></div>
+    </div>
+    <div class="pf-actions account-reveal">
+      <button class="pf-action-btn" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i> Bet History</button>
+      <button class="pf-action-btn" onclick="openBookPicker()"><i class="fa-solid fa-book-open"></i> My Sportsbooks</button>
+    </div>
+    ${buildSetupCard({ user, avatarUrl, favoriteSports, myBooks, bets, votes })}
+    <div class="card account-reveal pf-today">
+      <div class="pf-today-head">
+        <span class="pf-today-count">Today: <b>${todayBets.length}</b> bet${todayBets.length === 1 ? '' : 's'}</span>
+        <button class="track-submit pf-trackbtn" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Track Bet</button>
+      </div>
+      ${todayBets.length ? '' : `<div class="pf-today-empty">Bets you track today will appear here.</div>`}
+    </div>
+    <div class="card account-reveal pf-mystats" onclick="openRecordView('streak')">
+      <div class="pf-recent-left">
+        <span>Recent Performance</span>
+        <span class="pf-recent-sub">Total Return: <b class="${rs.netD > 0 ? 'green' : rs.netD < 0 ? 'red' : ''}">${rs.netD >= 0 ? '+' : '-'}$${Math.abs(rs.netD).toFixed(2)}</b> · Last 7: ${rs.wins}-${rs.losses}-${rs.pushes}</span>
+      </div>
+      <span class="pf-mystats-cta">Current Streak ›</span>
+    </div>`;
+  requestAnimationFrame(() => initReveal('profile-content'));
+}
+
+// Expand/collapse the hidden tail of the Complete Set Up card.
+function toggleSetupMore() {
+  const more = document.getElementById('setup-more');
+  const btn  = document.getElementById('setup-viewmore');
+  if (!more) return;
+  const opening = more.style.display === 'none';
+  more.style.display = opening ? '' : 'none';
+  if (btn) btn.innerHTML = opening
+    ? 'View less <i class="fa-solid fa-chevron-up" style="font-size:9px;"></i>'
+    : 'View more <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i>';
+}
+
 Object.assign(window, {
   deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
-  showLeaderboardInfo, setTrackFilter, togglePush,
+  showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,
+  openRecordView, closeRecordView, recSetWindow, recToggleFilters, recSetFilter, shareRecord,
 });

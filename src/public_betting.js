@@ -17,6 +17,19 @@ const AN_SPORT_SLUG = {
   CBB:   'ncaab',
 };
 
+// ActionNetwork splits soccer by competition, so Soccer fans out over several
+// pages. The aggregate page goes first when AN serves one; out-of-season pages
+// 404 or come back empty and are skipped quietly. Stale competitions can't leak
+// onto the board: storePublicBettingGames only keeps rows matching a 'pre' game
+// on today_games.
+const SOCCER_AN_SLUGS = [
+  'soccer',
+  'soccer/world-cup',
+  'soccer/epl', 'soccer/mls', 'soccer/uefa-champions-league',
+  'soccer/la-liga', 'soccer/serie-a', 'soccer/bundesliga', 'soccer/ligue-1',
+  'soccer/liga-mx',
+];
+
 // Preferred book IDs to use for % data (all return identical %, pick first with data)
 const PREFERRED_BOOKS = ['15', '68', '69', '71', '75', '123', '30'];
 
@@ -144,8 +157,26 @@ function storePublicBettingGames(sport, games) {
   return stored;
 }
 
+// ── Soccer: fan out over the competition pages ────────────────────────────────
+async function fetchSoccerPublicBetting() {
+  let total = 0;
+  for (const slug of SOCCER_AN_SLUGS) {
+    let html;
+    try { html = await fetchHtml(`https://www.actionnetwork.com/${slug}/public-betting`); }
+    catch (_) { continue; }
+    const nextData = extractNextData(html);
+    const games = nextData?.props?.pageProps?.scoreboardResponse?.games;
+    if (!Array.isArray(games) || !games.length) continue;
+    const stored = storePublicBettingGames('Soccer', games);
+    total += stored;
+    if (stored > 0) console.log(`[publicBetting] Soccer (${slug}): stored ${stored} games`);
+  }
+  return total;
+}
+
 // ── Main scrape: fetch + parse + store for one sport ─────────────────────────
 async function fetchPublicBetting(sport) {
+  if (sport === 'Soccer') return fetchSoccerPublicBetting();
   const slug = AN_SPORT_SLUG[sport];
   if (!slug) return;
 

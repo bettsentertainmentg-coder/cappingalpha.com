@@ -40,6 +40,10 @@ function parseEspnOdds(comp) {
   return {
     ml_home:       odds.moneyline?.home?.close?.odds != null ? parseInt(odds.moneyline.home.close.odds, 10) : null,
     ml_away:       odds.moneyline?.away?.close?.odds != null ? parseInt(odds.moneyline.away.close.odds, 10) : null,
+    // Third leg of the 3-way market. ESPN usually puts it in drawOdds beside the
+    // two team prices; some feeds nest it under moneyline.draw instead.
+    ml_draw:       odds.drawOdds?.moneyLine != null ? parseInt(odds.drawOdds.moneyLine, 10)
+                 : odds.moneyline?.draw?.close?.odds != null ? parseInt(odds.moneyline.draw.close.odds, 10) : null,
     over_under:    odds.overUnder ?? null,
     ou_over_odds:  odds.total?.over?.close?.odds  != null ? parseInt(odds.total.over.close.odds,  10) : null,
     ou_under_odds: odds.total?.under?.close?.odds != null ? parseInt(odds.total.under.close.odds, 10) : null,
@@ -64,12 +68,12 @@ function upsertSoccerGame(ev, leaguePath = null) {
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
       league_path,
-      ml_home, ml_away, spread_home, spread_away,
+      ml_home, ml_away, ml_draw, spread_home, spread_away,
       over_under, ou_over_odds, ou_under_odds, odds_updated_at,
       fetched_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               ?,
-              ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?,
               CASE WHEN ? IS NOT NULL THEN datetime('now') ELSE NULL END,
               datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
@@ -82,6 +86,7 @@ function upsertSoccerGame(ev, leaguePath = null) {
       league_path = COALESCE(excluded.league_path, league_path),
       ml_home       = COALESCE(ml_home,       excluded.ml_home),
       ml_away       = COALESCE(ml_away,       excluded.ml_away),
+      ml_draw       = COALESCE(ml_draw,       excluded.ml_draw),
       spread_home   = COALESCE(spread_home,   excluded.spread_home),
       spread_away   = COALESCE(spread_away,   excluded.spread_away),
       over_under    = COALESCE(over_under,    excluded.over_under),
@@ -104,7 +109,7 @@ function upsertSoccerGame(ev, leaguePath = null) {
     away.team?.name || null,
     away.team?.abbreviation || null,
     leaguePath,
-    o.ml_home, o.ml_away, o.spread_home, o.spread_away,
+    o.ml_home, o.ml_away, o.ml_draw, o.spread_home, o.spread_away,
     o.over_under, o.ou_over_odds, o.ou_under_odds,
     o.ml_home
   );

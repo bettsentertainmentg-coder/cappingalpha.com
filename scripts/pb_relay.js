@@ -31,10 +31,17 @@ const INTERVAL_MS      = 60 * 60 * 1000; // 1 hour
 const BOVADA_TENNIS_URL =
   'https://www.bovada.lv/services/sports/event/coupon/events/A/description/tennis?marketFilterId=def&lang=en';
 
-const SPORTS = ['NBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB'];
+const SPORTS = ['NBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer'];
 const AN_SLUG = {
   NBA: 'nba', NFL: 'nfl', MLB: 'mlb',
   NHL: 'nhl', NCAAF: 'college-football', CBB: 'ncaab',
+  // ActionNetwork splits soccer by competition, so Soccer fans out over several
+  // pages; every batch relays under the one 'Soccer' sport. Out-of-season pages
+  // 404 or come back empty and are skipped; Railway only stores rows matching a
+  // pre-game row on today's board.
+  Soccer: ['soccer', 'soccer/world-cup', 'soccer/epl', 'soccer/mls',
+           'soccer/uefa-champions-league', 'soccer/la-liga', 'soccer/serie-a',
+           'soccer/bundesliga', 'soccer/ligue-1', 'soccer/liga-mx'],
 };
 
 if (!RELAY_SECRET || !RAILWAY_URL) {
@@ -100,7 +107,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // ── Bovada tennis lines (residential IP reaches Bovada; Railway is blocked) ────
 // Parses to orientation-agnostic events; Railway matches players to today_games.
 const _lastName = (n) => (n || '').trim().split(/\s+/).pop().toLowerCase().replace(/[^a-z]/g, '');
-const _american = (o) => { const a = parseFloat(o?.price?.american); return Number.isFinite(a) ? a : null; };
+const _american = (o) => {
+  if (o?.price?.american === 'EVEN') return 100; // Bovada spells +100 as EVEN
+  const a = parseFloat(o?.price?.american);
+  return Number.isFinite(a) ? a : null;
+};
 const _handicap = (o) => { const h = parseFloat(o?.price?.handicap); return Number.isFinite(h) ? h : null; };
 
 function parseBovadaEvent(ev) {
@@ -179,8 +190,8 @@ async function run() {
   let totalStored = 0;
 
   for (const sport of SPORTS) {
-    const slug = AN_SLUG[sport];
-    if (!slug) continue;
+    const slugs = [].concat(AN_SLUG[sport] || []);
+    for (const slug of slugs) {
 
     try {
       const html = await fetchHtml(`https://www.actionnetwork.com/${slug}/public-betting`);
@@ -215,11 +226,12 @@ async function run() {
         console.error(`[pb-relay] ${sport}: Railway returned ${result.status} after retries — ${result.body.slice(0, 200)}`);
       }
     } catch (err) {
-      console.error(`[pb-relay] ${sport}: ${err.message}`);
+      console.error(`[pb-relay] ${sport} (${slug}): ${err.message}`);
     }
 
-    // Polite gap between sports — don't hammer ActionNetwork
+    // Polite gap between pages — don't hammer ActionNetwork
     await sleep(2000);
+    }
   }
 
   console.log(`[pb-relay] cycle done — ${totalStored} total games stored`);
