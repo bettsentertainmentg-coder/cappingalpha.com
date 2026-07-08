@@ -100,6 +100,28 @@ function createParlay(userId, body) {
     legs.push({ selection: sel.slice(0, 120), bet_type: lt, side, line, odds: legOdds, sport, espn_game_id: egid });
   }
 
+  // No leg may contradict another on the SAME game. Two sides that can't both win
+  // (both moneylines, both spreads, over+under) make the parlay unwinnable; an exact
+  // duplicate slot is just noise. Client blocks these, but re-check here since the API
+  // is reachable directly.
+  const OPPOSITE = {
+    home_ml: 'away_ml', away_ml: 'home_ml',
+    home_spread: 'away_spread', away_spread: 'home_spread',
+    over: 'under', under: 'over',
+  };
+  const seen = new Set();
+  for (const l of legs) {
+    const slot = betToSlot(l);
+    if (!slot) continue;
+    const key = `${l.espn_game_id}|${slot}`;
+    if (seen.has(key)) throw httpErr(400, 'That pick is already in the parlay.');
+    const opp = OPPOSITE[slot];
+    if (opp && seen.has(`${l.espn_game_id}|${opp}`)) {
+      throw httpErr(400, 'A parlay cannot include both sides of the same game.');
+    }
+    seen.add(key);
+  }
+
   const combined = parlayAmericanOdds(legs); // all pending at creation -> full product
   if (combined == null) throw httpErr(400, 'Could not price this parlay.');
 

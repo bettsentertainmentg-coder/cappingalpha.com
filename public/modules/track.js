@@ -15,6 +15,15 @@ import './books.js?v=2';
 const BOOKS  = ['DraftKings', 'FanDuel', 'Kalshi', 'Polymarket', 'Other'];
 const SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer', 'UFC', 'MMA', 'WCBB', 'Boxing', 'F1', 'NASCAR', 'Cricket', 'Rugby'];
 
+// Two board slots on ONE game that can never both win. A parlay may not hold a slot
+// AND its opposite (both moneylines, both spreads, or over+under) — the parlay would
+// be unwinnable. Used by the board lockout and the add-leg guard.
+const OPPOSITE_SLOT = {
+  home_ml: 'away_ml', away_ml: 'home_ml',
+  home_spread: 'away_spread', away_spread: 'home_spread',
+  over: 'under', under: 'over',
+};
+
 let _bets      = [];
 let _betsTotal = 0;
 let _filters   = { sport: '', status: 'all', q: '', book: '' };
@@ -1104,12 +1113,24 @@ function renderOddsBoard() {
   // else, and doubling it up read as "this line is a free bet".
   const bolt = live ? '<span class="ob-livedot" title="Live odds right now"></span>' : '';
 
+  // A running parlay locks out any line on THIS game that's already a leg, or that
+  // opposes one — you can't parlay both sides of a game (they can't both win). Those
+  // lines render disabled with a reason, so the conflict is stopped before the tap.
+  const legSlotsHere = new Set(_parlayLegs.filter(l => l.espn_game_id === id).map(l => l.slot));
+  const parlayBlock = (slot) => legSlotsHere.has(slot) ? 'Already in your parlay'
+    : (OPPOSITE_SLOT[slot] && legSlotsHere.has(OPPOSITE_SLOT[slot]))
+      ? "This game's other side is already in your parlay" : null;
+
   // Tap a line -> the confirmation slide. `numOdds` is the raw number (or null).
-  const line = (slot, label, numOdds, disabled) => `
-    <button class="ob-line${disabled ? ' ob-line-off' : ''}" ${disabled ? 'disabled' : `onclick="openLineConfirm('${id}','${slot}','${String(label).replace(/'/g, "\\'")}',${numOdds == null ? 'null' : numOdds})"`}>
+  const line = (slot, label, numOdds, disabled) => {
+    const block = parlayBlock(slot);
+    const off = disabled || !!block;
+    return `
+    <button class="ob-line${off ? ' ob-line-off' : ''}"${block ? ` title="${block}"` : ''} ${off ? 'disabled' : `onclick="openLineConfirm('${id}','${slot}','${String(label).replace(/'/g, "\\'")}',${numOdds == null ? 'null' : numOdds})"`}>
       <span class="ob-line-label">${label}</span>
       <span class="ob-line-odds">${bolt}${_odds(numOdds)}</span>
     </button>`;
+  };
 
   // Disable a line when its underlying number is missing — tracking a "—" line
   // creates an ungradeable / mis-priced vote (Backlog P0 #2).
@@ -1351,20 +1372,31 @@ export function openLineConfirm(id, slot, label, caOdds) {
   const lineTxt = _confirm.caLine != null ? (isSpread && _confirm.caLine > 0 ? '+' + _confirm.caLine : '' + _confirm.caLine) : '—';
   const lineLeg = isTotal ? sideName : 'Spread'; // AN labels the total box by its side (Over/Under)
   const unit = unitSize();
+  // Once a parlay is running, every tap ADDS A LEG — the single-bet controls
+  // (Risk/To Win, book compare, note, free bet, "Track Bet") are hidden so a stray
+  // single can't be placed mid-parlay. A leg only needs its odds (and line, for a
+  // spread/total); stake and book are set once on the parlay itself.
+  const parlayActive = _parlayLegs.length > 0;
 
   // Action-Network-style row: Risk / To Win / [Line] / Odds side by side (fieldset boxes).
-  const fields = `
+  const lineField = hasLine ? `<fieldset class="lc-field"><legend>${lineLeg}</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-linepre" style="display:none;">+</span><input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" /></div></fieldset>` : '';
+  const oddsField = `<fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-oddspre" style="display:none;">+</span><input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" /></div></fieldset>`;
+  // Parlay-leg mode drops Risk / To Win (set once on the whole parlay).
+  const fields = parlayActive ? `${lineField}${oddsField}` : `
     <fieldset class="lc-field"><legend>Risk</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-stake" value="${unit}" min="0" step="1" oninput="onConfirmField('risk')" /></div></fieldset>
     <fieldset class="lc-field"><legend>To win</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="lc-towin" min="0" step="1" oninput="onConfirmField('towin')" /></div></fieldset>
-    ${hasLine ? `<fieldset class="lc-field"><legend>${lineLeg}</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-linepre" style="display:none;">+</span><input type="number" id="lc-line" value="${_confirm.caLine ?? ''}" step="0.5" oninput="onConfirmField('line')" /></div></fieldset>` : ''}
-    <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><span class="lc-fpre lc-sign" id="lc-oddspre" style="display:none;">+</span><input type="number" id="lc-odds" value="${_confirm.caOdds ?? ''}" step="5" oninput="onConfirmField('odds')" /></div></fieldset>`;
+    ${lineField}${oddsField}`;
 
   body.innerHTML = `
     <button class="ob-back" onclick="pickTrackGame('${id}')">‹ Board</button>
     <div class="lc-sel"><span id="lc-sel">${lcSelLabel()}</span> ${sportBadge(g.sport)}</div>
     <div class="track-form">
-      <div class="lc-fields ${hasLine ? 'four' : 'three'}">${fields}</div>
+      <div class="lc-fields ${parlayActive ? (hasLine ? 'two' : 'one') : (hasLine ? 'four' : 'three')}">${fields}</div>
       <div class="lc-caref">CA Line ${caTxt}${hasLine ? ` · ${lineLeg} ${lineTxt}` : ''}</div>
+      ${parlayActive ? `
+      <div class="track-form-note" style="margin-top:8px;">Adding a leg to your ${_parlayLegs.length}-leg parlay. Set the odds${hasLine ? ' and line' : ''} for this leg, then add it. Stake and book are set on the parlay.</div>
+      <button class="track-submit" id="lc-addleg" onclick="addLegToParlay()"><i class="fa-solid fa-layer-group"></i> Add to parlay</button>
+      ` : `
       <div class="lc-mode" id="lc-mode"></div>
       <div class="settings-field">
         <div class="lc-book-head">
@@ -1381,7 +1413,8 @@ export function openLineConfirm(id, slot, label, caOdds) {
         <button type="button" class="lc-freebet" id="lc-freebet" onclick="toggleConfirmFreeBet()"><i class="fa-solid fa-bolt"></i> Free Bet</button>
       </div>
       <button class="track-submit" id="lc-submit" onclick="confirmTrackBet()">Track Bet</button>
-      <button type="button" class="lc-addleg" id="lc-addleg" onclick="addLegToParlay()"><i class="fa-solid fa-layer-group"></i> ${_parlayLegs.length ? 'Add to parlay' : 'Start a parlay'}</button>
+      <button type="button" class="lc-addleg" id="lc-addleg" onclick="addLegToParlay()"><i class="fa-solid fa-layer-group"></i> Start a parlay</button>
+      `}
       <div class="form-error" id="lc-error" style="margin-top:8px;font-size:12px;"></div>
     </div>`;
   onConfirmField('odds'); // seed To Win + verified state
@@ -1620,6 +1653,12 @@ export function addLegToParlay() {
   // Guard: the same exact side of the same game can't be added twice.
   const dup = _parlayLegs.some(l => l.espn_game_id === c.id && l.slot === c.slot);
   if (dup) { showToast('That leg is already in your parlay.', 'err'); return; }
+  // Guard: can't parlay both sides of the same game (e.g. both teams' moneyline, or
+  // over + under) — they can't both win, so the parlay would be dead on arrival.
+  const opp = OPPOSITE_SLOT[c.slot];
+  if (opp && _parlayLegs.some(l => l.espn_game_id === c.id && l.slot === opp)) {
+    showToast("You can't parlay both sides of the same game.", 'err'); return;
+  }
   _parlayLegs.push({
     espn_game_id: c.id, slot: c.slot, betKind: c.betKind, side,
     selection: lcSelLabel(), odds,
