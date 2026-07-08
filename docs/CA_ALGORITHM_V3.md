@@ -816,6 +816,24 @@ recent-form window into their resume (exponential decay, half-life ~90d,
 half-life itself backtested) so current form moves points up or down against
 the career baseline. Under 25 picks: career-only (small windows whipsaw).
 
+VOLUME-DAMPED TRUST (Jack, from the SBK 36 vs Vernon Croy 14 case): the trust
+multiplier must be earned by volume, not by rate — trust' = 0.3 + (trust-0.3)
+x n/(n+25) — so a 9-pick dog-heater cannot borrow full trust from its own tiny
+sample (SBK 36 -> 17 vs Croy 11). Replay verdict 2026-07-08: fixes the case but
+costs gold quality when swapped in ALONE (59%/+10.6% -> 56%/+3.6%) because the
+other constants were fit around undamped trust. Co-fit it with mult/caps in the
+v3.2 pass, never ship solo. Context: only 3 of 79 replay golds were carried by
+a <20-pick advocate, and the SBK pick itself was silver — the tracked tier has
+limited exposure meanwhile.
+
+ERA-RELATIVE VOLUME (Jack): today vol = n/(n+10) saturates fast (100 picks ~
+0.91, 300 ~ 0.97), so early cappers all look "full volume" as the ledger
+deepens. v3.2: tie the volume constant to the population (e.g. k = median
+graded volume of RATED cappers, floor 10, recomputed nightly) so standing out
+keeps requiring more as everyone accumulates — while the skill term keeps a
+30-pick 65-70% capper genuinely valuable (volume never becomes a pure seniority
+contest). Backtest the k schedule before shipping.
+
 Floor replay of the end-state geometry (2026-07-08 pull, signals zero):
 base25/res65/con35/dynSport = 0.21 gold/day @ 57% — confirms the ratchet plan:
 the end state needs matured wave-1 resumes + live signal data before it feeds
