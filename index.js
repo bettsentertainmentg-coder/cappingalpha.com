@@ -2298,11 +2298,24 @@ app.listen(PORT, () => {
   // picks so the public leaderboard isn't empty. Cron keeps them voting daily.
   try { await seedDummyAccounts(); runDummyVotes(); runDummyComments(); } catch (err) { console.error('[startup] dummy accounts error:', err.message); }
 
-  // Recover any previously-skipped (no_game) messages whose forward game now exists.
-  // Gated: rescan runs the reader (paid Haiku fallback if Mac is down), so skip in UI_ONLY.
-  if (!process.env.UI_ONLY) {
-    scanner.rescanSkipped().catch(err => console.error('[startup] rescanSkipped error:', err.message));
-  }
+  // Skipped-message rescans are MANUAL ONLY (admin "Rescan Skipped" button). The
+  // reader must read each Discord message exactly once. It must never auto re-read
+  // on a boot or deploy. Do NOT re-add an automatic scanner.rescanSkipped() here.
+
+  // v17.1.3 flip boot, one-time: rescore today's board onto the v3 scale so live
+  // and upcoming picks carry real v3 scores immediately (db.js flips
+  // scoring_version + rescales history on this same boot; new mentions keep the
+  // board fresh from here and the daily wipe retires this within a day).
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3' && !db.getSetting('v3_board_rescored')) {
+      const { computeAndLogV3 } = require('./src/scoring_v3');
+      const board = db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all();
+      let rescored = 0;
+      for (const p of board) { try { if (computeAndLogV3(p.id)) rescored++; } catch (_) {} }
+      db.setSetting('v3_board_rescored', new Date().toISOString());
+      console.log(`[startup] v17.1.3 board rescore: ${rescored}/${board.length} picks on the v3 scale`);
+    }
+  } catch (err) { console.error('[startup] v3 board rescore error:', err.message); }
 
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
@@ -2453,8 +2466,8 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   syncEsportsMarkets().catch(e => console.error('[cron] 5am syncEsports:', e.message));
   console.log('[cron] 5:00am — first scan of new cycle (back to 12:30am)');
   await runScan();
-  // Recover yesterday's no_game skips now that forward games are fetched + seeded.
-  await scanner.rescanSkipped().catch(err => console.error('[cron] 5am rescanSkipped error:', err.message));
+  // No automatic skipped-message rescan here. Rescans are manual only (admin
+  // "Rescan Skipped" button) so the reader never re-reads already-seen messages.
 }, { timezone: 'America/New_York' });
 
 if (!UI_ONLY) cron.schedule('*/15 * * * *', async () => {

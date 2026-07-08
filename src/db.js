@@ -1215,6 +1215,22 @@ try { db.exec(`ALTER TABLE mvp_picks     ADD COLUMN score_v2_original REAL`); } 
 try { db.exec(`ALTER TABLE pick_history  ADD COLUMN score_v2_original REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN score_v2_original REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE golf_picks    ADD COLUMN score_v2_original REAL`); } catch (_) {}
+
+// ── v17.1.3 THE FLIP (Jack, 2026-07-07): this deploy takes scoring to v3 ──────
+// One-time: set scoring_version='v3' so the history rescale below fires on this
+// same boot and the startup board rescore (index.js) runs. Guarded by its own
+// marker so any later manual change to scoring_version is respected forever.
+try {
+  const flipped = db.prepare(`SELECT value FROM settings WHERE key = 'v17_1_3_v3_flip'`).get();
+  if (!flipped) {
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('scoring_version', 'v3')`).run();
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('v17_1_3_v3_flip', datetime('now'))`).run();
+    console.log('[db] v17.1.3: scoring_version flipped to v3 (one-time)');
+  }
+} catch (err) {
+  console.warn('[db] v17.1.3 flip failed:', err.message);
+}
+
 try {
   const live = db.prepare(`SELECT value FROM settings WHERE key = 'scoring_version'`).get();
   const done = db.prepare(`SELECT value FROM settings WHERE key = 'v3_history_rescale'`).get();

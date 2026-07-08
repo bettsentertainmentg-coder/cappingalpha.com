@@ -16,7 +16,6 @@ import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { renderUnlock } from './modules/unlock.js';
-import { mountAds } from './modules/ads.js';
 
 // ── PWA: service worker (offline shell + push notifications) ──────────────────
 // On localhost the SW is actively removed instead of registered: an early sw.js
@@ -352,8 +351,6 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   loadHomeMvp();
   loadHomeSidebar();
   loadHeadlines();
-  // Display ad slots (home page) — gated to non-paying users, dormant until GAM.
-  mountAds();
   setInterval(loadPicks, REFRESH_MS);
   setInterval(loadTopGames, REFRESH_MS);
   // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.

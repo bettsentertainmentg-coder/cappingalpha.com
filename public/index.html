@@ -2226,18 +2226,6 @@
       border-top: 1px solid var(--border);
     }
 
-    /* ── Display ad slots (dormant until Google Ad Manager; hidden for paid) ── */
-    .ca-ad-slot {
-      display: flex; align-items: center; justify-content: center;
-      background: var(--surface); border: 1px dashed var(--border);
-      border-radius: 10px; color: var(--muted); overflow: hidden;
-    }
-    .ca-ad-label {
-      font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.55;
-    }
-    .ca-ad--box { min-height: 250px; margin-top: 16px; }  /* sidebar medium rectangle */
-    .ca-ad--bar { min-height: 90px; }                     /* slim leaderboard bar */
-
     /* ── Mobile: stack home grid, show hamburger, hide nav tabs ── */
     @media (max-width: 768px) {
       .ca-hamburger { display: flex; align-items: center; padding-right: 4px; }
@@ -2269,7 +2257,6 @@
          whole site zooms out. min-width:0 + max-width caps every section. */
       #ca-top-games-section, #ca-my-sports-section, #ca-top-pick-slot,
       #ca-todays-picks-section, #ca-mvp-home-section, #ca-headlines-section,
-      #ca-ad-sidebar, #ca-ad-bar,
       .ca-sidebar-section-header, #ca-sidebar-sport-tabs, .ca-sidebar-games-card {
         min-width: 0;
         max-width: 100%;
@@ -2278,14 +2265,10 @@
 
       #ca-top-games-section    { order: 1; }
       #ca-top-pick-slot        { order: 2; }
-      #ca-ad-sidebar           { order: 2; }  /* directly under the #1 pick */
       #ca-my-sports-section    { order: 3; }
-      #ca-ad-bar               { order: 3; }  /* after My Sports, before Today's Picks */
       #ca-todays-picks-section { order: 4; }
       #ca-mvp-home-section     { order: 5; }
       #ca-headlines-section    { order: 6; }
-      .ca-ad--box { margin-top: 0; }          /* flex gap handles spacing on mobile */
-      .ca-ad--bar { min-height: 60px; }
       /* Today's Games list (sidebar) drops to the bottom */
       .ca-home-sidebar .ca-sidebar-section-header { order: 7; margin-top: 0; }
       #ca-sidebar-sport-tabs { order: 7; }
@@ -2569,9 +2552,6 @@
           </div>
         </div>
 
-        <!-- Ad slot: under the #1 pick. Hidden for paid users; dormant until GAM. -->
-        <div id="ca-ad-sidebar" style="display:none;"></div>
-
         <div class="ca-sidebar-section-header" style="margin-top:16px;">Today's Games</div>
         <div id="ca-sidebar-sport-tabs" class="ca-sidebar-sport-tabs"></div>
         <div class="ca-sidebar-games-card">
@@ -2606,9 +2586,6 @@
             <div class="spinner-wrap" style="padding:12px;"><div class="spinner"></div></div>
           </div>
         </div>
-
-        <!-- Ad slot: slim bar between My Sports and Today's Picks. Hidden for paid; dormant until GAM. -->
-        <div id="ca-ad-bar" style="display:none;"></div>
 
         <!-- Today's Rankings -->
         <div class="ca-home-section" id="ca-todays-picks-section">
@@ -2977,7 +2954,7 @@
     <div class="footer-disclaimer">CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit at the line recorded when each pick qualified for tracking. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</div>
     <div class="footer-base">
       <span>© 2026 CappingAlpha</span>
-      <span class="footer-version">v3.1.0</span>
+      <span class="footer-version">v17.1.3</span>
     </div>
   </footer>
 
