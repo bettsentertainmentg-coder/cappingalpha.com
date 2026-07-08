@@ -819,9 +819,18 @@ app.get('/api/games/top', (req, res) => {
   // Fallback before market data syncs in the morning: order by start time so the
   // row is never empty.
   const anyVolume = candidates.some(g => g._hotness > 0);
-  candidates.sort(anyVolume
+  const byHotness = anyVolume
     ? (a, b) => b._hotness - a._hotness
-    : (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+    : (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));
+  // Finished games always sink to the end of the strip — a completed game keeps
+  // riding today's board (with its final score) but shouldn't outrank pre/live
+  // games just because it drew heavy market volume. Within each group (still-going
+  // vs. done) the normal hotness/start-time order applies.
+  candidates.sort((a, b) => {
+    const aDone = a.status === 'post', bDone = b.status === 'post';
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    return byHotness(a, b);
+  });
 
   const top = candidates.slice(0, limit);
 
