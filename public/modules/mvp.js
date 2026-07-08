@@ -110,7 +110,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     <div class="mvp-tab-hero">
       <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
-      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
+      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
     </div>`;
 
   // Compute initial record for selected range
@@ -154,7 +154,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
 
     <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <span style="display:inline-flex;align-items:center;gap:6px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">History</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ pts.</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ pts.</span>
     </div>
     <div class="mvp-history-wrap">
       <div class="card" style="border:none;border-radius:0;">
@@ -203,7 +203,7 @@ export function renderMvpRow(p, i, opts = {}) {
     ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:3px;">${p.annotation}</div>`
     : '';
 
-  const displayThreshold = state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50;
+  const displayThreshold = state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100;
   const isGold   = (p.score || 0) >= displayThreshold;
   const rowClass = isGold ? 'mvp-row' : 'mvp-row-silver';
   const starColor = isGold ? 'var(--gold)' : '#a0aec0';
@@ -285,7 +285,7 @@ export function drawPlGraph(picks) {
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
-      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 50)
+      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 75)
       && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 
@@ -506,7 +506,7 @@ export async function loadHomeMvp() {
               <button class="graph-range-btn home-range-btn" data-key="3M"  onclick="setHomeGraphDays('3M')">3M</button>
               <button class="graph-range-btn home-range-btn active" data-key="ALL" onclick="setHomeGraphDays('ALL')">ALL</button>
             </div>
-            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 50}+ pt picks tracked, win/loss logged for every one.</div>
+            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ pt picks tracked, win/loss logged for every one.</div>
           </div>
         </div>
         <div class="graph-canvas-wrap" style="height:150px;">
@@ -545,7 +545,7 @@ function drawHomeGraph(picks) {
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
-      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 50)
+      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 75)
       && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 

@@ -96,10 +96,11 @@ function _isUnlocked(tp) {
   return !!tp && tp.score != null && (isPaying() || tp.is_global_1);
 }
 
-// CA score chip colour: bronze under 35, silver 35–49, gold 50+ (MVP).
+// CA score chip colour on the v3 scale: bronze under 75, silver 75–99 (styled
+// tier), gold 100+ (the tracked MVP tier).
 function _caColor(score) {
-  if (score >= 50) return '#FFD700';
-  if (score >= 35) return '#C0C0C0';
+  if (score >= 100) return '#FFD700';
+  if (score >= 75) return '#C0C0C0';
   return '#cd7f32';
 }
 

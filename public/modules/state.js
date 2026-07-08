@@ -4,7 +4,7 @@ export const REFRESH_MS = 5 * 60 * 1000;
 
 export const state = {
   currentUser:   null,
-  CONFIG:        { mvp_threshold: 50 },
+  CONFIG:        { mvp_threshold: 75, mvp_display_threshold: 100 },
   allPicks:      [],
   mvpData:       null,
   homeMvpPicks:  null,

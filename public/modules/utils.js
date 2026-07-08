@@ -58,7 +58,7 @@ export function sportBadge(sport) {
   </span>`;
 }
 
-export function ratingCell(score, mvp_threshold = 50) {
+export function ratingCell(score, mvp_threshold = 75) {
   if (score >= mvp_threshold) return `<span class="badge-mvp">CA</span>`;
   return `<span class="score-num">${score ?? '—'}</span>`;
 }
@@ -226,11 +226,12 @@ export function pickLabel(p) {
 }
 
 export function PICK_HEAT_COLOR(score) {
+  // Bands live on the v3 100-scale (old v2 bands rescaled x20/13).
   if (!score || score === 0) return { color: '#4a5568', fire: false };
-  if (score < 35)  return { color: '#ca8a04', fire: false };
-  if (score < 50)  return { color: '#C0C0C0', fire: false }; // silver tier
-  if (score < 80)  return { color: '#ea580c', fire: false };
-  if (score < 95)  return { color: '#dc2626', fire: false };
+  if (score < 54)  return { color: '#ca8a04', fire: false };
+  if (score < 77)  return { color: '#C0C0C0', fire: false }; // silver tier
+  if (score < 123) return { color: '#ea580c', fire: false };
+  if (score < 146) return { color: '#dc2626', fire: false };
   return { color: '#dc2626', fire: true };
 }
 

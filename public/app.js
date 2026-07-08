@@ -310,7 +310,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
   if (cfg) {
     state.CONFIG = cfg;
-    const t = cfg.mvp_display_threshold || cfg.mvp_threshold || 50;
+    const t = cfg.mvp_display_threshold || cfg.mvp_threshold || 100;
     // Backwards compat — keep updating the old id-based element if it's still around
     const el = document.getElementById('about-mvp-pts');
     if (el) el.textContent = t;

@@ -495,7 +495,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   }
 
   const heat  = PICK_HEAT_COLOR(p.score || 0);
-  const isMvp = (p.score || 0) >= (state.CONFIG?.mvp_threshold || 50);
+  const isMvp = (p.score || 0) >= (state.CONFIG?.mvp_threshold || 75);
 
   const SLOT_PAIRS     = { home_ml:'away_ml', away_ml:'home_ml', home_spread:'away_spread', away_spread:'home_spread', over:'under', under:'over' };
   const pickRank       = (data.pickRanks && p.id) ? (data.pickRanks[p.id] || 0) : 0;
@@ -531,7 +531,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     ${timelineSection}`;
 
   if (typeof Chart !== 'undefined' && (isPaying() || p.globalRank === 1)) {
-    const mvp = state.CONFIG?.mvp_threshold || 50;
+    const mvp = state.CONFIG?.mvp_threshold || 75;
     requestAnimationFrame(() => drawPickTimeline(p?.timeline || [], mvp));
   }
 }

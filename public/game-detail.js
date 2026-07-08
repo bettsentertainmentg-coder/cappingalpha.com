@@ -63,7 +63,11 @@ Object.assign(window, {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const VALID_SLOTS = ['home_ml', 'away_ml', 'home_spread', 'away_spread', 'over', 'under'];
-const MVP_THRESHOLD = 50;
+// v3 scale: silver styling starts at 75 (server /api/config mvp_threshold),
+// gold MVP at 100 (mvp_display_threshold). This page is standalone (no config
+// fetch), so these constants mirror the server's v3 values.
+const MVP_THRESHOLD = 75;
+const GOLD_THRESHOLD = 100;
 const FALLBACK_COLORS = { primary: '#3b82f6', secondary: '#0d1117' };
 
 // Opposite bet side for for/against vote UI
@@ -887,8 +891,8 @@ function renderDetailPanel() {
   // that they're MVPs (or whether they won) to non-paying users.
   const showRealScore = isPaying() || (p && rank === 1);
 
-  const isGoldMvp   = showRealScore && isMvp && score >= 60;
-  const isSilverMvp = showRealScore && isMvp && score < 60;
+  const isGoldMvp   = showRealScore && isMvp && score >= GOLD_THRESHOLD;
+  const isSilverMvp = showRealScore && isMvp && score < GOLD_THRESHOLD;
 
   // Juice/odds to show inline next to the spread or total line value
   const juice = (() => {
