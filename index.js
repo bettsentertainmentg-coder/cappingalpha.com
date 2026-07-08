@@ -818,11 +818,20 @@ app.get('/api/games/top', (req, res) => {
     : (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));
   // Finished games always sink to the end of the strip — a completed game keeps
   // riding today's board (with its final score) but shouldn't outrank pre/live
-  // games just because it drew heavy market volume. Within each group (still-going
-  // vs. done) the normal hotness/start-time order applies.
+  // games just because it drew heavy market volume. Within the finished segment
+  // we STILL lead with the game that got the most action: combined market volume
+  // persists on the cache after a game settles (polymarket/kalshi keep syncing
+  // settled markets until the morning wipe), so we rank finished games by _hotness
+  // descending regardless of the slate-wide fallback, with most-recent start as a
+  // deterministic tiebreak so ties (e.g. every finished game at 0 volume) never
+  // collapse to arbitrary DB order.
+  const byFinishedAction = (a, b) =>
+    (b._hotness - a._hotness) ||
+    String(b.start_time || '').localeCompare(String(a.start_time || ''));
   candidates.sort((a, b) => {
     const aDone = a.status === 'post', bDone = b.status === 'post';
     if (aDone !== bDone) return aDone ? 1 : -1;
+    if (aDone && bDone) return byFinishedAction(a, b);
     return byHotness(a, b);
   });
 

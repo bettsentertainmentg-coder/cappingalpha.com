@@ -285,6 +285,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
     knownCapperSet = new Set();
   }
 
+  // Clickable capper name → opens the shared capper-detail popup (a page-level
+  // overlay that works from any tab). Source entities (@src:...) have no profile
+  // page, so they render as plain muted text. extraHtml is appended inside the link.
+  const capperLink = (name, extraHtml = '', style = '') => {
+    const nm = String(name == null ? '' : name);
+    const body = `${escHtml(nm)}${extraHtml}`;
+    if (!nm || nm.startsWith('@src:')) return `<span style="color:#8892a4;${style}">${body}</span>`;
+    const arg = escHtml(nm).replace(/'/g, '&#39;');
+    return `<span onclick="event.stopPropagation();showCapperDetail('${arg}')" style="color:#93c5fd;cursor:pointer;${style}">${body}</span>`;
+  };
+
   const pickRowsHtml = picks.map((p, i) => {
     // v3 (live): show the real WEIGHTED score + tiers. Admin is internal, so it
     // sees the true v3 total (not the public leak-aware display). v2: raw score.
@@ -299,7 +310,6 @@ router.get('/dashboard', requireAuth, (req, res) => {
       : isSilver ? '<span class="badge" style="background:#3a3f4b;color:#c0c0c0;">silver</span>' : '';
 
     const raws  = rawByPick[p.id] || [];
-    const capperLabel = p.capper_name ? escHtml(p.capper_name) : '<span style="color:#3b4560;">—</span>';
     const matchBadge = p.capper_name
       ? (knownCapperSet.has(normalizeCapper(p.capper_name))
           ? '<span class="badge match-ok">matched</span>'
@@ -323,16 +333,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         ? `<tr><td style="padding:2px 10px 2px 0;color:#b7c0d0;">${label}${extra ? ` <span style="color:#6b7488;">${extra}</span>` : ''}</td><td style="text-align:right;font-weight:600;color:#e5e9f0;">+${pts}</td></tr>`
         : '';
       const joinRows = (bd.joiners || []).filter(j => (j.applied || 0) > 0)
-        .map(j => `<tr><td style="padding:1px 10px 1px 18px;color:#8892a4;">↳ ${escHtml(j.name)} <span style="color:#6b7488;">(base +${j.pts})</span></td><td style="text-align:right;color:#b7c0d0;">+${j.applied}</td></tr>`).join('');
+        .map(j => `<tr><td style="padding:1px 10px 1px 18px;color:#8892a4;">↳ ${capperLink(j.name)} <span style="color:#6b7488;">(base +${j.pts})</span></td><td style="text-align:right;color:#b7c0d0;">+${j.applied}</td></tr>`).join('');
       const mkt = bd.market || {};
       const mktExtra = [mkt.edge_pts ? `edge +${mkt.edge_pts}` : '', mkt.steam_pts ? `steam +${mkt.steam_pts}` : '', mkt.contrarian_pts ? `contrarian +${mkt.contrarian_pts}` : ''].filter(Boolean).join(' · ');
-      const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${escHtml(f.capper)} +${f.pts}`).join(', ');
+      const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${capperLink(f.capper)} +${f.pts}`).join(', ');
       return `
       <div style="padding:8px 12px;background:#12151d;border-radius:6px;margin-bottom:8px;">
         <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}</div>
         <table style="width:auto;margin:0;border:none;font-size:12px;">
           ${row('Base', bd.base)}
-          ${row('Advocate resume', bd.resume, bd.advocate ? `· ${escHtml(bd.advocate)}` : '')}
+          ${row('Advocate resume', bd.resume, bd.advocate ? `· ${capperLink(bd.advocate)}` : '')}
           ${row('Consensus', bd.consensus)}
           ${joinRows}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
@@ -348,16 +358,53 @@ router.get('/dashboard', requireAuth, (req, res) => {
     const mentionRows = raws.map(rm => {
       const cap = rm.capper_name || p.capper_name;
       const pts = cap && contrib[cap] != null ? `<span style="color:#a08020;font-weight:600;">+${contrib[cap]} pts</span> · ` : '';
-      return `<tr class="raw-row"><td colspan="10">
-        ${cap ? `<strong style="color:#a08020;">${escHtml(cap)}</strong> · ` : ''}${pts}<strong>${escHtml(rm.channel || '')}</strong>
+      return `<tr class="raw-row"><td colspan="9">
+        ${cap ? `${capperLink(cap, '', 'font-weight:700;')} · ` : ''}${pts}<strong>${escHtml(rm.channel || '')}</strong>
         ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
         ${rm.message_timestamp ? `· <span style="color:#8892a4;">${rm.message_timestamp.slice(0, 16)}</span>` : ''}
         <br><span style="color:#c8cfdb;">${escHtml(rm.message_text || '')}</span>
       </td></tr>`;
     }).join('');
 
+    // Every capper who added points to this pick, deduped to one clickable chip
+    // each — points contributed (consensus/resume, plus any fade points routed in
+    // from a fade-active capper on the opposite slot) and, for Discord mentions,
+    // when they came in. Source entities (@src:...) render as plain text.
+    const involvedHtml = (() => {
+      if (!v3Now || !bd) return '';
+      const whenFor = (name) => {
+        const rm = raws.find(r => (r.capper_name || p.capper_name) === name && r.message_timestamp);
+        return rm ? rm.message_timestamp.slice(0, 16) : null;
+      };
+      const inv = new Map();
+      const bump = (name, key, pts) => {
+        if (!name) return;
+        if (!inv.has(name)) inv.set(name, { pts: 0, fade: 0, when: whenFor(name) });
+        inv.get(name)[key] += (pts || 0);
+      };
+      for (const [name, pts] of Object.entries(contrib)) bump(name, 'pts', pts);
+      for (const f of (bd.fade_in && bd.fade_in.from || [])) bump(f.capper, 'fade', f.pts);
+      if (!inv.size) return '';
+      const chips = [...inv.entries()]
+        .sort((a, b) => (b[1].pts + b[1].fade) - (a[1].pts + a[1].fade))
+        .map(([name, info]) => {
+          const parts = [];
+          if (info.pts)  parts.push(`+${info.pts}`);
+          if (info.fade) parts.push(`+${info.fade} fade`);
+          const ptsHtml  = parts.length ? ` <span style="color:#a08020;font-weight:600;">${parts.join(' · ')} pts</span>` : '';
+          const whenHtml = info.when ? ` <span style="color:#6b7488;">@ ${info.when}</span>` : '';
+          return capperLink(name, `${ptsHtml}${whenHtml}`,
+            'display:inline-block;background:#1a1f2b;border:1px solid #2a3040;border-radius:12px;padding:2px 9px;font-size:12px;');
+        }).join(' ');
+      return `<div style="margin-bottom:8px;">
+        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;">Cappers involved</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
+      </div>`;
+    })();
+
     const rawRowsHtml = (v3Panel || raws.length)
-      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="10" style="padding:8px 10px;">
+      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="9" style="padding:8px 10px;">
+          ${involvedHtml}
           ${v3Panel}
           ${raws.length ? `<table style="margin:0;border:none;border-radius:0;"><tbody>${mentionRows}</tbody></table>` : ''}
         </td></tr>`
@@ -387,7 +434,6 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
       <td>${escHtml(p.sport || '—')}</td>
       <td>${escHtml(p.team || '—')} ${escHtml(p.pick_type || '')} ${spreadDisplay}</td>
-      <td>${capperLabel}</td>
       <td>${matchBadge}</td>
       <td>${p.mention_count}</td>
       <td style="font-weight:700;color:${scoreColor};">${shownScore} ${tierBadge}</td>
@@ -397,42 +443,74 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }).join('');
 
   const picksTableHtml = picks.length
-    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Capper</th><th>Match</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Details</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
+    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Match</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Details</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
     : '<div class="empty">No picks today.</div>';
 
   // ── Codes panel ──────────────────────────────────────────────────────────────
   const codes = db.prepare(`
-    SELECT ac.*, u.email AS activated_email, u.username AS activated_username
+    SELECT ac.*, u.email AS activated_email, u.username AS activated_username,
+           (SELECT COUNT(*) FROM code_redemptions r WHERE r.code_id = ac.id) AS use_count
     FROM access_codes ac
     LEFT JOIN users u ON u.id = ac.activated_by
     ORDER BY ac.created_at DESC
   `).all();
 
-  const nowMs = Date.now();
+  // Access length granted on redemption (custom duration wins, else the legacy type).
+  const codeDurationLabel = (c) => {
+    if (c.duration_days != null) return c.duration_days > 0 ? `${c.duration_days} day${c.duration_days === 1 ? '' : 's'}` : 'Lifetime';
+    const map = { day: '1 day', week: '7 days', annual: '1 year', lifetime: 'Lifetime' };
+    return map[c.type] || escHtml(c.type || '—');
+  };
+
   const codeRows = codes.map(c => {
+    const maxUses   = c.max_uses == null ? 1 : c.max_uses;   // 0 = unlimited
+    const uses      = c.use_count || 0;
+    const unlimited = maxUses === 0;
+    const isMulti   = unlimited || maxUses > 1;
+    const full      = !unlimited && uses >= maxUses;
+
     let status = 'Unused', statusColor = '#8892a4';
-    if (c.activated_by != null) {
-      const expired = c.expires_at && new Date(c.expires_at).getTime() < nowMs;
-      if (c.type === 'lifetime') { status = 'Lifetime (used)'; statusColor = '#FFD700'; }
-      else if (expired)          { status = 'Expired';         statusColor = '#ef4444'; }
-      else                       { status = 'Active';          statusColor = '#16a34a'; }
+    if (uses > 0) {
+      if (full) { status = 'Full';   statusColor = '#ef4444'; }
+      else      { status = 'Active'; statusColor = '#16a34a'; }
     }
-    const activatedBy = c.activated_username || c.activated_email || '—';
-    const expiresAt   = c.expires_at ? c.expires_at.slice(0, 16).replace('T', ' ') : (c.type === 'lifetime' ? 'Never' : '—');
-    return `<tr>
+
+    const usesLabel = `${uses} / ${unlimited ? '∞' : maxUses}`;
+
+    // Who redeemed: single-use shows the one user inline; multi-use links to the popup.
+    let redeemedBy;
+    if (isMulti) {
+      redeemedBy = uses > 0
+        ? `<span style="color:#93c5fd;">${uses} user${uses === 1 ? '' : 's'} &#9656;</span>`
+        : '<span style="color:#8892a4;">—</span>';
+    } else {
+      redeemedBy = `<span style="color:#8892a4;">${escHtml(c.activated_username || c.activated_email || '—')}</span>`;
+    }
+
+    // Multi-use codes are manageable even after use; single-use only while unredeemed.
+    const canDelete = uses === 0 || isMulti;
+    const deleteBtn = canDelete
+      ? `<button class="btn-sm btn-revoke" onclick="event.stopPropagation();deleteCode(${c.id})">Delete</button>`
+      : '';
+
+    // Row click opens the "who used it" popup, but only when the user limit is over 1.
+    const rowAttrs  = isMulti ? ` style="cursor:pointer;" title="See who redeemed this code" onclick="showCodeUsers(${c.id})"` : '';
+    const createdAt = c.created_at ? c.created_at.slice(0, 16).replace('T', ' ') : '—';
+
+    return `<tr${rowAttrs}>
       <td style="font-family:monospace;letter-spacing:1px;font-size:13px;">${escHtml(c.code)}</td>
-      <td style="font-size:12px;">${escHtml(c.type)}</td>
+      <td style="font-size:12px;">${codeDurationLabel(c)}</td>
       <td style="color:#64748b;font-size:12px;">${escHtml(c.notes || '—')}</td>
+      <td style="font-size:12px;font-weight:600;color:#c8d3e0;">${usesLabel}</td>
+      <td style="font-size:12px;">${redeemedBy}</td>
       <td><span style="color:${statusColor};font-weight:600;font-size:12px;">${status}</span></td>
-      <td style="color:#8892a4;font-size:12px;">${escHtml(activatedBy)}</td>
-      <td style="color:#8892a4;font-size:12px;">${escHtml(c.activated_at ? c.activated_at.slice(0, 16).replace('T', ' ') : '—')}</td>
-      <td style="color:#8892a4;font-size:12px;">${escHtml(expiresAt)}</td>
-      <td>${c.activated_by == null ? `<button class="btn-sm btn-revoke" onclick="deleteCode(${c.id})">Delete</button>` : ''}</td>
+      <td style="color:#8892a4;font-size:12px;">${createdAt}</td>
+      <td onclick="event.stopPropagation()">${deleteBtn}</td>
     </tr>`;
   }).join('');
 
   const codesTableHtml = codes.length
-    ? `<table><thead><tr><th>Code</th><th>Type</th><th>Notes</th><th>Status</th><th>Activated By</th><th>Activated At</th><th>Expires</th><th></th></tr></thead><tbody>${codeRows}</tbody></table>`
+    ? `<table><thead><tr><th>Code</th><th>Duration</th><th>Name</th><th>Uses</th><th>Redeemed By</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${codeRows}</tbody></table>`
     : '<div class="empty">No codes generated yet.</div>';
 
   // ── MVP panel ─────────────────────────────────────────────────────────────────
@@ -1054,40 +1132,50 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:28px;">
         <div>
           <h1 style="margin-bottom:6px;">Access Codes</h1>
-          <p style="color:#8892a4;font-size:13px;margin:0;">All codes are single-use. Hand out to users for direct access.</p>
+          <p style="color:#8892a4;font-size:13px;margin:0;max-width:420px;">Create named codes with a custom access length and a user limit. Codes with a limit over 1 are clickable in the table to see who redeemed them.</p>
         </div>
-        <!-- Quick batch generator -->
-        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 20px;min-width:320px;">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:12px;">Quick Generate</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <!-- Create code -->
+        <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:18px 20px;min-width:340px;">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:12px;">Create Code</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
             <div>
-              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">TYPE</label>
-              <select id="qgen-type" style="font-size:13px;padding:7px 10px;">
-                <option value="day">1 Day</option>
-                <option value="week" selected>7 Days</option>
-                <option value="annual">1 Year</option>
-                <option value="lifetime">Lifetime</option>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">NAME</label>
+              <input type="text" id="cc-name" placeholder="auto if blank" style="font-size:13px;padding:7px 10px;width:150px;text-transform:uppercase;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">DURATION</label>
+              <select id="cc-duration" onchange="ccDurToggle()" style="font-size:13px;padding:7px 10px;">
+                <option value="1">1 Day</option>
+                <option value="7" selected>7 Days</option>
+                <option value="30">30 Days</option>
+                <option value="365">1 Year</option>
+                <option value="0">Lifetime</option>
+                <option value="custom">Custom…</option>
               </select>
+            </div>
+            <div id="cc-dur-custom-wrap" style="display:none;">
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">DAYS</label>
+              <input type="number" id="cc-dur-custom" min="1" value="14" style="font-size:13px;padding:7px 10px;width:80px;" />
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">USER LIMIT</label>
+              <input type="number" id="cc-maxuses" min="0" value="1" style="font-size:13px;padding:7px 10px;width:80px;" />
+              <div style="font-size:10px;color:#64748b;margin-top:3px;">0 = unlimited</div>
             </div>
             <div>
               <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">COUNT</label>
-              <select id="qgen-count" style="font-size:13px;padding:7px 10px;">
-                <option value="1">1</option>
-                <option value="3">3</option>
-                <option value="5">5</option>
-                <option value="8" selected>8</option>
-                <option value="10">10</option>
-              </select>
+              <input type="number" id="cc-count" min="1" max="50" value="1" style="font-size:13px;padding:7px 10px;width:70px;" />
+              <div style="font-size:10px;color:#64748b;margin-top:3px;">blank name only</div>
             </div>
             <div>
               <label style="display:block;font-size:11px;color:#8892a4;margin-bottom:4px;">NOTES</label>
-              <input type="text" id="qgen-notes" placeholder="optional label" style="font-size:13px;padding:7px 10px;width:130px;" />
+              <input type="text" id="cc-notes" placeholder="optional label" style="font-size:13px;padding:7px 10px;width:130px;" />
             </div>
-            <button class="btn btn-primary" style="font-size:13px;padding:8px 16px;" onclick="quickGenerate()">Generate</button>
+            <button class="btn btn-primary" style="font-size:13px;padding:8px 16px;" onclick="createCode()">Create</button>
           </div>
-          <div id="qgen-result" style="margin-top:12px;font-size:12px;color:#8892a4;display:none;">
-            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:6px;">Generated codes</div>
-            <div id="qgen-codes" style="font-family:monospace;line-height:2;letter-spacing:1px;"></div>
+          <div id="cc-result" style="margin-top:12px;font-size:12px;color:#8892a4;display:none;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8892a4;margin-bottom:6px;">Created codes</div>
+            <div id="cc-codes" style="font-family:monospace;line-height:2;letter-spacing:1px;"></div>
           </div>
         </div>
       </div>
@@ -1665,6 +1753,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>
     </div>
 
+    <!-- CODE REDEMPTIONS MODAL -->
+    <div id="code-users-modal" onclick="if(event.target===this)closeCodeUsers()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:260;align-items:center;justify-content:center;">
+      <div onclick="event.stopPropagation()" style="background:#171b24;border:1px solid #252c3b;border-radius:12px;max-width:640px;width:92%;max-height:85vh;padding:28px;position:relative;display:flex;flex-direction:column;overflow:hidden;">
+        <button onclick="closeCodeUsers()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;z-index:1;">&#x2715;</button>
+        <div id="code-users-content" style="overflow-y:auto;flex:1;">Loading...</div>
+      </div>
+    </div>
+
     <!-- Message full-text viewer modal -->
     <div id="msg-view-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;align-items:center;justify-content:center;" onclick="if(event.target===this)closeMsgView()">
       <div style="background:#171b24;border:1px solid #252c3b;border-radius:12px;padding:24px;max-width:640px;width:92%;max-height:80vh;display:flex;flex-direction:column;gap:12px;">
@@ -2099,20 +2195,34 @@ router.get('/dashboard', requireAuth, (req, res) => {
         }
       }
 
-      // ── Quick code generator ───────────────────────────────────────────────────
-      async function quickGenerate() {
-        const type  = document.getElementById('qgen-type').value;
-        const count = parseInt(document.getElementById('qgen-count').value, 10);
-        const notes = document.getElementById('qgen-notes').value.trim();
-        const res   = await fetch('/admin/generate-codes-batch', {
+      // ── Code creator ───────────────────────────────────────────────────────────
+      function ccDurToggle() {
+        const v = document.getElementById('cc-duration').value;
+        document.getElementById('cc-dur-custom-wrap').style.display = v === 'custom' ? '' : 'none';
+      }
+
+      async function createCode() {
+        const name   = document.getElementById('cc-name').value.trim().toUpperCase();
+        const durSel = document.getElementById('cc-duration').value;
+        let durationDays = durSel === 'custom'
+          ? parseInt(document.getElementById('cc-dur-custom').value, 10)
+          : parseInt(durSel, 10);
+        if (isNaN(durationDays) || durationDays < 0) durationDays = 0;
+        let maxUses = parseInt(document.getElementById('cc-maxuses').value, 10);
+        if (isNaN(maxUses) || maxUses < 0) maxUses = 1;
+        let count = parseInt(document.getElementById('cc-count').value, 10);
+        if (isNaN(count) || count < 1) count = 1;
+        const notes = document.getElementById('cc-notes').value.trim();
+
+        const res = await fetch('/admin/generate-codes-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, count, notes }),
+          body: JSON.stringify({ code: name || undefined, durationDays, maxUses, count, notes }),
         });
         const data = await res.json();
         if (!data.ok) { alert('Error: ' + (data.error || 'unknown')); return; }
-        const resultEl = document.getElementById('qgen-result');
-        const codesEl  = document.getElementById('qgen-codes');
+        const resultEl = document.getElementById('cc-result');
+        const codesEl  = document.getElementById('cc-codes');
         codesEl.innerHTML = data.codes.map(c =>
           \`<div style="display:flex;align-items:center;gap:12px;">
             <span style="color:#e2e8f0;font-size:14px;">\${c}</span>
@@ -2121,15 +2231,53 @@ router.get('/dashboard', requireAuth, (req, res) => {
           </div>\`
         ).join('');
         resultEl.style.display = '';
-        // reload after 3s so table updates
-        setTimeout(() => location.reload(), 3000);
+        // reload after 2.5s so table updates
+        setTimeout(() => location.reload(), 2500);
       }
 
       async function deleteCode(id) {
-        if (!confirm('Delete this unused code?')) return;
-        await fetch('/admin/delete-code/' + id, { method: 'DELETE' });
+        if (!confirm('Delete this code? Users who already redeemed it keep their access.')) return;
+        const res  = await fetch('/admin/delete-code/' + id, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (data && data.ok === false) { alert('Error: ' + (data.error || 'could not delete')); return; }
         location.reload();
       }
+
+      // ── Who-used-this-code popup ───────────────────────────────────────────────
+      async function showCodeUsers(id) {
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const modal   = document.getElementById('code-users-modal');
+        const content = document.getElementById('code-users-content');
+        content.innerHTML = 'Loading...';
+        modal.style.display = 'flex';
+        try {
+          const res  = await fetch('/admin/api/code-users/' + id);
+          const data = await res.json();
+          if (!data.ok) { content.innerHTML = 'Could not load redemptions.'; return; }
+          const limit = data.maxUses === 0 ? '∞' : data.maxUses;
+          const users = data.users || [];
+          const rows = users.map((u, i) => {
+            const who  = u.username || u.email || ('user #' + u.id);
+            const when = u.redeemed_at ? u.redeemed_at.slice(0, 16).replace('T', ' ') : '—';
+            const exp  = u.subscription_expires ? u.subscription_expires.slice(0, 10) : 'never';
+            return \`<tr>
+              <td style="color:#8892a4;">\${i + 1}</td>
+              <td style="color:#e2e8f0;font-weight:600;">\${esc(who)}</td>
+              <td style="color:#8892a4;font-size:12px;">\${esc(u.email || '—')}</td>
+              <td style="color:#8892a4;font-size:12px;">\${when}</td>
+              <td style="color:#8892a4;font-size:12px;">\${esc(u.subscription_tier || '—')} · \${exp}</td>
+            </tr>\`;
+          }).join('');
+          content.innerHTML = \`
+            <h2 style="margin:0 0 4px;font-size:18px;font-family:monospace;letter-spacing:1px;">\${esc(data.code)}</h2>
+            <p style="color:#8892a4;font-size:13px;margin:0 0 16px;">\${users.length} / \${limit} redemptions</p>
+            \${users.length
+              ? \`<table style="width:100%;"><thead><tr><th>#</th><th>User</th><th>Email</th><th>Redeemed</th><th>Access</th></tr></thead><tbody>\${rows}</tbody></table>\`
+              : '<p style="color:#8892a4;">No one has redeemed this code yet.</p>'}
+          \`;
+        } catch (e) { content.innerHTML = 'Could not load redemptions.'; }
+      }
+      function closeCodeUsers() { document.getElementById('code-users-modal').style.display = 'none'; }
 
       function showStatus(type, msg) {
         const el = document.getElementById('scan-status');
@@ -3289,31 +3437,90 @@ router.post('/generate-code', requireAuth, express.urlencoded({ extended: false 
   res.redirect('/admin/dashboard?tab=codes');
 });
 
-// ── POST /admin/generate-codes-batch — JSON batch generator ──────────────────
+// ── POST /admin/generate-codes-batch — JSON code creator ─────────────────────
+// Accepts a custom name OR a batch count, a duration in days (0 = lifetime), and a
+// user limit (0 = unlimited). Legacy callers may still pass a `type` instead of days.
 router.post('/generate-codes-batch', requireAuth, express.json(), (req, res) => {
-  const { type, count = 1, notes } = req.body || {};
-  const validTypes = ['day', 'week', 'annual', 'lifetime'];
-  if (!validTypes.includes(type)) return res.status(400).json({ ok: false, error: 'Invalid code type.' });
-  const n = Math.min(Math.max(parseInt(count, 10) || 1, 1), 20);
-  const insert = db.prepare(`INSERT INTO access_codes (code, type, notes) VALUES (?, ?, ?)`);
-  const codes = [];
-  for (let i = 0; i < n; i++) {
-    let code, tries = 0;
-    do { code = generateCode(); tries++; } while (tries < 10 && db.prepare(`SELECT id FROM access_codes WHERE code = ?`).get(code));
-    insert.run(code, type, notes || null);
-    codes.push(code);
+  const body = req.body || {};
+  const { type, notes } = body;
+  const { code, count = 1, durationDays, maxUses } = body;
+
+  // Resolve access length in days. New callers send durationDays; legacy send `type`.
+  // Either way we store duration_days so every surface renders uniformly.
+  const TYPE_DAYS = { day: 1, week: 7, annual: 365, lifetime: 0 };
+  let dd;
+  if (durationDays != null && durationDays !== '') {
+    dd = parseInt(durationDays, 10);
+    if (isNaN(dd) || dd < 0) return res.status(400).json({ ok: false, error: 'Invalid duration.' });
+  } else if (type != null) {
+    if (!(type in TYPE_DAYS)) return res.status(400).json({ ok: false, error: 'Invalid code type.' });
+    dd = TYPE_DAYS[type];
+  } else {
+    return res.status(400).json({ ok: false, error: 'A duration is required.' });
   }
-  console.log(`[admin] Generated ${n} ${type} codes: ${codes.join(', ')}`);
+  const label = dd === 0 ? 'lifetime' : 'custom';
+
+  // User limit: 0 = unlimited, >= 1 = capped.
+  let mu = parseInt(maxUses, 10);
+  if (isNaN(mu) || mu < 0) mu = 1;
+
+  const insert = db.prepare(`INSERT INTO access_codes (code, type, notes, max_uses, duration_days) VALUES (?, ?, ?, ?, ?)`);
+  const codes  = [];
+
+  const custom = (code || '').trim().toUpperCase();
+  if (custom) {
+    // Custom-named code → single insert, must be unique.
+    if (db.prepare(`SELECT id FROM access_codes WHERE LOWER(code) = LOWER(?)`).get(custom)) {
+      return res.status(409).json({ ok: false, error: 'Code already exists: ' + custom });
+    }
+    insert.run(custom, label, notes || null, mu, dd);
+    codes.push(custom);
+  } else {
+    const n = Math.min(Math.max(parseInt(count, 10) || 1, 1), 50);
+    for (let i = 0; i < n; i++) {
+      let gen, tries = 0;
+      do { gen = generateCode(); tries++; } while (tries < 10 && db.prepare(`SELECT id FROM access_codes WHERE code = ?`).get(gen));
+      insert.run(gen, label, notes || null, mu, dd);
+      codes.push(gen);
+    }
+  }
+  console.log(`[admin] Created ${codes.length} code(s) (${dd === 0 ? 'lifetime' : dd + 'd'}, limit ${mu === 0 ? '∞' : mu}): ${codes.join(', ')}`);
   res.json({ ok: true, codes });
 });
 
 // ── DELETE /admin/delete-code/:id ─────────────────────────────────────────────
+// Single-use codes are locked once redeemed (preserves the record). Multi-use /
+// unlimited codes stay deletable; removing one just stops further redemptions —
+// users who already redeemed keep the access already granted to them.
 router.delete('/delete-code/:id', requireAuth, (req, res) => {
-  const row = db.prepare(`SELECT id, activated_by FROM access_codes WHERE id = ?`).get(req.params.id);
+  const row = db.prepare(`
+    SELECT ac.id, ac.max_uses,
+           (SELECT COUNT(*) FROM code_redemptions r WHERE r.code_id = ac.id) AS use_count
+    FROM access_codes ac WHERE ac.id = ?
+  `).get(req.params.id);
   if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
-  if (row.activated_by != null) return res.status(409).json({ ok: false, error: 'Cannot delete a used code.' });
+  const maxUses = row.max_uses == null ? 1 : row.max_uses;
+  const isMulti = maxUses === 0 || maxUses > 1;
+  if (!isMulti && row.use_count > 0) {
+    return res.status(409).json({ ok: false, error: 'Cannot delete a used single-use code.' });
+  }
+  db.prepare(`DELETE FROM code_redemptions WHERE code_id = ?`).run(row.id);
   db.prepare(`DELETE FROM access_codes WHERE id = ?`).run(row.id);
   res.json({ ok: true });
+});
+
+// ── GET /admin/api/code-users/:id — who redeemed a multi-use code ─────────────
+router.get('/api/code-users/:id', requireAuth, (req, res) => {
+  const code = db.prepare(`SELECT id, code, max_uses FROM access_codes WHERE id = ?`).get(req.params.id);
+  if (!code) return res.status(404).json({ ok: false, error: 'Not found' });
+  const users = db.prepare(`
+    SELECT r.redeemed_at, u.id, u.username, u.email, u.subscription_tier, u.subscription_expires
+    FROM code_redemptions r
+    LEFT JOIN users u ON u.id = r.user_id
+    WHERE r.code_id = ?
+    ORDER BY r.redeemed_at ASC
+  `).all(code.id);
+  res.json({ ok: true, code: code.code, maxUses: code.max_uses == null ? 1 : code.max_uses, users });
 });
 
 // ── GET /admin/api/users — JSON for AJAX search ───────────────────────────────

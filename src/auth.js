@@ -173,29 +173,46 @@ router.post('/redeem-code', express.json(), (req, res) => {
   const row = db.prepare(`SELECT * FROM access_codes WHERE LOWER(code) = LOWER(?)`).get(code.trim());
   if (!row) return res.status(401).json({ error: 'Invalid code. Try again.' });
 
-  // ALL codes are single-use
-  if (row.activated_by != null) {
-    return res.status(409).json({ error: 'This code has already been used.' });
+  const userId  = req.session.user.id;
+  const maxUses = row.max_uses == null ? 1 : row.max_uses;   // 0 = unlimited
+
+  // Can't redeem the same code twice.
+  const mine = db.prepare(`SELECT 1 FROM code_redemptions WHERE code_id = ? AND user_id = ?`).get(row.id, userId);
+  if (mine) return res.status(409).json({ error: 'You have already redeemed this code.' });
+
+  // Usage cap (0 = unlimited).
+  const used = db.prepare(`SELECT COUNT(*) AS n FROM code_redemptions WHERE code_id = ?`).get(row.id).n;
+  if (maxUses > 0 && used >= maxUses) {
+    return res.status(409).json({ error: 'This code has reached its usage limit.' });
   }
 
-  // Compute expiry
+  // Compute expiry — a custom duration wins, otherwise fall back to the legacy `type`.
   let expires = null;
-  if (row.type === 'day')      expires = new Date(Date.now() + 1   * 24 * 60 * 60 * 1000).toISOString();
-  if (row.type === 'week')     expires = new Date(Date.now() + 7   * 24 * 60 * 60 * 1000).toISOString();
-  if (row.type === 'annual')   expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-  if (row.type === 'lifetime') expires = null; // lifetime = no expiry, single-use
+  if (row.duration_days != null) {
+    expires = row.duration_days > 0
+      ? new Date(Date.now() + row.duration_days * 24 * 60 * 60 * 1000).toISOString()
+      : null; // 0 days = lifetime
+  } else {
+    if (row.type === 'day')    expires = new Date(Date.now() + 1   * 24 * 60 * 60 * 1000).toISOString();
+    if (row.type === 'week')   expires = new Date(Date.now() + 7   * 24 * 60 * 60 * 1000).toISOString();
+    if (row.type === 'annual') expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    // lifetime / unknown → null (no expiry)
+  }
 
   // Never shorten access the user already has (e.g. a day code on top of an annual).
-  const cur = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(req.session.user.id);
+  const cur = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(userId);
   const merged = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, expires);
   db.prepare(`UPDATE users SET subscription_tier = 'code', subscription_expires = ? WHERE id = ?`)
-    .run(merged, req.session.user.id);
+    .run(merged, userId);
 
-  // Lock the code — always single-use now
-  db.prepare(`UPDATE access_codes SET activated_by = ?, activated_at = datetime('now') WHERE id = ?`)
-    .run(req.session.user.id, row.id);
+  // Log the redemption + keep the first-redeemer fields for legacy display / delete gating.
+  db.prepare(`INSERT OR IGNORE INTO code_redemptions (code_id, user_id) VALUES (?, ?)`).run(row.id, userId);
+  if (row.activated_by == null) {
+    db.prepare(`UPDATE access_codes SET activated_by = ?, activated_at = datetime('now') WHERE id = ?`)
+      .run(userId, row.id);
+  }
 
-  console.log(`[auth] Code "${row.code}" (${row.type}) redeemed by user ${req.session.user.id} (${req.session.user.email || req.session.user.username}), expires: ${expires || 'never'}`);
+  console.log(`[auth] Code "${row.code}" redeemed by user ${userId} (${req.session.user.email || req.session.user.username}), use ${used + 1}/${maxUses === 0 ? '∞' : maxUses}, expires: ${expires || 'never'}`);
 
   req.session.user.tier = 'code';
   res.json({ success: true });

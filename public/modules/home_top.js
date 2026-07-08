@@ -9,7 +9,7 @@ import { isPaying }  from './auth.js';
 import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=1';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
-const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Tennis', 'Golf'];
+const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer', 'Tennis', 'Golf'];
 
 // ── Team colors (for the abbreviation chips) ────────────────────────────────────
 // Same source + lookup the detail page uses (/team_colors.json, keyed sport→abbr).
@@ -250,8 +250,56 @@ export async function loadTopGames() {
 // ── My Sports ─────────────────────────────────────────────────────────────────
 let _msSelected = [];   // currently selected sports (display labels, in priority order)
 let _msSaved    = [];   // last-saved baseline, to detect unsaved changes
+let _msRecency  = null; // { [label]: { count, soonest } } from today's board — drives chip order
 
 function _toLabel(s) { return (s === 'ATP' || s === 'WTA') ? 'Tennis' : s; }
+
+// Map a today_games sport value onto the MS_ALL_SPORTS display label (ATP/WTA fold
+// into the single "Tennis" chip). Returns null for anything not shown as a chip.
+function _msLabelFor(sport) {
+  const s = (sport || '').toUpperCase();
+  if (s === 'ATP' || s === 'WTA') return 'Tennis';
+  const map = { MLB: 'MLB', NBA: 'NBA', WNBA: 'WNBA', NHL: 'NHL', NFL: 'NFL',
+                NCAAF: 'NCAAF', CBB: 'CBB', SOCCER: 'Soccer', GOLF: 'Golf' };
+  return map[s] || null;
+}
+
+// Per-sport game recency from today's board (one small fetch, cached). Sports with
+// games today are "in season"; more games / a sooner tip-off ranks higher. Used to
+// order the unselected chips so in-season sports surface first.
+async function _loadMsRecency() {
+  try {
+    const games = await fetch('/api/games?board=1').then(r => (r.ok ? r.json() : []));
+    const rec = {};
+    for (const g of (games || [])) {
+      const label = _msLabelFor(g.sport);
+      if (!label) continue;
+      if (!rec[label]) rec[label] = { count: 0, soonest: null };
+      rec[label].count++;
+      const t = g.start_time || '';
+      if (t && (rec[label].soonest === null || t < rec[label].soonest)) rec[label].soonest = t;
+    }
+    _msRecency = rec;
+  } catch (_) { _msRecency = {}; }
+}
+
+// Chip order: (1) the user's selected sports first (their priority order), then
+// (2) the rest ranked by game recency so in-season sports come before off-season.
+function _msOrderedSports() {
+  const rec = _msRecency || {};
+  const selected = _msSelected.slice();
+  const rest = MS_ALL_SPORTS.filter(s => !_msSelected.includes(s));
+  rest.sort((a, b) => {
+    const ra = rec[a] || { count: 0, soonest: null };
+    const rb = rec[b] || { count: 0, soonest: null };
+    if (rb.count !== ra.count) return rb.count - ra.count;           // more games today first
+    if (ra.soonest && rb.soonest) return ra.soonest < rb.soonest ? -1 : (ra.soonest > rb.soonest ? 1 : 0);
+    if (ra.soonest) return -1;                                       // has games vs none
+    if (rb.soonest) return 1;
+    return MS_ALL_SPORTS.indexOf(a) - MS_ALL_SPORTS.indexOf(b);      // stable fallback
+  });
+  return [...selected, ...rest];
+}
 
 // Map display labels back to the preferences allowlist (Tennis → ATP + WTA).
 function _toPrefSports(labels) {
@@ -267,15 +315,19 @@ export async function loadMySports() {
   const el = document.getElementById('ca-my-sports-row');
   if (!el) return;
 
-  // Seed selection from saved favorites for logged-in users.
+  // Seed selection from saved favorites for logged-in users, and load per-sport
+  // game recency (for everyone) so the chip order can prioritize in-season sports.
   _msSelected = [];
-  if (state.currentUser) {
-    const acc = await fetch('/api/account').then(r => r.ok ? r.json() : null).catch(() => null);
-    if (acc && Array.isArray(acc.favoriteSports)) {
-      const labels = [...new Set(acc.favoriteSports.map(_toLabel))];
-      // Keep them in MS_ALL_SPORTS display order for stable ranking.
-      _msSelected = MS_ALL_SPORTS.filter(s => labels.includes(s));
-    }
+  const [acc] = await Promise.all([
+    state.currentUser
+      ? fetch('/api/account').then(r => (r.ok ? r.json() : null)).catch(() => null)
+      : Promise.resolve(null),
+    _loadMsRecency(),
+  ]);
+  if (acc && Array.isArray(acc.favoriteSports)) {
+    const labels = [...new Set(acc.favoriteSports.map(_toLabel))];
+    // Keep them in MS_ALL_SPORTS display order for stable ranking.
+    _msSelected = MS_ALL_SPORTS.filter(s => labels.includes(s));
   }
   _msSaved = [..._msSelected];
 
@@ -286,7 +338,7 @@ function _renderMySports() {
   const el = document.getElementById('ca-my-sports-row');
   if (!el) return;
 
-  const chips = MS_ALL_SPORTS.map(s => {
+  const chips = _msOrderedSports().map(s => {
     const active = _msSelected.includes(s);
     return `<button class="ca-ms-chip${active ? ' active' : ''}" onclick="toggleMySport('${s}')">${s}</button>`;
   }).join('');

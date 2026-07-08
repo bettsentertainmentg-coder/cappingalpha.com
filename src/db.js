@@ -666,6 +666,33 @@ try {
   `);
 } catch (_) {}
 
+// Multi-use + custom-duration access codes.
+//   max_uses      : how many distinct users may redeem (1 = single-use default, 0 = unlimited)
+//   duration_days : access granted on redemption (>0 = N days, 0 = lifetime, NULL = fall back to `type`)
+try { db.exec(`ALTER TABLE access_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 1`); } catch (_) {}
+try { db.exec(`ALTER TABLE access_codes ADD COLUMN duration_days INTEGER`); } catch (_) {}
+
+// Per-user redemption log (one row per user per code). Powers the usage cap + the
+// admin "who used this code" popup. Single-use history is backfilled from access_codes.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS code_redemptions (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      code_id     INTEGER NOT NULL,
+      user_id     INTEGER NOT NULL,
+      redeemed_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(code_id, user_id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_code_redemptions_code ON code_redemptions (code_id)`);
+  db.exec(`
+    INSERT OR IGNORE INTO code_redemptions (code_id, user_id, redeemed_at)
+    SELECT id, activated_by, COALESCE(activated_at, created_at)
+    FROM access_codes
+    WHERE activated_by IS NOT NULL
+  `);
+} catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS api_usage (

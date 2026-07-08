@@ -416,9 +416,10 @@ function updateSlot(slot, pick) {
   try { v3 = require('./scoring_v3').computeAndLogV3(slot.id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
 
-  // Thresholds by active scale: v2 uses 35/MVP-50; v3 uses 55 (archive) and
-  // GOLD 100 with the totals gate (only gold is tracked long-term).
-  const archives = v3Live ? (v3 && v3.total >= 55) : scored.total >= 35;
+  // Thresholds by active scale: v2 uses 35/MVP-50; v3 archives at 50 (every pick
+  // worth 50pts+ is tracked in pick_history) and GOLD 100 with the totals gate
+  // (only gold is tracked long-term).
+  const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
 
@@ -505,7 +506,7 @@ function insertNewPick(pick) {
   try { v3 = require('./scoring_v3').computeAndLogV3(pick_id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
 
-  const archives = v3Live ? (v3 && v3.total >= 55) : scored.total >= 35;
+  const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
 
@@ -671,8 +672,9 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
   }
 }
 
-// ── Upsert pick into permanent archive when it first hits ≥35pts ─────────────
-// Called live from updateSlot() + insertNewPick() — not at wipe time.
+// ── Upsert pick into permanent archive when it crosses the archive bar ───────
+// (v3: 50pts+, v2: 35pts+). Called live from updateSlot() + insertNewPick() —
+// not at wipe time. The caller gates on `archives`; this writer is not gated.
 // INSERT OR IGNORE creates the row; UPDATE keeps score/count/messages fresh.
 function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pick_id);
