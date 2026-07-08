@@ -341,7 +341,7 @@ function savePick(pick) {
 // ── Update a pre-seeded slot with a new mention ───────────────────────────────
 function updateSlot(slot, pick) {
   const { channel, sport_record, raw_message } = pick;
-  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name);
+  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name, pick.source_scope || 'discord');
   pick._capperResolved = capper_name;
   pick._capperMatched  = capperMatched;
 
@@ -461,7 +461,7 @@ function insertNewPick(pick) {
     is_home_team, game_date, sport_record,
     raw_message, espn_game_id = null,
   } = pick;
-  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name);
+  const { name: capper_name, matched: capperMatched } = resolveCapperName(pick.capper_name, pick.source_scope || 'discord');
   pick._capperResolved = capper_name;
   pick._capperMatched  = capperMatched;
 
@@ -546,7 +546,7 @@ function saveRawMessage(pick_id, pick) {
     raw_message.id          ?? null,
     pick._capperResolved    ?? pick.capper_name ?? null
   );
-  archiveRawMessage(pick_id, pick, 'discord');
+  archiveRawMessage(pick_id, pick, pick.source_scope || 'discord');
 }
 
 // Mirror writes into the 7-day audit archive so we can debug capper extraction

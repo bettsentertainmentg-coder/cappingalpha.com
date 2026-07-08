@@ -200,10 +200,17 @@ router.post('/redeem-code', express.json(), (req, res) => {
   }
 
   // Never shorten access the user already has (e.g. a day code on top of an annual).
-  const cur = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(userId);
+  const cur = db.prepare(`SELECT subscription_tier, subscription_expires, stripe_subscription_id FROM users WHERE id = ?`).get(userId);
   const merged = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, expires);
-  db.prepare(`UPDATE users SET subscription_tier = 'code', subscription_expires = ? WHERE id = ?`)
-    .run(merged, userId);
+  // An active recurring Stripe subscriber stays tier 'paid': the cancellation webhook
+  // only downgrades 'paid' rows, so flipping them to 'code' here would make their
+  // access unrevokable after they cancel. A dated code just extends their expiry.
+  // A lifetime code (expires null) intentionally outlives any subscription, and
+  // everyone else keeps the existing 'code' behavior.
+  const hasLiveSub = cur?.subscription_tier === 'paid' && cur?.stripe_subscription_id != null;
+  const newTier = (hasLiveSub && expires != null) ? 'paid' : 'code';
+  db.prepare(`UPDATE users SET subscription_tier = ?, subscription_expires = ? WHERE id = ?`)
+    .run(newTier, merged, userId);
 
   // Log the redemption + keep the first-redeemer fields for legacy display / delete gating.
   db.prepare(`INSERT OR IGNORE INTO code_redemptions (code_id, user_id) VALUES (?, ?)`).run(row.id, userId);
@@ -214,7 +221,7 @@ router.post('/redeem-code', express.json(), (req, res) => {
 
   console.log(`[auth] Code "${row.code}" redeemed by user ${userId} (${req.session.user.email || req.session.user.username}), use ${used + 1}/${maxUses === 0 ? '∞' : maxUses}, expires: ${expires || 'never'}`);
 
-  req.session.user.tier = 'code';
+  req.session.user.tier = newTier;
   res.json({ success: true });
 });
 
@@ -324,10 +331,11 @@ async function stripeWebhook(req, res) {
       // Subscription renewal — extend expiry
       const invoice = data.object;
       if (!invoice.subscription) return res.json({ received: true });
-      const user = db.prepare(`SELECT id FROM users WHERE stripe_subscription_id=?`).get(invoice.subscription);
+      const user = db.prepare(`SELECT id, subscription_tier, subscription_expires FROM users WHERE stripe_subscription_id=?`).get(invoice.subscription);
       if (user) {
         const sub     = await stripe.subscriptions.retrieve(invoice.subscription);
-        const expires = new Date(sub.current_period_end * 1000).toISOString();
+        const newExp  = new Date(sub.current_period_end * 1000).toISOString();
+        const expires = mergedExpiry(user.subscription_tier, user.subscription_expires, newExp); // never shorten a code-extended expiry
         db.prepare(`UPDATE users SET subscription_tier='paid', subscription_expires=? WHERE id=?`).run(expires, user.id);
         console.log(`[stripe] Subscription renewed for user ${user.id}, expires ${expires}`);
       }

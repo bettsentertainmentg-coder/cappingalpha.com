@@ -151,6 +151,10 @@ async function pollPmWallets() {
     const res = await getJson(`https://data-api.polymarket.com/trades?user=${encodeURIComponent(w.wallet)}&limit=100&takerOnly=false`);
     if (res.status !== 200 || !Array.isArray(res.json)) { errors++; await sleep(200); continue; }
     let maxTs = w.last_trade_ts || 0;
+    // Conviction sizing state (logged-only): the wallet's usual game-market
+    // notional, EMA over every mapped BUY. Ratio is taken BEFORE folding the
+    // current trade in, so it reads "vs their usual until now".
+    let nAvg = w.notional_avg ?? null, nN = w.notional_n ?? 0;
     for (const t of res.json) {
       const ts = parseInt(t.timestamp ?? t.ts ?? 0, 10);
       const tsMs = ts > 1e12 ? ts : ts * 1000;
@@ -163,6 +167,11 @@ async function pollPmWallets() {
       const price = parseFloat(t.price);
       const size = parseFloat(t.size);
       const notional = Number.isFinite(price) && Number.isFinite(size) ? price * size : 0;
+      // size_ratio: this bet vs the wallet's usual (needs 5+ prior trades to mean
+      // anything). ZERO points at launch — logged into provenance for the backtest
+      // to judge whether oversized entries actually hit more often.
+      const sizeRatio = (nN >= 5 && nAvg > 0 && notional > 0) ? +(notional / nAvg).toFixed(2) : null;
+      if (notional > 0) { nAvg = nAvg == null ? notional : nAvg * 0.8 + notional * 0.2; nN++; }
       if (notional < minUsd) continue;
 
       const outcomeName = t.outcome || entry.outcomes[t.outcomeIndex ?? -1] || null;
@@ -195,13 +204,16 @@ async function pollPmWallets() {
         line,
         odds: americanFromPrice(price),
         postedAtMs: tsMs,
-        meta: { notional_usd: Math.round(notional), price, question: entry.question.slice(0, 80) },
+        meta: { notional_usd: Math.round(notional), price, question: entry.question.slice(0, 80), size_ratio: sizeRatio },
       });
       if (out === 'inserted') ingested++;
       else if (out === 'duplicate') dupes++;
     }
-    if (maxTs > (w.last_trade_ts || 0)) {
-      try { db.prepare(`UPDATE pm_wallets SET last_trade_ts = ? WHERE wallet = ?`).run(maxTs, w.wallet); } catch (_) {}
+    if (maxTs > (w.last_trade_ts || 0) || nN !== (w.notional_n ?? 0)) {
+      try {
+        db.prepare(`UPDATE pm_wallets SET last_trade_ts = ?, notional_avg = ?, notional_n = ? WHERE wallet = ?`)
+          .run(Math.max(maxTs, w.last_trade_ts || 0), nAvg, nN, w.wallet);
+      } catch (_) {}
     }
     await sleep(200);
   }

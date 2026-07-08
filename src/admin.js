@@ -3,7 +3,7 @@ const express = require('express');
 const axios   = require('axios');
 const db      = require('./db');
 const scanner = require('./expert_data');
-const { getCycleDate } = require('./cycle');
+const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./cycle');
 const { MVP_THRESHOLD } = require('./scoring');
 const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
@@ -241,6 +241,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const betUnit = parseFloat(db.getSetting('bet_unit', 10)) || 10;
 
   // ── Picks panel ─────────────────────────────────────────────────────────────
+  // Membership must be a SUPERSET of the public board or the counts diverge
+  // (an overnight pick can carry yesterday's game_date stamp while its game
+  // plays today — the public board is game-anchored and shows it; a strict
+  // game_date filter here hid it). Board day rolls at the ~5am wipe, same as
+  // /api/picks. No p.score > 0 filter: wave-1 picks can carry v2 score 0.
+  const nowET = new Date(Date.now() - ET_OFFSET_MS);
+  let boardDate = nowET.toISOString().slice(0, 10);
+  if (nowET.getUTCHours() < 5) boardDate = addDays(boardDate, -1);
   const picks = db.prepare(`
     SELECT p.*,
            sb.channel_points, sb.sport_bonus, sb.home_bonus, sb.total AS sb_total,
@@ -252,10 +260,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
     LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     LEFT JOIN today_games tg1 ON tg1.espn_game_id = p.espn_game_id
     LEFT JOIN today_games tg2 ON (LOWER(tg2.home_team) = LOWER(p.team) OR LOWER(tg2.away_team) = LOWER(p.team))
-    WHERE p.game_date = ? AND p.mention_count > 0 AND p.score > 0
+    WHERE p.mention_count > 0
     GROUP BY p.id
     ORDER BY ${v3Now ? 'sb.v3_total DESC, p.score DESC' : 'p.score DESC'}
-  `).all(today);
+  `).all().filter(p =>
+    // public-board rule (game-anchored) OR stamped-today orphans (admin-only visibility)
+    (p.start_time && cycleDateForInstant(p.start_time) === boardDate) || p.game_date === today
+  );
 
   const dummyAccountsList = (() => { try { return dummyAccounts.listDummyAccounts(); } catch (_) { return []; } })();
 
@@ -292,8 +303,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
     const nm = String(name == null ? '' : name);
     const body = `${escHtml(nm)}${extraHtml}`;
     if (!nm || nm.startsWith('@src:')) return `<span style="color:#8892a4;${style}">${body}</span>`;
-    const arg = escHtml(nm).replace(/'/g, '&#39;');
-    return `<span onclick="event.stopPropagation();showCapperDetail('${arg}')" style="color:#93c5fd;cursor:pointer;${style}">${body}</span>`;
+    // Name travels via a data attribute (never inlined into the onclick JS) so
+    // quotes/backslashes in scraped handles can't break out of the handler.
+    return `<span data-capper="${escHtml(nm)}" onclick="event.stopPropagation();showCapperDetail(this.getAttribute('data-capper'))" style="color:#93c5fd;cursor:pointer;${style}">${body}</span>`;
   };
 
   const pickRowsHtml = picks.map((p, i) => {
@@ -303,6 +315,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
     try { bd = p.v3_json ? JSON.parse(p.v3_json) : null; } catch (_) {}
     const v3score = p.v3_total != null ? Math.round(p.v3_total) : null;
     const shownScore = v3Now ? (v3score != null ? v3score : (p.score ?? '—')) : (p.score ?? '—');
+    // Reconcile with the public board: while the leak ramp runs, members see a
+    // lower climbing number. Show it next to the true score so admin and the
+    // live site never LOOK out of sync (they converge when the ramp finishes).
+    let publicNote = '';
+    if (v3Now && p.leak_target != null) {
+      try {
+        const disp = require('./scoring_v3').effectiveDisplayScore(p);
+        if (disp !== (v3score ?? disp)) {
+          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="The conviction curve is still climbing on the public board. Members currently see this lower number; it reaches the true score before game start.">public ${disp}↗</div>`;
+        }
+      } catch (_) {}
+    }
     const isGold   = v3Now ? (v3score != null && v3score >= 100) : ((p.score || 0) >= MVP_LINE);
     const isSilver = v3Now && v3score != null && v3score >= 75 && v3score < 100;
     const tierBadge = isGold
@@ -356,10 +380,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
     })() : '';
 
     const mentionRows = raws.map(rm => {
-      const cap = rm.capper_name || p.capper_name;
+      // Per-message attribution ONLY — never fall back to the pick's primary capper,
+      // which made every mention look like the same capper when the reader failed to
+      // catch a distinct leaked capper on that message. Unattributed = reader miss.
+      const cap = rm.capper_name;
       const pts = cap && contrib[cap] != null ? `<span style="color:#a08020;font-weight:600;">+${contrib[cap]} pts</span> · ` : '';
+      const who = cap
+        ? `${capperLink(cap, '', 'font-weight:700;')} · `
+        : `<span style="color:#8892a4;font-style:italic;" title="The reader did not attribute a capper to this message">unattributed</span> · `;
       return `<tr class="raw-row"><td colspan="9">
-        ${cap ? `${capperLink(cap, '', 'font-weight:700;')} · ` : ''}${pts}<strong>${escHtml(rm.channel || '')}</strong>
+        ${who}${pts}<strong>${escHtml(rm.channel || '')}</strong>
         ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
         ${rm.message_timestamp ? `· <span style="color:#8892a4;">${rm.message_timestamp.slice(0, 16)}</span>` : ''}
         <br><span style="color:#c8cfdb;">${escHtml(rm.message_text || '')}</span>
@@ -402,11 +432,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>`;
     })();
 
+    // Two columns: the v3 score aggregation on the left (narrow), the capper info
+    // (involved cappers + raw mentions) fills the space to the right of it.
+    const capperCol = `
+      ${involvedHtml}
+      ${raws.length ? `<table style="margin:0;border:none;border-radius:0;width:100%;"><tbody>${mentionRows}</tbody></table>` : ''}`;
     const rawRowsHtml = (v3Panel || raws.length)
       ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="9" style="padding:8px 10px;">
-          ${involvedHtml}
-          ${v3Panel}
-          ${raws.length ? `<table style="margin:0;border:none;border-radius:0;"><tbody>${mentionRows}</tbody></table>` : ''}
+          <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;">
+            ${v3Panel ? `<div style="flex:0 0 auto;">${v3Panel}</div>` : ''}
+            <div style="flex:1 1 320px;min-width:280px;">${capperCol}</div>
+          </div>
         </td></tr>`
       : '';
     const msgBtn = (v3Panel || raws.length)
@@ -436,7 +472,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td>${escHtml(p.team || '—')} ${escHtml(p.pick_type || '')} ${spreadDisplay}</td>
       <td>${matchBadge}</td>
       <td>${p.mention_count}</td>
-      <td style="font-weight:700;color:${scoreColor};">${shownScore} ${tierBadge}</td>
+      <td style="font-weight:700;color:${scoreColor};">${shownScore} ${tierBadge}${publicNote}</td>
       <td><small>${breakdown}</small></td>
       <td onclick="event.stopPropagation()"><span class="msg-toggle">${msgBtn}</span></td>
     </tr>${rawRowsHtml}`;
@@ -863,7 +899,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   // v3 chips: source labels (multi-source cappers show every system they appear in)
   const SRC_CHIP = {
     discord:       ['DC', '#5865F2', 'Discord scanner (free-plays / pod-thread / community-leaks)'],
-    actionnetwork: ['AN', '#16a34a', 'Action Network expert. Picks pulled from their public feed, graded by us. Track-only until enabled for scoring.'],
+    actionnetwork: ['AN', '#16a34a', 'Action Network expert. Picks pulled from their public feed, graded by us. Pregame picks join the board through the normal resume scoring.'],
     polymarket:    ['PM', '#8b5cf6', 'Polymarket pro wallet. Real positions from a top-P/L trader; entries before game start count as picks.'],
     covers:        ['CV', '#f59e0b', 'Covers.com contest player. Contest picks are platform-graded and lock at game start.'],
     telegram:      ['TG', '#0ea5e9', 'Telegram channel (wave 2, not live yet)'],
@@ -901,8 +937,27 @@ router.get('/dashboard', requireAuth, (req, res) => {
     return chips.join(' ') || '<span style="color:#3b4560;">—</span>';
   };
 
+  // Source filter chips: one per system that has cappers on the board, with counts.
+  const srcCounts = {};
+  for (const c of sortedCappers) for (const s of (c.srcList || [])) srcCounts[s] = (srcCounts[s] || 0) + 1;
+  const srcFilterChips = Object.keys(SRC_CHIP)
+    .filter(s => srcCounts[s])
+    .map(s => {
+      const [label, color] = SRC_CHIP[s];
+      return `<button class="btn-sm src-filter-btn" data-src="${s}" onclick="filterCapperSrc('${s}', this)"
+        style="border:1px solid ${color}44;color:${color};background:${color}11;">${label} · ${srcCounts[s]}</button>`;
+    }).join(' ');
+
   const capperLeaderboardHtml = sortedCappers.length ? `
     <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click a column to sort (click again to reverse). Click any row for the full capper profile. Rating = resume points the scoring system gives this capper today. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">SOURCE</span>
+      <button class="btn-sm src-filter-btn active" data-src="all" onclick="filterCapperSrc('all', this)"
+        style="border:1px solid #3b4560;color:#e6e9f0;">All · ${sortedCappers.length}</button>
+      ${srcFilterChips}
+      <input id="capper-search" type="text" placeholder="Search cappers..." oninput="searchCappers(this.value)"
+        style="margin-left:auto;padding:5px 10px;background:#0d1017;border:1px solid #2a3142;border-radius:6px;color:#e6e9f0;font-size:13px;min-width:200px;">
+    </div>
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
@@ -931,7 +986,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           return `<td data-sv="${sr.money}" style="font-size:12px;white-space:nowrap;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span><br><span style="color:${smColor};font-size:10px;font-weight:600;">${smStr}</span></td>`;
         }).join('');
         const fadeRow = c.fade ? 'box-shadow:inset 3px 0 0 #ef4444;' : '';
-        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
+        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" data-sources="${escHtml((c.srcList || []).join(','))}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
           <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">
             <div style="white-space:nowrap;">${escHtml(c.name)}</div>
@@ -1382,7 +1437,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             return `<tr class="feed-row" data-src="${escHtml(r.source || '')}" data-text="${escHtml(((r.capper_name || '') + ' ' + (r.team || '') + ' ' + (r.sport || '')).toLowerCase())}">
               <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
               <td>${srcChip}</td>
-              <td style="font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;color:#93c5fd;" onclick="showCapperDetail('${escHtml(r.capper_name || '').replace(/'/g, '&#39;')}')">${escHtml(r.capper_name || '—')}</td>
+              <td style="font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer;color:#93c5fd;" data-capper="${escHtml(r.capper_name || '')}" onclick="showCapperDetail(this.getAttribute('data-capper'))">${escHtml(r.capper_name || '—')}</td>
               <td style="font-size:12px;color:#8892a4;">${escHtml(r.sport || '—')}</td>
               <td style="font-size:12px;">${bet}</td>
               <td style="font-size:12px;">${game}</td>
@@ -1457,14 +1512,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
             ${recentSkipped.map(s => {
               const ts   = (s.skipped_at || '').slice(0, 16).replace('T', ' ');
               const prev = escHtml((s.content || '').replace(/\n/g, ' ').slice(0, 60));
-              const msgEsc = escHtml(s.content || '').replace(/'/g, '&#39;');
               return `<tr class="msg-row" data-ch="${escHtml(s.channel || '')}" data-author="${escHtml(s.author || '')}" data-text="${prev.toLowerCase()}">
                 <td style="font-size:11px;color:#8892a4;white-space:nowrap;">${ts}</td>
                 <td><span style="font-size:11px;color:#8892a4;">${escHtml(s.channel || '—')}</span></td>
                 <td style="font-size:12px;">${escHtml(s.author || '—')}</td>
                 <td style="font-size:12px;max-width:280px;word-break:break-word;cursor:pointer;color:#93c5fd;" onclick="showMsg(${s.id},'skip')" title="Click to view full message">${prev}${(s.content || '').length > 60 ? '…' : ''}</td>
                 <td><span style="font-size:11px;color:#f59e0b;">${escHtml(s.reason || '—')}</span></td>
-                <td><button class="btn-sm btn-primary" onclick="openCorrModal('${msgEsc}','${escHtml(s.channel || '')}','${escHtml(s.author || '')}','skipped',null)">Correct</button></td>
+                <td><button class="btn-sm btn-primary" data-msg="${escHtml(s.content || '')}" data-channel="${escHtml(s.channel || '')}" data-author="${escHtml(s.author || '')}" onclick="openCorrModal(this.getAttribute('data-msg'),this.getAttribute('data-channel'),this.getAttribute('data-author'),'skipped',null)">Correct</button></td>
               </tr>`;
             }).join('')}
           </tbody>
@@ -2614,6 +2668,34 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       // ── Click-to-sort the capper leaderboard ───────────────────────────────────
       let capperSort = { col: -1, dir: -1 };
+      let _capFilter = { src: 'all', q: '' };
+      function applyCapperFilters() {
+        const table = document.getElementById('capper-leaderboard');
+        if (!table) return;
+        const q = _capFilter.q.trim().toLowerCase();
+        let shown = 0;
+        Array.from(table.tBodies[0].rows).forEach(r => {
+          const srcs = (r.getAttribute('data-sources') || '').split(',');
+          const name = (r.getAttribute('data-capper') || '').toLowerCase();
+          const okSrc = _capFilter.src === 'all' || srcs.includes(_capFilter.src);
+          const okQ = !q || name.includes(q);
+          const show = okSrc && okQ;
+          r.style.display = show ? '' : 'none';
+          if (show) { shown++; r.cells[0].textContent = shown; } // re-rank visible rows
+        });
+      }
+      function filterCapperSrc(src, btn) {
+        document.querySelectorAll('.src-filter-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.boxShadow = '';
+        });
+        btn.classList.add('active');
+        btn.style.boxShadow = 'inset 0 -2px 0 currentColor';
+        _capFilter.src = src;
+        applyCapperFilters();
+      }
+      function searchCappers(v) { _capFilter.q = v || ''; applyCapperFilters(); }
+
       function sortCapperLB(th) {
         const table = document.getElementById('capper-leaderboard');
         if (!table) return;
@@ -2634,6 +2716,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
           return cmp * dir;
         });
         rows.forEach(r => tbody.appendChild(r));
+        // Re-rank the visible rows so # stays sequential under any sort/filter.
+        let shown = 0;
+        rows.forEach(r => { if (r.style.display !== 'none') { shown++; r.cells[0].textContent = shown; } });
         // Update arrow indicators on the headers.
         table.querySelectorAll('thead th').forEach(h => {
           h.textContent = h.textContent.replace(/\s*[▲▼]$/, '');
@@ -3610,6 +3695,40 @@ router.get('/export-capper-history', adminLoginRateLimit, (req, res) => {
   }
 });
 
+// ── POST /admin/api/an-experts-import — seed AN experts from the Mac relay ───
+// Action Network's HTML pages are bot-challenged from datacenter IPs (Railway),
+// so discovery cannot run on prod; the open users API works fine, so polling
+// can. scripts/an_relay.js runs discovery on the Mac and POSTs the roster here.
+// Header-auth like import-mvp. Upsert-only, safe to re-run.
+router.post('/api/an-experts-import', adminLoginRateLimit, express.json({ limit: '1mb' }), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const experts = req.body;
+  if (!Array.isArray(experts)) return res.status(400).send('Expected JSON array');
+  const { ensureRegistered } = require('./storage');
+  let upserts = 0;
+  for (const e of experts) {
+    if (!e || !e.user_id || !e.username) continue;
+    try {
+      db.prepare(`
+        INSERT INTO an_experts (user_id, username, name, followers, is_internal, last_seen)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(user_id) DO UPDATE SET
+          username = excluded.username, name = excluded.name,
+          followers = excluded.followers, is_internal = excluded.is_internal,
+          last_seen = datetime('now')
+      `).run(String(e.user_id), String(e.username), e.name || String(e.username), e.followers ?? null, e.is_internal ? 1 : 0);
+      ensureRegistered(e.name || String(e.username), 'actionnetwork', String(e.username));
+      upserts++;
+    } catch (_) {}
+  }
+  const total = db.prepare(`SELECT COUNT(*) n FROM an_experts`).get().n;
+  console.log(`[an_experts] import: ${upserts} upserted via relay (${total} total)`);
+  res.json({ upserted: upserts, total });
+});
+
 // ── POST /admin/api/recompute-ratings — on-demand capper ratings refresh ─────
 router.post('/api/recompute-ratings', requireAuth, (_req, res) => {
   try {
@@ -3628,12 +3747,20 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
   const one = (sql, ...args) => { try { return db.prepare(sql).get(...args); } catch (_) { return null; } };
   const all = (sql, ...args) => { try { return db.prepare(sql).all(...args); } catch (_) { return []; } };
   try {
-    const sources = all(`
+    const sourceRows = all(`
       SELECT source, COUNT(*) rows_total,
              SUM(CASE WHEN saved_at >= datetime('now','-1 day') THEN 1 ELSE 0 END) rows_24h,
              MAX(saved_at) last_write
       FROM capper_history GROUP BY source ORDER BY rows_total DESC
     `);
+    // A source that has never written a row must still show up (as zero) — an
+    // absent line is exactly how the AN discovery block went unnoticed.
+    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers'];
+    const sources = [
+      ...sourceRows,
+      ...EXPECTED_SOURCES.filter(s => !sourceRows.some(r => r.source === s))
+        .map(s => ({ source: s, rows_total: 0, rows_24h: 0, last_write: null })),
+    ];
     const discordToday = one(`
       SELECT COUNT(*) picks_today,
              SUM(CASE WHEN capper_name IS NOT NULL AND capper_name != '' THEN 1 ELSE 0 END) with_capper

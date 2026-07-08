@@ -30,7 +30,7 @@ const PAID_RANK_MAX = () => parseInt(getSetting('paid_rank_max', 50), 10) || 50;
 const { fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { syncLiveSituations } = require('./src/live_situation');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
-const { getPickTimeline }   = require('./src/pick_timeline');
+const { getPickTimeline, sanitizeTimeline } = require('./src/pick_timeline');
 const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
@@ -612,11 +612,27 @@ app.get('/api/picks/top', (req, res) => {
 // Free users get /api/mvp/public instead. requirePaid returns 403 otherwise so
 // the full pick list is never sent to non-paying clients.
 app.get('/api/mvp', auth.requirePaid, (req, res) => {
-  const threshold = getSetting('scoring_version', 'v2') === 'v3'
+  const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+  const threshold = v3Live
     ? 100
     : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  const picks = getRecentMvpPicks(threshold);
+  // Leak-rule parity (v3): mvp_picks.score is the TRUE v3 total, while the board
+  // shows the still-ramping display score until game start. Never ship the
+  // concealed conviction early — withhold the number on pending pre-game rows
+  // (the client renders '—'); it ships once the game starts or resolves.
+  if (v3Live) {
+    const gameStmt = db.prepare(`SELECT start_time, status FROM today_games WHERE espn_game_id = ?`);
+    for (const p of picks) {
+      if ((p.result || 'pending').toLowerCase() !== 'pending' || !p.espn_game_id) continue;
+      const g = gameStmt.get(p.espn_game_id);
+      if (!g) continue;   // no board row = historical game, long since started
+      const startMs = new Date(g.start_time).getTime();
+      if (g.status === 'pre' || (Number.isFinite(startMs) && startMs > Date.now())) p.score = null;
+    }
+  }
   res.json({
-    picks:  getRecentMvpPicks(threshold),
+    picks,
     record: getAllTimeRecord(threshold),
   });
 });
@@ -1351,9 +1367,16 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     p.globalRank = globalRank.get(p.id) || null;
     p.timeline = getPickTimeline(p.id);
     p.tailers = tailerMap.get(p.id) || 0;
-    if (!paid && p.globalRank && p.globalRank >= 2 && p.globalRank <= maxRank) {
-      p.score = null;
-      p.timeline = null;
+    if (!paid) {
+      if (p.globalRank && p.globalRank >= 2 && p.globalRank <= maxRank) {
+        p.score = null;
+        p.timeline = null;
+      } else {
+        // The #1 pick and the public tail keep a curve, but only its SHAPE:
+        // step labels name the advocate capper (paid-only) and delta/label
+        // price each scoring component. Strip all annotations for non-paid.
+        p.timeline = sanitizeTimeline(p.timeline);
+      }
     }
   }
 
@@ -1586,9 +1609,12 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
       ];
       for (const { slot, type, home } of SLOT_DEFS) {
         const p = bySlot[slot] || null;
-        // Pickless slot on a market the board never had -> nothing to price.
-        if (!p && type === 'spread' && game.spread_home == null && game.spread_away == null) continue;
-        if (!p && (type === 'over' || type === 'under') && game.over_under == null) continue;
+        // Market the board never had -> nothing to price, on EITHER side. Must be
+        // pick-agnostic: skipping only the pickless side would leave a lone
+        // sibling key (e.g. home_spread with no away_spread) that tells a free
+        // user which side carries the CA pick.
+        if (type === 'spread' && game.spread_home == null && game.spread_away == null) continue;
+        if ((type === 'over' || type === 'under') && game.over_under == null) continue;
         let now = null, pre = null, approx = true;
         if (type === 'ml') {
           if (soccerTrio) {
@@ -2121,12 +2147,18 @@ async function renderGameDetail(req, res, game, opts = {}) {
     // conviction curve to non-paying users — otherwise they sit in the page source
     // (__GAME_DATA__) even though the UI blurs them. The overall #1 and the public
     // tail (rank > max) stay full; historical archive pages are public, so skip them.
-    if (!opts.historical && !auth.isPaid(req)) {
-      const maxRank = PAID_RANK_MAX();
-      for (const p of picks) {
-        const r = pickRanks[p.id];
-        if (r && r >= 2 && r <= maxRank) { p.score = null; p.timeline = null; }
+    if (!auth.isPaid(req)) {
+      if (!opts.historical) {
+        const maxRank = PAID_RANK_MAX();
+        for (const p of picks) {
+          const r = pickRanks[p.id];
+          if (r && r >= 2 && r <= maxRank) { p.score = null; p.timeline = null; }
+        }
       }
+      // Any timeline that survives for a non-paying viewer (the #1, the public
+      // tail, historical snapshot picks) ships shape-only: step labels name the
+      // advocate capper (paid-only) and delta/label price each scoring component.
+      for (const p of picks) p.timeline = sanitizeTimeline(p.timeline);
     }
 
     // Votes + the viewer's votes — always live (game_votes survives the wipe).

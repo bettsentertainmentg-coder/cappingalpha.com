@@ -793,12 +793,45 @@ Post-ship backlog (not in these phases): wave-2 prose sources (Telegram, Reddit,
 new Discord servers), Kalshi social leaderboard, BettingPros/Tallysight revisits,
 signal weight re-fit after ~6 weeks of football.
 
+## Amendment 2026-07-08: wave-1 sources graduated to board scoring
+
+Jack's call (one day after the v17.1.3 ship): wave-1 picks now add points to the
+rankings, not just the capper ledger. Implementation (source_ingest.js):
+
+- A PREGAME wave-1 pick, after its capper_history insert, also lands on the board
+  through storage.savePick with channel = the source name — the exact Discord
+  mention path (flat base 45, advocate resume of the wallet/expert/contestant from
+  capper_ratings, quality-weighted consensus, market signals, leak rule, MVP and
+  archive gates). No fiat baseline: a new wallet scores base-only until its graded
+  record earns resume points, and the '@src:polymarket'-style entities keep earning
+  through the same formula. Live/in-game entries stay capper-record-only, as before.
+- Gates: scoring_version must be 'v3'; source_board_points (master, default on);
+  source_board_<source> per system (default on), the per-source flag this doc called
+  for at approval time.
+- One bet = ONE capper_history row, enforced both directions: source_ingest dedups
+  cross-source on insert, and results.js Pass 1 / Pass 4 now skip their grade-time
+  insert when the capper already has a row for that slot (previously that pairing
+  double-counted a capper who was both slot-credited and wave-1 tracked).
+- Board slot pick_type convention is 'ML' uppercase / spread,over,under lowercase
+  (lines.js seeds); the board push maps accordingly.
+- Polymarket conviction sizing: each wallet's usual game-market notional is tracked
+  (EMA on pm_wallets.notional_avg/notional_n); every ingested pick logs
+  size_ratio = notional / usual into provenance meta. ZERO points at launch —
+  logged-only, same policy as price context. Backtest decides if oversized entries
+  earn anything.
+- AN discovery is bot-challenged from Railway (202 challenge page); the open users
+  API is not. Roster seeding relays from the Mac: scripts/an_relay.js -> header-auth
+  POST /admin/api/an-experts-import. Pick polling runs on prod unchanged.
+- NOT done yet: the haircut resume seeding for AN experts (50% weight, 25-pt cap,
+  anomaly guard). Wave-1 cappers all start at earned-zero. Seeding remains a
+  calibration task if Jack wants records to pre-count.
+
 ## Open items (Jack)
 
 - Alias merge queue rulings (Docs cluster, Tony cluster, and whatever the suggestions
   panel shows after the next server pull).
-- When each wave-1 source graduates from track-only to scoring (per-source settings
-  flag; suggested bar: 2-3 weeks of clean graded flow plus registry spot-checks).
+- RESOLVED 2026-07-08: wave-1 sources graduated to board scoring (see amendment
+  above). Remaining lever: AN haircut resume seeding, still unbuilt.
 - Prop grading approach for the future props page (which prop types first).
 - Whether WNBA joins SPORT_BONUS_SPORTS in v3 (it is excluded today; MidwestMike is
   8-2 on WNBA and the resume component already rewards that without the flat +5).

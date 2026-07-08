@@ -590,7 +590,16 @@ async function resolveResults() {
       // today_games is still present here (game just finished, pre-wipe).
       const betOdds = capperBetOdds(pick);
       const isTotal = ['over', 'under'].includes((pick.pick_type || '').toLowerCase());
-      try {
+      // Cross-source dedup (same rule as source_ingest): if this capper already
+      // has a capper_history row for this slot (e.g. a wave-1 pending row that
+      // Pass 5 will grade), one bet must stay ONE row — skip the insert.
+      const already = db.prepare(`
+        SELECT id FROM capper_history
+        WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
+          AND (LOWER(team) = LOWER(?) OR ? = 1)
+        LIMIT 1
+      `).get(pick.capper_name, pick.espn_game_id, pick.pick_type ?? '', pick.team ?? '', isTotal ? 1 : 0);
+      if (!already) try {
         db.prepare(`
           INSERT OR IGNORE INTO capper_history
             (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
@@ -718,7 +727,15 @@ async function resolveResults() {
       const phOdds = pt === 'ml' ? (ph.live_ml ?? ph.ml_odds ?? null)
                    : (pt === 'over' || pt === 'under') ? (ph.live_ou_odds ?? ph.ou_odds ?? null)
                    : null;
-      try {
+      // Same cross-source dedup as Pass 1: never a second row for one bet.
+      const phIsTotal = pt === 'over' || pt === 'under';
+      const phAlready = db.prepare(`
+        SELECT id FROM capper_history
+        WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
+          AND (LOWER(team) = LOWER(?) OR ? = 1)
+        LIMIT 1
+      `).get(ph.capper_name, ph.espn_game_id, ph.pick_type ?? '', ph.team ?? '', phIsTotal ? 1 : 0);
+      if (!phAlready) try {
         db.prepare(`
           INSERT OR IGNORE INTO capper_history
             (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)

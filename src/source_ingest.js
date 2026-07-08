@@ -1,19 +1,23 @@
 // src/source_ingest.js
 // Shared ingestion pipeline for wave-1 structured-data sources (Action Network,
-// Polymarket wallets, Covers contests). Track-only: picks land in capper_history
-// as result='pending' rows, graded later by results.js exactly like Discord picks.
-// They never create board slots and never add score points in this phase.
+// Polymarket wallets, Covers contests). Picks land in capper_history as
+// result='pending' rows, graded later by results.js exactly like Discord picks.
+// Under v3 (scoring_version='v3' + source_board_points='1') a PREGAME pick also
+// lands on the board as a mention — same flat base + advocate resume + consensus
+// mechanics as a Discord pick, with channel = the source name so the
+// '@src:<source>' entity earns advocate points through its own graded record.
+// No fiat baseline: a source's weight is exactly what its resume has earned.
 //
 // Rules enforced here (docs/CA_ALGORITHM_V3.md):
 //  - Pregame timestamp: a pick counts only when the SOURCE's own timestamp is
 //    before game start; anything in-game is recorded with live=1 provenance and
-//    stays capper-record-only forever.
+//    stays capper-record-only forever (never a board mention).
 //  - Cross-source dedup (HARD RULE): the same canonical capper on the same slot
 //    on the same day is ONE row. A duplicate arriving from a second system only
-//    appends provenance to sources_json.
+//    appends provenance to sources_json (and never a second board mention).
 
 const db = require('./db');
-const { resolveCapperName, ensureRegistered } = require('./storage');
+const { resolveCapperName, ensureRegistered, savePick } = require('./storage');
 
 // Fuzzy today_games matcher by two team names (the proven odds_api.js pattern).
 function findGameByTeams(teamA, teamB) {
@@ -114,8 +118,9 @@ function recordSourcePick(pick) {
   } catch (_) {}
 
   const provenance = JSON.stringify([{ source, at: new Date().toISOString(), live, meta: pick.meta || null }]);
+  let historyId = null;
   try {
-    db.prepare(`
+    const r = db.prepare(`
       INSERT INTO capper_history
         (capper_name, sport, pick_type, team, spread, espn_game_id, game_date,
          channel, score, result, pick_id, odds, source, is_home_team, sources_json)
@@ -134,11 +139,47 @@ function recordSourcePick(pick) {
       isTotal ? 0 : (pick.side === 'home' ? 1 : 0),
       provenance
     );
-    return 'inserted';
+    historyId = r.lastInsertRowid;
   } catch (err) {
     console.warn(`[ingest:${source}] insert failed:`, err.message);
     return 'skipped:insert-error';
   }
+
+  // Board mention (v3 only, pregame only, settings-gated). savePick runs the
+  // full pipeline: slot match, mention count, v2+v3 scoring, leak, MVP/archive
+  // gates. Dedup is double-walled: the capper_history check above (one push per
+  // capper per slot) and updateSlot's message_id / author+channel checks.
+  // Gates: source_board_points is the master switch; source_board_<source>
+  // (e.g. source_board_polymarket) turns one system off on its own.
+  if (!live
+      && db.getSetting('scoring_version', 'v2') === 'v3'
+      && db.getSetting('source_board_points', '1') === '1'
+      && db.getSetting(`source_board_${source}`, '1') === '1') {
+    try {
+      savePick({
+        team,
+        // Board slot convention (lines.js): 'ML' uppercase, spread/over/under lowercase
+        pick_type: pt === 'ml' ? 'ML' : pt,
+        sport: game.sport ?? null,
+        spread_value: pick.line ?? null,
+        capper_name: canonical,
+        espn_game_id: game.espn_game_id,
+        game_date: gameDate,
+        channel: source,
+        is_home_team: isTotal ? 0 : (pick.side === 'home' ? 1 : 0),
+        source_scope: source,
+        raw_message: {
+          id: `src:${source}:${historyId}`,
+          author: canonical,
+          content: `[${source}] ${canonical}: ${team} ${pt}${pick.line != null ? ' ' + pick.line : ''}${pick.odds != null ? ' @' + pick.odds : ''}`,
+          createdAt: pick.postedAtMs || Date.now(),
+        },
+      });
+    } catch (err) {
+      console.warn(`[ingest:${source}] board mention failed:`, err.message);
+    }
+  }
+  return 'inserted';
 }
 
 // American odds from a prediction-market price (0..1).

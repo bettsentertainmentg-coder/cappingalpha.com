@@ -3,7 +3,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'capper.db');
+const DB_PATH = process.env.CAPPER_DB || path.join(__dirname, '..', 'data', 'capper.db');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
 const db = new Database(DB_PATH);
@@ -1360,6 +1360,10 @@ try {
     )
   `);
 } catch (_) {}
+// Conviction sizing (logged-only signal): rolling average game-market notional
+// per wallet, so an oversized entry can be flagged vs the wallet's own usual.
+try { db.exec(`ALTER TABLE pm_wallets ADD COLUMN notional_avg REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE pm_wallets ADD COLUMN notional_n INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 
 // One-time Phase-1 backfill (settings-flag guarded):
 //  - seed the registry from existing alias canonicals + history names

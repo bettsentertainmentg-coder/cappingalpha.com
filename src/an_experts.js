@@ -94,6 +94,12 @@ async function discoverAnExperts() {
       upserts++;
     } catch (_) {}
   }
+  if (!found.size) {
+    // AN's HTML pages sit behind a bot challenge for datacenter IPs (Railway gets
+    // a 202 challenge page with no __NEXT_DATA__). The users API is open, so
+    // polling works once the table is seeded from the Mac: node scripts/an_relay.js
+    console.warn('[an_experts] discovery found 0 experts — pages likely bot-challenged from this host; seed via scripts/an_relay.js');
+  }
   console.log(`[an_experts] discovery: ${found.size} experts found, ${upserts} upserted`);
   return upserts;
 }
@@ -109,7 +115,10 @@ const TYPE_MAP = {
 async function pollAnExperts() {
   if (db.getSetting('an_scrape_enabled', '1') !== '1') return { ingested: 0 };
   const experts = db.prepare(`SELECT * FROM an_experts ORDER BY last_poll ASC NULLS FIRST`).all();
-  if (!experts.length) return { ingested: 0 };
+  if (!experts.length) {
+    console.warn('[an_experts] poll skipped: an_experts table is empty (discovery blocked here? seed via scripts/an_relay.js)');
+    return { ingested: 0 };
+  }
 
   let ingested = 0, dupes = 0, props = 0, errors = 0;
   for (const ex of experts) {

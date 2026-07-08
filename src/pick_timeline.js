@@ -165,4 +165,15 @@ function getPickTimeline(pickId) {
   return buildV2Timeline(pick);
 }
 
-module.exports = { getPickTimeline };
+// Non-paid sanitizer. The annotated timeline is proprietary twice over: step
+// labels name the advocate capper ("Resume · <name>" — capper_name is paid-only)
+// and each event's delta/label prices a scoring component (Base/Resume/Consensus/
+// Market...). Free viewers keep only the curve SHAPE — timestamp + running
+// display score — with every annotation stripped. Paid viewers get the full
+// timeline. Passes null/non-arrays through untouched (locked picks stay null).
+function sanitizeTimeline(events) {
+  if (!Array.isArray(events)) return events;
+  return events.map(e => ({ ts: e.ts, score: e.score }));
+}
+
+module.exports = { getPickTimeline, sanitizeTimeline };

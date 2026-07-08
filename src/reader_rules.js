@@ -56,6 +56,19 @@ A line containing only a name (no pick info) is a capper header — all picks th
   the name right after it is a capper header (e.g. "🎾 This Girl Betz" → capper=This Girl Betz).
   "=====" lines = block separator between cappers.
 
+── INLINE CAPPER PREFIX (single-line leaks) ──────────────────────────────────
+In leak channels each message is often ONE capper's play on a SINGLE line: the
+capper handle LEADS, then that capper's pick(s) follow on the same line (no line
+break, no "====="). The leading handle is the capper for those picks. The handle is
+a person/company, NEVER a team — the team/player is the pick. A short record like
+"0-1" or "27-8" or "0-1 / 27~8" right after the handle is a label, not a pick.
+  "BettingWithBush Argentina -1 -184 1U"                 → capper=BettingWithBush; Argentina spread -1
+  "Top Cappers (Top Parlays) 0-1 / 27~8 Argentina -1.25 spread" → capper=Top Cappers; Argentina spread -1.25
+  "ParlaySafari July 7th 12pm Argentina -1.5 (1.5u)"     → capper=ParlaySafari; Argentina spread -1.5
+  "MidwestMike 4u Top Play Brewers TT o4.5"              → capper=MidwestMike; Brewers team_total over 4.5
+If the leading token IS a team/player (e.g. "Argentina -1.5", "Kostyuk ML"), there
+is NO capper on that message — do not invent one, leave capper_name empty.
+
 ── MULTI-CAPPER DIGESTS ──────────────────────────────────────────────────────
 Many community messages contain multiple capper blocks. Blocks may be separated by "====="
 lines OR simply by a new capper header on its own line (often led by a sport emoji like
