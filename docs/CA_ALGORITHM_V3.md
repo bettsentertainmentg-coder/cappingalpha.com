@@ -793,6 +793,36 @@ Post-ship backlog (not in these phases): wave-2 prose sources (Telegram, Reddit,
 new Discord servers), Kalshi social leaderboard, BettingPros/Tallysight revisits,
 signal weight re-fit after ~6 weeks of football.
 
+## v3.2 TARGET ARCHITECTURE (Jack, 2026-07-08 night): every point earned
+
+Jack's directive after reading the playbook: "each point needs to have meaning
+and value, giving good reason why it's at 100... the base 45 flat is essentially
+nonexistent" at the end state. The base is SCAFFOLDING for an unrated ecosystem,
+and it ratchets DOWN as earned components grow into the space. Gold stays 100.
+
+Component targets (each one data-driven, growing/shrinking with evidence):
+| Component        | Today | v3.2 target | Mechanism |
+|------------------|-------|-------------|-----------|
+| Base             | 45    | ratchets 45 -> 38 -> 32 -> ~25 | stepped down only when the gold rate + quality hold in band at the next notch (replayed first, one-time history rescale per notch) |
+| Advocate resume  | 0-55  | 0-65        | mult + volume-cap refit at each notch |
+| Consensus        | 0-30  | 0-35        | resume-stacking as shipped, cap raised with the resume ceiling |
+| Market signals   | 0-8   | 0-10        | weights refit from the LOGGED full values (they have been logged since launch precisely for this) |
+| Sport bonus      | flat 5| 0-10 DYNAMIC | 5 +/- CA's own shrunk graded ROI in that sport (nightly, like side lean; k=50 so it moves only on real volume) |
+| Side lean        | 0-5   | 0-10        | same nightly computation, wider clamp once per-sport samples justify it |
+| Fade points      | 0-8   | 0-10        | same sport-volume scaling, wider cap as fade-list evidence deepens |
+
+RECENCY VS CAREER (Jack): once a capper is established (25+ graded), blend a
+recent-form window into their resume (exponential decay, half-life ~90d,
+half-life itself backtested) so current form moves points up or down against
+the career baseline. Under 25 picks: career-only (small windows whipsaw).
+
+Floor replay of the end-state geometry (2026-07-08 pull, signals zero):
+base25/res65/con35/dynSport = 0.21 gold/day @ 57% — confirms the ratchet plan:
+the end state needs matured wave-1 resumes + live signal data before it feeds
+1-10 gold/day. Triggers to advance a notch: (1) 200+ graded wave-1 picks per
+major source, (2) replay at the next notch holds >= 1 gold/day @ >= 58%,
+(3) elite-solo-gold preserved. The CA Ops drift alarm is the rollback signal.
+
 ## Amendment 2026-07-08 (evening): resume-stacking consensus + chunked reveal
 
 Jack reviewed the live board (Brewers ML gold, 4 AN joiners at +0.5 each) and asked
