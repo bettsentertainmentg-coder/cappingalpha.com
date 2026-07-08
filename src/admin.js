@@ -244,7 +244,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
   const picks = db.prepare(`
     SELECT p.*,
            sb.channel_points, sb.sport_bonus, sb.home_bonus, sb.total AS sb_total,
-           sb.breakdown_json,
+           sb.breakdown_json, sb.v3_total, sb.v3_json,
            COALESCE(tg1.home_team, tg2.home_team) AS home_team,
            COALESCE(tg1.away_team, tg2.away_team) AS away_team,
            COALESCE(tg1.start_time, tg2.start_time) AS start_time
@@ -254,7 +254,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     LEFT JOIN today_games tg2 ON (LOWER(tg2.home_team) = LOWER(p.team) OR LOWER(tg2.away_team) = LOWER(p.team))
     WHERE p.game_date = ? AND p.mention_count > 0 AND p.score > 0
     GROUP BY p.id
-    ORDER BY p.score DESC
+    ORDER BY ${v3Now ? 'sb.v3_total DESC, p.score DESC' : 'p.score DESC'}
   `).all(today);
 
   const dummyAccountsList = (() => { try { return dummyAccounts.listDummyAccounts(); } catch (_) { return []; } })();
@@ -286,7 +286,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }
 
   const pickRowsHtml = picks.map((p, i) => {
-    const isMvp = (p.score || 0) >= MVP_LINE;
+    // v3 (live): show the real WEIGHTED score + tiers. Admin is internal, so it
+    // sees the true v3 total (not the public leak-aware display). v2: raw score.
+    let bd = null;
+    try { bd = p.v3_json ? JSON.parse(p.v3_json) : null; } catch (_) {}
+    const v3score = p.v3_total != null ? Math.round(p.v3_total) : null;
+    const shownScore = v3Now ? (v3score != null ? v3score : (p.score ?? '—')) : (p.score ?? '—');
+    const isGold   = v3Now ? (v3score != null && v3score >= 100) : ((p.score || 0) >= MVP_LINE);
+    const isSilver = v3Now && v3score != null && v3score >= 75 && v3score < 100;
+    const tierBadge = isGold
+      ? '<span class="badge mvp">GOLD</span>'
+      : isSilver ? '<span class="badge" style="background:#3a3f4b;color:#c0c0c0;">silver</span>' : '';
+
     const raws  = rawByPick[p.id] || [];
     const capperLabel = p.capper_name ? escHtml(p.capper_name) : '<span style="color:#3b4560;">—</span>';
     const matchBadge = p.capper_name
@@ -294,22 +305,72 @@ router.get('/dashboard', requireAuth, (req, res) => {
           ? '<span class="badge match-ok">matched</span>'
           : '<span class="badge match-new">new</span>')
       : '<span style="color:#3b4560;font-size:11px;">—</span>';
-    const rawRowsHtml = raws.length
-      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="10" style="padding:0;">
-          <table style="margin:0;border:none;border-radius:0;"><tbody>
-            ${raws.map(rm => `<tr class="raw-row"><td colspan="10">
-              ${p.capper_name ? `<strong style="color:#a08020;">${escHtml(p.capper_name)}</strong> · ` : ''}<strong>${escHtml(rm.channel)}</strong>
-              ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
-              ${rm.message_timestamp ? `· ${rm.message_timestamp.slice(0, 16)}` : ''}
-              <br>${escHtml(rm.message_text || '')}
-            </td></tr>`).join('')}
-          </tbody></table></td></tr>`
+
+    // Per-capper v3 contribution: the advocate carries the resume points, every
+    // other named capper carries its applied consensus join points.
+    const contrib = {};
+    if (bd) {
+      if (bd.advocate && !String(bd.advocate).startsWith('@src:')) {
+        contrib[bd.advocate] = (contrib[bd.advocate] || 0) + (bd.resume || 0);
+      }
+      for (const j of (bd.joiners || [])) contrib[j.name] = (contrib[j.name] || 0) + (j.applied || 0);
+    }
+
+    // Drill-down: the full v3 aggregation (every component + who added what),
+    // then each raw mention with its capper, points, and arrival time.
+    const v3Panel = (v3Now && bd) ? (() => {
+      const row = (label, pts, extra = '') => (pts != null)
+        ? `<tr><td style="padding:2px 10px 2px 0;color:#b7c0d0;">${label}${extra ? ` <span style="color:#6b7488;">${extra}</span>` : ''}</td><td style="text-align:right;font-weight:600;color:#e5e9f0;">+${pts}</td></tr>`
+        : '';
+      const joinRows = (bd.joiners || []).filter(j => (j.applied || 0) > 0)
+        .map(j => `<tr><td style="padding:1px 10px 1px 18px;color:#8892a4;">↳ ${escHtml(j.name)} <span style="color:#6b7488;">(base +${j.pts})</span></td><td style="text-align:right;color:#b7c0d0;">+${j.applied}</td></tr>`).join('');
+      const mkt = bd.market || {};
+      const mktExtra = [mkt.edge_pts ? `edge +${mkt.edge_pts}` : '', mkt.steam_pts ? `steam +${mkt.steam_pts}` : '', mkt.contrarian_pts ? `contrarian +${mkt.contrarian_pts}` : ''].filter(Boolean).join(' · ');
+      const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${escHtml(f.capper)} +${f.pts}`).join(', ');
+      return `
+      <div style="padding:8px 12px;background:#12151d;border-radius:6px;margin-bottom:8px;">
+        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}</div>
+        <table style="width:auto;margin:0;border:none;font-size:12px;">
+          ${row('Base', bd.base)}
+          ${row('Advocate resume', bd.resume, bd.advocate ? `· ${escHtml(bd.advocate)}` : '')}
+          ${row('Consensus', bd.consensus)}
+          ${joinRows}
+          ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
+          ${row('Side lean', (bd.lean && bd.lean.pts) || 0, bd.lean && bd.lean.side ? `· ${escHtml(bd.lean.side)}` : '')}
+          ${row('Sport bonus', bd.sport_bonus)}
+          ${row('Fade points', (bd.fade_in && bd.fade_in.pts) || 0, fadeFrom)}
+          ${(bd.conflict_offset || 0) > 0 ? row('Conflict offset', bd.conflict_offset) : ''}
+          <tr><td style="padding-top:5px;border-top:1px solid #2a2f3b;color:#e5e9f0;font-weight:700;">Total</td><td style="padding-top:5px;border-top:1px solid #2a2f3b;text-align:right;font-weight:700;color:${isGold ? '#FFD700' : '#e5e9f0'};">${v3score}</td></tr>
+        </table>
+      </div>`;
+    })() : '';
+
+    const mentionRows = raws.map(rm => {
+      const cap = rm.capper_name || p.capper_name;
+      const pts = cap && contrib[cap] != null ? `<span style="color:#a08020;font-weight:600;">+${contrib[cap]} pts</span> · ` : '';
+      return `<tr class="raw-row"><td colspan="10">
+        ${cap ? `<strong style="color:#a08020;">${escHtml(cap)}</strong> · ` : ''}${pts}<strong>${escHtml(rm.channel || '')}</strong>
+        ${rm.author ? `· <em>${escHtml(rm.author)}</em>` : ''}
+        ${rm.message_timestamp ? `· <span style="color:#8892a4;">${rm.message_timestamp.slice(0, 16)}</span>` : ''}
+        <br><span style="color:#c8cfdb;">${escHtml(rm.message_text || '')}</span>
+      </td></tr>`;
+    }).join('');
+
+    const rawRowsHtml = (v3Panel || raws.length)
+      ? `<tr class="raw-row" id="msgs-${p.id}" style="display:none;"><td colspan="10" style="padding:8px 10px;">
+          ${v3Panel}
+          ${raws.length ? `<table style="margin:0;border:none;border-radius:0;"><tbody>${mentionRows}</tbody></table>` : ''}
+        </td></tr>`
       : '';
-    const msgBtn = raws.length
-      ? `<button onclick="toggleMsgs(${p.id},this)" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;">${raws.length} msg${raws.length > 1 ? 's' : ''} ▾</button>`
+    const msgBtn = (v3Panel || raws.length)
+      ? `<button onclick="toggleMsgs(${p.id},this)" style="background:#252c3b;border:1px solid #3b4560;color:#8892a4;border-radius:4px;padding:2px 7px;font-size:11px;cursor:pointer;">details ▾</button>`
       : '<span style="color:#3b4560;font-size:11px;">—</span>';
-    const breakdown = p.channel_points != null
-      ? `ch:${p.channel_points} sport:${p.sport_bonus} home:${p.home_bonus} = ${p.sb_total}` : '—';
+
+    // Breakdown cell: v3 component summary (live) or the v2 channel breakdown.
+    const breakdown = (v3Now && bd)
+      ? `base ${bd.base}${bd.resume ? ` · rez +${bd.resume}` : ''}${bd.consensus ? ` · cons +${bd.consensus}` : ''}${(bd.market && bd.market.pts) ? ` · mkt +${bd.market.pts}` : ''}${bd.sport_bonus ? ` · sport +${bd.sport_bonus}` : ''}${(bd.fade_in && bd.fade_in.pts) ? ` · fade +${bd.fade_in.pts}` : ''}`
+      : (p.channel_points != null ? `ch:${p.channel_points} sport:${p.sport_bonus} home:${p.home_bonus} = ${p.sb_total}` : '—');
+
     const matchup = (p.away_team && p.home_team)
       ? `${escHtml(p.away_team)} @ ${escHtml(p.home_team)}` : `<em>${escHtml(p.team)}</em>`;
     const timeStr = p.start_time
@@ -318,7 +379,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
     const spreadDisplay = (pickType === 'over' || pickType === 'under')
       ? (p.spread != null ? Math.abs(parseFloat(p.spread)) : '')
       : (p.spread != null ? p.spread : '');
-    return `<tr>
+    const scoreColor = isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0';
+    const hasDetail = !!(v3Panel || raws.length);
+    const rowOpen = hasDetail ? ` style="cursor:pointer;" onclick="toggleMsgs(${p.id}, this.querySelector('.msg-toggle button'))"` : '';
+    return `<tr${rowOpen}>
       <td><strong>${i + 1}</strong> <span style="font-size:10px;color:#3b4560;">#${p.id}</span></td>
       <td><strong>${matchup}</strong>${timeStr ? `<span style="font-size:11px;color:#8892a4;margin-left:6px;">${timeStr}</span>` : ''}</td>
       <td>${escHtml(p.sport || '—')}</td>
@@ -326,14 +390,14 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td>${capperLabel}</td>
       <td>${matchBadge}</td>
       <td>${p.mention_count}</td>
-      <td>${p.score ?? '—'} ${isMvp ? '<span class="badge mvp">MVP</span>' : ''}</td>
+      <td style="font-weight:700;color:${scoreColor};">${shownScore} ${tierBadge}</td>
       <td><small>${breakdown}</small></td>
-      <td>${msgBtn}</td>
+      <td onclick="event.stopPropagation()"><span class="msg-toggle">${msgBtn}</span></td>
     </tr>${rawRowsHtml}`;
   }).join('');
 
   const picksTableHtml = picks.length
-    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Capper</th><th>Match</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Messages</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
+    ? `<table><thead><tr><th>#</th><th>Team</th><th>Sport</th><th>Pick</th><th>Capper</th><th>Match</th><th>Mentions</th><th>Score</th><th>Breakdown</th><th>Details</th></tr></thead><tbody>${pickRowsHtml}</tbody></table>`
     : '<div class="empty">No picks today.</div>';
 
   // ── Codes panel ──────────────────────────────────────────────────────────────
@@ -931,9 +995,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
     <div class="atabs">
       <button class="atab${ta('picks')}" data-tab="picks" onclick="adminTab('picks')">Today's Picks</button>
+      <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
       <button class="atab${ta('codes')}" data-tab="codes" onclick="adminTab('codes')">Access Codes</button>
       <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
-      <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
       <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
@@ -1899,9 +1963,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
       // ── Picks panel ────────────────────────────────────────────────────────────
       function toggleMsgs(id, btn) {
         const row = document.getElementById('msgs-' + id);
+        if (!row) return;
         const open = row.style.display !== 'none';
         row.style.display = open ? 'none' : '';
-        btn.textContent = btn.textContent.replace(open ? '▴' : '▾', open ? '▾' : '▴');
+        if (btn) btn.textContent = btn.textContent.replace(open ? '▴' : '▾', open ? '▾' : '▴');
       }
 
       // ── Action confirm modal ───────────────────────────────────────────────────
@@ -2992,9 +3057,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
                 const final    = p.home_score != null && p.away_score != null
                   ? p.home_score + '–' + p.away_score
                   : '—';
-                const scoreTxt = p.score >= 60
+                const scoreTxt = p.score >= ${v3Now ? 100 : 60}
                   ? \`<span style="color:#FFD700;font-weight:700;">\${p.score}</span>\`
-                  : p.score >= 50
+                  : p.score >= ${v3Now ? 75 : 50}
                   ? \`<span style="color:#b0bcd4;font-weight:700;">\${p.score}</span>\`
                   : p.score;
                 return \`<tr>

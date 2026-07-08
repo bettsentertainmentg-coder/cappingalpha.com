@@ -600,12 +600,8 @@ app.get('/api/picks/top', (req, res) => {
   `).all();
   let onBoard = rows.filter(p => isOnBoard(p.start_time, boardDate));
   if (getSetting('scoring_version', 'v2') === 'v3') {
-    const { effectiveDisplayScore } = require('./src/scoring_v3');
-    for (const p of onBoard) {
-      p.score = p.leak_target != null
-        ? effectiveDisplayScore(p)
-        : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
-    }
+    const { v3DisplayScore } = require('./src/scoring_v3');
+    for (const p of onBoard) p.score = v3DisplayScore(p);
     onBoard.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
   const pick = onBoard[0] || null;
@@ -833,20 +829,30 @@ app.get('/api/games/top', (req, res) => {
   const top = candidates.slice(0, limit);
 
   // Overall #1 pick (same rule as /api/picks/top) — its game's score is free.
-  const globalTop = db.prepare(`
-    SELECT p.espn_game_id
+  // Under v3, rank by the leak-aware display score so the free "#1 game" is the
+  // same pick the board + /api/picks/top unlock.
+  const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+  const { v3DisplayScore } = require('./src/scoring_v3');
+  const globalTopRows = db.prepare(`
+    SELECT p.id, p.espn_game_id, p.score, p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+           sb.v3_total AS v3_total
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     WHERE p.mention_count > 0
-    ORDER BY p.score DESC, p.id ASC LIMIT 1
-  `).get();
-  const globalTopGameId = globalTop ? globalTop.espn_game_id : null;
+  `).all();
+  if (v3Live) for (const r of globalTopRows) r.score = v3DisplayScore(r);
+  globalTopRows.sort((a, b) => (b.score - a.score) || (a.id - b.id));
+  const globalTopGameId = globalTopRows.length ? globalTopRows[0].espn_game_id : null;
 
   const topPickStmt = db.prepare(`
-    SELECT id, score, team, pick_type, spread
-    FROM picks
-    WHERE espn_game_id = ? AND mention_count > 0
-    ORDER BY score DESC, id ASC LIMIT 1
+    SELECT p.id, p.score, p.team, p.pick_type, p.spread,
+           p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+           sb.v3_total AS v3_total
+    FROM picks p
+    LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+    WHERE p.espn_game_id = ? AND p.mention_count > 0
+    ORDER BY p.score DESC, p.id ASC LIMIT 1
   `);
 
   // How many picks on this game actually scored — drives the "multiple picks"
@@ -864,6 +870,7 @@ app.get('/api/games/top', (req, res) => {
 
   const out = top.map(g => {
     const tp = topPickStmt.get(g.espn_game_id);
+    if (tp && v3Live) tp.score = v3DisplayScore(tp);   // show the leak-aware display score, not the raw v2 column
     const pickCount = pickCountStmt.get(g.espn_game_id).c;
     const isG1 = g.espn_game_id === globalTopGameId;
     const unlocked = paid || isG1;
@@ -2035,8 +2042,18 @@ async function renderGameDetail(req, res, game, opts = {}) {
     let picks = opts.picks;
     if (!picks) {
       picks = db.prepare(`
-        SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC, id ASC
+        SELECT p.*, sb.v3_total AS v3_total
+        FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+        WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
       `).all(game.espn_game_id);
+      // v3: show the same leak-aware display score as the board + popup (was
+      // inlining the raw v2 column into __GAME_DATA__). Historical archive picks
+      // arrive via opts.picks and keep their stored score.
+      if (getSetting('scoring_version', 'v2') === 'v3') {
+        const { v3DisplayScore } = require('./src/scoring_v3');
+        for (const p of picks) p.score = v3DisplayScore(p);
+        picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
+      }
       for (const p of picks) p.timeline = getPickTimeline(p.id);
     }
 
@@ -2052,9 +2069,17 @@ async function renderGameDetail(req, res, game, opts = {}) {
       sorted.forEach((p, i) => { pickRanks[p.id] = i + 1; });
     } else {
       const allRanked = db.prepare(`
-        SELECT p.id FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-        WHERE p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
+        SELECT p.id, p.score, p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+               sb.v3_total AS v3_total
+        FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+        LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+        WHERE p.mention_count > 0
       `).all();
+      if (getSetting('scoring_version', 'v2') === 'v3') {
+        const { v3DisplayScore } = require('./src/scoring_v3');
+        for (const r of allRanked) r.score = v3DisplayScore(r);
+      }
+      allRanked.sort((a, b) => (b.score - a.score) || (a.id - b.id));
       allRanked.forEach((r, i) => { pickRanks[r.id] = i + 1; });
     }
 

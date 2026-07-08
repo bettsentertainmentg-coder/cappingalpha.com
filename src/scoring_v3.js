@@ -379,7 +379,21 @@ function effectiveDisplayScore(pickRow, nowMs = Date.now()) {
   return Math.round(base + (pickRow.leak_target - base) * frac);
 }
 
-module.exports = { computeV3, computeAndLogV3, applyLeak, effectiveDisplayScore };
+// The single, canonical "score to show right now" for a pick under v3. EVERY
+// public surface (the picks list, the game-detail popup, the standalone detail
+// page, the conviction curve) must run its rows through THIS so they all agree.
+// A pick mid-leak-ramp uses the interpolated display; otherwise the settled
+// display_score, falling back to the logged v3_total, then the raw column. The
+// true v3 total is never returned here unless the leak has finished. Expects a
+// row carrying display_score/leak_* (from picks) and v3_total (join to
+// score_breakdown); tolerates any missing.
+function v3DisplayScore(p) {
+  return p.leak_target != null
+    ? effectiveDisplayScore(p)
+    : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
+}
+
+module.exports = { computeV3, computeAndLogV3, applyLeak, effectiveDisplayScore, v3DisplayScore };
 
 // CLI: node src/scoring_v3.js — v2 vs v3 on today's board, top of each
 if (require.main === module) {
