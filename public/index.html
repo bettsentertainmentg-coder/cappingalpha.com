@@ -2883,6 +2883,7 @@
         <h3 class="about-h3">How the scoring model works</h3>
         <p class="about-p">Each morning at 5am ET, opening book lines (moneylines, spreads, over/unders) are locked as the reference baseline for the day. From there, AI agents monitor public data streams in real time, cross-referencing signals against live game data from ESPN, weather from OpenWeatherMap, public sentiment from X, community intelligence sources, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
         <p class="about-p">Picks are ranked by score. The model is built to detect market pressure early, before it moves a line. No single source can spike a score on its own.</p>
+        <p class="about-p">The line each pick uses is not the 5am opener. It is the market line captured 90 minutes before that game starts, or the moment the pick reaches CA pick status, whichever comes first. Lines move during the day, so we let a pick track the market until one of those triggers, then capture that number once and lock it. That locked line is the official line the CA rankings show and every tracked bet grades against. Schedule slips happen, so the 90-minute mark follows the real start time.</p>
         <p class="about-p">Scoring keeps updating throughout the day as new signals come in, and locks 5 minutes after a game's actual tip-off. Schedule slips happen, so the lock follows the real start, not the scheduled one.</p>
 
       <div class="about-grid">
@@ -2904,7 +2905,7 @@
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#f5a623;">◎</div>
           <div class="about-signal-title">Book Line Reference</div>
-          <div class="about-signal-desc">Opening lines are locked each morning as the reference baseline. Every pick is matched against the opening line for that game so you always see what the market said at the start of day.</div>
+          <div class="about-signal-desc">The line each pick is recorded, ranked, and graded at is the market line captured 90 minutes before that game starts, or the moment the pick reaches CA pick status, whichever comes first. That single number is what the CA rankings show and what every tracked bet settles against, so the line you see is the line you get.</div>
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#f87171;">⬡</div>
@@ -3346,6 +3347,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=65"></script>
+  <script type="module" src="app.js?v=66"></script>
 </body>
 </html>

@@ -649,20 +649,22 @@ app.get('/api/mvp', auth.requirePaid, (req, res) => {
   const threshold = v3Live
     ? 100
     : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
-  const picks = getRecentMvpPicks(threshold);
+  let picks = getRecentMvpPicks(threshold);
   // Leak-rule parity (v3): mvp_picks.score is the TRUE v3 total, while the board
   // shows the still-ramping display score until game start. Never ship the
-  // concealed conviction early — withhold the number on pending pre-game rows
-  // (the client renders '—'); it ships once the game starts or resolves.
+  // concealed conviction early — pending PRE-GAME rows are withheld from the
+  // history list entirely (a scoreless "—" row leaked that a gold existed and
+  // cluttered History with games that haven't locked). They appear once the
+  // game starts or resolves; the Rankings tab covers them live meanwhile.
   if (v3Live) {
     const gameStmt = db.prepare(`SELECT start_time, status FROM today_games WHERE espn_game_id = ?`);
-    for (const p of picks) {
-      if ((p.result || 'pending').toLowerCase() !== 'pending' || !p.espn_game_id) continue;
+    picks = picks.filter(p => {
+      if ((p.result || 'pending').toLowerCase() !== 'pending' || !p.espn_game_id) return true;
       const g = gameStmt.get(p.espn_game_id);
-      if (!g) continue;   // no board row = historical game, long since started
+      if (!g) return true; // no board row = historical game, long since started
       const startMs = new Date(g.start_time).getTime();
-      if (g.status === 'pre' || (Number.isFinite(startMs) && startMs > Date.now())) p.score = null;
-    }
+      return !(g.status === 'pre' || (Number.isFinite(startMs) && startMs > Date.now()));
+    });
   }
   res.json({
     picks,
@@ -2756,6 +2758,14 @@ cron.schedule('*/30 8-23 * * *', async () => {
 if (!UI_ONLY) cron.schedule('0 6-23 * * *', async () => {
   console.log('[cron] hourly ESPN DK odds refresh');
   await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// CA official line lock: 90 min before each game starts, snapshot the market line and
+// lock it as the number the CA rankings + every tracked bet display and grade against.
+// Cheap gated query; runs every 5 min and is not active-hours-bound (late starts).
+if (!UI_ONLY) cron.schedule('*/5 * * * *', () => {
+  try { require('./src/ca_line').lockCaLinesAtT90(); }
+  catch (e) { console.error('[cron] lockCaLinesAtT90:', e.message); }
 }, { timezone: 'America/New_York' });
 
 cron.schedule('*/5 * * * *', () => {

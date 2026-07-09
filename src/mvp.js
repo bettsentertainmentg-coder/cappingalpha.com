@@ -128,6 +128,42 @@ const DIMENSIONS = [
 ];
 
 function resolveConflictingMvpPicks() {
+  // ── Pregame demotion sweep (Wilson era) ─────────────────────────────────────
+  // Ranks and stacks can move all day (new grades, merges, new backers), so a
+  // pick tracked at gold can fall back under the line BEFORE its game starts.
+  // A gold that never made it to first pitch was never locked: remove the row.
+  // Started and graded rows are NEVER touched — membership locks at game start.
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3') {
+      const pendingRows = db.prepare(`
+        SELECT m.id, m.espn_game_id, m.team, m.pick_type FROM mvp_picks m
+        JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+        WHERE tg.status = 'pre'
+          AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
+      `).all();
+      const curStmt = db.prepare(`
+        SELECT sb.v3_total, sb.v3_json FROM picks p
+        JOIN score_breakdown sb ON sb.pick_id = p.id
+        WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
+      `);
+      const delStmt = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
+      let demoted = 0;
+      for (const m of pendingRows) {
+        const cur = curStmt.get(m.espn_game_id, m.team || '', m.pick_type || '');
+        if (!cur) continue; // board pick gone — leave the tracked row alone
+        let isGold = (cur.v3_total ?? 0) >= 100;
+        try {
+          const j = JSON.parse(cur.v3_json || '{}');
+          if (typeof j.gold === 'boolean') isGold = j.gold; // includes the totals gate
+        } catch (_) {}
+        if (!isGold) { delStmt.run(m.id); demoted++; }
+      }
+      if (demoted) console.log(`[mvp] pregame demotion sweep removed ${demoted} no-longer-gold row(s)`);
+    }
+  } catch (err) {
+    console.warn('[mvp] demotion sweep failed:', err.message);
+  }
+
   // Games with more than one non-void MVP pick — necessary condition for a conflict.
   const games = db.prepare(`
     SELECT espn_game_id FROM mvp_picks

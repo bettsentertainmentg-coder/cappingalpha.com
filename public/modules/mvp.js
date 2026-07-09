@@ -83,7 +83,10 @@ function _recordBarHtml(rec, limited) {
 export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes: 0, pending: 0, win_rate: '0%' } } = {}, limited = false) {
   const container = document.getElementById('mvp-tab-content');
 
-  const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= state.CONFIG.mvp_threshold);
+  // GOLD ONLY on every Rankings surface. mvp_threshold is the silver line (75
+  // under v3) and silvers must never appear here — the tracked tier is 100+.
+  const goldLine = state.CONFIG?.mvp_display_threshold || 100;
+  const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= goldLine);
 
   const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance. CappingAlpha never wagers on any game.</p>`;
 
@@ -169,7 +172,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
   // Ties break by pick id (ascending) so the #1 MVP star lands on the same pick
   // the board and the home "#1 Pick" card show — all three sort score desc, id asc.
   const todayMvps = state.allPicks
-    .filter(p => (p.score || 0) >= state.CONFIG.mvp_threshold)
+    .filter(p => (p.score || 0) >= goldLine)
     .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
   if (todayMvps.length === 0) {
     const el = document.getElementById('mvp-today-body');
@@ -178,7 +181,9 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     renderMvpRows(todayMvps, 'mvp-today-body', { useLiveScore: true, showStar: true });
   }
 
-  renderMvpRows(picks, 'mvp-history-body');
+  // Belt and suspenders: history rows must carry a real gold score. The server
+  // already withholds pending pre-game rows; drop any scoreless stragglers.
+  renderMvpRows(picks.filter(p => p.score != null && p.score >= goldLine), 'mvp-history-body');
   drawPlGraph(picks);
 }
 
@@ -285,7 +290,7 @@ export function drawPlGraph(picks) {
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
-      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 75)
+      && (p.score || 0) >= (state.CONFIG?.mvp_display_threshold || 100)
       && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 
@@ -545,7 +550,7 @@ function drawHomeGraph(picks) {
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
-      && (p.score || 0) >= (state.CONFIG.mvp_threshold || 75)
+      && (p.score || 0) >= (state.CONFIG?.mvp_display_threshold || 100)
       && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 
