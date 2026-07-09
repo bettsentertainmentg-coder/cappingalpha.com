@@ -91,6 +91,22 @@ backer (Jack chose this over top-15%-only knowing the trade-off: enough mid-tier
 backers can still accumulate; the halving is the damper). Two top-band cappers on
 one side = 95ish + 47.5. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
 
+## The break-even gate (2026-07-09 evening, same-day refinement)
+
+The Wilson bound never compares anyone to the coin flip, and for a fixed win%
+it RISES with volume -- so in a thin-record pool, a losing capper with 60+
+decisions floats into the top bands (Breaking Bank, 31-33 / -$78 lifetime,
+ranked top 9% and handing out 60 pts, led the Pirates ML to a tracked gold
+loss). Collectible points now require a WINNING record: shrunk win% =
+(w + 12.5)/(decisions + 25) must clear 50% to give more than the flat 10;
+full value at 53% (break-even at -110); linear taper between. Below the gate:
+ladder pts pin at 10, stack_add 0, in-sport bonus 0 (gated on the SPORT
+record). Rank/band/percentile untouched -- the leaderboard shows where volume
+put them; the gate controls what their backing is worth. Applied at
+materialization (capper_ratings), so the scorer needed no changes. Live
+effect on recalibration: board golds 14 -> 9, every sub-break-even-led gold
+(Pirates ML 103 -> 29) fell off the record.
+
 ## Top band narrowed to 1% (2026-07-09, same-day refinement)
 
 Jack's call the evening of launch day: full influence (the 95->76 band) belongs
@@ -100,6 +116,39 @@ that means roughly ranks 1-3 carry full weight instead of ranks 1-10. Band keys
 in capper_ratings become 'top1' / '1-5' at the next recompute (startup, nightly
 5:20am, or the admin button); v3_json rows logged before the change still carry
 'top3' / '3-5' as the accurate historical record.
+
+## The break-even gate (2026-07-09 evening, same-day refinement #2)
+
+The bug it fixes: the Wilson lower bound answers "how confident are we this
+capper wins AT ALL" — it never compares anyone to the coin flip, and for a
+fixed win% the bound RISES with volume. In a pool where ~80% of cappers have
+under 10 decisions, a high-volume LOSER outranks low-volume winners: Breaking
+Bank at 31-33 (48.4%, -$78 lifetime) carried Wilson 0.333, rank #30 / top 9%,
+and handed out 60 points a pick — while a 55% capper with 20 decisions sat
+below him at 0.289. He best-backed a Pirates ML straight to a 102 gold. Worse,
+the fade system can never catch this class of capper: fade requires the
+bottom-25% band, and volume keeps them out of it permanently.
+
+The gate: RANKING is evidence you exist; COLLECTING is evidence you win. A
+capper's shrunk win% — empirical Bayes toward the coin flip, 25 pseudo-decisions:
+(w + 12.5) / (n + 25) — must clear 50% for their picks to hand out more than
+the unknown-capper flat 10. Full ladder points return at 53% (roughly break-even
+at standard juice); between 50% and 53% the points above 10 taper linearly, so
+there is no cliff to game. Below the gate: ladder points pin at 10, stack_add
+is 0, and the in-sport bonus (gated on the SPORT record's own shrunk win%) pays
+0. Rank, band, and percentile are untouched — the leaderboard still shows where
+volume put a capper; the gate only controls what their backing is worth.
+
+Applied at materialization in capper_ratings.js (gateT(); constants GATE_K 25,
+GATE_LO 0.50, GATE_HI 0.53), so the scorer reads gated pts/stack_add/
+sport_bonus_pts with no changes. No names hard-coded, fully reversible, and
+consistent with the assume-chance principle: the un-gated engine awarded points
+for surviving, not for deviating from chance. Sanity anchors on the local pool:
+Breaking Bank / Bet Labs (19-31) / Shark Culture / UnderdogSniper all pin to 10;
+MidwestMike (34-24) unchanged at 86.6; Smart Money Sports (32-28, shrunk 52.4%)
+tapers 71.3 -> 58.1. Shipped with a one-time boot migration (settings flag
+v4_gate_rescore) that rescores the live board and removes any tracked gold the
+gate demoted from mvp_picks — including started/graded rows, this once.
 
 ## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
 
