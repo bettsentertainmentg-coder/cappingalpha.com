@@ -9,9 +9,14 @@ const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
 const { cycleDateForInstant } = require('./cycle');
 const { getLinesForGame } = require('./lines_scraper');
 
-// ── Live-line capture at the 35-point threshold ──────────────────────────────
-// Read the CURRENT DraftKings line (from the free book_lines feed) for the side the
-// capper picked. This is "the line" the moment a pick qualifies.
+// ── Line capture at the archive threshold ────────────────────────────────────
+// Read the DraftKings line (from the free book_lines feed) for the side the capper
+// picked, and lock it as "the line" the moment a pick qualifies.
+// IMPORTANT: this is the PREGAME line. book_lines only ever holds the pregame close
+// (ESPN drops odds once a game is 'in', and the write is null-guarded so nothing
+// updates during a live game), so if a pick first crosses threshold after the game
+// starts, this captures the frozen pregame close — NOT a live in-game price. There is
+// no live line source; line_captured_at records exactly when this snapshot was taken.
 function liveDkForSide(espn_game_id, team, pick_type) {
   const empty = { ml: null, spread: null, total: null, ou_odds: null };
   if (!espn_game_id) return empty;
@@ -29,9 +34,10 @@ function liveDkForSide(espn_game_id, team, pick_type) {
   };
 }
 
-// Capture the live DK line ONCE, the first time a pick crosses 35 points, and lock it
-// onto the picks row. Later mentions return the already-locked line so MVP + pick_history
-// all use the same number. Returns { ml, spread, total, ou_odds, at }.
+// Capture the DK line ONCE, the first time a pick crosses the archive threshold, and lock
+// it onto the picks row (this is the pregame close — see liveDkForSide; no live line
+// exists). Later mentions return the already-locked line so MVP + pick_history all use the
+// same number. Returns { ml, spread, total, ou_odds, at }.
 function captureLineAtThreshold(pick_id, espn_game_id, team, pick_type) {
   const row = db.prepare(
     `SELECT captured_ml, captured_spread, captured_total, captured_ou_odds, line_captured_at FROM picks WHERE id = ?`

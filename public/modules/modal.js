@@ -455,9 +455,15 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     ? `<div class="line-row"><span class="line-book"><img src="https://polymarket.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">Polymarket</span> <span class="line-val">${pmLine}</span></div>`
     : '';
 
+  // These odds come from today_games, which is locked at the pregame close (5am/4pm) and
+  // never moves once a game starts — we have no live in-game line. So label it "Pregame"
+  // (not "Current") for live/finished games rather than implying it's the number right now.
+  const started = game.status === 'in' || game.status === 'post';
+  const currentLabel = started ? 'Pregame' : 'Current';
+  const currentTitle = started ? 'Pregame closing line (no live in-game line available)' : "CappingAlpha's current line";
   const linesHtml = `
     <div class="pick-info-lines">
-      <div class="line-row"><span class="line-book">Current</span> <span class="line-val">${currentLine}</span></div>
+      <div class="line-row"><span class="line-book" title="${currentTitle}">${currentLabel}</span> <span class="line-val">${currentLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.draftkings.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">DraftKings</span> <span class="line-val">${dkLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.fanduel.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">FanDuel</span> <span class="line-val">${fdLine}</span></div>
       ${pmRow}

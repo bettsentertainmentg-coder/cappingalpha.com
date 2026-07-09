@@ -1088,30 +1088,19 @@ function renderOddsBoard() {
     if (imp) { Object.assign(g, imp); g.line_source = g.line_source || imp.source; }
   }
   const id = g.espn_game_id;
-  const finished = g.status === 'post';        // only a FINAL game closes tracking
-  const live     = g.status === 'in';          // live games stay open, tracked at the live line
+  const finished = g.status === 'post';        // a FINAL game closes tracking
+  const live     = g.status === 'in';          // a LIVE game also closes verified tracking
+  // We have no live in-game odds source (ESPN drops odds once a game is 'in'; book_lines
+  // and today_games are frozen at the pregame close). So once a game starts we do NOT show
+  // a tappable line board — it would be the stale pregame number wearing a "live" label.
+  // Live games get the same closed treatment as finished games: custom-bet only.
+  const closed = finished || live;
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
   const awayN = fullNames ? away : away.split(' ').pop();
   const homeN = fullNames ? home : home.split(' ').pop();
 
-  // Live game: prefer the current DraftKings line (freshest) for the numbers we show +
-  // lock, so the live bolt reflects the price right now, not the morning open.
-  if (live) {
-    const dk = (_board.lines || {}).draftkings;
-    if (dk) {
-      if (dk.ml_home != null) g.ml_home = dk.ml_home;
-      if (dk.ml_away != null) g.ml_away = dk.ml_away;
-      if (dk.spread_home != null) g.spread_home = dk.spread_home;
-      if (dk.spread_away != null) g.spread_away = dk.spread_away;
-      if (dk.over_under != null) g.over_under = dk.over_under;
-      if (dk.ou_over_odds != null) g.ou_over_odds = dk.ou_over_odds;
-      if (dk.ou_under_odds != null) g.ou_under_odds = dk.ou_under_odds;
-    }
-  }
-  // Live odds get a pulsing dot, NOT the bolt — the bolt is the free-bet mark everywhere
-  // else, and doubling it up read as "this line is a free bet".
-  const bolt = live ? '<span class="ob-livedot" title="Live odds right now"></span>' : '';
+  const bolt = '';
 
   // A running parlay locks out any line on THIS game that's already a leg, or that
   // opposes one — you can't parlay both sides of a game (they can't both win). Those
@@ -1137,18 +1126,19 @@ function renderOddsBoard() {
   const hasML = g.ml_home != null || g.ml_away != null;
   const hasSpread = g.spread_home != null || g.spread_away != null;
   const noLines = !hasML && !hasSpread && g.over_under == null;
-  // The CA/Live line label rides on the FIRST section header (right side), so it sits
+  // The CA line label rides on the FIRST section header (right side), so it sits
   // level with "Moneyline" instead of floating above the grid (Jack's image 3).
-  const caText  = live ? 'Live Line' : 'CA Line';
-  const caTitle = live ? 'Live line right now' : "CappingAlpha's line, estimated from the books we track";
+  // Pre-game only — a live/finished game shows no board.
+  const caText  = 'CA Line';
+  const caTitle = "CappingAlpha's line, estimated from the books we track";
   let _firstSec = true;
   const secHead = (title) => {
-    const tag = (_firstSec && !finished && !noLines)
-      ? `<span class="ob-caline-tag${live ? ' live' : ''}" title="${caTitle}">${caText}</span>` : '';
+    const tag = (_firstSec && !closed && !noLines)
+      ? `<span class="ob-caline-tag" title="${caTitle}">${caText}</span>` : '';
     _firstSec = false;
     return `<div class="ob-section">${title}${tag}</div>`;
   };
-  const lines = finished ? '' : `
+  const lines = closed ? '' : `
     ${hasML ? `${secHead('Moneyline')}
     ${line('away_ml', `${awayN}`, g.ml_away, g.ml_away == null)}
     ${line('home_ml', `${homeN}`, g.ml_home, g.ml_home == null)}` : ''}
@@ -1166,14 +1156,14 @@ function renderOddsBoard() {
     <div class="track-form-note">${finished
       ? 'This game is final, so tracking is closed. Use Custom bet to log it.'
       : live
-        ? `<span class="ob-livedot"></span> Live odds. Tap a line to track it at the live number, graded automatically.`
+        ? 'This game is live, so verified tracking is closed (we do not have a live in-game line). Use Custom bet to log it with your own odds.'
         : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
-    ${finished ? '' : `<div class="ob-grid">${lines}</div>`}
+    ${closed ? '' : `<div class="ob-grid">${lines}</div>`}
     <button class="track-opt" style="margin-top:12px;" onclick="showCustomForm()">
       <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Log it as a custom bet instead</span><span class="track-opt-d">Set your own stake, odds, and book.</span></span>
     </button>`;
-  if (finished || noLines) stopBoardPoll();
+  if (closed || noLines) stopBoardPoll();
   else if (!_boardPoll || _boardPollId !== id) startBoardPoll(id);
   mountParlayTray();
 }

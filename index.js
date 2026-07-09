@@ -1948,22 +1948,13 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
 
   const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
-  if (game.status === 'post') {
-    return res.status(409).json({ error: 'Voting closed — game is final' });
-  }
-  // Live game: prefer the current DraftKings line so the vote locks the live number the
-  // user saw on the board, not the morning open.
-  if (game.status === 'in') {
-    const dk = getLinesForGame(espn_game_id).draftkings;
-    if (dk) {
-      if (dk.ml_home != null) game.ml_home = dk.ml_home;
-      if (dk.ml_away != null) game.ml_away = dk.ml_away;
-      if (dk.spread_home != null) game.spread_home = dk.spread_home;
-      if (dk.spread_away != null) game.spread_away = dk.spread_away;
-      if (dk.over_under != null) game.over_under = dk.over_under;
-      if (dk.ou_over_odds != null) game.ou_over_odds = dk.ou_over_odds;
-      if (dk.ou_under_odds != null) game.ou_under_odds = dk.ou_under_odds;
-    }
+  // Verified tracking + votes are PRE-GAME ONLY. Once a game is live or final we have no
+  // live in-game line (ESPN drops odds when a game is 'in'; book_lines/today_games are
+  // frozen at the pregame close), so accepting a vote here would snapshot and later grade
+  // it at a stale number wearing a "live" label. Close it — the frontend shows the
+  // "tracking is closed" toast and offers a custom bet instead. (DELETE already 409s live.)
+  if (game.status === 'in' || game.status === 'post') {
+    return res.status(409).json({ error: 'Tracking closed — game has started' });
   }
   // Same prediction-market fallback as /api/game: a side tracked off the Polymarket line
   // gets locked + graded at that number rather than null.
