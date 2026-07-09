@@ -61,12 +61,12 @@ const { syncEsportsMarkets, getTopEsportsGames } = require('./src/esports_market
 const { getLineInsights } = require('./src/insights');
 const { getHeadlines }   = require('./src/headlines');
 const community          = require('./src/community');
-const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, pushWpHistory, getWpHistory } = require('./src/live_tracker');
+const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, seedPulseHistory, pushWpHistory, getWpHistory } = require('./src/live_tracker');
 const { liveWinProb, liveHomeWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
 const { genericProgress, clockHomeWP, anchoredWP, soccerProbs, genericOverProb, mlbCountAdjust } = require('./src/win_prob_generic');
 const { SPORT_FAMILY } = require('./src/live_state');
 const { getFeed } = require('./src/espn_summary');
-const { getEspnWinProb } = require('./src/espn_summary');
+const { getEspnWinProb, getGameTimeline } = require('./src/espn_summary');
 const { getCoreProbs } = require('./src/espn_probs');
 const { MOCK_ID, isMockId, mockActive, mockLiveState, mockFinalState, mockPulseHistory, mockFullPulseHistory, installMockLive } = require('./src/mock_live');
 const { replayActive, isReplayId, installReplay, replayLiveState, replayFeed, clearReplays } = require('./src/replay_live');
@@ -372,6 +372,38 @@ app.get('/api/headlines', async (req, res) => {
   }
 });
 
+// ── Dynamic heat scale ────────────────────────────────────────────────────────
+// The pick "heat" gradient (and the 🔥 line the frontend draws) is calibrated to
+// the LIVE score distribution, not hard-coded — so it rides up as scores climb.
+//   silver/gold = the MVP tier lines (75 / 100 under v3).
+//   fire        = the ~top 10% (P90) of MVP pick scores. Right now that's ~130;
+//                 if the top 10% climbs to 150 later, the fire line follows and
+//                 the gradient stretches with it. No code change needed.
+// Cached 60s — mvp_picks only moves as games resolve.
+let _heatScaleCache = { at: 0, val: null };
+function heatScale() {
+  const v3Live = getSetting('scoring_version', 'v2') === 'v3';
+  const silver = v3Live ? 75 : MVP_THRESHOLD;
+  const gold   = v3Live ? 100 : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  const now = Date.now();
+  if (_heatScaleCache.val && _heatScaleCache.val.gold === gold && now - _heatScaleCache.at < 60000) {
+    return _heatScaleCache.val;
+  }
+  let fire = null;
+  try {
+    // "MVP pick points" = every MVP pick's score. P90 = the top 10% cut line.
+    const scores = db.prepare(`SELECT score FROM mvp_picks WHERE score IS NOT NULL ORDER BY score ASC`)
+      .all().map(r => r.score).filter(s => typeof s === 'number' && isFinite(s));
+    if (scores.length >= 20) fire = scores[Math.round(0.9 * (scores.length - 1))];
+  } catch (e) { /* thin/absent data — fall back to the floor below */ }
+  // Floor: fire always sits clearly above the gold baseline, even with thin data.
+  if (fire == null || fire < gold * 1.15) fire = Math.round(gold * 1.3);
+  fire = Math.round(fire);
+  const val = { silver, gold, fire };
+  _heatScaleCache = { at: now, val };
+  return val;
+}
+
 // GET /api/config — scoring constants for the frontend
 // NOTE: channel_points intentionally excluded — exposes Discord channel names + weights
 app.get('/api/config', (req, res) => {
@@ -385,6 +417,7 @@ app.get('/api/config', (req, res) => {
     mvp_threshold: v3Live ? 75 : MVP_THRESHOLD,
     mvp_display_threshold: displayThreshold,
     scale_version: v3Live ? 'v3' : 'v2',
+    heat_fire_threshold: heatScale().fire,   // dynamic 🔥 line — top ~10% of MVP scores
     bet_unit: betUnit,
     paid_rank_max: PAID_RANK_MAX(),
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
@@ -1451,6 +1484,60 @@ function _slotKey(p) {
   return null;
 }
 
+// Replay one slot's whole-game value arc from an ESPN timeline (getGameTimeline),
+// using the SAME per-slot now/pre win-prob math as the live loop below and a
+// sequential EMA so the curve smooths exactly like the live one. Powers the
+// one-time pulse-history backfill. Returns [{ v, p }] (p = period) or null.
+function buildSlotPulseArc(timeline, { family, type, home, caScore, publicPct, mvpThreshold, pregameHomeProb, preOverRaw, overUnder }) {
+  if (!Array.isArray(timeline) || timeline.length < 2) return null;
+  const clamp01 = (x) => Math.max(0, Math.min(1, x));
+  const soccerPreTrio = family === 'soccer'
+    ? soccerProbs({ homeScore: 0, awayScore: 0, progress: 0, preHome3: pregameHomeProb })
+    : null;
+  let prev = null;
+  const out = [];
+  for (const pt of timeline) {
+    const gp = pt.progress, hs = pt.homeScore || 0, as = pt.awayScore || 0;
+    // Home win prob at this point: ESPN's where published, else model it from the
+    // score + progress (the same fallbacks the live loop uses per sport family).
+    let homeWP = (typeof pt.homeWP === 'number') ? pt.homeWP : null;
+    let soccerTrio = null;
+    if (family === 'soccer') {
+      soccerTrio = soccerProbs({ homeScore: hs, awayScore: as, progress: gp, preHome3: pregameHomeProb });
+      homeWP = soccerTrio.home;
+    } else if (homeWP == null) {
+      if (family === 'baseball') continue;   // no ESPN wp + no historical count state -> skip
+      homeWP = anchoredWP(clockHomeWP(family, hs, as, gp), pregameHomeProb, gp);
+    }
+
+    let now, pre;
+    if (type === 'ml') {
+      if (soccerTrio) { now = home ? soccerTrio.home : soccerTrio.away; pre = home ? soccerPreTrio.home : soccerPreTrio.away; }
+      else { if (homeWP == null) continue; now = home ? homeWP : 1 - homeWP; pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb); }
+    } else if (type === 'spread') {
+      if (homeWP == null) continue;
+      now = home ? homeWP : (soccerTrio ? soccerTrio.away : 1 - homeWP);
+      pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
+    } else if (type === 'over' || type === 'under') {
+      if (overUnder == null) return null;
+      const totalPts = hs + as;
+      const op = family === 'baseball' ? liveOverProb(totalPts, overUnder, gp) : genericOverProb(totalPts, overUnder, gp, family);
+      if (op == null) continue;
+      now = type === 'over' ? op : clamp01(1 - op);
+      pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
+    } else { continue; }
+
+    const trailing = (type === 'ml' || type === 'spread') ? (home ? hs < as : as < hs) : false;
+    const pulse = computeValuePulse({
+      pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
+      gameProgress: gp, prevMagnitude: prev, mvpThreshold,
+    });
+    prev = pulse.magnitude;
+    out.push({ v: pulse.magnitude, p: pt.period });
+  }
+  return out.length >= 2 ? out : null;
+}
+
 app.get('/api/game/:espn_game_id/live', async (req, res) => {
   const { espn_game_id } = req.params;
   try {
@@ -1521,9 +1608,10 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
       // Free ESPN sources, cached + request-collapsed. Mock games skip both;
       // replays too (their espn_game_id is synthetic, ESPN would 404 each poll).
       const mock = isMockId(espn_game_id) || isReplay;
-      const [coreProbs, espnWp] = mock ? [null, null] : await Promise.all([
+      const [coreProbs, espnWp, timeline] = mock ? [null, null, null] : await Promise.all([
         getCoreProbs(sport, espn_game_id).catch(() => null),
         getEspnWinProb(sport, espn_game_id).catch(() => null),
+        getGameTimeline(sport, espn_game_id).catch(() => null),
       ]);
 
       // Pre-game home prob chain: market caches (Polymarket/Kalshi) -> de-vigged
@@ -1696,6 +1784,18 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
             ? mockFullPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id)
             : mockPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id);
         } else {
+          // First time this slot is watched, seed the whole-game arc from the ESPN
+          // timeline so the chart shows how value built across every inning/period,
+          // not just from the moment the page opened. The arc's final point is "now"
+          // and gets dropped — the live sample pushed below is the authoritative one,
+          // keeping the chart's endpoint equal to the big value number.
+          if (getPulseHistory(key).length === 0 && timeline) {
+            const arc = buildSlotPulseArc(timeline, {
+              family, type, home, caScore, publicPct, mvpThreshold: caThreshold,
+              pregameHomeProb, preOverRaw, overUnder: game.over_under,
+            });
+            if (arc && arc.length > 1) seedPulseHistory(key, arc.slice(0, -1));
+          }
           pushPulseHistory(key, pulse.magnitude, state.period);
           history = getPulseHistory(key);
         }
@@ -2194,6 +2294,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
     const payload = {
       game, picks: safePicks, pickRanks, votes, userVote, stats, lines, publicBetting,
       lineHistory, polymarket, kalshi, insights,
+      heatScale: heatScale(),   // dynamic heat/🔥 anchors — this page fetches no config
       user: req.session?.user || null,
     };
 

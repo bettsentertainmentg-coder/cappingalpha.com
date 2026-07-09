@@ -225,14 +225,34 @@ export function pickLabel(p) {
   return (spreadFmt ? `${p.pick_type} ${spreadFmt}` : p.pick_type) || '—';
 }
 
+// Heat scale — the anchor points the gradient is calibrated to. NOT hard-coded:
+// the server derives them from the live score distribution (silver/gold = the MVP
+// tier lines; fire = the ~top 10% of MVP pick scores) and ships them via
+// /api/config, so the whole gradient (and the 🔥 line) rides up as scores climb.
+// Defaults match the v3 100-scale in case setHeatScale() never runs.
+const _heat = { silver: 75, gold: 100, fire: 130 };
+
+export function setHeatScale({ silver, gold, fire } = {}) {
+  if (silver > 0) _heat.silver = silver;
+  if (gold   > 0) _heat.gold   = gold;
+  if (fire   > 0) _heat.fire   = fire;
+  // Keep the anchors ordered even if data is thin (fire must clear the baseline).
+  if (_heat.gold <= _heat.silver) _heat.gold = _heat.silver + 1;
+  if (_heat.fire <= _heat.gold)   _heat.fire = Math.round(_heat.gold * 1.3);
+}
+
 export function PICK_HEAT_COLOR(score) {
-  // Bands live on the v3 100-scale (old v2 bands rescaled x20/13).
+  // 100 (the gold-MVP baseline) is a common, respectable score, so it reads as
+  // calm gold — heat only builds as a pick climbs toward the fire line (the top
+  // ~10% of MVP scores). Everything below is proportional to the live anchors.
+  const { silver, gold, fire } = _heat;
   if (!score || score === 0) return { color: '#4a5568', fire: false };
-  if (score < 54)  return { color: '#ca8a04', fire: false };
-  if (score < 77)  return { color: '#C0C0C0', fire: false }; // silver tier
-  if (score < 123) return { color: '#ea580c', fire: false };
-  if (score < 146) return { color: '#dc2626', fire: false };
-  return { color: '#dc2626', fire: true };
+  if (score < silver) return { color: '#ca8a04', fire: false }; // below silver — dim gold
+  if (score < gold)   return { color: '#C0C0C0', fire: false }; // silver tier
+  const warm = gold + (fire - gold) * 0.55;                     // gold → orange midpoint
+  if (score < warm)   return { color: '#eab308', fire: false }; // gold baseline — calm
+  if (score < fire)   return { color: '#ea580c', fire: false }; // strong — warming
+  return { color: '#dc2626', fire: true };                       // top ~10% — hot + fire
 }
 
 export function fmtOdds(n) {

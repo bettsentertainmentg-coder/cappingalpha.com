@@ -39,6 +39,7 @@ const TTL_FINAL = 5 * 60_000;
 const CACHE_MAX = 40;
 const PLAYS_MAX = 40;
 const WP_MAX    = 120;
+const TIMELINE_MAX = 80;   // matches the pulse-history cap (HIST_MAX) in live_tracker
 
 const _cache    = new Map();   // gameId -> { ts, ttl, data }
 const _inflight = new Map();   // gameId -> Promise
@@ -170,6 +171,76 @@ async function getEspnWinProb(sport, gameId, opts = {}) {
     series,
     scoring: scoring.slice(-40),
   };
+}
+
+// ── Whole-game timeline (value-pulse backfill) ─────────────────────────────────
+// One point per meaningful state change carrying game progress, period, the
+// running score, and ESPN's home win prob (null for sports that publish none —
+// the caller models those from score + progress). Lets the pulse chart replay
+// the FULL game the first time a slot is watched mid-game, rather than starting
+// blank from the current inning.
+//
+// ESPN keeps win prob on a small set of ~75 "significant" plays while `plays`
+// runs into the hundreds (per pitch), so we anchor the timeline to the win-prob
+// plays (joined to the running score) where they exist, and fall back to
+// downsampled plays for sports that publish no win prob (NHL/Soccer).
+// -> [{ progress:0..1, period:int|null, homeScore, awayScore, homeWP:0..1|null }] | null
+async function getGameTimeline(sport, gameId, opts = {}) {
+  const summary = await getSummaryRaw(sport, gameId, opts);
+  const plays = Array.isArray(summary?.plays) ? summary.plays : [];
+  if (plays.length < 2) return null;
+  const N = plays.length;
+
+  // Per-play metadata with the score carried forward (many plays omit the score).
+  const meta = new Map();
+  let hs = 0, as = 0;
+  plays.forEach((p, i) => {
+    if (typeof p?.homeScore === 'number') hs = p.homeScore;
+    if (typeof p?.awayScore === 'number') as = p.awayScore;
+    meta.set(String(p?.id ?? i), { idx: i, period: periodOf(p), hs, as, scoring: p?.scoringPlay === true });
+  });
+
+  const wp = Array.isArray(summary?.winprobability) ? summary.winprobability : [];
+  let pts = [];
+  if (wp.length >= 2) {
+    for (const e of wp) {
+      const m = meta.get(String(e?.playId ?? ''));
+      if (!m || typeof e?.homeWinPercentage !== 'number') continue;
+      pts.push({ idx: m.idx, period: m.period, homeScore: m.hs, awayScore: m.as, homeWP: e.homeWinPercentage });
+    }
+  }
+  if (pts.length < 2) {
+    // No win prob published: downsample plays; the caller models WP from score.
+    const keep = new Set([0, N - 1]);
+    let lastPeriod = null;
+    plays.forEach((p, i) => {
+      const per = periodOf(p);
+      if (per !== lastPeriod) { keep.add(i); lastPeriod = per; }
+      if (p?.scoringPlay === true) keep.add(i);
+    });
+    const stride = Math.max(1, Math.ceil(N / TIMELINE_MAX));
+    pts = [];
+    for (let i = 0; i < N; i++) {
+      if (i % stride !== 0 && !keep.has(i)) continue;
+      const m = meta.get(String(plays[i]?.id ?? i));
+      pts.push({ idx: i, period: m.period, homeScore: m.hs, awayScore: m.as, homeWP: null });
+    }
+  }
+  if (pts.length < 2) return null;
+  pts.sort((a, b) => a.idx - b.idx);
+
+  // Even-downsample to TIMELINE_MAX, always keeping the last point (game end).
+  if (pts.length > TIMELINE_MAX) {
+    const stride = Math.ceil(pts.length / TIMELINE_MAX);
+    pts = pts.filter((_, i) => i % stride === 0 || i === pts.length - 1);
+  }
+  return pts.map(p => ({
+    progress:  N > 1 ? Math.round((p.idx / (N - 1)) * 1000) / 1000 : 1,
+    period:    p.period,
+    homeScore: p.homeScore,
+    awayScore: p.awayScore,
+    homeWP:    (typeof p.homeWP === 'number') ? p.homeWP : null,
+  }));
 }
 
 // ── Per-family play feeds ──────────────────────────────────────────────────────
@@ -357,4 +428,4 @@ async function getFeed(sport, gameId, opts = {}) {
   };
 }
 
-module.exports = { getFeed, getEspnWinProb, getSummaryRaw, LEAGUE_PATH };
+module.exports = { getFeed, getEspnWinProb, getGameTimeline, getSummaryRaw, LEAGUE_PATH };

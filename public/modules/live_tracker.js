@@ -308,10 +308,18 @@ function matchupHtml(s) {
   return '';
 }
 
+// A "nice" y-axis step so the scale labels land on round numbers (5, 10, 20…)
+// with roughly `targetTicks` gridlines across the range, never just the extremes.
+function niceStep(range, targetTicks = 5) {
+  const raw = Math.max(1, range) / targetTicks;
+  for (const s of [5, 10, 20, 25, 50, 100]) if (raw <= s) return s;
+  return 100;
+}
+
 // ── Value pulse: signed (-100..+100) windowed line chart ─────────────────────
 // (sport-agnostic; dims vary by container — the tab panel draws it wider)
 function valuePulseSvg(history, color, live = true, dims = null) {
-  const W = dims?.W || 260, H = dims?.H || 100, padL = 28, padR = 8, padT = 8, padB = 16;
+  const W = dims?.W || 260, H = dims?.H || 100, padL = 32, padR = 8, padT = 8, padB = 16;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const raw  = Array.isArray(history) ? history : [];
   const hist = raw.map(h => (typeof h === 'number' ? h : (h && typeof h.v === 'number' ? h.v : null))).filter(v => v !== null);
@@ -322,12 +330,15 @@ function valuePulseSvg(history, color, live = true, dims = null) {
       <text x="${W / 2}" y="${padT + innerH / 2 - 5}" class="ca-vp-axis" text-anchor="middle">building...</text></svg>`;
   }
   const dmin = Math.min(...hist), dmax = Math.max(...hist);
-  const mid = (dmin + dmax) / 2;
-  const range = Math.max(50, (dmax - dmin) * 1.35);
-  let top = mid + range / 2, bot = mid - range / 2;
-  if (top > 100) { top = 100; bot = 100 - range; }
-  if (bot < -100) { bot = -100; top = -100 + range; }
-  top = Math.min(100, top); bot = Math.max(-100, bot);
+  // Pad the data range, then snap the bounds to a round step so the axis reads in
+  // clean increments (every 5 or 10) and always spans — and labels — the full range.
+  const yPad = Math.max(6, (dmax - dmin) * 0.18);
+  let yLo = dmin - yPad, yHi = dmax + yPad;
+  if (yHi - yLo < 20) { const c = (yHi + yLo) / 2; yLo = c - 10; yHi = c + 10; }
+  const step = niceStep(yHi - yLo);
+  let bot = Math.max(-100, Math.floor(yLo / step) * step);
+  let top = Math.min(100, Math.ceil(yHi / step) * step);
+  if (top <= bot) top = Math.min(100, bot + step);
   const span = Math.max(1, top - bot);
   const n = hist.length;
   const yBot = padT + innerH, yLab = (H - 3).toFixed(1);
@@ -357,14 +368,14 @@ function valuePulseSvg(history, color, live = true, dims = null) {
     x = (i) => padL + (i / (n - 1)) * innerW;
   }
   const y = (v) => padT + (1 - (v - bot) / span) * innerH;
-  const lbl = (v, yy) => `<text x="${padL - 5}" y="${yy.toFixed(1)}" dominant-baseline="middle" class="ca-vp-axis" text-anchor="end">${v > 0 ? '+' : ''}${Math.round(v)}</text>`;
-
-  let grid = `<line x1="${padL}" y1="${y(top).toFixed(1)}" x2="${W - padR}" y2="${y(top).toFixed(1)}" class="ca-vp-grid"/>${lbl(top, y(top))}`;
-  grid    += `<line x1="${padL}" y1="${y(bot).toFixed(1)}" x2="${W - padR}" y2="${y(bot).toFixed(1)}" class="ca-vp-grid"/>${lbl(bot, y(bot))}`;
   const hasZero = top > 0 && bot < 0;
-  if (hasZero) {
-    const zy = y(0);
-    grid += `<line x1="${padL}" y1="${zy.toFixed(1)}" x2="${W - padR}" y2="${zy.toFixed(1)}" class="ca-vp-zero"/><text x="${padL - 5}" y="${zy.toFixed(1)}" dominant-baseline="middle" class="ca-vp-axis ca-vp-axis--zero" text-anchor="end">0</text>`;
+
+  // A gridline + label at every step across the range (zero drawn emphasized).
+  let grid = '';
+  for (let t = bot; t <= top + 0.001; t += step) {
+    const yy = y(t), isZero = Math.abs(t) < 0.001;
+    grid += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}" class="${isZero ? 'ca-vp-zero' : 'ca-vp-grid'}"/>`;
+    grid += `<text x="${padL - 5}" y="${yy.toFixed(1)}" dominant-baseline="middle" class="ca-vp-axis${isZero ? ' ca-vp-axis--zero' : ''}" text-anchor="end">${t > 0 ? '+' : ''}${Math.round(t)}</text>`;
   }
 
   const pts = hist.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');

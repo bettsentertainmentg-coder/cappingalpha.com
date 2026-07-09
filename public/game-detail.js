@@ -6,7 +6,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { state } from '/modules/state.js';
-import { fmtOdds, fmtSpread, PICK_HEAT_COLOR } from '/modules/utils.js?v=1';
+import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=1';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js';
@@ -101,6 +101,8 @@ async function init() {
       '<div style="padding:48px;text-align:center;color:#8892a4;">Game data unavailable.</div>');
     return;
   }
+  // Calibrate the heat gradient / 🔥 line to the live score scale (server-injected).
+  if (_data.heatScale) setHeatScale(_data.heatScale);
 
   // Load team colors
   try {

@@ -1,6 +1,7 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
+import { setHeatScale } from './modules/utils.js?v=1';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';
@@ -310,6 +311,8 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
   if (cfg) {
     state.CONFIG = cfg;
+    // Calibrate the pick heat gradient (and 🔥 line) to the live score scale.
+    setHeatScale({ silver: cfg.mvp_threshold, gold: cfg.mvp_display_threshold, fire: cfg.heat_fire_threshold });
     const t = cfg.mvp_display_threshold || cfg.mvp_threshold || 100;
     // Backwards compat — keep updating the old id-based element if it's still around
     const el = document.getElementById('about-mvp-pts');

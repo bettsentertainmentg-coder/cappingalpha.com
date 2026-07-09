@@ -154,6 +154,18 @@ function pushPulseHistory(key, mag, period) {
 }
 function getPulseHistory(key) { return (_hist.get(key) || []).slice(); }
 
+// One-time whole-game backfill: seed a slot's value series from the ESPN timeline
+// so the chart spans the full game the first time it's watched mid-game, rather
+// than starting blank and only building from the current inning forward.
+function seedPulseHistory(key, points) {
+  if (!Array.isArray(points) || !points.length) return;
+  const a = points.slice(-HIST_MAX).map(pt => ({
+    v: Math.round((Number(pt.v) || 0) * 1000) / 1000,
+    p: (pt.p == null) ? null : (parseInt(pt.p, 10) || null),
+  }));
+  _hist.set(key, a);
+}
+
 // Model win-prob series for sports where ESPN publishes none (NHL, Soccer): the
 // live endpoint pushes one point per poll so the feed can still draw a chart.
 function pushWpHistory(gameId, x, home) {
@@ -181,5 +193,5 @@ setInterval(() => {
 
 module.exports = {
   getLiveState, fetchScoreboard, prevPulseMag, savePulseMag,
-  pushPulseHistory, getPulseHistory, pushWpHistory, getWpHistory, SCOREBOARD,
+  pushPulseHistory, getPulseHistory, seedPulseHistory, pushWpHistory, getWpHistory, SCOREBOARD,
 };
