@@ -1,14 +1,108 @@
 # CA Algorithm v3: The 100-Point Rework
 
-Status: ALL 5 PHASES BUILT + post-flip fixes. v3 IS LIVE LOCALLY (scoring_version=
-'v3' in the local settings; prod untouched and still v2 until the big combined
-update ships). Local commits a0b7dad / 98cf7f4 / 46a1bc3 / b2e4b21 / 93ae6e4 /
-77ff3ae (fade sport-volume scaling, status column, persistent calibration log) /
-0f18715 (ONE SCALE: all history rescaled onto the 100 scale) on bet-tracking.
-Calibrated 2026-07-07: base 45, resume multiplier 360 ("Phase-5 calibration record"
-below). CLAUDE.md carries the operational summary; this doc is the source of truth
-for the algorithm.
-Owner: Jack. Last updated: 2026-07-07.
+Status: SUPERSEDED BY v4 (below) for everything about base points, capper resumes,
+consensus, source-entity advocacy, and the earned-scale ratchet. The v3 sections
+are kept as the historical record and because market signals, side lean, sport
+bonus, fade routing mechanics, the leak rule, tier lines, and the grading pipeline
+all carry forward unchanged. CLAUDE.md carries the operational summary; this doc
+is the source of truth for the algorithm.
+Owner: Jack. Last updated: 2026-07-09.
+
+---
+
+# CA Algorithm v4: The Wilson Percentile Engine (2026-07-09, LIVE ON PROD)
+
+Shipped a9b8db1. Jack's redesign after the July 9 gold flood: 8 golds on the
+board, all carried by the `@src:actionnetwork` source entity, whose pooled
+volume had earned a 51-point resume — higher than any human (MidwestMike's 47
+at 85-49). Any pick arriving through the AN pipe was automatically 45 + 51 + 5
+= 101 = gold, even with one unproven backer. The fix is structural: points come
+from WHERE THE BACKER RANKS among all cappers, and pipes don't rank.
+
+## The ranking
+
+Every capper with at least one graded DECISION (win or loss; pushes sit out) goes
+into ONE pool, ranked by the LOWER BOUND of the 99% Wilson score interval
+(z = 2.576) on their win rate. The worst-case win rate the record still supports:
+big proven volume beats thin perfection (MidwestMike 85-49 outranks a 7-0; at 95%
+confidence that inverts, which is why 99% was chosen — verified on the 2026-07-09
+prod pull of 343 cappers). Ties on (wilson, win%, decisions) share a rank.
+Recomputed nightly at 5:20am + on demand; stored in capper_ratings (wilson,
+wilson_rank, percentile, band, pts, stack_add, decisions, win_pct).
+
+## The ladder (percentile band -> points per pick)
+
+Points slide LINEARLY inside each band from peak (top of band) to floor (bottom),
+floors one point above the next peak so the curve is continuous:
+
+| Band       | Points    |
+|------------|-----------|
+| top 3%     | 95 -> 76  |
+| 3-5%       | 75 -> 66  |
+| 5-15%      | 65 -> 51  |
+| 15-25%     | 50 -> 41  |
+| 25-35%     | 40 -> 31  |
+| 35-45%     | 30 -> 21  |
+| 45-75%     | 20 -> 11  |
+| bottom 25% | 0 (fade evaluation applies) |
+| 0 decisions / untrackable capper / unknown source | 10 flat |
+
+VOLUME CAPS (overall ladder only): under 10 decisions caps collectible points at
+50; 10-29 caps at 70; 30+ uncapped. A 7-0 capper ranks near the top publicly but
+their picks collect at most 50 until the sample earns trust. The in-sport bonus
+is EXEMPT by Jack's explicit call (a 5-0 sport specialist at the top of the sport
+pool gets the full bonus).
+
+## The pick score
+
+score = best backer's ladder points (capped)
+      + SUM over every ADDITIONAL ranked backer of stack_add
+        (stack_add = min(their band peak, their volume cap) / 2; unranked,
+         bottom-25%, and fade backers add 0)
+      + in-sport bonus: +20 if the best backer is the pick's sport-pool #1 or
+        top 5% (needs at least one win in the sport), +10 if top 25%
+      + market signals 0-8 (unchanged from v3)
+      + side lean 0-5 (unchanged)
+      + sport bonus 5 (unchanged; WNBA excluded)
+      + fade points into the slot + conflict offset (unchanged mechanics)
+
+DEAD: the flat base (45), the resume formula (mult/trust/vol_k), resume-stacking
+consensus, source-entity advocacy (`@src:*` rows remain in capper_ratings for the
+ops feed, band 'entity', never scored), and the earned-scale ratchet (settings
+v3_scale / v3_scale_anchor dormant). Points are still never subtracted. Gold
+100+ (with the totals gate), silver 75-99, archive, and the leak reveal are
+unchanged; scoring_version stays 'v3' as the plumbing flag.
+
+## Fade rules (v4)
+
+FADE WATCH  = bottom 25% of the ranking AND raw win% <= 45 AND >= 5 decisions.
+              Their picks contribute 0 points.
+FADE ACTIVE = bottom 25% AND raw win% <= 40 AND >= 15 decisions. Opposite slot
+              receives the existing sport-volume-scaled 3-8 fade points.
+
+Requiring BOTH a bottom rank and a genuinely losing win rate separates cold
+cappers from merely thin ones, per Jack's spec.
+
+## Consensus (v4): the half-peak stack
+
+Jack's call, twice refined: first "remove stacking", then restored as "each
+additional backer in a band adds HALF that band's peak", scoped to ANY ranked
+backer (Jack chose this over top-15%-only knowing the trade-off: enough mid-tier
+backers can still accumulate; the halving is the damper). Two top-3% cappers on
+one side = 95ish + 47.5. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
+
+## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
+
+- 99% ranking: 1 MidwestMike (85-49), 2 Whale (7-0), 3 swisstony (25-14),
+  4 Bryan Leonard (5-0), 5 Picks 4 Dayzzz (17-8). The volume caps are what stop
+  #2 and #4 from minting solo golds.
+- Rerank preview of the July 9 board: golds fall 8 -> ~2; the five Adam Kaufman
+  AN picks fall 101 -> ~55-60 (he's 6-4, ~16th percentile); a 3-8 capper's over
+  falls 101 -> ~25.
+
+Everything below this line is the v3 record.
+
+---
 
 The goal: make the CA pick ranking meaningfully predictive by ranking on capper and
 source resumes, market signals, and fade logic on top of a flat extraction base (no
