@@ -171,6 +171,14 @@ function buildResolver() {
       handleMap.set(`${h.source}|${norm(h.handle)}`, h.canonical_name);
     }
   } catch (_) {}
+  // NORM-IDENTICAL VARIANTS: 'Picks4Dayzzz' and 'Picks 4 Dayzzz' normalize to
+  // the same key, so the admin merge endpoint rejects the pair as a self-merge
+  // and no alias row can ever link them — yet as raw strings they aggregate as
+  // two different cappers. Map every KNOWN canonical's norm to its exact string
+  // so spacing/punctuation variants of a canonical collapse onto it.
+  const canonByNorm = new Map();
+  for (const c of aliasMap.values()) canonByNorm.set(norm(c), c);
+  for (const c of handleMap.values()) canonByNorm.set(norm(c), c);
   // CHAIN-SAFE: merges can arrive in any order ("Docs" -> "Docs Sports" today,
   // "Docs Sports" -> "Docs Empire" next week), leaving alias rows that point at
   // names which are themselves aliases. Follow the chain to the final canonical
@@ -182,7 +190,7 @@ function buildResolver() {
       if (!next || next === cur) break;
       cur = next;
     }
-    return cur;
+    return canonByNorm.get(norm(cur)) || cur;
   };
 }
 
