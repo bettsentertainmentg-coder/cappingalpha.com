@@ -1,6 +1,7 @@
 // public/modules/home_top.js
 // Home page lead rows:
-//  • "Today's Top Games" — market-hotness strip, click → standalone detail page.
+//  • "Most Wagered Events" — market-hotness strip with an ESPN-style sport
+//    dropdown (default = all sports) + today's date, click → detail page.
 //  • "My Sports" — pick/save the sports you follow, then see each one's games
 //    as an inline strip (same tiles as Top Games), click → detail page.
 
@@ -227,14 +228,89 @@ function _gameTile(g) {
   </div>`;
 }
 
-// ── Today's Top Games ───────────────────────────────────────────────────────────
-export async function loadTopGames() {
+// ── Most Wagered Events (was "Top Games Today") ─────────────────────────────────
+// The section header is an ESPN-style sport dropdown (default label "Most Wagered
+// Events" = all sports) plus today's date. Picking a sport filters the strip to
+// that sport, still ranked by market wager volume.
+let _mweSport       = null;   // null = all sports; else a MS_ALL_SPORTS label
+let _mweBoardSports = null;   // cached ordered list of sports with games today
+let _mweBoardAt     = 0;
+
+// Today's board date (ET) as "Jul 8" — shown in the header corner so it's clear
+// the strip is today's slate.
+function _mweDateLabel() {
+  const opts = { month: 'short', day: 'numeric', timeZone: 'America/New_York' };
+  try { return new Date().toLocaleDateString('en-US', opts); }
+  catch (_) { return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+}
+
+// Sports that actually have games on today's board, most-active first — these are
+// the dropdown's options. Cached ~3 min (the day's slate barely changes).
+async function _loadBoardSports() {
+  if (_mweBoardSports && (Date.now() - _mweBoardAt) < 180000) return _mweBoardSports;
+  try {
+    const games = await fetch('/api/games?board=1').then(r => (r.ok ? r.json() : []));
+    const counts = {};
+    for (const g of (games || [])) {
+      const label = _msLabelFor(g.sport);
+      if (label) counts[label] = (counts[label] || 0) + 1;
+    }
+    _mweBoardSports = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    _mweBoardAt = Date.now();
+  } catch (_) {
+    if (!_mweBoardSports) _mweBoardSports = [];
+  }
+  return _mweBoardSports;
+}
+
+function _setMweLabel() {
+  const lab = document.getElementById('ca-mwe-dd-label');
+  if (!lab) return;
+  // Default title breaks after "Most Wagered" so the desktop bar can hug two tidy
+  // lines with no dead space; the <br> is hidden on mobile (single-line pill).
+  if (_mweSport) lab.textContent = _mweSport;
+  else lab.innerHTML = 'Most Wagered <br>Events';
+}
+
+function _renderMweMenu(sports) {
+  const menu = document.getElementById('ca-mwe-dd-menu');
+  if (!menu) return;
+  const items = [{ key: '', label: 'Most Wagered Events' }]
+    .concat((sports || []).map(s => ({ key: s, label: s })));
+  menu.innerHTML = items.map(it => {
+    const active = ((it.key || null) === _mweSport);
+    return `<button class="ca-mwe-dd-item${active ? ' active' : ''}" type="button" role="option" onclick="pickMweSport('${it.key}')">${it.label}</button>`;
+  }).join('');
+}
+
+export function toggleMweMenu(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('ca-mwe-dd');
+  if (dd) dd.classList.toggle('open');
+}
+
+export async function pickMweSport(sport) {
+  _mweSport = sport || null;
+  _setMweLabel();
+  _renderMweMenu(_mweBoardSports || []);
+  const dd = document.getElementById('ca-mwe-dd');
+  if (dd) dd.classList.remove('open');
+  await _renderTopGamesRow();
+}
+
+window.toggleMweMenu = toggleMweMenu;
+window.pickMweSport  = pickMweSport;
+
+// Fetch + render the strip for the current sport filter (all sports when null).
+async function _renderTopGamesRow() {
   const el = document.getElementById('ca-top-games-row');
   if (!el) return;
-
   await _ensureTeamColors();
   try {
-    const res = await fetch('/api/games/top');
+    const url = _mweSport
+      ? `/api/games/top?sport=${encodeURIComponent(_mweSport)}&limit=30`
+      : '/api/games/top?limit=30';
+    const res = await fetch(url);
     if (!res.ok) throw new Error('fetch failed');
     const games = await res.json();
     if (!games || games.length === 0) {
@@ -245,6 +321,21 @@ export async function loadTopGames() {
   } catch (_) {
     el.innerHTML = `<div class="ca-top-games-empty">Top games unavailable.</div>`;
   }
+}
+
+export async function loadTopGames() {
+  const el = document.getElementById('ca-top-games-row');
+  if (!el) return;
+
+  // Header: today's date + the sport dropdown (only sports with games today).
+  const dateEl = document.getElementById('ca-mwe-date-text');
+  if (dateEl) dateEl.textContent = _mweDateLabel();
+  const sports = await _loadBoardSports();
+  if (_mweSport && !sports.includes(_mweSport)) _mweSport = null; // filtered sport left the board
+  _setMweLabel();
+  _renderMweMenu(sports);
+
+  await _renderTopGamesRow();
 }
 
 // ── My Sports ─────────────────────────────────────────────────────────────────
@@ -325,9 +416,14 @@ export async function loadMySports() {
     _loadMsRecency(),
   ]);
   if (acc && Array.isArray(acc.favoriteSports)) {
-    const labels = [...new Set(acc.favoriteSports.map(_toLabel))];
-    // Keep them in MS_ALL_SPORTS display order for stable ranking.
-    _msSelected = MS_ALL_SPORTS.filter(s => labels.includes(s));
+    // Preserve the saved order (reflects the order sports were added) so the chips
+    // don't reshuffle between sessions; de-dupe the ATP+WTA → Tennis fold.
+    const seen = new Set();
+    const ordered = [];
+    for (const label of acc.favoriteSports.map(_toLabel)) {
+      if (MS_ALL_SPORTS.includes(label) && !seen.has(label)) { seen.add(label); ordered.push(label); }
+    }
+    _msSelected = ordered;
   }
   _msSaved = [..._msSelected];
 
@@ -363,8 +459,9 @@ export function toggleMySport(sport) {
   if (_msSelected.includes(sport)) {
     _msSelected = _msSelected.filter(s => s !== sport);
   } else {
-    // Keep MS_ALL_SPORTS display order so ranking stays stable.
-    _msSelected = MS_ALL_SPORTS.filter(s => s === sport || _msSelected.includes(s));
+    // Append newly-picked sports to the end so the chips already selected keep
+    // their positions — selecting one sport must never reshuffle the others.
+    _msSelected = [..._msSelected, sport];
   }
   _renderMySports();
 }
@@ -462,3 +559,11 @@ function _initDragScroll() {
   }, true);
 }
 _initDragScroll();
+
+// Close the Most Wagered Events sport dropdown on any click outside it.
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('ca-mwe-dd');
+  if (dd && dd.classList.contains('open') && !e.target.closest('#ca-mwe-dd')) {
+    dd.classList.remove('open');
+  }
+});

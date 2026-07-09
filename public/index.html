@@ -109,7 +109,8 @@
       --text:      #e2e8f0;
       --muted:     #8892a4;
       --accent:    #3b82f6;
-      --gold:      #FFD700;
+      --gold:      #FFD700;   /* gold as a FILL (buttons/chips) AND as text — both work on dark */
+      --gold-ink:  #FFD700;   /* gold as TEXT; equals --gold in dark so text remaps are a no-op here */
       --green:     #22c55e;
       --red:       #ef4444;
       /* Translucent overlays tuned per theme so cards/hairlines/shadows read on
@@ -120,23 +121,105 @@
       --grid-line:    rgba(255,255,255,0.05);
     }
 
-    /* ── Light theme ── default stays dark; this only applies when the user opts in. ── */
+    /* ── Light theme ── default stays dark; this only applies when the user opts in. ──
+       Design goals (why these values): a light UI conveys depth with SHADOW, not by
+       going "lighter than white." So the page base sits a step below white, cards stay
+       pure white and lift off it, borders carry real contrast, and the semantic colors
+       are darkened from their neon dark-mode values so they stay readable on white. */
     html[data-theme="light"] {
-      --bg:        #f3f5f9;
-      --surface:   #ffffff;
-      --surface2:  #eef1f6;
-      --border:    #dde3ec;
-      --text:      #18202e;
-      --muted:     #5c6a82;
+      --bg:        #e7ebf3;   /* cool off-white page base — white cards separate from it */
+      --surface:   #ffffff;   /* elevated cards stay crisp white */
+      --surface2:  #eef2f8;   /* gentle inset fill (tracks, tiles) */
+      --border:    #ccd5e2;   /* visible-but-soft card edges (~1.5:1 on white) */
+      --text:      #18202e;   /* near-black navy, not pure #000 */
+      --muted:     #566175;   /* secondary text — passes WCAG AA on both bg and surface */
       --accent:    #2563eb;
-      --gold:      #b07d00;
-      --green:     #15a34a;
-      --red:       #dc2626;
+      --gold:      #F5B301;   /* bright FILL gold — premium on white with dark text (buttons/chips), still reads gold on dark */
+      --gold-ink:  #8B6914;   /* dark bronze for gold TEXT on white — clears WCAG AA (5.09:1) */
+      --green:     #15803d;   /* darkened so small stat text clears WCAG AA (4.5:1) on white */
+      --red:       #d12525;
       --overlay-1:    rgba(15,23,42,0.03);
       --overlay-2:    rgba(15,23,42,0.06);
-      --shadow-soft:  rgba(15,23,42,0.12);
+      --shadow-soft:  rgba(16,24,40,0.10);
       --grid-line:    rgba(15,23,42,0.08);
     }
+
+    /* ── Light theme: elevation + chrome ──
+       The block above only swaps colors. Several cards hardcode dark-theme chrome
+       (translucent-white borders that vanish on white, heavy black shadows that read
+       muddy) instead of using the theme vars, so they melt into the page in light mode.
+       These light-only overrides give cards real, soft elevation. Every selector is
+       scoped to [data-theme="light"] — dark mode is completely untouched. */
+    html[data-theme="light"] .card,
+    html[data-theme="light"] .graph-card,
+    html[data-theme="light"] .ca-tg-tile,
+    html[data-theme="light"] .schedule-card,
+    html[data-theme="light"] .ca-sidebar-games-card,
+    html[data-theme="light"] .nu-card,
+    html[data-theme="light"] .rec-chart-card,
+    html[data-theme="light"] .about-signal-card,
+    html[data-theme="light"] .about-pricing-card {
+      border-color: var(--border);
+      box-shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.07);
+    }
+    /* modals/popovers float over a scrim — a deeper, layered lift reads as "on top" */
+    html[data-theme="light"] .modal-card,
+    html[data-theme="light"] .game-modal-card {
+      border-color: var(--border);
+      box-shadow: 0 10px 32px rgba(16,24,40,0.16), 0 2px 8px rgba(16,24,40,0.08);
+    }
+    /* hover lifts that used heavy black shadows look muddy on white — soften them */
+    html[data-theme="light"] .ca-tg-tile:hover,
+    html[data-theme="light"] .nu-click:hover {
+      box-shadow: 0 4px 14px rgba(16,24,40,0.10);
+    }
+
+    /* ── Light theme: gold CTA buttons ──
+       A gold that reads as good TEXT on white is too dark to be a good button FILL,
+       and vice-versa (that's what turned the "Unlock" button into a brown blob). The
+       palette now splits them: --gold is the bright FILL, --gold-ink the dark TEXT.
+       Give the primary gold CTAs a subtle premium gradient + soft gold shadow — the
+       real-site gold-CTA pattern (Amazon/Material family). Light-scoped; dark untouched. */
+    html[data-theme="light"] #btn-unlock,
+    html[data-theme="light"] .nav-unlock-m,
+    html[data-theme="light"] .unlock-cta-btn,
+    html[data-theme="light"] .btn-gold {
+      background: linear-gradient(180deg, #FFD974 0%, #F5B301 55%, #E39A00 100%);
+      color: #111111;
+      border: 1px solid #E0A200;
+      box-shadow: 0 1px 2px rgba(16,24,40,0.12), 0 6px 16px rgba(227,154,0,0.28);
+    }
+    html[data-theme="light"] #btn-unlock:hover,
+    html[data-theme="light"] .nav-unlock-m:hover,
+    html[data-theme="light"] .unlock-cta-btn:hover,
+    html[data-theme="light"] .btn-gold:hover {
+      background: linear-gradient(180deg, #F5B301 0%, #E39A00 100%);
+      box-shadow: 0 2px 4px rgba(16,24,40,0.14), 0 10px 22px rgba(227,154,0,0.34);
+    }
+
+    /* ── Light theme: #1 Ranked hero card ──
+       Drops the dark-navy→white fade (a dark-mode treatment leaking into light) for a
+       real light "featured" pattern: a barely-there cream wash to white, a soft gold
+       hairline, and a proper soft neutral shadow. Its gold labels move to --gold-ink
+       (see the global text remap) since they now sit on a light bg, not a dark band. */
+    html[data-theme="light"] .ca-top-pick-card {
+      background: linear-gradient(180deg, #FFFBEF 0%, #FFFFFF 60%);
+      border: 1px solid #EAD9A6;
+      box-shadow: 0 1px 3px rgba(16,24,40,0.06), 0 8px 22px -6px rgba(16,24,40,0.10);
+    }
+    html[data-theme="light"] .ca-top-pick-card.ca-tp-clickable:hover {
+      box-shadow: 0 2px 6px rgba(16,24,40,0.08), 0 14px 30px -8px rgba(16,24,40,0.16);
+    }
+    /* record hairlines were translucent-white (invisible on the light hero) */
+    html[data-theme="light"] .ca-tp-record {
+      border-top-color: var(--border);
+      border-bottom-color: var(--border);
+    }
+
+    /* hardcoded-gold escapees (not on the token) → route to the readable ink in light */
+    html[data-theme="light"] .mp-badge-gold { color: var(--gold-ink); border-color: var(--gold-ink); }
+    html[data-theme="light"] .about-signal-card .about-signal-icon { color: var(--gold-ink) !important; }
+    html[data-theme="light"] .ca-tg-ca-lock { text-shadow: none; }
 
     html, body {
       /* Never let the page itself scroll/zoom sideways — only inner rows do. */
@@ -774,14 +857,17 @@
       .track-sheet-grab { display: block; }
     }
 
-    /* ── Logo-as-tab ── */
+    /* ── Logo-as-tab ──
+       The nav bar is ALWAYS the dark velvet (both themes), so the wordmark is
+       pinned to its dark-mode colors and never follows the theme. Using var(--text)
+       here made "Capping" go dark navy in light mode and vanish against the nav. */
     .logo {
-      font-size: 22px; font-weight: 700; color: var(--text); letter-spacing: -0.3px;
+      font-size: 22px; font-weight: 700; color: #e2e8f0; letter-spacing: -0.3px;
       cursor: pointer; user-select: none; display: flex; align-items: center;
       border-bottom: 2px solid transparent; transition: border-color 0.15s;
       padding: 0; white-space: nowrap;
     }
-    .logo span { color: var(--accent); }
+    .logo span { color: #3b82f6; }
     .logo.active { border-bottom-color: var(--accent); }
     .logo:hover span { opacity: 0.85; }
 
@@ -885,7 +971,7 @@
     .lock-icon { color: var(--muted); font-size: 13px; }
 
     /* ── Rating / MVP ── */
-    .badge-mvp { display: inline-block; padding: 2px 8px; border-radius: 4px; background: rgba(255,215,0,0.12); color: var(--gold); font-size: 12px; font-weight: 700; border: 1px solid rgba(255,215,0,0.3); }
+    .badge-mvp { display: inline-block; padding: 2px 8px; border-radius: 4px; background: rgba(255,215,0,0.12); color: var(--gold-ink); font-size: 12px; font-weight: 700; border: 1px solid rgba(255,215,0,0.3); }
     .score-num { color: var(--muted); font-weight: 600; }
 
     tr.mvp-row { border-left: 3px solid var(--gold); background: rgba(255,215,0,0.04) !important; }
@@ -925,7 +1011,7 @@
     .record-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .record-val.green { color: var(--green); }
     .record-val.red   { color: var(--red); }
-    .record-val.gold  { color: var(--gold); }
+    .record-val.gold  { color: var(--gold-ink); }
 
     .result-win    { color: var(--green); font-weight: 700; }
     .result-loss   { color: var(--red);   font-weight: 700; }
@@ -1013,7 +1099,7 @@
     .lb-table th.lb-left { text-align: left; }
     .lb-table th.sortable { cursor: pointer; user-select: none; transition: color .12s; }
     .lb-table th.sortable:hover { color: var(--text); }
-    .lb-table th.sortable.active { color: var(--gold); }
+    .lb-table th.sortable.active { color: var(--gold-ink); }
     .lb-sort-arrow { font-size: 9px; margin-left: 3px; }
     .lb-table td { padding: 11px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; text-align: right; }
     .lb-table td.lb-left { text-align: left; }
@@ -1023,7 +1109,7 @@
     .lb-row.lb-house { background: rgba(59,130,246,0.07); cursor: pointer; }
     .lb-row.lb-house:hover { background: rgba(59,130,246,0.12); }
     .lb-rank { width: 44px; font-weight: 800; color: var(--muted); }
-    .lb-rank.lb-r1 { color: var(--gold); }
+    .lb-rank.lb-r1 { color: var(--gold-ink); }
     .lb-member { display: flex; align-items: center; gap: 10px; font-weight: 600; }
     .lb-house-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); padding: 2px 8px; border-radius: 999px; }
     .lb-follow-cell { text-align: right; width: 96px; }
@@ -1109,7 +1195,7 @@
     .paywall-price-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 20px; cursor: pointer; transition: border-color .15s, background .15s; min-width: 72px; }
     .paywall-price-card:hover { border-color: var(--accent); background: rgba(59,130,246,0.08); }
     .paywall-price-card.paywall-price-featured { border-color: var(--accent); background: rgba(59,130,246,0.08); }
-    .paywall-price { font-size: 22px; font-weight: 700; color: var(--gold); }
+    .paywall-price { font-size: 22px; font-weight: 700; color: var(--gold-ink); }
     .paywall-price-label { font-size: 11px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .05em; }
     .inline-paywall-login { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
     .inline-paywall-login a { color: var(--accent); cursor: pointer; text-decoration: underline; }
@@ -1661,7 +1747,7 @@
       font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
     }
     .tier-free   { background: rgba(139,92,246,0.15); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
-    .tier-paid   { background: rgba(255,215,0,0.12);  color: var(--gold); border: 1px solid rgba(255,215,0,0.3); }
+    .tier-paid   { background: rgba(255,215,0,0.12);  color: var(--gold-ink); border: 1px solid rgba(255,215,0,0.3); }
 
     .sport-pill-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
     .sport-pill {
@@ -1733,7 +1819,7 @@
     .mvp-tab-hero { padding: 0 0 28px; }
     .mvp-tab-badge {
       display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 2px;
-      text-transform: uppercase; color: var(--gold);
+      text-transform: uppercase; color: var(--gold-ink);
       background: rgba(255,215,0,0.08); border: 1px solid rgba(255,215,0,0.2);
       border-radius: 20px; padding: 3px 12px; margin-bottom: 10px;
     }
@@ -1755,7 +1841,7 @@
       font-size: 18px; font-weight: 700; flex-shrink: 0;
     }
     .access-status-paid .access-status-icon { color: var(--green); }
-    .access-status-code .access-status-icon { color: var(--gold); font-size: 22px; }
+    .access-status-code .access-status-icon { color: var(--gold-ink); font-size: 22px; }
     .access-status-code.urgent .access-status-icon { color: var(--red); }
     .access-status-label { font-size: 13px; font-weight: 700; }
     .access-status-val { font-size: 13px; color: var(--muted); margin-top: 2px; font-weight: 600; }
@@ -1791,7 +1877,7 @@
         line-height: 1;
       }
       .rank-1 .rank-score-mobile {
-        color: var(--gold);
+        color: var(--gold-ink);
         border-color: rgba(255,215,0,0.3);
         background: rgba(255,215,0,0.08);
       }
@@ -1802,7 +1888,10 @@
       display: grid;
       grid-template-columns: 280px 1fr;
       gap: 24px;
-      max-width: 1200px;
+      /* Wider than the old 1200px so the game strips show plenty of cards, but
+         contained (not full-bleed) so the right edge sits just past the content
+         instead of leaving dead space next to the stacked sections below. */
+      max-width: 1440px;
       margin: 0 auto;
       padding: 24px 24px 64px;
       align-items: start;
@@ -1845,7 +1934,7 @@
     }
     .ca-tp-title { font-size: 23px; font-weight: 800; letter-spacing: .01em; line-height: 1.1; }
     .ca-tp-title-today { color: var(--text); }
-    .ca-tp-title-rank  { color: var(--gold); }
+    .ca-tp-title-rank  { color: var(--gold-ink); }
     .ca-tp-title-pick  { color: var(--text); }
     /* whole-card click-through to the MVP page */
     .ca-top-pick-card.ca-tp-clickable { cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
@@ -1858,7 +1947,7 @@
     .ca-tp-team-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
     .ca-tp-team { font-size: 21px; font-weight: 800; line-height: 1.15; }
     .ca-tp-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
-    .ca-tp-pts { color: var(--gold); font-weight: 700; }
+    .ca-tp-pts { color: var(--gold-ink); font-weight: 700; }
     /* graded #1 pick — result badge to the right of the team + card colouring */
     .ca-tp-result-badge {
       flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px;
@@ -1917,7 +2006,7 @@
       font-size: 11px; color: var(--muted); text-align: center;
       letter-spacing: .03em; margin: 0 0 10px;
     }
-    .ca-tp-track-note { color: var(--gold); font-weight: 600; }
+    .ca-tp-track-note { color: var(--gold-ink); font-weight: 600; }
     .ca-tp-record {
       display: flex; justify-content: space-between; gap: 4px; padding: 10px 2px;
       border-top: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06);
@@ -1928,7 +2017,7 @@
     .ca-tp-record span { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
     .ca-tp-record b.green { color: var(--green); }
     .ca-tp-record b.red { color: var(--red); }
-    .ca-tp-record b.gold { color: var(--gold); }
+    .ca-tp-record b.gold { color: var(--gold-ink); }
     .ca-top-pick-cta-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 6px; }
     .ca-top-pick-pricing-row { display: flex; gap: 6px; margin-top: 6px; }
     .ca-top-pick-price-btn {
@@ -2013,6 +2102,80 @@
     .ca-top-games-row::-webkit-scrollbar-thumb:hover { background: #60a5fa; }
     .ca-top-games-empty { padding: 16px; color: var(--muted); font-size: 13px; }
 
+    /* ── Most Wagered Events — ESPN-style scoreboard strip ──
+       Desktop: an understated, borderless selector + date sit in a slim bar pinned
+       to the LEFT of the horizontally-scrolling cards, split off by a hairline, so
+       the whole row reads as one strip (like ESPN's "Top Events"). The long title
+       falls to two tidy lines with the chevron trailing it. Mobile / app: they
+       stack into a filled header pill above the full-width cards (the layout Jack
+       signed off on) — see the 768px override. */
+    .ca-mwe-section { display: flex; align-items: stretch; gap: 12px; }
+    .ca-mwe-aside {
+      flex: 0 0 auto;                          /* hug the title — no dead space to its right */
+      display: flex; flex-direction: column; justify-content: center; gap: 7px;
+      padding-right: 12px; border-right: 1px solid var(--border);
+    }
+    .ca-mwe-section > .ca-top-games-row { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+
+    .ca-mwe-dd { position: relative; }
+    /* Borderless inline trigger: a long two-word title wraps to two lines, chevron
+       trailing the last word — no heavy box, so it blends into the strip. */
+    .ca-mwe-dd-btn {
+      display: inline-block; text-align: left;
+      background: none; border: none; padding: 0; cursor: pointer;
+      color: var(--text); font-family: inherit; font-size: 15px; font-weight: 800;
+      letter-spacing: .01em; line-height: 1.2; white-space: normal;
+      transition: color .12s;
+    }
+    .ca-mwe-dd-btn:hover, .ca-mwe-dd.open .ca-mwe-dd-btn { color: var(--accent); }
+    .ca-mwe-dd-btn i {
+      display: inline-block; margin-left: 5px; font-size: 10px; color: var(--muted);
+      transition: transform .16s, color .12s;
+    }
+    .ca-mwe-dd-btn:hover i, .ca-mwe-dd.open .ca-mwe-dd-btn i { color: var(--accent); }
+    .ca-mwe-dd.open .ca-mwe-dd-btn i { transform: rotate(180deg); }
+    .ca-mwe-dd-menu {
+      display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+      min-width: 210px; max-height: 340px; overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 14px 34px rgba(0,0,0,0.45); padding: 6px;
+    }
+    .ca-mwe-dd.open .ca-mwe-dd-menu { display: block; }
+    .ca-mwe-dd-item {
+      display: block; width: 100%; text-align: left; background: none; border: none;
+      color: var(--text); font-family: inherit; font-size: 13.5px; font-weight: 600;
+      padding: 9px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+      transition: background .1s;
+    }
+    .ca-mwe-dd-item:hover { background: var(--surface2); }
+    .ca-mwe-dd-item.active { color: var(--accent); font-weight: 800; background: rgba(59,130,246,0.10); }
+    .ca-mwe-date {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; font-weight: 700; color: var(--muted);
+    }
+    .ca-mwe-date i { font-size: 11px; opacity: 0.75; }
+
+    /* Mobile / app: stack the selector + date into a filled header pill above the
+       full-width cards (the layout Jack signed off on for phones). */
+    @media (max-width: 768px) {
+      .ca-mwe-section { flex-direction: column; align-items: stretch; gap: 10px; }
+      .ca-mwe-aside {
+        flex: none; width: 100%; flex-direction: row; align-items: center;
+        justify-content: space-between; gap: 8px; padding-right: 0; border-right: none;
+      }
+      .ca-mwe-dd-btn {
+        display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+        max-width: 260px; min-width: 150px; white-space: nowrap;
+        background: var(--surface2); border: 1px solid var(--border);
+        padding: 8px 13px; border-radius: 8px; font-size: 14px; color: var(--text);
+      }
+      .ca-mwe-dd-btn:hover { color: var(--text); border-color: var(--accent); }
+      .ca-mwe-dd-btn i { margin-left: 0; }
+      #ca-mwe-dd-label br { display: none; }   /* single-line pill on phones */
+      .ca-mwe-date { font-size: 13px; }
+      .ca-mwe-date i { font-size: 12px; }
+    }
+
     .ca-tg-tile {
       flex: 0 0 220px;
       display: flex; flex-direction: column;
@@ -2030,7 +2193,7 @@
     .ca-tg-ca-lockwrap { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; }
     .ca-tg-ca-blur { filter: blur(3px); opacity: 0.6; font-weight: 800; letter-spacing: 1px; user-select: none; pointer-events: none; }
     /* golden lock over the blurred number — mirrors the detail-page locked score */
-    .ca-tg-ca-lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--gold); font-size: 11px; text-shadow: 0 1px 3px rgba(0,0,0,0.65); pointer-events: none; }
+    .ca-tg-ca-lock { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--gold-ink); font-size: 11px; text-shadow: 0 1px 3px rgba(0,0,0,0.65); pointer-events: none; }
     .ca-tg-score-locked { display: inline-flex; align-items: center; justify-content: center; padding: 2px 7px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); }
     .ca-tg-multi { flex-shrink: 0; font-size: 10px; font-weight: 800; line-height: 1; background: var(--accent); color: #fff; border-radius: 9px; padding: 2px 5px; min-width: 17px; text-align: center; }
     /* Stacked teams: abbr + name + score (ESPN style) */
@@ -2107,7 +2270,7 @@
     .ca-mvp-section-heading { flex-direction: column; align-items: flex-start; gap: 2px; }
     .ca-mvp-section-heading .ca-mvp-heading-row { display: flex; align-items: center; justify-content: space-between; width: 100%; }
     .ca-mvp-section-heading .ca-home-section-title {
-      font-size: 16px; font-weight: 800; color: var(--gold);
+      font-size: 16px; font-weight: 800; color: var(--gold-ink);
       text-transform: uppercase; letter-spacing: .04em;
     }
     .ca-mvp-section-heading .ca-home-section-link { font-size: 13px; font-weight: 600; }
@@ -2196,7 +2359,7 @@
       text-decoration: none; transition: background .12s;
     }
     .ca-drawer-nav-item:hover { background: var(--surface2); }
-    .ca-drawer-nav-item.gold { color: var(--gold); font-weight: 600; }
+    .ca-drawer-nav-item.gold { color: var(--gold-ink); font-weight: 600; }
     .ca-drawer-nav-chevron { color: var(--muted); font-size: 20px; line-height: 1; }
 
     /* Account toggle */
@@ -2311,7 +2474,7 @@
       background: linear-gradient(100deg, rgba(255,215,0,0.12), rgba(59,130,246,0.10));
       border: 1px solid rgba(255,215,0,0.25); align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; cursor:pointer; }
     .unlock-home-banner .uhb-text { font-size:15px; font-weight:700; color:var(--text); }
-    .unlock-home-banner .uhb-text span { color: var(--gold); }
+    .unlock-home-banner .uhb-text span { color: var(--gold-ink); }
     .unlock-home-banner .uhb-sub { font-size:13px; color:var(--muted); font-weight:400; margin-top:2px; }
     .unlock-home-banner .uhb-go { background:var(--gold); color:#111; font-weight:800; padding:9px 18px; border-radius:8px; font-size:14px; white-space:nowrap; }
 
@@ -2320,7 +2483,7 @@
     .unlock-hero { display:grid; grid-template-columns: 1.1fr 0.9fr; gap: 40px; align-items:center; padding: 24px 0 52px; }
     .unlock-eyebrow { color: var(--accent); font-weight:800; letter-spacing:1.5px; text-transform:uppercase; font-size:13px; margin-bottom:10px; }
     .unlock-hero-text h1 { font-size: 52px; line-height:1.04; font-weight: 900; margin: 0 0 16px; font-family:'Space Grotesk',sans-serif; letter-spacing:-1px; }
-    .unlock-gold { color: var(--gold); }
+    .unlock-gold { color: var(--gold-ink); }
     .unlock-sub { font-size: 18px; color: var(--muted); line-height:1.5; margin: 0 0 22px; max-width: 520px; }
     .unlock-cta-row { display:flex; gap:12px; flex-wrap:wrap; }
     .unlock-cta-lg { padding: 13px 26px !important; font-size: 16px !important; border-radius: 10px !important; }
@@ -2344,10 +2507,10 @@
     .unlock-phone-screen { width:100%; height:100%; background: var(--bg); border-radius:30px; overflow:hidden; padding: 30px 14px 14px; }
     .unlock-phone-glow { position:absolute; bottom:-30px; left:50%; transform:translateX(-50%); width:240px; height:60px; background: radial-gradient(ellipse, rgba(255,215,0,0.4) 0%, transparent 70%); filter: blur(10px); z-index:1; }
     .uph-head { font-size:12px; font-weight:800; color:var(--muted); text-align:center; margin-bottom:12px; }
-    .uph-head span { color: var(--gold); }
+    .uph-head span { color: var(--gold-ink); }
     .uph-row { display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:8px; margin-bottom:7px; background: var(--surface); }
     .uph-top { background: linear-gradient(90deg, rgba(255,215,0,0.16), var(--surface)); border:1px solid rgba(255,215,0,0.3); }
-    .uph-rank { font-weight:800; color:var(--gold); width:16px; font-size:13px; }
+    .uph-rank { font-weight:800; color: var(--gold-ink); width:16px; font-size:13px; }
     .uph-team { flex:1; font-size:12px; font-weight:700; color:var(--text); }
     .uph-tag { font-size:10px; font-weight:700; padding:2px 7px; border-radius:5px; }
     .uph-free { background: rgba(34,197,94,0.2); color:#4ade80; }
@@ -2357,14 +2520,14 @@
     .uph-lock { color: var(--muted); font-size:12px; }
     .uph-cta { margin-top:10px; text-align:center; font-size:11px; font-weight:800; color:#111; background:var(--gold); padding:8px; border-radius:8px; }
     .uph-hero { background: linear-gradient(135deg, rgba(255,215,0,0.22), rgba(255,215,0,0.05)); border:1.5px solid var(--gold); border-radius:12px; padding:13px; display:flex; align-items:center; gap:12px; margin-bottom:14px; box-shadow:0 0 22px rgba(255,215,0,0.15); }
-    .uph-hero-rank { font-size:26px; font-weight:900; color:var(--gold); }
+    .uph-hero-rank { font-size:26px; font-weight:900; color: var(--gold-ink); }
     .uph-hero-team { font-size:14px; font-weight:800; color:var(--text); }
     .uph-hero-tag { font-size:10px; font-weight:700; color:#4ade80; margin-top:3px; }
     .uph-locked-label { font-size:9.5px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; text-align:center; }
     .uph-locked { opacity:0.55; }
     .unlock-pillars { display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; margin: 8px 0 46px; }
     .unlock-pillar { background: var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; }
-    .unlock-pillar-title { font-weight:800; font-size:15px; margin-bottom:8px; color: var(--gold); }
+    .unlock-pillar-title { font-weight:800; font-size:15px; margin-bottom:8px; color: var(--gold-ink); }
     .unlock-pillar-desc { font-size:13px; color:var(--muted); line-height:1.45; }
     .unlock-compare-wrap { margin-bottom:48px; }
     .unlock-compare { background: var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; max-width:760px; margin:0 auto; }
@@ -2374,19 +2537,19 @@
     .uc-head .uc-col { text-align:center; }
     .uc-feature { font-size:14px; color:var(--text); }
     .uc-col { text-align:center; font-size:14px; }
-    .uc-gold { color: var(--gold); font-weight:700; }
+    .uc-gold { color: var(--gold-ink); font-weight:700; }
     .uc-yes { color: var(--green); font-weight:800; font-size:17px; }
-    .uc-col.uc-gold .uc-yes { color: var(--gold); }
+    .uc-col.uc-gold .uc-yes { color: var(--gold-ink); }
     .uc-no { color: var(--muted); }
     .uc-partial { font-size:11px; color:var(--muted); }
-    .uc-topwin { color: var(--gold); font-weight:800; white-space:nowrap; }
+    .uc-topwin { color: var(--gold-ink); font-weight:800; white-space:nowrap; }
     .unlock-pricing { margin-bottom:46px; }
     .unlock-price-row { display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; max-width:760px; margin:0 auto; }
     .unlock-price-card { position:relative; background: var(--surface); border:1px solid var(--border); border-radius:14px; padding:26px 18px 20px; text-align:center; cursor:pointer; transition: transform .12s, border-color .12s; }
     .unlock-price-card:hover { transform: translateY(-3px); border-color: var(--accent); }
     .unlock-price-card.featured { border-color: var(--gold); box-shadow: 0 0 30px rgba(255,215,0,0.12); }
     .unlock-price-badge { position:absolute; top:-11px; left:50%; transform:translateX(-50%); background:var(--gold); color:#111; font-size:11px; font-weight:800; padding:3px 12px; border-radius:20px; white-space:nowrap; }
-    .unlock-price-amt { font-size:40px; font-weight:800; color:var(--gold); }
+    .unlock-price-amt { font-size:40px; font-weight:800; color: var(--gold-ink); }
     .unlock-price-amt span { font-size:16px; color:var(--muted); font-weight:600; }
     .unlock-price-sub { font-size:13px; color:var(--muted); margin:6px 0 16px; }
     .unlock-price-btn { width:100%; padding:10px !important; font-size:15px !important; }
@@ -2398,7 +2561,7 @@
     .unlock-proof { text-align:center; background: linear-gradient(120deg, rgba(255,215,0,0.07), rgba(59,130,246,0.07)); border:1px solid var(--border); border-radius:14px; padding:30px 24px; margin-bottom:24px; }
     .unlock-proof-grid { display:grid; grid-template-columns: 170px 1fr; gap:26px; align-items:center; max-width:700px; margin:0 auto 12px; }
     .unlock-proof-stat { text-align:center; }
-    .unlock-proof-num { font-size:56px; font-weight:900; font-family:'Space Grotesk',sans-serif; color:var(--gold); line-height:1; }
+    .unlock-proof-num { font-size:56px; font-weight:900; font-family:'Space Grotesk',sans-serif; color: var(--gold-ink); line-height:1; }
     .unlock-proof-period { font-size:13px; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:1px; }
     .unlock-proof-chart { height:120px; }
     .unlock-spark { width:100%; height:120px; display:block; }
@@ -2564,13 +2727,17 @@
       <!-- Right main column -->
       <main class="ca-home-main">
 
-        <!-- Top Games Today (market-hotness strip) -->
-        <div class="ca-home-section" id="ca-top-games-section">
-          <div class="ca-home-section-header">
-            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
-              <span class="ca-home-section-title">Top Games Today</span>
-              <span style="font-size:9.5px;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:normal;">ranked by betting volume</span>
+        <!-- Most Wagered Events (market-hotness strip) — ESPN-style: sport dropdown + date pinned left of the cards -->
+        <div class="ca-home-section ca-mwe-section" id="ca-top-games-section">
+          <div class="ca-mwe-aside">
+            <div class="ca-mwe-dd" id="ca-mwe-dd">
+              <button class="ca-mwe-dd-btn" type="button" onclick="toggleMweMenu(event)" aria-haspopup="listbox">
+                <span id="ca-mwe-dd-label">Most Wagered <br>Events</span>
+                <i class="fa-solid fa-chevron-down"></i>
+              </button>
+              <div class="ca-mwe-dd-menu" id="ca-mwe-dd-menu" role="listbox"></div>
             </div>
+            <span class="ca-mwe-date"><i class="fa-solid fa-calendar-day"></i><span id="ca-mwe-date-text">Jul 8</span></span>
           </div>
           <div id="ca-top-games-row" class="ca-top-games-row">
             <div class="spinner-wrap" style="padding:18px;"><div class="spinner"></div></div>
@@ -2780,7 +2947,7 @@
           <div class="price-feature">#1 ranked play every day. No credit card required.</div>
         </div>
         <div class="about-pricing-card">
-          <div class="price" style="color:var(--gold);">$1</div>
+          <div class="price" style="color: var(--gold-ink);">$1</div>
           <div class="price-label">24-hour access</div>
           <div class="price-feature">Full ranked board, live scores, all picks and lines for the day.</div>
         </div>
@@ -3092,7 +3259,7 @@
       Home <span class="ca-drawer-nav-chevron">›</span>
     </a>
     <a class="ca-drawer-nav-item gold" onclick="switchTab('mvp');closeDrawer();">
-      <span style="display:inline-flex;align-items:center;gap:8px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Rankings</span> <span class="ca-drawer-nav-chevron" style="color:var(--gold);">›</span>
+      <span style="display:inline-flex;align-items:center;gap:8px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Rankings</span> <span class="ca-drawer-nav-chevron" style="color: var(--gold-ink);">›</span>
     </a>
     <div class="ca-drawer-account-toggle" onclick="toggleDrawerSports()">
       Sports <span class="ca-drawer-nav-chevron" id="ca-drawer-sports-chev">›</span>
