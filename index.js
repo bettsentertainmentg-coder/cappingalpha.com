@@ -2614,6 +2614,90 @@ app.listen(PORT, () => {
     }
   } catch (err) { console.error('[startup] ladder2 rescore error:', err.message); }
 
+  // Record sync boot (2026-07-09 late evening), one-time: the ladder2 boot,
+  // the P4D identity merges, and the norm-variant resolver fix each re-ranked
+  // the pool in sequence, so today's MVP membership was decided on three
+  // different snapshots (France ML survived demotion at >=100, then fell to 84
+  // two merges later). One final true-up against the CURRENT engine: rescore
+  // the board, then reconcile today's record BOTH ways — every tracked row
+  // that isn't gold anymore comes off, every gold board pick missing a row
+  // goes on (result synced from the board; started/graded included, this
+  // once), and surviving rows' scores align to the corrected totals.
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3' && !db.getSetting('v4_record_sync')) {
+      const { computeAndLogV3 } = require('./src/scoring_v3');
+      const board = db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all();
+      for (const p of board) { try { computeAndLogV3(p.id); } catch (_) {} }
+      const isGoldRow = (v3_total, v3_json) => {
+        let gold = (v3_total ?? 0) >= 100;
+        try {
+          const j = JSON.parse(v3_json || '{}');
+          if (typeof j.gold === 'boolean') gold = j.gold;
+        } catch (_) {}
+        return gold;
+      };
+      // Demote + score-sync the tracked rows.
+      const tracked = db.prepare(`
+        SELECT m.id, m.team, m.pick_type, m.score AS mvp_score, sb.v3_total, sb.v3_json FROM mvp_picks m
+        JOIN picks p ON p.espn_game_id = m.espn_game_id
+          AND LOWER(p.team) = LOWER(COALESCE(m.team, ''))
+          AND LOWER(p.pick_type) = LOWER(COALESCE(m.pick_type, ''))
+        JOIN score_breakdown sb ON sb.pick_id = p.id
+      `).all();
+      let demoted = 0, synced = 0;
+      for (const m of tracked) {
+        if (!isGoldRow(m.v3_total, m.v3_json)) {
+          db.prepare(`DELETE FROM mvp_picks WHERE id = ?`).run(m.id);
+          demoted++;
+          console.log(`[startup] record-sync demotion: ${m.team} ${m.pick_type} (rescored ${m.v3_total}) off the MVP record`);
+        } else if (m.mvp_score !== m.v3_total) {
+          db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`).run(m.v3_total, m.id);
+          synced++;
+        }
+      }
+      // Promote gold board picks that have no tracked row (started/graded
+      // included, this once — membership normally locks at first pitch, but
+      // these earned gold under the corrected engine).
+      const goldPicks = db.prepare(`
+        SELECT p.*, sb.v3_total, sb.v3_json, tg.home_score AS tg_home, tg.away_score AS tg_away
+        FROM picks p
+        JOIN score_breakdown sb ON sb.pick_id = p.id
+        JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+        WHERE sb.v3_total >= 100
+      `).all();
+      let promoted = 0;
+      for (const p of goldPicks) {
+        if (!isGoldRow(p.v3_total, p.v3_json)) continue;
+        const exists = db.prepare(`SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`)
+          .get(p.team, p.game_date, p.pick_type ?? null);
+        if (exists) continue;
+        try {
+          const { saveMvpPick } = require('./src/storage');
+          saveMvpPick({
+            team: p.team, sport: p.sport, pick_type: p.pick_type, spread: p.spread,
+            game_date: p.game_date, espn_game_id: p.espn_game_id, score: p.v3_total,
+            cap: p.line_captured_at ? { ml: p.captured_ml, spread: p.captured_spread, total: p.captured_total, ou_odds: p.captured_ou_odds, at: p.line_captured_at } : null,
+            scale: 'v3',
+          });
+          // A finished game's result is already on the board pick — mirror it
+          // (with the final score) so the new row doesn't sit pending forever.
+          if (['win', 'loss', 'push'].includes(p.result || '')) {
+            db.prepare(`
+              UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?
+              WHERE team = ? AND game_date = ? AND pick_type = ? AND result = 'pending'
+            `).run(p.result, p.tg_home ?? null, p.tg_away ?? null, p.team, p.game_date, p.pick_type ?? null);
+          }
+          promoted++;
+          console.log(`[startup] record-sync promotion: ${p.team} ${p.pick_type} (${p.v3_total}) onto the MVP record`);
+        } catch (err) {
+          console.warn('[startup] record-sync promotion failed for', p.team, p.pick_type, err.message);
+        }
+      }
+      db.setSetting('v4_record_sync', new Date().toISOString());
+      console.log(`[startup] record sync: ${demoted} off, ${promoted} on, ${synced} score(s) aligned`);
+    }
+  } catch (err) { console.error('[startup] record sync error:', err.message); }
+
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
   stampActualEnds();
