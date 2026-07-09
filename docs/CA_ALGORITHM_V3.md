@@ -190,6 +190,19 @@ graded rows included):
   so the sport-record gate already zeroes it (Jack's explicit ask, verified on
   the live pool: zero sub-50% sport records carry a bonus).
 
+## Chip-in floor lowered to 12 (2026-07-09 night, refinement #6)
+
+The consensus floor (graded decisions required before a backer's chip-in
+counts on someone else's pick) drops 20 -> 12 (STACK_MIN_DECISIONS in
+scoring_v3.js; the conflict-offset "proven capper" test uses the same
+constant). Cause: Indian Cowboy at 11-3 (79%, top-1% band, 67 pts/pick)
+chipped 0 into the France ML because his 14 decisions sat under the launch
+floor of 20. The floor still does its job — the launch-day flood was thin 5-1
+wallets, all under 12 too — but a top-band record in the teens now vouches at
+half its own worth like any other ranked joiner. Own-pick scoring never used
+the floor; this affects chip-ins (and the conflict offset) only. Shipped as
+record-sync gen 3.
+
 ## The hard zero (2026-07-09 night, refinement #5)
 
 Jack's call, one step past the break-even gate: a capper whose RAW win% is 49

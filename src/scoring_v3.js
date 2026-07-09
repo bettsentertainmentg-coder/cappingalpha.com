@@ -21,7 +21,7 @@ const db = require('./db');
 const ratingsLib = require('./capper_ratings');
 
 const UNRANKED_PTS = ratingsLib.UNRANKED_PTS; // no trackable capper / zero decisions
-const STACK_MIN_DECISIONS = 20; // graded decisions required to chip in on another pick
+const STACK_MIN_DECISIONS = 12; // graded decisions required to chip in on another pick (Jack 2026-07-09: 20 -> 12; Indian Cowboy at 11-3 was chipping 0)
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const NO_VENUE_SPORTS = new Set(['ATP', 'WTA', 'GOLF']);
@@ -235,7 +235,7 @@ function computeV3(pickId) {
   // Stack (Jack 2026-07-09, refined live): each ADDITIONAL backer chips in half
   // of THEIR OWN WORTH (their capped solo ladder points), tapering by PAIRS
   // WITHIN THEIR BAND — a band's 1st-2nd joiners add 1/2, its 3rd-4th add 1/4,
-  // and so on. CHIP-IN FLOOR: a backer needs 20+ graded decisions before they
+  // and so on. CHIP-IN FLOOR: a backer needs 12+ graded decisions before they
   // can boost someone else's pick at all (their own picks score regardless) —
   // without it, piles of thin 5-1 wallets minted 200-point crowd golds.
   // Unranked, bottom-band, and fade backers never stack.
