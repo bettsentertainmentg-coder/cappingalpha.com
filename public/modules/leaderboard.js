@@ -4,7 +4,7 @@
 // rows / podium / cards open the profile popup. A privacy toggle sits at the top.
 
 import { state } from './state.js';
-import { avatarFor, sportBadge } from './utils.js?v=1';
+import { avatarFor, sportBadge } from './utils.js?v=2';
 
 const WINDOWS = [['week', 'This Week'], ['month', 'This Month'], ['all', 'All-Time']];
 

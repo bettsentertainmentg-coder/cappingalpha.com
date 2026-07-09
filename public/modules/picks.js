@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js?v=1';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js?v=2';
 import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
 
 export async function loadPicks() {

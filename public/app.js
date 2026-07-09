@@ -1,7 +1,7 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
-import { setHeatScale } from './modules/utils.js?v=1';
+import { setHeatScale } from './modules/utils.js?v=2';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js';

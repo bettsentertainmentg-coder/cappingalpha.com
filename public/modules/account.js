@@ -1,7 +1,7 @@
 // modules/account.js — "My Tracking" + "Settings" views (split from the old My Account tab)
 
 import { state } from './state.js';
-import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=1';
+import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=2';
 import { doRedeemCode } from './paywall.js';
 import { loadUserBets, setBetsData } from './track.js?v=42';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
