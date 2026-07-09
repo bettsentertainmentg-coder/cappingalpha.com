@@ -7,7 +7,6 @@ const db            = require('./db');
 const { scorePick } = require('./scoring');
 const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
 const { cycleDateForInstant } = require('./cycle');
-const { getLinesForGame } = require('./lines_scraper');
 
 // ── Line capture at the archive threshold ────────────────────────────────────
 // Read the DraftKings line (from the free book_lines feed) for the side the capper
@@ -20,17 +19,23 @@ const { getLinesForGame } = require('./lines_scraper');
 function liveDkForSide(espn_game_id, team, pick_type) {
   const empty = { ml: null, spread: null, total: null, ou_odds: null };
   if (!espn_game_id) return empty;
-  let dk = null;
-  try { dk = getLinesForGame(espn_game_id).draftkings; } catch (_) {}
-  if (!dk) return empty;
-  const game = db.prepare(`SELECT home_team FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
-  const isHome = game && (game.home_team || '').toLowerCase() === (team || '').toLowerCase();
+  // Source the canonical today_games line (5am-seeded before T-90, the locked T-90
+  // snapshot after) so a pick's captured line always matches the CA official line that
+  // the rankings + grading use. The T-90 lock (src/ca_line.js) overwrites captured_*
+  // on this pick anyway; this keeps a late-archiving pick consistent with an
+  // already-locked game.
+  const game = db.prepare(
+    `SELECT home_team, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds
+     FROM today_games WHERE espn_game_id = ?`
+  ).get(espn_game_id);
+  if (!game) return empty;
+  const isHome = (game.home_team || '').toLowerCase() === (team || '').toLowerCase();
   const type = (pick_type || '').toLowerCase();
   return {
-    ml:      type === 'ml'      ? (isHome ? dk.ml_home : dk.ml_away)         : null,
-    spread:  type === 'spread'  ? (isHome ? dk.spread_home : dk.spread_away) : null,
-    total:   (type === 'over' || type === 'under') ? dk.over_under           : null,
-    ou_odds: type === 'over'    ? dk.ou_over_odds : type === 'under' ? dk.ou_under_odds : null,
+    ml:      type === 'ml'      ? (isHome ? game.ml_home : game.ml_away)         : null,
+    spread:  type === 'spread'  ? (isHome ? game.spread_home : game.spread_away) : null,
+    total:   (type === 'over' || type === 'under') ? game.over_under             : null,
+    ou_odds: type === 'over'    ? game.ou_over_odds : type === 'under' ? game.ou_under_odds : null,
   };
 }
 
@@ -429,7 +434,13 @@ function updateSlot(slot, pick) {
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
 
-  // Lock the live line the moment the pick crosses the archive bar (captured once).
+  // CA official line — gold trigger: a pick reaching GOLD locks its game's line to the
+  // market right now (the other trigger is the T-90 cron). Runs BEFORE the capture so
+  // the captured line is the gold-moment line. No-ops if the game already locked (T-90).
+  if (isMvp) { try { require('./ca_line').lockCaLineOnGold(slot.espn_game_id); } catch (_) {} }
+
+  // Capture the pick's line from the canonical today_games line (the CA official line
+  // once locked; the 5am placeholder before).
   const cap = archives
     ? captureLineAtThreshold(slot.id, slot.espn_game_id, slot.team, slot.pick_type)
     : null;
@@ -515,6 +526,10 @@ function insertNewPick(pick) {
   const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
+
+  // CA official line — gold trigger (see updateSlot): lock the game's line the moment
+  // this pick reaches gold, before capturing so cap is the gold-moment line.
+  if (isMvp) { try { require('./ca_line').lockCaLineOnGold(espn_game_id); } catch (_) {} }
 
   const cap = archives
     ? captureLineAtThreshold(pick_id, espn_game_id, team, pick_type)

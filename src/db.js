@@ -237,6 +237,11 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_home    REAL`); } catch
 try { db.exec(`ALTER TABLE today_games ADD COLUMN spread_away    REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN over_under     REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN odds_updated_at TEXT`); } catch (_) {}
+// CA official line lock (T-90): the line the CA rankings + tracking use is whatever
+// the market shows 90 min before start. lockCaLinesAtT90() (src/ca_line.js) snapshots
+// it once and sets ca_line_locked=1 so no later odds refresh moves it.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_locked INTEGER DEFAULT 0`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_at TEXT`); } catch (_) {}
 
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN espn_game_id TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN home_score INTEGER`); } catch (_) {}

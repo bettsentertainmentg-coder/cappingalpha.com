@@ -147,7 +147,7 @@ function applyOddsToGame(game, lines, oddsGame) {
         ou_over_odds    = ?,
         ou_under_odds   = ?,
         odds_updated_at = datetime('now')
-    WHERE espn_game_id = ? AND status = 'pre'
+    WHERE espn_game_id = ? AND status = 'pre' AND COALESCE(ca_line_locked, 0) = 0
   `).run(ml_home, ml_away, spread_home, spread_away, spread_home_odds, spread_away_odds, lines.over_under, lines.ou_over_odds, lines.ou_under_odds, game.espn_game_id);
 }
 
