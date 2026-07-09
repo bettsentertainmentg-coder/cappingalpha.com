@@ -54,6 +54,27 @@ const capForDecisions = (n) => (n >= 30 ? Infinity : n >= 10 ? 70 : 50);
 const FADE_WATCH_WIN  = 45, FADE_WATCH_N  = 5;
 const FADE_ACTIVE_WIN = 40, FADE_ACTIVE_N = 15;
 
+// ── THE BREAK-EVEN GATE (Jack 2026-07-09 evening) ─────────────────────────────
+// The Wilson bound never compares anyone to the coin flip, and for a fixed win%
+// it RISES with volume — so in a pool where most records are thin, a losing
+// capper with 60+ decisions floats into the top bands and mints golds (Breaking
+// Bank, 31-33 and -$78 lifetime, ranked top 9% and handed out 60 points a pick).
+// Ranking is evidence you exist; collectible points also require evidence you
+// WIN. A capper's shrunk win% (empirical Bayes toward the coin flip, GATE_K
+// pseudo-decisions) must clear 50% to hand out more than the unknown-capper
+// flat 10; full points return at 53% (~break-even at standard juice), tapering
+// linearly between so there is no cliff to game. Below the gate: ladder points
+// pin at UNRANKED_PTS, chip-ins add 0, and the in-sport rank bonus (gated on
+// the SPORT pool's own record) pays 0. Rank/band/percentile are untouched — the
+// leaderboard still shows where volume put them; the gate only controls what
+// their backing is worth. Applied at materialization so the scorer reads gated
+// numbers with no changes.
+const GATE_K = 25, GATE_LO = 0.50, GATE_HI = 0.53;
+function gateT(w, decisions) {
+  const shrunk = (w + GATE_K / 2) / (decisions + GATE_K);
+  return Math.max(0, Math.min(1, (shrunk - GATE_LO) / (GATE_HI - GATE_LO)));
+}
+
 // In-sport bonus (applies to the pick's BEST backer, no volume cap):
 //   +20 = #1 of the sport pool or top 5% | +10 = top 25%
 const SPORT_TOP_PTS = 20, SPORT_GOOD_PTS = 10;
@@ -216,7 +237,7 @@ function recomputeCapperRatings() {
   for (const [name, c] of cappers) {
     const decisions = c.w + c.l;
     if (decisions >= 1) {
-      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions });
+      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions, w: c.w });
     }
   }
   rankPool(overallPool);
@@ -228,10 +249,12 @@ function recomputeCapperRatings() {
     const fade = band.key === 'bottom25' && m.decisions >= FADE_ACTIVE_N && m.winPct <= FADE_ACTIVE_WIN ? 'active'
                : band.key === 'bottom25' && m.decisions >= FADE_WATCH_N  && m.winPct <= FADE_WATCH_WIN  ? 'watch'
                : null;
+    const t = gateT(m.w, m.decisions); // break-even gate: 0 below 50% shrunk, 1 at 53%
     winfo.set(m.key, {
       wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4), band: band.key,
-      pts: fade ? 0 : +Math.min(slid, cap).toFixed(1),
-      stackAdd: (fade || band.key === 'bottom25') ? 0 : +(Math.min(band.peak, cap) / 2).toFixed(1),
+      pts: (fade || band.key === 'bottom25') ? 0
+         : +(UNRANKED_PTS + t * (Math.min(slid, cap) - UNRANKED_PTS)).toFixed(1),
+      stackAdd: (fade || band.key === 'bottom25') ? 0 : +(t * Math.min(band.peak, cap) / 2).toFixed(1),
       decisions: m.decisions, winPct: +m.winPct.toFixed(1), fade,
     });
   }
@@ -244,15 +267,18 @@ function recomputeCapperRatings() {
       const dec = s.w + s.l;
       if (dec < 1) continue;
       if (!sportPools.has(sport)) sportPools.set(sport, []);
-      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec });
+      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w });
     }
   }
   const sinfo = new Map(); // `${canonical}|${sport}` -> the sport wilson record
   for (const [sport, poolArr] of sportPools) {
     rankPool(poolArr);
     for (const m of poolArr) {
-      const bonus = m.wilson > 0 && (m.rank === 1 || m.pctile <= 0.05) ? SPORT_TOP_PTS
-                  : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
+      // Break-even gate on the SPORT record: a losing in-sport résumé earns no
+      // in-sport bonus no matter where volume ranked it in the pool.
+      const raw = m.wilson > 0 && (m.rank === 1 || m.pctile <= 0.05) ? SPORT_TOP_PTS
+                : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
+      const bonus = Math.round(gateT(m.w, m.decisions) * raw);
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),
