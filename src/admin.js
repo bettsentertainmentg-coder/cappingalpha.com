@@ -176,6 +176,18 @@ router.get('/logout', (req, res) => {
 // reports a real phone-width viewport to the inner document, every mobile media
 // query fires exactly as it does on a phone — this is a 1:1 mirror of the live UI
 // with zero upkeep (no hand-maintained mockup to drift out of sync).
+// ── GET /admin/playbook — the owner's playbook, served fresh from docs/ ───────
+// Embedded as the last dashboard tab (iframe). Reading from disk on each request
+// means the tab always shows the latest committed playbook, no restart needed.
+router.get('/playbook', requireAuth, (_req, res) => {
+  try {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'docs', 'ALGO_PLAYBOOK.html'), 'utf8');
+    res.type('html').send('<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head><body>' + html + '</body></html>');
+  } catch (err) {
+    res.status(500).type('html').send('<p style="font-family:sans-serif;padding:24px;">Could not read docs/ALGO_PLAYBOOK.html: ' + escHtml(String(err.message || err)) + '</p>');
+  }
+});
+
 router.get('/preview', requireAuth, (_req, res) => {
   res.type('html').send(`<!DOCTYPE html>
 <html lang="en"><head>
@@ -1179,20 +1191,29 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
     <div class="atabs">
       <button class="atab${ta('picks')}" data-tab="picks" onclick="adminTab('picks')">Today's Picks</button>
-      <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
-      <button class="atab${ta('codes')}" data-tab="codes" onclick="adminTab('codes')">Access Codes</button>
-      <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
-      <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
       <button class="atab${ta('sourcefeed')}" data-tab="sourcefeed" onclick="adminTab('sourcefeed')">Source Feed</button>
-      <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
+      <button class="atab gold${ta('mvp')}" data-tab="mvp" onclick="adminTab('mvp')">MVP History</button>
       <button class="atab${ta('history')}" data-tab="history" onclick="adminTab('history');phAutoLoad()">Pick History</button>
+      <button class="atab${ta('codes')}" data-tab="codes" onclick="adminTab('codes')">Access Codes</button>
+      <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
+      <button class="atab${ta('usage')}" data-tab="usage" onclick="adminTab('usage')">AI Usage</button>
+      <button class="atab${ta('archive')}" data-tab="archive" onclick="adminTab('archive');archiveLoad()">Archive (7d)</button>
       <button class="atab${ta('reader')}" data-tab="reader" onclick="adminTab('reader');readerPing()">Reader</button>
       <button class="atab${ta('dummy')}" data-tab="dummy" onclick="adminTab('dummy')">Dummy Accounts</button>
       <button class="atab${ta('receptions')}" data-tab="receptions" onclick="adminTab('receptions')">CA Ops Receptions</button>
+      <button class="atab${ta('playbook')}" data-tab="playbook" onclick="adminTab('playbook')">Playbook</button>
       <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
       <a href="/admin/logout" class="atab-logout">Log out</a>
+    </div>
+
+    <!-- PLAYBOOK PANEL -->
+    <div class="apanel${ta('playbook')}" id="panel-playbook">
+      <h1>The CappingAlpha Score: Owner's Playbook</h1>
+      <p style="color:#8892a4;font-size:13px;margin:-6px 0 12px;">The full interactive playbook, served live from docs/ALGO_PLAYBOOK.html. <a href="/admin/playbook" target="_blank" style="color:#3b82f6;">Open in its own tab</a></p>
+      <iframe src="/admin/playbook" loading="lazy" title="Owner's Playbook"
+        style="width:100%;height:calc(100vh - 210px);min-height:520px;border:1px solid #252c3b;border-radius:10px;background:#fff;"></iframe>
     </div>
 
     <!-- CA OPS RECEPTIONS PANEL -->
