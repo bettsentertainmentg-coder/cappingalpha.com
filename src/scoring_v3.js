@@ -18,13 +18,30 @@ const db = require('./db');
 const ratingsLib = require('./capper_ratings');
 
 // ── Constants (starting values; Phase-5 backtest fits the final numbers) ──────
-const BASE = 45;  // calibrated 2026-07-07 (backtest grid: 1.06 gold/day at the conservative floor)
+// BASE and CONSENSUS_CAP live on the EARNED-SCALE RATCHET (settings v3_scale,
+// recomputed nightly by capper_ratings.computeScaleState — see the v3.2 section
+// of docs/CA_ALGORITHM_V3.md). Launch values 45/30; base tapers toward 25 as
+// the graded ledger grows, the consensus cap stretches toward 35 with it.
+// Cached briefly so per-mention scoring stays cheap.
+const SCALE_DEFAULTS = { BASE: 45, CON_CAP: 30 };
+let _scaleCache = { at: 0, val: SCALE_DEFAULTS };
+function liveScale() {
+  const now = Date.now();
+  if (now - _scaleCache.at > 30_000) {
+    let v = SCALE_DEFAULTS;
+    try {
+      const s = JSON.parse(db.getSetting('v3_scale', 'null'));
+      if (s && Number.isFinite(s.BASE)) v = { BASE: s.BASE, CON_CAP: s.CON_CAP ?? 30 };
+    } catch (_) {}
+    _scaleCache = { at: now, val: v };
+  }
+  return _scaleCache.val;
+}
 // Consensus rework (Jack 2026-07-08, replay-verified): joiners contribute a
 // FRACTION OF THEIR OWN RESUME, not a capped join score. Under the old join
 // points the consensus-driven golds ran 38% / -20% ROI (crowd size sneaking
 // back in); resume-stacking flips them to 56% / +13% — big consensus now only
 // happens when PROVEN cappers confirm. Extra voices taper by 0.6 each.
-const CONSENSUS_CAP = 30;
 const JOIN_RESUME_FRAC = 0.6;
 const JOIN_TAPER = 0.6;
 const MARKET_CAP = 8;
@@ -248,7 +265,8 @@ function computeV3(pickId) {
     consensus += p;
     joinLog.push({ name: j.name, pts: +j.pts.toFixed(1), applied: +p.toFixed(1) });
   });
-  consensus = Math.min(CONSENSUS_CAP, Math.round(consensus));
+  const scale = liveScale();
+  consensus = Math.min(scale.CON_CAP, Math.round(consensus));
 
   // Market signals
   const mkt = marketSignals(pick, game);
@@ -297,12 +315,12 @@ function computeV3(pickId) {
     totalsGateOk = !t || (t.blend ?? 0) >= 0;
   }
 
-  const total = BASE + resumePts + consensus + marketPts + leanPts + sportBonus + fadeIn.pts + offset;
+  const total = scale.BASE + resumePts + consensus + marketPts + leanPts + sportBonus + fadeIn.pts + offset;
 
   return {
     total,
     breakdown: {
-      base: BASE,
+      base: scale.BASE,
       resume: resumePts,
       advocate: advocate?.name ?? null,
       consensus,

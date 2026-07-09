@@ -795,6 +795,24 @@ signal weight re-fit after ~6 weeks of football.
 
 ## v3.2 TARGET ARCHITECTURE (Jack, 2026-07-08 night): every point earned
 
+STATUS UPDATE (same night): the BASE RATCHET + ERA-RELATIVE VOLUME rows below are
+BUILT AND SHIPPED as the self-anchoring earned-scale ratchet
+(capper_ratings.computeScaleState -> settings v3_scale / v3_scale_anchor):
+- Activation is a NO-OP: the anchor self-creates from the live ecosystem stats
+  and reproduces the launch constants exactly (verified: 230/230 resume rows and
+  board totals identical, plumbing verified by controlled base flip).
+- Base: -1 per +1000 graded ledger picks, floor 25, max 1 step per night, HELD
+  whenever trailing 14d golds < 8 or the 30d gold record < 52.4% (verified in
+  simulation: single-step clamp, guard hold, restore).
+- vol_k = max(10, 10 x median rated volume / anchor median) — Jack's "200 picks
+  is a lot NOW, will be mid-pack later" rule, recomputed nightly.
+- sigma = (100 - base)/55 stretches mult, volume cap, hard cap, and consensus
+  cap (clamped 35) so elite-solo gold survives every notch, continuously.
+- FORWARD-ONLY by Jack's call: no history rescale; existing MVPs/golds keep
+  their scores and tier membership permanently.
+Still v3.2-pending from the table below: market 0-10 refit, dynamic sport bonus,
+lean/fade widening, recency-vs-career, volume-damped trust (co-fit).
+
 Jack's directive after reading the playbook: "each point needs to have meaning
 and value, giving good reason why it's at 100... the base 45 flat is essentially
 nonexistent" at the end state. The base is SCAFFOLDING for an unrated ecosystem,

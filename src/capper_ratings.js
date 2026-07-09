@@ -12,15 +12,97 @@ const db = require('./db');
 const K_OVERALL   = 25;   // pseudo-picks shrinking overall ROI toward breakeven
 const K_SPORT     = 15;   // pseudo-picks shrinking sport ROI toward overall
 const K_TYPE      = 10;   // pseudo-picks shrinking type ROI toward sport
-const K_VOLUME    = 10;   // volume factor: n / (n + K_VOLUME)
-const MULTIPLIER  = 360;  // calibrated 2026-07-07 (backtest grid: base 45 x mult 360)
 const SKILL_CAP   = 0.20; // ROI credit tops out at +20%
 const TRUST_MIN   = 0.30;
 const TRUST_MAX   = 1.30;
 const TRUST_MID   = 0.10; // overallBlend that earns trust = 1.0
-const CAP_BASE    = 25;   // volume-scaled cap: CAP_BASE + CAP_SLOPE * volume
-const CAP_SLOPE   = 30;
-const HARD_CAP    = 55;
+
+// ── The EARNED-SCALE RATCHET (Jack 2026-07-08, docs/CA_ALGORITHM_V3.md v3.2) ──
+// The scale is SELF-ANCHORING: on first run it stores today's ecosystem stats
+// (total graded picks, median rated-capper volume) and produces exactly the
+// launch constants below, so activation changes nothing. From there:
+//  - BASE tapers 1 point per +1000 graded picks in the ledger, floor 25, at
+//    most 1 point per night, and NEVER while the gold guards are failing
+//    (trailing 14d gold count under ~0.6/day, or 30d gold record under the
+//    52.4% drift bar with 20+ decided). Base only ever moves down.
+//  - VOL_K (the volume constant) scales with the median graded volume of rated
+//    cappers: vol_k = max(10, 10 x median/median0). "A lot of picks" is
+//    relative to the era: 200 picks reads full today, mid-pack once the
+//    population median doubles.
+//  - The resume geometry stretches by sigma = (100 - base)/55 so an elite
+//    capper SOLO always clears gold: multiplier, volume cap, hard cap, and the
+//    consensus cap all grow as base falls. At base 45 sigma = 1 (launch).
+const LAUNCH = { BASE: 45, VOL_K: 10, MULT: 360, CAP_BASE: 25, CAP_SLOPE: 30, HARD_CAP: 55, CON_CAP: 30 };
+const BASE_FLOOR = 25;
+const BASE_PER_GRADED = 1000;   // +1000 graded picks -> base may drop 1
+const GUARD_GOLD_14D = 8;       // fewer 14d golds than this -> hold the taper
+const GUARD_WIN_BAR = 0.524;    // 30d gold record must beat break-even at -110
+
+let SCALE = { ...LAUNCH };      // used by resumePoints/overallRating below
+
+function computeScaleState() {
+  try {
+    const total = db.prepare(`SELECT COUNT(*) n FROM capper_history WHERE result IN ('win','loss','push')`).get().n;
+    const vols = db.prepare(`
+      SELECT COUNT(*) n FROM capper_history
+      WHERE result IN ('win','loss','push') AND capper_name IS NOT NULL
+      GROUP BY capper_name HAVING n >= ${TIER_RATED_N} ORDER BY n
+    `).all().map(r => r.n);
+    const median = vols.length ? vols[Math.floor(vols.length / 2)] : 0;
+
+    // Self-anchor on first run: today's ecosystem is the zero point.
+    let anchor = null;
+    try { anchor = JSON.parse(db.getSetting('v3_scale_anchor', 'null')); } catch (_) {}
+    if (!anchor || !anchor.total0) {
+      anchor = { total0: total, median0: Math.max(1, median), at: new Date().toISOString() };
+      db.setSetting('v3_scale_anchor', JSON.stringify(anchor));
+    }
+
+    // Volume relativity (era-relative k)
+    const volK = Math.max(LAUNCH.VOL_K, Math.round(LAUNCH.VOL_K * median / anchor.median0));
+
+    // Base taper target + guards
+    const prev = (() => { try { return JSON.parse(db.getSetting('v3_scale', 'null')); } catch (_) { return null; } })();
+    const prevBase = prev?.BASE ?? LAUNCH.BASE;
+    const target = Math.max(BASE_FLOOR, LAUNCH.BASE - Math.floor((total - anchor.total0) / BASE_PER_GRADED));
+    let held = false;
+    let base = prevBase;
+    if (target < prevBase) {
+      const g14 = db.prepare(`
+        SELECT COUNT(*) n FROM pick_history
+        WHERE v3_total >= 100 AND game_date >= date('now','-14 days')
+      `).get().n;
+      const g30 = db.prepare(`
+        SELECT SUM(result='win') w, SUM(result='loss') l FROM pick_history
+        WHERE v3_total >= 100 AND result IN ('win','loss') AND game_date >= date('now','-30 days')
+      `).get();
+      const decided = (g30?.w ?? 0) + (g30?.l ?? 0);
+      const winOk = decided < 20 || (g30.w / decided) >= GUARD_WIN_BAR;
+      if (g14 >= GUARD_GOLD_14D && winOk) {
+        base = Math.max(target, prevBase - 1); // at most 1 per night
+      } else {
+        held = true;
+      }
+    }
+
+    // Stretch the earned geometry so elite-solo gold survives every notch
+    const sigma = (100 - base) / 55;
+    SCALE = {
+      BASE: base,
+      VOL_K: volK,
+      MULT: Math.round(LAUNCH.MULT * sigma),
+      CAP_BASE: LAUNCH.CAP_BASE * sigma,
+      CAP_SLOPE: LAUNCH.CAP_SLOPE * sigma,
+      HARD_CAP: Math.round(LAUNCH.HARD_CAP * sigma),
+      CON_CAP: Math.min(35, Math.round(LAUNCH.CON_CAP * sigma)),
+    };
+    db.setSetting('v3_scale', JSON.stringify({ ...SCALE, median, total, held, computed_at: new Date().toISOString() }));
+    console.log(`[ratings] scale: base ${base}${held ? ' (taper HELD by gold guard)' : ''}, vol_k ${volK}, hard_cap ${SCALE.HARD_CAP} (median ${median}, total graded ${total})`);
+  } catch (err) {
+    console.warn('[ratings] computeScaleState failed, using launch constants:', err.message);
+    SCALE = { ...LAUNCH };
+  }
+}
 
 // Tier + fade bars (doc: multiplicity-aware, expecting impostors)
 const TIER_RATED_N     = 25;
@@ -53,19 +135,19 @@ const overallBlend = (units, n) => units / (n + K_OVERALL);
 const sportBlend   = (u, n, oBlend) => (u + K_SPORT * oBlend) / (n + K_SPORT);
 const typeBlend    = (u, n, sBlend) => (u + K_TYPE * sBlend) / (n + K_TYPE);
 
-// Resume points for a capper in a sport (doc formula, verbatim)
+// Resume points for a capper in a sport (doc formula, on the CURRENT scale)
 function resumePoints(sBlend, sportN, oBlend) {
   const skill  = Math.min(Math.max(sBlend, 0), SKILL_CAP);
-  const volume = sportN / (sportN + K_VOLUME);
+  const volume = sportN / (sportN + SCALE.VOL_K);
   const trust  = Math.max(TRUST_MIN, Math.min(TRUST_MAX, oBlend / TRUST_MID));
-  const raw    = Math.round(MULTIPLIER * skill * volume * trust);
-  const cap    = Math.min(HARD_CAP, CAP_BASE + Math.round(CAP_SLOPE * volume));
+  const raw    = Math.round(SCALE.MULT * skill * volume * trust);
+  const cap    = Math.min(SCALE.HARD_CAP, SCALE.CAP_BASE + Math.round(SCALE.CAP_SLOPE * volume));
   return Math.max(0, Math.min(raw, cap));
 }
 
 // Leaderboard rating: the overall analog of resume points (doc formula)
 function overallRating(oBlend, n) {
-  return Math.max(0, Math.round(300 * Math.min(Math.max(oBlend, 0), SKILL_CAP) * (n / (n + K_VOLUME))));
+  return Math.max(0, Math.round(300 * Math.min(Math.max(oBlend, 0), SKILL_CAP) * (n / (n + SCALE.VOL_K))));
 }
 
 // ── Canonicalization maps (read-time safety net for pre-registry rows) ────────
@@ -90,6 +172,7 @@ function buildResolver() {
 
 // ── Recompute everything ──────────────────────────────────────────────────────
 function recomputeCapperRatings() {
+  computeScaleState(); // the earned-scale ratchet: sets SCALE + settings v3_scale
   const rows = db.prepare(`
     SELECT capper_name, sport, pick_type, result, odds, source
     FROM capper_history
