@@ -37,8 +37,8 @@ floors one point above the next peak so the curve is continuous:
 
 | Band       | Points    |
 |------------|-----------|
-| top 3%     | 95 -> 76  |
-| 3-5%       | 75 -> 66  |
+| top 1%     | 95 -> 76  |
+| 1-5%       | 75 -> 66  |
 | 5-15%      | 65 -> 51  |
 | 15-25%     | 50 -> 41  |
 | 25-35%     | 40 -> 31  |
@@ -88,8 +88,18 @@ cappers from merely thin ones, per Jack's spec.
 Jack's call, twice refined: first "remove stacking", then restored as "each
 additional backer in a band adds HALF that band's peak", scoped to ANY ranked
 backer (Jack chose this over top-15%-only knowing the trade-off: enough mid-tier
-backers can still accumulate; the halving is the damper). Two top-3% cappers on
+backers can still accumulate; the halving is the damper). Two top-band cappers on
 one side = 95ish + 47.5. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
+
+## Top band narrowed to 1% (2026-07-09, same-day refinement)
+
+Jack's call the evening of launch day: full influence (the 95->76 band) belongs
+to the top 1% of the Wilson ranking only, not the top 3%. The second band widens
+to 1-5% (75->66); everything from 5% down is unchanged. On a ~340-capper pool
+that means roughly ranks 1-3 carry full weight instead of ranks 1-10. Band keys
+in capper_ratings become 'top1' / '1-5' at the next recompute (startup, nightly
+5:20am, or the admin button); v3_json rows logged before the change still carry
+'top3' / '3-5' as the accurate historical record.
 
 ## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
 

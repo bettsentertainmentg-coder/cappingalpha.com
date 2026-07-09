@@ -753,8 +753,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
   }
   function resolveCapperDisplay(name) {
     if (!name) return name;
-    const norm = (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    return aliasMap.get(norm) || name;
+    const normFn = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    // Follow alias chains to the final canonical (cycle-guarded) — merges can
+    // point at names that are themselves aliases and must still fold to one row.
+    let cur = aliasMap.get(normFn(name)) || name;
+    for (let hops = 0; hops < 5; hops++) {
+      const next = aliasMap.get(normFn(cur));
+      if (!next || next === cur) break;
+      cur = next;
+    }
+    return cur;
   }
 
   // Profit on one resolved pick at a given stake, using stored American odds.
@@ -957,8 +965,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
   // Percentile band chips (the Wilson ladder). Label = the band, tooltip = what
   // a pick from this capper is worth before the volume cap.
   const BAND_META = {
-    'top3':     ['TOP 3%',  '#FFD700', 'Top 3% of the Wilson ranking. Picks worth 95 down to 76 points across the band.'],
-    '3-5':      ['3-5%',    '#f59e0b', 'Points 75 down to 66.'],
+    'top1':     ['TOP 1%',  '#FFD700', 'Top 1% of the Wilson ranking. Picks worth 95 down to 76 points across the band.'],
+    '1-5':      ['1-5%',    '#f59e0b', 'Points 75 down to 66.'],
     '5-15':     ['5-15%',   '#16a34a', 'Points 65 down to 51.'],
     '15-25':    ['15-25%',  '#0ea5e9', 'Points 50 down to 41.'],
     '25-35':    ['25-35%',  '#8b5cf6', 'Points 40 down to 31.'],
@@ -967,8 +975,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
     'bottom25': ['BTM 25%', '#ef4444', 'Bottom 25% of the ranking. Picks contribute 0 points; fade rules may apply.'],
     'new':      ['NEW',     '#3b4560', 'No graded decisions yet. Picks are worth the flat 10 points.'],
   };
+  // Rows written before the 2026-07-09 top-1% ladder change may still carry the
+  // old band keys until the next recompute rewrites them — render them mapped.
+  const LEGACY_BANDS = { 'top3': 'top1', '3-5': '1-5' };
   const bandChip = (band) => {
-    const [label, color, tip] = BAND_META[band] || BAND_META['new'];
+    const [label, color, tip] = BAND_META[band] || BAND_META[LEGACY_BANDS[band]] || BAND_META['new'];
     return `<span title="${escHtml(tip)}" style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${label}</span>`;
   };
   const statusChips = (c) => {
@@ -3494,9 +3505,25 @@ router.post('/capper-alias', requireAuth, express.json(), (req, res) => {
   const { canonical, alias } = req.body || {};
   if (!canonical || !alias) return res.json({ ok: false, error: 'Both canonical and alias are required' });
   try {
-    const canon = canonical.trim(), al = alias.trim();
+    let canon = canonical.trim();
+    const al = alias.trim();
+    // Flatten the target: if the requested canonical is itself an alias, chase
+    // the chain so this row points straight at the final identity.
+    const normK = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (let hops = 0; hops < 5; hops++) {
+      const hit = db.prepare(`SELECT canonical_name FROM capper_aliases`).all()
+        .find(r => normK(r.alias) === normK(canon));
+      if (!hit || hit.canonical_name === canon) break;
+      canon = hit.canonical_name;
+    }
+    if (normK(canon) === normK(al)) return res.json({ ok: false, error: 'That would merge a capper into itself' });
     db.prepare(`INSERT OR REPLACE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`)
       .run(canon, al);
+    // Collapse chains: anything that pointed AT the merged name now points at
+    // the final canonical, so no alias row targets a name that is itself an alias.
+    db.prepare(`UPDATE capper_aliases SET canonical_name = ? WHERE canonical_name = ?`).run(canon, al);
+    // Drop degenerate self-rows a collapse can produce.
+    db.prepare(`DELETE FROM capper_aliases WHERE canonical_name = alias`).run();
 
     // A merge must propagate NOW, not at the next nightly recompute. Otherwise
     // today's board keeps showing the old name AND (worse) scoring goes stale:

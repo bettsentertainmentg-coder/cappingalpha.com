@@ -159,6 +159,43 @@ function resolveConflictingMvpPicks() {
         if (!isGold) { delStmt.run(m.id); demoted++; }
       }
       if (demoted) console.log(`[mvp] pregame demotion sweep removed ${demoted} no-longer-gold row(s)`);
+
+      // ── Promotion sweep: the mirror image ─────────────────────────────────
+      // A pick can cross gold through a board-wide rescore (nightly re-rank,
+      // merges, engine changes) that never touches storage.savePick — the July
+      // 9 tennis golds went untracked exactly this way. Any pregame pick whose
+      // CURRENT score is gold and has no mvp_picks row gets tracked here.
+      const goldPicks = db.prepare(`
+        SELECT p.*, sb.v3_total, sb.v3_json FROM picks p
+        JOIN score_breakdown sb ON sb.pick_id = p.id
+        JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+        WHERE tg.status = 'pre' AND sb.v3_total >= 100
+      `).all();
+      let promoted = 0;
+      for (const p of goldPicks) {
+        let isGold = true;
+        try {
+          const j = JSON.parse(p.v3_json || '{}');
+          if (typeof j.gold === 'boolean') isGold = j.gold; // totals gate applies
+        } catch (_) {}
+        if (!isGold) continue;
+        const exists = db.prepare(`SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`)
+          .get(p.team, p.game_date, p.pick_type ?? null);
+        if (exists) continue;
+        try {
+          const { saveMvpPick } = require('./storage'); // lazy: avoids any load-order cycle
+          saveMvpPick({
+            team: p.team, sport: p.sport, pick_type: p.pick_type, spread: p.spread,
+            game_date: p.game_date, espn_game_id: p.espn_game_id, score: p.v3_total,
+            cap: p.line_captured_at ? { ml: p.captured_ml, spread: p.captured_spread, total: p.captured_total, ou_odds: p.captured_ou_odds, at: p.line_captured_at } : null,
+            scale: 'v3',
+          });
+          promoted++;
+        } catch (err) {
+          console.warn('[mvp] promotion insert failed for', p.team, p.pick_type, err.message);
+        }
+      }
+      if (promoted) console.log(`[mvp] promotion sweep tracked ${promoted} rescore-minted gold(s)`);
     }
   } catch (err) {
     console.warn('[mvp] demotion sweep failed:', err.message);

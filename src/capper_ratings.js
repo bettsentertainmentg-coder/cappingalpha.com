@@ -32,8 +32,8 @@ const WILSON_Z = 2.576; // 99% confidence
 // down to floor (bottom of band). Floors sit one point above the next peak so
 // the whole curve is continuous and strictly rank-ordered.
 const LADDER = [
-  { lo: 0.00, hi: 0.03,  peak: 95, floor: 76, key: 'top3'     },
-  { lo: 0.03, hi: 0.05,  peak: 75, floor: 66, key: '3-5'      },
+  { lo: 0.00, hi: 0.01,  peak: 95, floor: 76, key: 'top1'     },
+  { lo: 0.01, hi: 0.05,  peak: 75, floor: 66, key: '1-5'      },
   { lo: 0.05, hi: 0.15,  peak: 65, floor: 51, key: '5-15'     },
   { lo: 0.15, hi: 0.25,  peak: 50, floor: 41, key: '15-25'    },
   { lo: 0.25, hi: 0.35,  peak: 40, floor: 31, key: '25-35'    },
@@ -148,10 +148,19 @@ function buildResolver() {
       handleMap.set(`${h.source}|${norm(h.handle)}`, h.canonical_name);
     }
   } catch (_) {}
-  return (name, source) =>
-    aliasMap.get(norm(name)) ||
-    handleMap.get(`${source || 'discord'}|${norm(name)}`) ||
-    name;
+  // CHAIN-SAFE: merges can arrive in any order ("Docs" -> "Docs Sports" today,
+  // "Docs Sports" -> "Docs Empire" next week), leaving alias rows that point at
+  // names which are themselves aliases. Follow the chain to the final canonical
+  // (bounded, cycle-guarded) or merged cappers silently stay split in the pools.
+  return (name, source) => {
+    let cur = aliasMap.get(norm(name)) || handleMap.get(`${source || 'discord'}|${norm(name)}`) || name;
+    for (let hops = 0; hops < 5; hops++) {
+      const next = aliasMap.get(norm(cur));
+      if (!next || next === cur) break;
+      cur = next;
+    }
+    return cur;
+  };
 }
 
 // ── Recompute everything ──────────────────────────────────────────────────────
