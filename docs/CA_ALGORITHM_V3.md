@@ -32,20 +32,25 @@ wilson_rank, percentile, band, pts, stack_add, decisions, win_pct).
 
 ## The ladder (percentile band -> points per pick)
 
-Points slide LINEARLY inside each band from peak (top of band) to floor (bottom),
-floors one point above the next peak so the curve is continuous:
+Points slide LINEARLY inside each band from peak (top of band) to floor (bottom).
+Floors sit one point above the next peak so the curve stays rank-ordered, with
+ONE deliberate exception: the 9-point cliff below the top band (76 -> 67, Jack
+2026-07-09 evening) — full influence is a top-1% privilege.
 
 | Band       | Points    |
 |------------|-----------|
 | top 1%     | 95 -> 76  |
-| 1-5%       | 75 -> 66  |
-| 5-15%      | 65 -> 51  |
+| 1-5%       | 67 -> 61  |
+| 5-15%      | 60 -> 51  |
 | 15-25%     | 50 -> 41  |
 | 25-35%     | 40 -> 31  |
 | 35-45%     | 30 -> 21  |
 | 45-75%     | 20 -> 11  |
 | bottom 25% | 0 (fade evaluation applies) |
 | 0 decisions / untrackable capper / unknown source | 10 flat |
+
+(2026-07-09 evening trim: 1-5% was 75->66, 5-15% was 65->51. Chip-ins follow
+automatically — a 1-5% backer now stacks 67/2 = 33.5 pre-gate, not 37.5.)
 
 VOLUME CAPS (overall ladder only): under 10 decisions caps collectible points at
 50; 10-29 caps at 70; 30+ uncapped. A 7-0 capper ranks near the top publicly but
@@ -60,11 +65,17 @@ score = best backer's ladder points (capped)
         (stack_add = min(their band peak, their volume cap) / 2; unranked,
          bottom-25%, and fade backers add 0)
       + in-sport bonus: +20 if the best backer is the pick's sport-pool #1 or
-        top 5% (needs at least one win in the sport), +10 if top 25%
+        top 5% (needs at least one win in the sport), +10 if top 25% — gated on
+        the sport record's shrunk win% (a sub-50% raw win rate ALWAYS shrinks
+        below 50%, so a losing in-sport record earns 0 no matter its rank)
       + market signals 0-8 (unchanged from v3)
       + side lean 0-5 (unchanged)
-      + sport bonus 5 (unchanged; WNBA excluded)
       + fade points into the slot + conflict offset (unchanged mechanics)
+
+The flat +5 sport bonus was RETIRED 2026-07-09 evening: every listed sport got
+it, so it was 5 free points on essentially every pick — noise, not signal. The
+in-sport RANK bonus is the only sport-shaped points now. (v2's sport bonus in
+scoring.js is untouched; legacy code path only.)
 
 DEAD: the flat base (45), the resume formula (mult/trust/vol_k), resume-stacking
 consensus, source-entity advocacy (`@src:*` rows remain in capper_ratings for the
@@ -90,22 +101,6 @@ additional backer in a band adds HALF that band's peak", scoped to ANY ranked
 backer (Jack chose this over top-15%-only knowing the trade-off: enough mid-tier
 backers can still accumulate; the halving is the damper). Two top-band cappers on
 one side = 95ish + 47.5. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
-
-## The break-even gate (2026-07-09 evening, same-day refinement)
-
-The Wilson bound never compares anyone to the coin flip, and for a fixed win%
-it RISES with volume -- so in a thin-record pool, a losing capper with 60+
-decisions floats into the top bands (Breaking Bank, 31-33 / -$78 lifetime,
-ranked top 9% and handing out 60 pts, led the Pirates ML to a tracked gold
-loss). Collectible points now require a WINNING record: shrunk win% =
-(w + 12.5)/(decisions + 25) must clear 50% to give more than the flat 10;
-full value at 53% (break-even at -110); linear taper between. Below the gate:
-ladder pts pin at 10, stack_add 0, in-sport bonus 0 (gated on the SPORT
-record). Rank/band/percentile untouched -- the leaderboard shows where volume
-put them; the gate controls what their backing is worth. Applied at
-materialization (capper_ratings), so the scorer needed no changes. Live
-effect on recalibration: board golds 14 -> 9, every sub-break-even-led gold
-(Pirates ML 103 -> 29) fell off the record.
 
 ## Top band narrowed to 1% (2026-07-09, same-day refinement)
 
@@ -149,6 +144,50 @@ MidwestMike (34-24) unchanged at 86.6; Smart Money Sports (32-28, shrunk 52.4%)
 tapers 71.3 -> 58.1. Shipped with a one-time boot migration (settings flag
 v4_gate_rescore) that rescores the live board and removes any tracked gold the
 gate demoted from mvp_picks — including started/graded rows, this once.
+
+## Grades land instantly, for EVERY backer (2026-07-09 evening, refinement #3)
+
+The bug it fixes: results.js Pass 1 wrote capper_history from picks.capper_name
+— a single column that COALESCEs to the EARLIEST mention. On a multi-backer
+pick, every joiner's grade silently vanished (Picks 4 Dayzzz chipped in on the
+Rays ML after Frank Ammirante's AN mention; the loss graded on the board but
+never reached P4D's profile, record, or rank).
+
+The fix, in results.js:
+- writeBackerGrades(): at grade time, EVERY attributed backer (distinct
+  capper_name on the pick's raw_messages, plus picks.capper_name as fallback)
+  gets a capper_history row with their own first-mention channel. The existing
+  cross-source dedup holds per capper — wave-1 backers keep their source_ingest
+  pending row (Pass 5 grades it), one bet stays one row.
+- Pass 4 (stale-archive grading) recovers backers from pick_history's
+  messages_json (raw_messages are wiped by then) and writes each one.
+- After any resolveResults pass that graded picks, recomputeCapperRatings()
+  runs immediately — profiles, the leaderboard, and every pick scored from
+  that moment use the current record instead of waiting for the 5:20am
+  nightly. (The board itself still rescores on mentions/merges/boot, not on
+  every grade — scores don't bounce mid-day.)
+- backfillBackerGrades() (exported): re-runs the backer write over today's
+  already-graded board picks; the 2026-07-09 boot migration used it to repair
+  the day the bug was found.
+
+## Ladder trim + flat sport bonus retired (2026-07-09 evening, refinement #4)
+
+Jack's calls, shipped together with a one-time boot migration (settings flag
+v4_ladder2_rescore: backfill backer grades -> recompute on the new ladder ->
+rescore today's board -> demote tracked golds that no longer clear 100,
+graded rows included):
+- Ladder: 1-5% band 75->66 becomes 67->61; 5-15% band 65->51 becomes 60->51.
+  A deliberate 9-point cliff now sits below the top band — full influence is a
+  top-1% privilege. Chip-ins follow automatically (1-5% backer stacks 33.5
+  pre-gate, was 37.5).
+- The flat +5 sport bonus is DEAD in the v4 scorer: every listed sport got it,
+  so it was 5 free points on essentially every pick. The in-sport RANK bonus
+  (+20/+10, break-even-gated on the sport record) is the only sport-shaped
+  points now.
+- Confirmed, not changed: a sport-pool leader with a sub-50% raw win rate
+  cannot collect the in-sport bonus — raw below 50% always shrinks below 50%,
+  so the sport-record gate already zeroes it (Jack's explicit ask, verified on
+  the live pool: zero sub-50% sport records carry a bonus).
 
 ## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
 

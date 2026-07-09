@@ -483,6 +483,91 @@ function capperBetOdds(pick) {
   return null;
 }
 
+// Every attributed backer on a pick, each with the channel of their first
+// mention. picks.capper_name COALESCEs to the EARLIEST mention only, so a
+// multi-backer pick graded off that single column silently dropped every
+// joiner's grade (found 2026-07-09: Picks 4 Dayzzz's Rays ML loss never
+// reached his profile because Frank Ammirante mentioned it first).
+const WAVE1_SOURCES = new Set(['actionnetwork', 'polymarket', 'covers']);
+function backersOf(pick) {
+  const backers = new Map(); // capper_name -> channel of their first mention
+  try {
+    for (const r of db.prepare(`
+      SELECT capper_name, channel FROM raw_messages
+      WHERE pick_id = ? AND capper_name IS NOT NULL AND capper_name != ''
+      ORDER BY id ASC
+    `).all(pick.id)) {
+      if (!backers.has(r.capper_name)) backers.set(r.capper_name, r.channel ?? null);
+    }
+  } catch (_) {}
+  if (pick.capper_name && !backers.has(pick.capper_name)) backers.set(pick.capper_name, pick.channel ?? null);
+  return backers;
+}
+
+// Write a graded capper_history row for every backer of a graded pick. The
+// existing cross-source dedup holds per capper: one bet stays one row (wave-1
+// backers already have a pending row from source_ingest, so they skip here and
+// Pass 5 grades them). Returns how many rows were written.
+function writeBackerGrades(pick, result) {
+  const backers = backersOf(pick);
+  if (!backers.size) return 0;
+  const betOdds = capperBetOdds(pick);
+  const isTotal = ['over', 'under'].includes((pick.pick_type || '').toLowerCase());
+  let written = 0;
+  for (const [capper, channel] of backers) {
+    const already = db.prepare(`
+      SELECT id FROM capper_history
+      WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
+        AND (LOWER(team) = LOWER(?) OR ? = 1)
+      LIMIT 1
+    `).get(capper, pick.espn_game_id, pick.pick_type ?? '', pick.team ?? '', isTotal ? 1 : 0);
+    if (already) continue;
+    const source = WAVE1_SOURCES.has((channel || '').toLowerCase()) ? channel.toLowerCase() : 'discord';
+    try {
+      db.prepare(`
+        INSERT OR IGNORE INTO capper_history
+          (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        capper,
+        pick.sport        ?? null,
+        pick.pick_type    ?? null,
+        pick.team         ?? null,
+        pick.spread       ?? null,
+        pick.espn_game_id ?? null,
+        pick.game_date    ?? null,
+        channel           ?? null,
+        pick.score        ?? null,
+        result,
+        pick.id,
+        betOdds,
+        source,
+        isTotal ? 0 : (pick.is_home_team ?? null)
+      );
+      written++;
+    } catch (_) {}
+  }
+  return written;
+}
+
+// One-time repair tool (also called by the 2026-07-09 boot migration): re-run
+// the backer grade write over every ALREADY-GRADED pick still on the board, so
+// joiners whose grades were dropped by the single-capper bug get their rows.
+function backfillBackerGrades() {
+  const graded = db.prepare(`
+    SELECT p.*, tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
+           tg.spread_home_odds, tg.spread_away_odds
+    FROM picks p
+    JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+    WHERE p.result IN ('win', 'loss', 'push') AND p.mention_count > 0
+  `).all();
+  let written = 0;
+  for (const pick of graded) {
+    try { written += writeBackerGrades(pick, pick.result); } catch (_) {}
+  }
+  return written;
+}
+
 // ── Evaluate all picks for finished games ─────────────────────────────────────
 async function resolveResults() {
   let resolved = 0;
@@ -585,43 +670,10 @@ async function resolveResults() {
     }
 
     // ── Write to capper_history (permanent capper tracking, survives daily wipe) ─
-    if (pick.capper_name) {
-      // Capture the American odds of this bet so money / P&L can be computed later.
-      // today_games is still present here (game just finished, pre-wipe).
-      const betOdds = capperBetOdds(pick);
-      const isTotal = ['over', 'under'].includes((pick.pick_type || '').toLowerCase());
-      // Cross-source dedup (same rule as source_ingest): if this capper already
-      // has a capper_history row for this slot (e.g. a wave-1 pending row that
-      // Pass 5 will grade), one bet must stay ONE row — skip the insert.
-      const already = db.prepare(`
-        SELECT id FROM capper_history
-        WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
-          AND (LOWER(team) = LOWER(?) OR ? = 1)
-        LIMIT 1
-      `).get(pick.capper_name, pick.espn_game_id, pick.pick_type ?? '', pick.team ?? '', isTotal ? 1 : 0);
-      if (!already) try {
-        db.prepare(`
-          INSERT OR IGNORE INTO capper_history
-            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          pick.capper_name,
-          pick.sport        ?? null,
-          pick.pick_type    ?? null,
-          pick.team         ?? null,
-          pick.spread       ?? null,
-          pick.espn_game_id ?? null,
-          pick.game_date    ?? null,
-          pick.channel      ?? null,
-          pick.score        ?? null,
-          result,
-          pick.id,
-          betOdds,
-          pick.source ?? 'discord',
-          isTotal ? 0 : (pick.is_home_team ?? null)
-        );
-      } catch (_) {}
-    }
+    // EVERY attributed backer gets a graded row the moment the game grades —
+    // not just picks.capper_name (the earliest mention). today_games is still
+    // present here (game just finished, pre-wipe) so bet odds capture works.
+    try { writeBackerGrades(pick, result); } catch (_) {}
 
     // Match mvp_picks by team + game_date + pick_type to avoid cross-type clobber
     // Never overwrite a voided pick — conflict resolver already settled it
@@ -720,33 +772,46 @@ async function resolveResults() {
     } catch (_) {}
     // ── v3 Phase 1: capper_history was only ever written in Pass 1, so a pick
     // graded here (game wiped before grading) silently lost its capper record.
-    // Write it now from the archived row; the (pick_id, capper_name) unique
-    // index makes this idempotent with Pass 1.
-    if (ph.capper_name && ph.pick_id != null) {
+    // Write it now for EVERY backer — raw_messages are wiped by this point, so
+    // backers come from the archived messages_json (per-mention capper_name).
+    if (ph.pick_id != null) {
       const pt = (ph.pick_type || '').toLowerCase();
       const phOdds = pt === 'ml' ? (ph.live_ml ?? ph.ml_odds ?? null)
                    : (pt === 'over' || pt === 'under') ? (ph.live_ou_odds ?? ph.ou_odds ?? null)
                    : null;
-      // Same cross-source dedup as Pass 1: never a second row for one bet.
       const phIsTotal = pt === 'over' || pt === 'under';
-      const phAlready = db.prepare(`
-        SELECT id FROM capper_history
-        WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
-          AND (LOWER(team) = LOWER(?) OR ? = 1)
-        LIMIT 1
-      `).get(ph.capper_name, ph.espn_game_id, ph.pick_type ?? '', ph.team ?? '', phIsTotal ? 1 : 0);
-      if (!phAlready) try {
-        db.prepare(`
-          INSERT OR IGNORE INTO capper_history
-            (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'discord', ?)
-        `).run(
-          ph.capper_name, ph.sport ?? null, ph.pick_type ?? null, ph.team ?? null,
-          ph.spread ?? null, ph.espn_game_id ?? null, ph.game_date ?? null,
-          ph.channel ?? null, ph.score ?? null, result, ph.pick_id, phOdds,
-          (pt === 'over' || pt === 'under') ? 0 : (ph.is_home_team ?? null)
-        );
+      const phBackers = new Map(); // capper_name -> channel of their first mention
+      try {
+        for (const msg of JSON.parse(ph.messages_json || '[]')) {
+          if (msg && msg.capper_name && !phBackers.has(msg.capper_name)) {
+            phBackers.set(msg.capper_name, msg.channel ?? ph.channel ?? null);
+          }
+        }
       } catch (_) {}
+      if (ph.capper_name && !phBackers.has(ph.capper_name)) phBackers.set(ph.capper_name, ph.channel ?? null);
+      for (const [capper, channel] of phBackers) {
+        // Same cross-source dedup as Pass 1: never a second row for one bet.
+        const phAlready = db.prepare(`
+          SELECT id FROM capper_history
+          WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = LOWER(?)
+            AND (LOWER(team) = LOWER(?) OR ? = 1)
+          LIMIT 1
+        `).get(capper, ph.espn_game_id, ph.pick_type ?? '', ph.team ?? '', phIsTotal ? 1 : 0);
+        if (phAlready) continue;
+        const phSource = WAVE1_SOURCES.has((channel || '').toLowerCase()) ? channel.toLowerCase() : 'discord';
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO capper_history
+              (capper_name, sport, pick_type, team, spread, espn_game_id, game_date, channel, score, result, pick_id, odds, source, is_home_team)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            capper, ph.sport ?? null, ph.pick_type ?? null, ph.team ?? null,
+            ph.spread ?? null, ph.espn_game_id ?? null, ph.game_date ?? null,
+            channel ?? null, ph.score ?? null, result, ph.pick_id, phOdds,
+            phSource, phIsTotal ? 0 : (ph.is_home_team ?? null)
+          );
+        } catch (_) {}
+      }
     }
     resolved++;
   }
@@ -779,8 +844,20 @@ async function resolveResults() {
     resolved++;
   }
 
-  if (resolved > 0) console.log(`[results] Resolved ${resolved} pick results`);
+  if (resolved > 0) {
+    console.log(`[results] Resolved ${resolved} pick results`);
+    // Grades just landed in capper_history — refresh the ratings NOW so capper
+    // profiles, the leaderboard, and every pick scored from here use the
+    // current record instead of waiting for the 5:20am nightly (Jack
+    // 2026-07-09: results must show everywhere as soon as they happen).
+    // Lazy require: capper_ratings needs only db, no cycle back into results.
+    try {
+      require('./capper_ratings').recomputeCapperRatings();
+    } catch (err) {
+      console.warn('[results] post-grade ratings recompute failed:', err.message);
+    }
+  }
   return resolved;
 }
 
-module.exports = { resolveResults, resolveVotes, evaluateVote, fetchGameResult };
+module.exports = { resolveResults, resolveVotes, evaluateVote, fetchGameResult, backfillBackerGrades };

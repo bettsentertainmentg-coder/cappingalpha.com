@@ -30,11 +30,13 @@ const WILSON_Z = 2.576; // 99% confidence
 
 // The ladder: points slide linearly inside each band from peak (top of band)
 // down to floor (bottom of band). Floors sit one point above the next peak so
-// the whole curve is continuous and strictly rank-ordered.
+// the curve stays strictly rank-ordered — EXCEPT the deliberate cliff below
+// the top band (76 -> 67, Jack 2026-07-09 evening): full influence is a top-1%
+// privilege, and the 1-5% band starts 9 points below it, not 1.
 const LADDER = [
   { lo: 0.00, hi: 0.01,  peak: 95, floor: 76, key: 'top1'     },
-  { lo: 0.01, hi: 0.05,  peak: 75, floor: 66, key: '1-5'      },
-  { lo: 0.05, hi: 0.15,  peak: 65, floor: 51, key: '5-15'     },
+  { lo: 0.01, hi: 0.05,  peak: 67, floor: 61, key: '1-5'      },
+  { lo: 0.05, hi: 0.15,  peak: 60, floor: 51, key: '5-15'     },
   { lo: 0.15, hi: 0.25,  peak: 50, floor: 41, key: '15-25'    },
   { lo: 0.25, hi: 0.35,  peak: 40, floor: 31, key: '25-35'    },
   { lo: 0.35, hi: 0.45,  peak: 30, floor: 21, key: '35-45'    },

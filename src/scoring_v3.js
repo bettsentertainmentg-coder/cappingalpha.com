@@ -24,8 +24,6 @@ const UNRANKED_PTS = ratingsLib.UNRANKED_PTS; // no trackable capper / zero deci
 const STACK_MIN_DECISIONS = 20; // graded decisions required to chip in on another pick
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
-const SPORT_BONUS = 5;
-const SPORT_BONUS_SPORTS = new Set(['NBA', 'CBB', 'MLB', 'NFL', 'NCAAF', 'NHL', 'ATP', 'WTA', 'GOLF', 'SOCCER']);
 const NO_VENUE_SPORTS = new Set(['ATP', 'WTA', 'GOLF']);
 const LEAK_STEP = 25;          // jumps larger than this ramp in
 const LEAK_MIN_MIN = 20, LEAK_MAX_MIN = 50;
@@ -280,7 +278,10 @@ function computeV3(pickId) {
     } catch (_) {}
   }
 
-  const sportBonus = SPORT_BONUS_SPORTS.has(sportU) ? SPORT_BONUS : 0;
+  // The flat +5 sport bonus is RETIRED (Jack 2026-07-09 evening): every listed
+  // sport got it, so it was 5 free points on essentially every pick — noise,
+  // not signal. The in-sport RANK bonus above is the only sport-shaped points.
+  const sportBonus = 0;
 
   // Fade points INTO this slot (opposite side fade-active activity) + conflict
   // offset: if THIS slot has a fade-active mention (it generated fade onto the

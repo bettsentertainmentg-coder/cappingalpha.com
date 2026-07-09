@@ -136,7 +136,7 @@
   <div class="kicker">Owner's Playbook · Algorithm v4, the Wilson engine</div>
   <h1>How a pick earns its number</h1>
   <p class="dek">A pick's score is the credibility of the people standing behind it: 10 for an unknown name, up past 100 when ranked winners lead the way. This is the complete story of where that number comes from, in plain betting language.</p>
-  <div class="meta">Current as of July 9, 2026 (evening) · reflects the Wilson percentile rework (capper rank drives every point, the flat base is gone, sources no longer score, full influence reserved for the top 1 percent of the ranking) and the CA line lock (the official line is the market line at 90 minutes before start, or when the pick reaches gold, whichever comes first)</div>
+  <div class="meta">Current as of July 9, 2026 (late evening) · reflects the Wilson percentile rework (capper rank drives every point, the flat base and flat sport bonus are gone, sources no longer score, full influence reserved for the top 1 percent of the ranking), the break-even gate (losing records hand out nothing), instant grading (every backer's record and the rankings update the moment games go final), and the CA line lock (the official line is the market line at 90 minutes before start, or when the pick reaches gold, whichever comes first)</div>
 </header>
 
 <section id="big-picture">
@@ -205,12 +205,6 @@
   </div>
 
   <div class="ing">
-    <div class="ing-head"><span class="ing-name">Sport bonus</span><span class="ing-range">0 or 5</span></div>
-    <div class="meter"><i style="width:5%"></i></div>
-    <p>A flat 5 for the major markets: MLB, NBA, NFL, NCAAF, CBB, NHL, tennis, golf, soccer. WNBA currently gets no sport bonus.</p>
-  </div>
-
-  <div class="ing">
     <div class="ing-head"><span class="ing-name">Fade points</span><span class="ing-range">0 to 8, plus offset</span></div>
     <div class="meter"><i style="width:8%"></i></div>
     <p>When a capper on the official fade list (chapter 4) backs one side, the <i>opposite</i> side receives 3 to 8 bonus points. Scaled by how much we have seen that capper in this sport, so a losing MLB record fades MLB picks but says almost nothing about their rare NBA pick. If a proven capper is standing on the faded side, that side gets an offsetting bonus too. Nothing is ever taken away from anyone.</p>
@@ -221,7 +215,7 @@
 
 <section id="ratings">
   <div class="chap"><span class="num">04</span><h2>How a capper earns points</h2></div>
-  <p>Every graded pick lands in a permanent ledger that survives the daily reset. Each night at 5:20am the system re-ranks every capper from that full ledger. The ranking is one number with a long pedigree: the <b>Wilson score</b>, the same math Reddit uses to rank comments so that 900 upvotes out of 1,000 beats 3 out of 3.</p>
+  <p>Every graded pick lands in a permanent ledger that survives the daily reset, for every backer on the pick, the moment the game goes final. The re-rank happens right then too: profiles, the leaderboard, and every pick scored from that moment use the current record (with a full sweep each night at 5:20am as the backstop). The ranking is one number with a long pedigree: the <b>Wilson score</b>, the same math Reddit uses to rank comments so that 900 upvotes out of 1,000 beats 3 out of 3.</p>
   <h3>1. The worst-case win rate</h3>
   <p>The Wilson score asks: given this record, what is the LOWEST the capper's true win rate could plausibly be? We use the cautious 99 percent version. A 7-0 heater has a great face but a thin file, so its worst case is modest. An 85-49 grind over 134 bets has a worst case that is genuinely strong. That is why MidwestMike ranks #1 overall while perfect little records sit below him. Volume is not a bonus; it is the proof that makes the number trustworthy.</p>
   <h3>2. One board, every capper</h3>
@@ -230,8 +224,8 @@
   <table>
     <tr><th>Where you rank</th><th class="num">Your picks are worth</th></tr>
     <tr><td>Top 1%</td><td class="num">95 down to 76</td></tr>
-    <tr><td>1 to 5%</td><td class="num">75 down to 66</td></tr>
-    <tr><td>5 to 15%</td><td class="num">65 down to 51</td></tr>
+    <tr><td>1 to 5%</td><td class="num">67 down to 61</td></tr>
+    <tr><td>5 to 15%</td><td class="num">60 down to 51</td></tr>
     <tr><td>15 to 25%</td><td class="num">50 down to 41</td></tr>
     <tr><td>25 to 35%</td><td class="num">40 down to 31</td></tr>
     <tr><td>35 to 45%</td><td class="num">30 down to 21</td></tr>
@@ -240,7 +234,7 @@
     <tr><td>No graded record / unknown name</td><td class="num">10 flat</td></tr>
   </table>
   </div>
-  <p>Points slide inside each band, so the top of the 5-15 band is worth 65 and the bottom of it 51. Higher rank always means more points, with no cliffs.</p>
+  <p>Points slide inside each band, so the top of the 5-15 band is worth 60 and the bottom of it 51. Higher rank always means more points. There is one deliberate cliff: the bottom of the top 1 percent band is 76, and the band below it starts at 67. Full influence is reserved for the very top of the board.</p>
   <h3>3. Thin records are capped, not banned</h3>
   <p>A hot 7-0 can rank high on the board, but what its picks can <i>collect</i> is capped until the sample earns trust: under 10 graded decisions caps at 50 points, 10 to 29 caps at 70, and 30 or more collects the full ladder value. Nobody golds a pick off a lucky week.</p>
   <h3>4. The break-even gate</h3>
@@ -308,11 +302,11 @@
     <li><span class="t">4:58am</span><span>Final grading pass for late West Coast games, then the daily reset wipes the board. Permanent ledgers (capper history, pick history, gold record) are never touched.</span></li>
     <li><span class="t">5:00am</span><span>Morning build: game slate from ESPN, betting lines, the six pick slots per game, then a full re-scan of overnight messages.</span></li>
     <li><span class="t">5:05am</span><span>Source refresh: Action Network roster, Polymarket wallet list, Covers contestants.</span></li>
-    <li><span class="t">5:20am</span><span>The nightly re-rank. Every capper's Wilson score, board position, ladder points, sport ranks, and fade flags recompute from the full graded ledger. This is the moment yesterday's results become today's scoring power.</span></li>
+    <li><span class="t">5:20am</span><span>The nightly re-rank. Every capper's Wilson score, board position, ladder points, sport ranks, and fade flags recompute from the full graded ledger. This is the full nightly sweep; during the day the same re-rank also fires the moment any batch of games grades, so results become scoring power right away.</span></li>
     <li><span class="t">All day</span><span>Discord picks land instantly. Action Network polls every 10 minutes, Polymarket every 15, Covers every 30. Every arrival rescores its pick slot and, if needed, starts a reveal.</span></li>
     <li><span class="t">4:00pm</span><span>Afternoon line refresh for evening games.</span></li>
     <li><span class="t">The line lock</span><span>Each game's CA line locks at whichever comes first: 90 minutes before it starts, or the moment a pick on it reaches CA pick status. Whatever the market shows then becomes the official line: the number the rankings display and every tracked bet grades against. Before that a pick shows the morning line as a placeholder; once locked it never moves. The 90-minute mark follows the real start, so a schedule slip moves with it.</span></li>
-    <li><span class="t">Every 5 min</span><span>Live scores update and finished games get graded, feeding straight back into capper ledgers.</span></li>
+    <li><span class="t">Every 5 min</span><span>Live scores update and finished games get graded. Every backer on a graded pick gets the result on their ledger immediately, and the capper rankings recompute on the spot.</span></li>
   </ul>
 </section>
 
@@ -333,13 +327,12 @@
   <div class="slip">
     <div class="slip-head"><span>Coco Gauff ML <span class="win">(the new way)</span></span><span class="tag">ATP board · Jul 9, live</span></div>
     <div class="slip-rows">
-      <div class="slip-row"><span class="lbl">Best backer <b>Docs Sports, 1-5% band (#10 of 334 at the time)</b></span><span class="val">70</span></div>
+      <div class="slip-row"><span class="lbl">Best backer <b>Docs Sports, 1-5% band (#10 of 334 at the time)</b></span><span class="val">64</span></div>
       <div class="slip-row"><span class="lbl">Chip-ins <b>volume-proven joiners, halved and tapered</b></span><span class="val">+30</span></div>
       <div class="slip-row"><span class="lbl">Sport rank bonus <b>top 25% in tennis</b></span><span class="val">+10</span></div>
       <div class="slip-row"><span class="lbl">Market signals <b>prediction market edge</b></span><span class="val">+5</span></div>
-      <div class="slip-row"><span class="lbl">Sport bonus <b>tennis</b></span><span class="val">+5</span></div>
     </div>
-    <div class="slip-total"><span>Total <span class="gold-badge">Gold</span></span><span class="val">120</span></div>
+    <div class="slip-total"><span>Total <span class="gold-badge">Gold</span></span><span class="val">109</span></div>
   </div>
   <p>And the Cubs pick? Its best human backer is 6-4 with us, roughly the 16th percentile line. Worth about 55 now. If he keeps winning, his rank climbs the ladder and his picks bring more; the points arrive exactly when the proof does. The reranked board settled at five golds: swisstony's Kostyuk moneyline on top at 168, and not one carried by a pipe, an empty name, or a crowd.</p>
 </section>
