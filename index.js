@@ -2533,6 +2533,44 @@ app.listen(PORT, () => {
     }
   } catch (err) { console.error('[startup] v3 board rescore error:', err.message); }
 
+  // Break-even gate boot (2026-07-09), one-time: ratings recomputed above now
+  // carry the gate (sub-break-even cappers hand out the flat 10), so rescore
+  // today's board onto the gated points and pull any MVP row whose pick is no
+  // longer gold off the P/L record — INCLUDING started/graded rows this once.
+  // The pregame demotion sweep locks membership at first pitch by design, but
+  // these golds were minted by sub-break-even backers and never should have
+  // been tracked (Breaking Bank's Pirates ML, 2026-07-09).
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3' && !db.getSetting('v4_gate_rescore')) {
+      const { computeAndLogV3 } = require('./src/scoring_v3');
+      const board = db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all();
+      let rescored = 0;
+      for (const p of board) { try { if (computeAndLogV3(p.id)) rescored++; } catch (_) {} }
+      const tracked = db.prepare(`
+        SELECT m.id, m.team, m.pick_type, sb.v3_total, sb.v3_json FROM mvp_picks m
+        JOIN picks p ON p.espn_game_id = m.espn_game_id
+          AND LOWER(p.team) = LOWER(COALESCE(m.team, ''))
+          AND LOWER(p.pick_type) = LOWER(COALESCE(m.pick_type, ''))
+        JOIN score_breakdown sb ON sb.pick_id = p.id
+      `).all();
+      let demoted = 0;
+      for (const m of tracked) {
+        let gold = (m.v3_total ?? 0) >= 100;
+        try {
+          const j = JSON.parse(m.v3_json || '{}');
+          if (typeof j.gold === 'boolean') gold = j.gold;
+        } catch (_) {}
+        if (!gold) {
+          db.prepare(`DELETE FROM mvp_picks WHERE id = ?`).run(m.id);
+          demoted++;
+          console.log(`[startup] gate demotion: ${m.team} ${m.pick_type} (rescored ${m.v3_total}) off the MVP record`);
+        }
+      }
+      db.setSetting('v4_gate_rescore', new Date().toISOString());
+      console.log(`[startup] break-even gate rescore: ${rescored}/${board.length} picks, ${demoted} demoted gold(s) removed`);
+    }
+  } catch (err) { console.error('[startup] gate rescore error:', err.message); }
+
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
   stampActualEnds();
