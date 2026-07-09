@@ -394,12 +394,22 @@ router.get('/dashboard', requireAuth, (req, res) => {
       </div>`;
     })() : '';
 
+    const _capSeen = new Set();
     const mentionRows = raws.map(rm => {
       // Per-message attribution ONLY — never fall back to the pick's primary capper,
       // which made every mention look like the same capper when the reader failed to
       // catch a distinct leaked capper on that message. Unattributed = reader miss.
       const cap = rm.capper_name;
-      const pts = cap && contrib[cap] != null ? `<span style="color:#a08020;font-weight:600;">+${contrib[cap]} pts</span> · ` : '';
+      // A capper's points apply ONCE no matter how many messages they posted; show
+      // the pts chip on their first message only and mark later ones as repeats,
+      // so two mentions never read as double-counted.
+      const isRepeat = cap && _capSeen.has(cap);
+      if (cap) _capSeen.add(cap);
+      const pts = cap && contrib[cap] != null
+        ? (isRepeat
+            ? `<span style="color:#6b7488;font-size:11px;" title="Same capper posted this pick more than once. Their points counted once, on the first message.">repeat · counted once</span> · `
+            : `<span style="color:#a08020;font-weight:600;">+${contrib[cap]} pts</span> · `)
+        : '';
       const who = cap
         ? `${capperLink(cap, '', 'font-weight:700;')} · `
         : `<span style="color:#8892a4;font-style:italic;" title="The reader did not attribute a capper to this message">unattributed</span> · `;
@@ -3484,9 +3494,33 @@ router.post('/capper-alias', requireAuth, express.json(), (req, res) => {
   const { canonical, alias } = req.body || {};
   if (!canonical || !alias) return res.json({ ok: false, error: 'Both canonical and alias are required' });
   try {
+    const canon = canonical.trim(), al = alias.trim();
     db.prepare(`INSERT OR REPLACE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`)
-      .run(canonical.trim(), alias.trim());
-    res.json({ ok: true });
+      .run(canon, al);
+
+    // A merge must propagate NOW, not at the next nightly recompute. Otherwise
+    // today's board keeps showing the old name AND (worse) scoring goes stale:
+    // after a recompute folds the alias's history into the canonical pool, the
+    // alias name has no ratings row left, so its mentions score as untracked.
+    // 1. Rename the alias on today's live tables (display + scoring lookups).
+    const rmUpd = db.prepare(`UPDATE raw_messages SET capper_name = ? WHERE capper_name = ?`).run(canon, al).changes;
+    const pkUpd = db.prepare(`UPDATE picks SET capper_name = ? WHERE capper_name = ?`).run(canon, al).changes;
+    // 2. Repoint source handles so future scraper picks write the canonical name.
+    let handleUpd = 0;
+    try { handleUpd = db.prepare(`UPDATE capper_source_handles SET canonical_name = ? WHERE canonical_name = ?`).run(canon, al).changes; } catch (_) {}
+    // 3. Re-rank (combined record = new Wilson position) + rescore the board so
+    //    every pick the merged capper touches carries the right points.
+    let rescored = 0;
+    try {
+      require('./capper_ratings').recomputeCapperRatings();
+      const { computeAndLogV3 } = require('./scoring_v3');
+      for (const p of db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all()) {
+        try { if (computeAndLogV3(p.id)) rescored++; } catch (_) {}
+      }
+    } catch (err) {
+      console.warn('[capper-alias] recompute/rescore after merge failed:', err.message);
+    }
+    res.json({ ok: true, renamed_mentions: rmUpd, renamed_picks: pkUpd, handles: handleUpd, rescored });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
