@@ -2732,10 +2732,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
         modal.style.display = 'flex';
         content.innerHTML = '<div style="color:#8892a4;text-align:center;padding:40px;">Loading...</div>';
         try {
-          const data = await fetch('/admin/api/capper-detail/' + encodeURIComponent(name)).then(r => r.json());
+          const resp = await fetch('/admin/api/capper-detail/' + encodeURIComponent(name));
+          const raw  = await resp.text();
+          let data;
+          try { data = JSON.parse(raw); }
+          catch (_) { throw new Error('Non-JSON response (HTTP ' + resp.status + '): ' + raw.slice(0, 200)); }
+          if (!resp.ok || (data && data.error)) throw new Error((data && data.error) || ('HTTP ' + resp.status));
           renderCapperDetail(name, data);
-        } catch (_) {
-          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
+        } catch (e) {
+          console.error('[capper-detail load]', name, e);
+          const msg = String((e && e.message) || e).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.<br><span style="color:#8892a4;font-size:12px;">' + msg + '</span></div>';
         }
       }
 
@@ -2983,14 +2990,15 @@ router.get('/dashboard', requireAuth, (req, res) => {
           }
 
           // Per bet type WITHIN sport (from the materialized ratings)
-          const typeRows = (data.typeRatings || []).filter(t => t.picks >= 3).map(t =>
-            '<tr>'
+          const typeRows = (data.typeRatings || []).filter(t => t.picks >= 3).map(t => {
+            const u = Number(t.units) || 0, b = Number(t.blend) || 0;
+            return '<tr>'
             + '<td style="font-weight:600;">' + (t.sport || '—') + '</td>'
             + '<td style="color:#8892a4;">' + (t.pick_type || '—').toUpperCase() + '</td>'
-            + '<td><span style="color:#16a34a;">' + t.wins + '</span>-<span style="color:#ef4444;">' + t.losses + '</span>' + (t.pushes ? '-' + t.pushes + 'P' : '') + '</td>'
-            + '<td style="text-align:right;color:' + (t.units > 0 ? '#16a34a' : t.units < 0 ? '#ef4444' : '#8892a4') + ';font-weight:600;">' + (t.units >= 0 ? '+' : '') + t.units.toFixed(1) + 'u</td>'
-            + '<td style="text-align:right;color:' + (t.blend > 0 ? '#16a34a' : '#ef4444') + ';font-size:11px;">' + (t.blend > 0 ? '+' : '') + (t.blend * 100).toFixed(1) + '%</td>'
-            + '</tr>').join('');
+            + '<td><span style="color:#16a34a;">' + (t.wins || 0) + '</span>-<span style="color:#ef4444;">' + (t.losses || 0) + '</span>' + (t.pushes ? '-' + t.pushes + 'P' : '') + '</td>'
+            + '<td style="text-align:right;color:' + (u > 0 ? '#16a34a' : u < 0 ? '#ef4444' : '#8892a4') + ';font-weight:600;">' + (u >= 0 ? '+' : '') + u.toFixed(1) + 'u</td>'
+            + '<td style="text-align:right;color:' + (b > 0 ? '#16a34a' : '#ef4444') + ';font-size:11px;">' + (b > 0 ? '+' : '') + (b * 100).toFixed(1) + '%</td>'
+            + '</tr>'; }).join('');
           const typeTableHtml = typeRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By bet type within sport</div>'
               + '<table style="width:auto;min-width:340px;"><thead><tr><th>Sport</th><th>Type</th><th>Record</th><th style="text-align:right;">Units</th><th style="text-align:right;" title="Shrunk ROI blend used by scoring and fades">Blend</th></tr></thead><tbody>'
@@ -3033,8 +3041,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
             + sportTableHtml
             + typeTableHtml
             + tableHtml;
-        } catch (_) {
-          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error loading capper detail.</div>';
+        } catch (e) {
+          console.error('[capper-detail render]', name, e);
+          const msg = String((e && e.message) || e).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          content.innerHTML = '<div style="color:#ef4444;padding:16px;">Error rendering capper detail.<br><span style="color:#8892a4;font-size:12px;">' + msg + '</span></div>';
         }
       }
 
@@ -3911,7 +3921,12 @@ function buildCapperDetail(name) {
 
 // ── GET /admin/api/capper-detail/:name — JSON for capper detail modal ────────
 router.get('/api/capper-detail/:name', requireAuth, (req, res) => {
-  res.json(buildCapperDetail(decodeURIComponent(req.params.name)));
+  try {
+    res.json(buildCapperDetail(decodeURIComponent(req.params.name)));
+  } catch (err) {
+    console.error('[admin/capper-detail]', req.params.name, (err && err.stack) || err);
+    res.status(500).json({ error: 'capper-detail failed: ' + ((err && err.message) || err) });
+  }
 });
 
 // ── POST /admin/api/capper-scan/:name — resolve finished games, return fresh detail ─
