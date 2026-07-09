@@ -4,7 +4,7 @@ import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=2';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=2';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=3';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=8';
@@ -119,7 +119,10 @@ window.switchTab = switchTab;
 // paid tier, then cached it. Called on tab switch and again once auth resolves.
 function loadMvpTab() {
   const paid = isPaying();
-  if (state.mvpLoaded && state.mvpLoadedPaid === paid) return;
+  // Re-fetch when the cached render is over a minute old — the record bar,
+  // graph, and history must include games graded since the tab last rendered.
+  const stale = state.mvpLoadedAt && (Date.now() - state.mvpLoadedAt > 60_000);
+  if (state.mvpLoaded && state.mvpLoadedPaid === paid && !stale) return;
   state.mvpLoaded = true;
   state.mvpLoadedPaid = paid;
   if (paid) loadMvp(); else loadMvpPublic();
@@ -358,6 +361,9 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   setInterval(loadTopGames, REFRESH_MS);
   // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.
   setInterval(loadHomeSidebar, REFRESH_MS);
+  // Home MVP widget too — its record and P/L must fold in games graded during
+  // the session, not just what was final at page load.
+  setInterval(loadHomeMvp, REFRESH_MS);
 
   // Near-real-time refresh while a game is live: every 30s re-pull the live
   // surfaces (board scores, #1 card, Top Games tiles). Gated on a live game being

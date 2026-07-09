@@ -20,6 +20,7 @@ export async function loadMvp() {
     const res = await fetch('/api/mvp');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.mvpData = await res.json();
+    state.mvpLoadedAt = Date.now();
     renderMvpTab(state.mvpData, false);
   } catch (err) {
     console.error('[MVP] load error:', err);
@@ -33,6 +34,7 @@ export async function loadMvpPublic() {
     const res = await fetch('/api/mvp/public');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.mvpData = await res.json();
+    state.mvpLoadedAt = Date.now();
     renderMvpTab(state.mvpData, true);
   } catch (err) {
     console.error('[MVP public] load error:', err);
@@ -86,18 +88,21 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
   // GOLD ONLY on every Rankings surface. mvp_threshold is the silver line (75
   // under v3) and silvers must never appear here — the tracked tier is 100+.
   const goldLine = state.CONFIG?.mvp_display_threshold || 100;
-  const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= goldLine);
 
   const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance. CappingAlpha never wagers on any game.</p>`;
 
+  // Both sections render stable wrappers ALWAYS (live hidden when empty) so
+  // refreshMvpToday() can repopulate them on every picksUpdated — the tab used
+  // to snapshot allPicks once per session and could freeze on "No picks yet".
   const liveTodaySections = limited ? '' : `
-    ${liveMvpPicks.length > 0 ? `
+    <div id="mvp-live-section" style="display:none;">
       <div class="mvp-section-title">Live Games</div>
       <div class="card" style="margin-bottom:24px;">
         <div id="mvp-live-body"></div>
       </div>
-    ` : ''}
-    <div class="mvp-section-title">Today's Rankings</div>
+    </div>
+    <div class="mvp-section-title">Today's Top Picks</div>
+    <p style="color:var(--muted);font-size:12px;margin:-4px 0 10px;">Every pick that rated ${goldLine} or over today. Upcoming, live, and finished, each one tracked.</p>
     <div class="card" style="margin-bottom:24px;">
       <div id="mvp-today-body"></div>
     </div>`;
@@ -165,8 +170,28 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
       </div>
     </div>`;
 
-  if (liveMvpPicks.length > 0) {
-    renderMvpRows(liveMvpPicks, 'mvp-live-body', { useLiveScore: true });
+  refreshMvpToday();
+
+  // Belt and suspenders: history rows must carry a real gold score. The server
+  // already withholds pending pre-game rows; drop any scoreless stragglers.
+  renderMvpRows(picks.filter(p => p.score != null && p.score >= goldLine), 'mvp-history-body');
+  drawPlGraph(picks);
+}
+
+// ── Live + Today's Top Picks sections, rebuilt from the CURRENT board ─────────
+// Runs at render time AND on every picksUpdated, so the sections populate as
+// soon as the board loads and stay fresh all day (scores climb, games go live
+// and final) instead of freezing on whatever allPicks held at first render.
+export function refreshMvpToday() {
+  const todayBody = document.getElementById('mvp-today-body');
+  if (!todayBody) return; // Rankings tab not rendered (or limited view)
+  const goldLine = state.CONFIG?.mvp_display_threshold || 100;
+
+  const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= goldLine);
+  const liveWrap = document.getElementById('mvp-live-section');
+  if (liveWrap) {
+    liveWrap.style.display = liveMvpPicks.length ? '' : 'none';
+    if (liveMvpPicks.length) renderMvpRows(liveMvpPicks, 'mvp-live-body', { useLiveScore: true });
   }
 
   // Ties break by pick id (ascending) so the #1 MVP star lands on the same pick
@@ -175,17 +200,12 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     .filter(p => (p.score || 0) >= goldLine)
     .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
   if (todayMvps.length === 0) {
-    const el = document.getElementById('mvp-today-body');
-    if (el) el.innerHTML = `<div class="empty" style="padding:24px;"><p>No picks today yet.</p></div>`;
+    todayBody.innerHTML = `<div class="empty" style="padding:24px;"><p>No ${goldLine}+ picks today yet.</p></div>`;
   } else {
     renderMvpRows(todayMvps, 'mvp-today-body', { useLiveScore: true, showStar: true });
   }
-
-  // Belt and suspenders: history rows must carry a real gold score. The server
-  // already withholds pending pre-game rows; drop any scoreless stragglers.
-  renderMvpRows(picks.filter(p => p.score != null && p.score >= goldLine), 'mvp-history-body');
-  drawPlGraph(picks);
 }
+document.addEventListener('picksUpdated', refreshMvpToday);
 
 // ── MVP row rendering ─────────────────────────────────────────────────────────
 export function renderMvpRow(p, i, opts = {}) {
