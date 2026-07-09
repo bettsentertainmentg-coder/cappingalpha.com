@@ -47,13 +47,16 @@ function buildV3Timeline(pick) {
   let bd = null;
   try { bd = sb.v3_json ? JSON.parse(sb.v3_json) : null; } catch (_) {}
 
-  // Ordered, positive-only component steps. Base is the opening level; everything
-  // else stacks on in the order the score is built.
-  const base = bd?.base ?? 45;
-  const steps = [{ label: 'Base', pts: base }];
+  // Ordered, positive-only component steps in the order the score is built.
+  // Wilson era: the best backer's ladder points open the curve (base is 0 and
+  // omitted); pre-rescore rows may still carry a positive base and keep it.
+  const base = bd?.base ?? 0;
+  const steps = [];
+  if (base > 0) steps.push({ label: 'Base', pts: base });
   if (bd) {
-    if (bd.resume > 0)          steps.push({ label: bd.advocate ? `Resume · ${bd.advocate}` : 'Resume', pts: bd.resume });
-    if (bd.consensus > 0)       steps.push({ label: 'Consensus', pts: bd.consensus });
+    if (bd.resume > 0)          steps.push({ label: bd.advocate ? `Backer · ${bd.advocate}` : 'Backer', pts: bd.resume });
+    if (bd.consensus > 0)       steps.push({ label: 'Backer stack', pts: bd.consensus });
+    if ((bd.sport_pct?.pts ?? 0) > 0) steps.push({ label: 'Sport rank', pts: bd.sport_pct.pts });
     if ((bd.market?.pts ?? 0) > 0) steps.push({ label: 'Market', pts: bd.market.pts });
     if ((bd.lean?.pts ?? 0) > 0)   steps.push({ label: 'Side lean', pts: bd.lean.pts });
     if ((bd.sport_bonus ?? 0) > 0) steps.push({ label: 'Sport', pts: bd.sport_bonus });
@@ -61,6 +64,7 @@ function buildV3Timeline(pick) {
     if ((bd.conflict_offset ?? 0) > 0) steps.push({ label: 'Offset', pts: bd.conflict_offset });
   }
   const trueTotal = steps.reduce((s, e) => s + e.pts, 0);
+  const opening = steps[0]?.pts ?? 0; // the pre-ramp level: Base (legacy) or the best backer
 
   // THE SAME REVEAL PATH THE BIG NUMBER WALKED (Jack 2026-07-08): when the pick
   // has ramp state, replay the seeded chunk schedule — identical times and sizes
@@ -78,7 +82,7 @@ function buildV3Timeline(pick) {
       // Component boundaries in cumulative-points space (above the true base),
       // scaled onto the ramp's gap so labels track the chunk that reveals them.
       const gap = pick.leak_target - shownBase;
-      const compScale = gap / Math.max(1, trueTotal - base);
+      const compScale = gap / Math.max(1, trueTotal - opening);
       let cumComp = 0;
       const bounds = steps.slice(1).map(st => {
         cumComp += st.pts;
@@ -106,24 +110,25 @@ function buildV3Timeline(pick) {
     }
   }
 
-  // No breakdown yet, or a degenerate scale (non-ramping pick whose display is
-  // at/below base): a clean two-point rise so the chart still draws.
-  if (!bd || trueTotal <= base || displayScore <= base) {
-    const lo = Math.max(0, Math.min(base, Math.round(displayScore * 0.6)));
+  // No breakdown yet, or a degenerate scale (nothing above the opening step):
+  // a clean two-point rise so the chart still draws.
+  if (!bd || trueTotal <= opening || steps.length < 2) {
+    const lo = Math.max(0, Math.min(opening || displayScore, Math.round(displayScore * 0.6)));
     return [
-      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, step: 'Base', score: lo },
+      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, step: steps[0]?.label ?? 'Backer', score: lo },
       { ts: new Date(firstMs + span).toISOString(), delta: displayScore - lo, label: `+${displayScore - lo}`, step: 'Aggregate', score: displayScore },
     ];
   }
 
   // No ramp state (small-step picks): the component steps spread over the window.
-  const scale = (displayScore - base) / (trueTotal - base);
+  // Everything scales proportionally onto the display score, opening step first.
+  const scale = displayScore / Math.max(1, trueTotal);
   const n = steps.length;
   const events = [];
   let cumTrue = 0, prevDisp = 0;
   steps.forEach((st, i) => {
     cumTrue += st.pts;
-    const dispCum = i === 0 ? base : Math.round(base + (cumTrue - base) * scale);
+    const dispCum = Math.round(cumTrue * scale);
     const delta = dispCum - prevDisp;
     prevDisp = dispCum;
     const ts = i === 0 ? firstMs : firstMs + Math.round(span * (i / Math.max(1, n - 1)));

@@ -357,7 +357,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         ? `<tr><td style="padding:2px 10px 2px 0;color:#b7c0d0;">${label}${extra ? ` <span style="color:#6b7488;">${extra}</span>` : ''}</td><td style="text-align:right;font-weight:600;color:#e5e9f0;">+${pts}</td></tr>`
         : '';
       const joinRows = (bd.joiners || []).filter(j => (j.applied || 0) > 0)
-        .map(j => `<tr><td style="padding:1px 10px 1px 18px;color:#8892a4;">↳ ${capperLink(j.name)} <span style="color:#6b7488;">(base +${j.pts})</span></td><td style="text-align:right;color:#b7c0d0;">+${j.applied}</td></tr>`).join('');
+        .map(j => `<tr><td style="padding:1px 10px 1px 18px;color:#8892a4;">↳ ${capperLink(j.name)} <span style="color:#6b7488;">(solo worth +${j.pts})</span></td><td style="text-align:right;color:#b7c0d0;">+${j.applied}</td></tr>`).join('');
       const mkt = bd.market || {};
       const mktExtra = [mkt.edge_pts ? `edge +${mkt.edge_pts}` : '', mkt.steam_pts ? `steam +${mkt.steam_pts}` : '', mkt.contrarian_pts ? `contrarian +${mkt.contrarian_pts}` : ''].filter(Boolean).join(' · ');
       const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${capperLink(f.capper)} +${f.pts}`).join(', ');
@@ -365,10 +365,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <div style="padding:8px 12px;background:#12151d;border-radius:6px;margin-bottom:8px;">
         <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}</div>
         <table style="width:auto;margin:0;border:none;font-size:12px;">
-          ${row('Base', bd.base)}
-          ${row('Advocate resume', bd.resume, bd.advocate ? `· ${capperLink(bd.advocate)}` : '')}
-          ${row('Consensus', bd.consensus)}
+          ${(bd.base || 0) > 0 ? row('Base (legacy)', bd.base) : ''}
+          ${row('Best backer', bd.resume, bd.advocate
+            ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}]</span>` : ''}`
+            : '· untracked capper (flat)')}
+          ${row('Backer stack', bd.consensus)}
           ${joinRows}
+          ${(bd.sport_pct && bd.sport_pct.pts) ? row('Sport rank bonus', bd.sport_pct.pts, bd.sport_pct.rank ? `· #${bd.sport_pct.rank} in sport` : '') : ''}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
           ${row('Side lean', (bd.lean && bd.lean.pts) || 0, bd.lean && bd.lean.side ? `· ${escHtml(bd.lean.side)}` : '')}
           ${row('Sport bonus', bd.sport_bonus)}
@@ -807,7 +810,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
     `).all();
   } catch (_) {}
 
-  // Sort: most resolved picks first, then win%
+  // Sort: the Wilson ranking IS the leaderboard (rank 1 first, unranked last,
+  // then by volume). Every capper's percentile position decides what their
+  // picks are worth, so the default view is that ranking.
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
       const total = c.wins + c.losses + c.pushes;
@@ -821,10 +826,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
       return { name, ...c, total, winPct, units,
                rating: r ? (r.resume_points ?? 0) : null,
                tier: r?.tier ?? null, fade: r?.fade ?? null,
+               wilson: r?.wilson ?? null, wrank: r?.wilson_rank ?? null,
+               pctile: r?.percentile ?? null, band: r?.band ?? 'new',
+               pts: r?.pts ?? null, stackAdd: r?.stack_add ?? null,
+               decisionsR: r?.decisions ?? decided,
                srcList: [...srcUnion].sort() };
     })
     .filter(c => c.total > 0 || c.pending > 0)
-    .sort((a, b) => (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes) || (b.winPct ?? -1) - (a.winPct ?? -1));
+    .sort((a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
+      || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
+      || (b.winPct ?? -1) - (a.winPct ?? -1));
 
   // ── Suggested merges: fuzzy-match similar capper names for one-click aliasing ─
   function _normCap(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -918,8 +929,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
     tracking: ['TRACKING', '#3b4560', 'Under 10 graded picks. Nearly all rating credit is withheld until we see more.'],
   };
   const FADE_TIPS = {
-    watch:  ['FADE WATCH', '#f59e0b', '25+ picks with shrunk ROI at or below -8%. Display only: no score effect yet, could be variance.'],
-    active: ['FADE ACTIVE', '#ef4444', '40+ picks with shrunk ROI at or below -10% and losing in the specific sport/type. Their picks ADD points to the opposite side, scaled by how much we have seen them in that sport.'],
+    watch:  ['FADE WATCH', '#f59e0b', 'Bottom 25% of the Wilson ranking with a win rate of 45% or under across 5+ decisions. Their picks contribute 0 points.'],
+    active: ['FADE ACTIVE', '#ef4444', 'Bottom 25% of the Wilson ranking with a win rate of 40% or under across 15+ decisions. Their picks ADD points to the opposite side, scaled by their volume in that sport.'],
+  };
+  // Percentile band chips (the Wilson ladder). Label = the band, tooltip = what
+  // a pick from this capper is worth before the volume cap.
+  const BAND_META = {
+    'top3':     ['TOP 3%',  '#FFD700', 'Top 3% of the Wilson ranking. Picks worth 95 down to 76 points across the band.'],
+    '3-5':      ['3-5%',    '#f59e0b', 'Points 75 down to 66.'],
+    '5-15':     ['5-15%',   '#16a34a', 'Points 65 down to 51.'],
+    '15-25':    ['15-25%',  '#0ea5e9', 'Points 50 down to 41.'],
+    '25-35':    ['25-35%',  '#8b5cf6', 'Points 40 down to 31.'],
+    '35-45':    ['35-45%',  '#8892a4', 'Points 30 down to 21.'],
+    '45-75':    ['45-75%',  '#5c6577', 'Points 20 down to 11.'],
+    'bottom25': ['BTM 25%', '#ef4444', 'Bottom 25% of the ranking. Picks contribute 0 points; fade rules may apply.'],
+    'new':      ['NEW',     '#3b4560', 'No graded decisions yet. Picks are worth the flat 10 points.'],
+  };
+  const bandChip = (band) => {
+    const [label, color, tip] = BAND_META[band] || BAND_META['new'];
+    return `<span title="${escHtml(tip)}" style="background:${color}22;color:${color};border:1px solid ${color}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${label}</span>`;
   };
   const statusChips = (c) => {
     const chips = [];
@@ -948,8 +976,19 @@ router.get('/dashboard', requireAuth, (req, res) => {
         style="border:1px solid ${color}44;color:${color};background:${color}11;">${label} · ${srcCounts[s]}</button>`;
     }).join(' ');
 
+  const bandCounts = {};
+  for (const c of sortedCappers) bandCounts[c.band] = (bandCounts[c.band] || 0) + 1;
+  const bandFilterChips = Object.keys(BAND_META)
+    .filter(b => bandCounts[b])
+    .map(b => {
+      const [label, color] = BAND_META[b];
+      return `<button class="btn-sm band-filter-btn" data-band="${b}" onclick="filterCapperBand('${b}', this)"
+        style="border:1px solid ${color}44;color:${color};background:${color}11;">${label} · ${bandCounts[b]}</button>`;
+    }).join(' ');
+  const fadeCount = sortedCappers.filter(c => c.fade).length;
+
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Click a column to sort (click again to reverse). Click any row for the full capper profile. Rating = resume points the scoring system gives this capper today. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper's picks are worth. Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">SOURCE</span>
       <button class="btn-sm src-filter-btn active" data-src="all" onclick="filterCapperSrc('all', this)"
@@ -958,10 +997,18 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <input id="capper-search" type="text" placeholder="Search cappers..." oninput="searchCappers(this.value)"
         style="margin-left:auto;padding:5px 10px;background:#0d1017;border:1px solid #2a3142;border-radius:6px;color:#e6e9f0;font-size:13px;min-width:200px;">
     </div>
+    <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">BAND</span>
+      <button class="btn-sm band-filter-btn active" data-band="all" onclick="filterCapperBand('all', this)"
+        style="border:1px solid #3b4560;color:#e6e9f0;">All</button>
+      ${bandFilterChips}
+      ${fadeCount ? `<button class="btn-sm band-filter-btn" data-band="fade" onclick="filterCapperBand('fade', this)"
+        style="border:1px solid #ef444444;color:#ef4444;background:#ef444411;">FADE · ${fadeCount}</button>` : ''}
+    </div>
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Rating', 'num', 'Resume points the scoring formula gives this capper today (0-55). Computed from shrunk ROI x sport volume x long-term trust, recomputed nightly.')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -973,8 +1020,6 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const moneyColor = c.money > 0.005 ? '#16a34a' : c.money < -0.005 ? '#ef4444' : '#8892a4';
         const moneyStr   = (c.money >= 0 ? '+$' : '-$') + Math.abs(c.money).toFixed(0);
         const pushStr    = c.pushes > 0 ? `-<span style="color:#8892a4;">${c.pushes}</span>` : '';
-        const ratingStr  = c.rating != null ? c.rating : '—';
-        const ratingColor = c.rating == null ? '#3b4560' : c.rating >= 40 ? '#FFD700' : c.rating >= 20 ? '#16a34a' : c.rating > 0 ? '#8892a4' : '#3b4560';
         const sportCols  = allSports.map(s => {
           const sr = c.sports[s];
           if (!sr || (sr.wins + sr.losses + sr.pushes) === 0) return `<td data-sv="-9999" style="color:#3b4560;">—</td>`;
@@ -986,16 +1031,22 @@ router.get('/dashboard', requireAuth, (req, res) => {
           return `<td data-sv="${sr.money}" style="font-size:12px;white-space:nowrap;"><span style="color:${sc};">${sr.wins}-${sr.losses}</span><br><span style="color:${smColor};font-size:10px;font-weight:600;">${smStr}</span></td>`;
         }).join('');
         const fadeRow = c.fade ? 'box-shadow:inset 3px 0 0 #ef4444;' : '';
-        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" data-sources="${escHtml((c.srcList || []).join(','))}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
+        const capNote = c.pts != null && c.decisionsR < 30 && c.band !== 'bottom25' && c.band !== 'new' && !c.fade
+          ? `<span title="Volume cap: under 10 decisions caps at 50 points, 10-29 at 70. Uncapped at 30." style="color:#f59e0b;font-size:9px;font-weight:700;"> CAP</span>` : '';
+        const ptsColor = c.pts == null ? '#3b4560' : c.pts >= 76 ? '#FFD700' : c.pts >= 51 ? '#16a34a' : c.pts > 0 ? '#8892a4' : '#ef4444';
+        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" data-sources="${escHtml((c.srcList || []).join(','))}" data-band="${escHtml(c.band || 'new')}" data-fade="${c.fade ? 1 : 0}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
           <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">
             <div style="white-space:nowrap;">${escHtml(c.name)}</div>
             <div style="margin-top:2px;line-height:1;">${srcChips(c.srcList)}</div>
           </td>
+          <td data-sv="${c.wrank != null ? -c.wrank : -99999}" style="color:${c.wrank != null && c.wrank <= 10 ? '#FFD700' : '#8892a4'};font-weight:700;">${c.wrank != null ? '#' + c.wrank : '—'}</td>
+          <td data-sv="${c.wilson ?? -1}" style="color:#b7c0d0;font-size:12px;">${c.wilson != null ? c.wilson.toFixed(3) : '—'}</td>
+          <td data-sv="${escHtml(c.band || 'new')}" style="white-space:nowrap;">${bandChip(c.band)}</td>
+          <td data-sv="${c.pts ?? -1}" style="color:${ptsColor};font-weight:700;white-space:nowrap;">${c.pts != null ? Math.round(c.pts) : '—'}${capNote}</td>
           <td data-sv="${c.fade ? (c.fade === 'active' ? 4 : 3) : (c.tier === 'proven' ? 2 : c.tier === 'rated' ? 1 : 0)}" style="white-space:nowrap;">${statusChips(c)}</td>
           <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
-          <td data-sv="${c.rating ?? -1}" style="color:${ratingColor};font-weight:700;">${ratingStr}</td>
           <td data-sv="${c.units}" style="color:${unitColor};font-weight:700;">${c.total > 0 ? unitStr : '—'}</td>
           <td data-sv="${c.money}" style="color:${moneyColor};font-weight:700;">${c.total > 0 ? moneyStr : '—'}</td>
           ${sportCols}
@@ -2668,7 +2719,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       // ── Click-to-sort the capper leaderboard ───────────────────────────────────
       let capperSort = { col: -1, dir: -1 };
-      let _capFilter = { src: 'all', q: '' };
+      let _capFilter = { src: 'all', band: 'all', q: '' };
       function applyCapperFilters() {
         const table = document.getElementById('capper-leaderboard');
         if (!table) return;
@@ -2677,9 +2728,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
         Array.from(table.tBodies[0].rows).forEach(r => {
           const srcs = (r.getAttribute('data-sources') || '').split(',');
           const name = (r.getAttribute('data-capper') || '').toLowerCase();
+          const band = r.getAttribute('data-band') || 'new';
           const okSrc = _capFilter.src === 'all' || srcs.includes(_capFilter.src);
+          const okBand = _capFilter.band === 'all'
+            || (_capFilter.band === 'fade' ? r.getAttribute('data-fade') === '1' : band === _capFilter.band);
           const okQ = !q || name.includes(q);
-          const show = okSrc && okQ;
+          const show = okSrc && okBand && okQ;
           r.style.display = show ? '' : 'none';
           if (show) { shown++; r.cells[0].textContent = shown; } // re-rank visible rows
         });
@@ -2692,6 +2746,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
         btn.classList.add('active');
         btn.style.boxShadow = 'inset 0 -2px 0 currentColor';
         _capFilter.src = src;
+        applyCapperFilters();
+      }
+      function filterCapperBand(band, btn) {
+        document.querySelectorAll('.band-filter-btn').forEach(b => {
+          b.classList.remove('active');
+          b.style.boxShadow = '';
+        });
+        btn.classList.add('active');
+        btn.style.boxShadow = 'inset 0 -2px 0 currentColor';
+        _capFilter.band = band;
         applyCapperFilters();
       }
       function searchCappers(v) { _capFilter.q = v || ''; applyCapperFilters(); }
@@ -2858,25 +2922,31 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const wpStr      = winPct !== null ? '<span style="color:' + wpColor + ';font-size:16px;font-weight:700;">' + winPct + '%</span>' : '';
           const pendingStr = pending > 0 ? '<span style="color:#f59e0b;font-size:13px;">' + pending + ' pending</span>' : '';
 
-          // Per-sport breakdown (record + money + resume points today), most active first.
-          const sportPtsMap = {};
-          for (const sr of (data.sportRatings || [])) sportPtsMap[sr.sport] = sr.resume_points;
+          // Per-sport breakdown (record + money + in-sport Wilson standing + the
+          // sport rank bonus a pick gets when this capper is its best backer).
+          const sportRatingMap = {};
+          for (const sr of (data.sportRatings || [])) sportRatingMap[sr.sport] = sr;
           const sportRows = Object.entries(sportAgg)
             .filter(([s]) => s !== 'Unknown')
             .sort((a, b) => (b[1].wins + b[1].losses + b[1].pushes) - (a[1].wins + a[1].losses + a[1].pushes))
             .map(([s, a]) => {
-              const pts = sportPtsMap[s];
-              const ptsColor = pts == null ? '#3b4560' : pts >= 40 ? '#FFD700' : pts >= 20 ? '#16a34a' : '#8892a4';
+              const sr = sportRatingMap[s] || null;
+              const rankStr = sr && sr.wilson_rank != null
+                ? '#' + sr.wilson_rank + (sr.percentile != null ? ' <span style="color:#8892a4;font-size:10px;">(top ' + Math.max(1, Math.round(sr.percentile * 100)) + '%)</span>' : '')
+                : '—';
+              const bonus = sr ? (sr.sport_bonus_pts || 0) : 0;
+              const bColor = bonus >= 20 ? '#FFD700' : bonus >= 10 ? '#16a34a' : '#3b4560';
               return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
-              + '<td style="text-align:right;color:' + ptsColor + ';font-weight:700;">' + (pts != null ? pts : '—') + '</td>'
+              + '<td style="text-align:right;font-weight:700;">' + rankStr + '</td>'
+              + '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>'
               + '</tr>';
             }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:340px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Resume points a pick in this sport earns today (of 55)">Pts today</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%">Bonus</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
@@ -2928,7 +2998,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
             if (rating.fade) headerChips += chip(rating.fade === 'active' ? 'FADE ACTIVE' : 'FADE WATCH', '#ef4444');
             else if (rating.tier === 'proven') headerChips += chip('PROVEN', '#16a34a');
             else if (rating.tier === 'rated')  headerChips += chip('RATED', '#0ea5e9');
-            headerChips += ' ' + chip('RATING ' + (rating.resume_points ?? 0), rating.resume_points >= 40 ? '#FFD700' : '#8892a4');
+            // Wilson standing: rank + percentile band + what a pick is worth today
+            if (rating.wilson_rank != null) {
+              const pc = rating.percentile != null ? ' · top ' + Math.max(1, Math.round(rating.percentile * 100)) + '%' : '';
+              headerChips += ' ' + chip('RANK #' + rating.wilson_rank + pc, rating.wilson_rank <= 10 ? '#FFD700' : '#0ea5e9');
+            } else {
+              headerChips += ' ' + chip('UNRANKED', '#3b4560');
+            }
+            const pv = rating.pts != null ? Math.round(rating.pts) : 10;
+            headerChips += ' ' + chip('PTS/PICK ' + pv, pv >= 76 ? '#FFD700' : pv >= 51 ? '#16a34a' : '#8892a4');
+            if (rating.wilson != null) headerChips += ' ' + chip('WILSON ' + Number(rating.wilson).toFixed(3), '#8892a4');
             for (const s of (rating.sources || '').split(',').filter(Boolean)) {
               const sc = SRC_COLORS[s] || [s.slice(0,2).toUpperCase(), '#8892a4'];
               headerChips += ' ' + chip(sc[0], sc[1]);
@@ -3013,8 +3092,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
               .map(t => (t.sport || '?') + ' ' + (t.pick_type || '?').toUpperCase() + ' (' + t.wins + '-' + t.losses + ', ' + (t.blend*100).toFixed(1) + '%)')
               .join(' · ');
             fadePanelHtml = '<div style="margin-bottom:18px;padding:12px;border:1px solid #ef444455;border-radius:8px;background:#ef44440d;">'
-              + '<div style="font-size:12px;font-weight:800;color:#ef4444;letter-spacing:0.5px;margin-bottom:6px;">' + (rating.fade === 'active' ? 'FADE ACTIVE — opposite slots gain points when this capper posts' : 'FADE WATCH — flagged, no score effect yet') + '</div>'
-              + '<div style="font-size:12px;color:#c7cbd6;">Overall shrunk ROI ' + (rating.blend*100).toFixed(1) + '% over ' + rating.picks + ' graded picks.'
+              + '<div style="font-size:12px;font-weight:800;color:#ef4444;letter-spacing:0.5px;margin-bottom:6px;">' + (rating.fade === 'active' ? 'FADE ACTIVE — opposite slots gain points when this capper posts' : 'FADE WATCH — their picks contribute 0 points') + '</div>'
+              + '<div style="font-size:12px;color:#c7cbd6;">Bottom 25% of the Wilson ranking'
+              + (rating.wilson_rank != null ? ' (#' + rating.wilson_rank + ')' : '')
+              + ' at ' + (rating.win_pct != null ? rating.win_pct : '—') + '% over ' + (rating.decisions ?? rating.picks) + ' decisions.'
               + (badTypes ? '<br>Bleeding spots: ' + badTypes : '') + '</div></div>';
           }
 

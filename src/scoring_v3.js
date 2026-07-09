@@ -1,49 +1,26 @@
 // src/scoring_v3.js
-// CA Algorithm v3 scorer (docs/CA_ALGORITHM_V3.md). Runs ALONGSIDE v2 behind the
-// scoring_version setting: every scored pick gets its v3 component vector logged
-// into score_breakdown (v3_total, v3_json) from day one; the public site keeps
-// showing v2 until the Phase-5 calibration flips scoring_version to 'v3'.
+// THE WILSON PERCENTILE SCORER (Jack 2026-07-09; supersedes the resume engine —
+// see docs/CA_ALGORITHM_V3.md v4 section). A pick's score is who backs it:
 //
-// Components (all additive, never subtract from a pick):
-//   base 40 (flat, source-blind) + advocate resume 0-55 (best capper OR source
-//   entity) + consensus 0-12 (quality-weighted, steep diminish) + market signals
-//   0-8 at launch (full values logged) + side lean 0-5 (nightly, data-driven) +
-//   sport bonus 5 + price context 0 (logged) + fade points 0-8 (from the
-//   OPPOSITE slot's fade-active cappers) + conflict offset.
+//   best backer's ladder points (their percentile position in the all-capper
+//   Wilson ranking, slid within band, volume-capped — capper_ratings.pts)
+//   + each additional ranked backer's stack_add (half their band peak, capped)
+//   + in-sport bonus (+20 best backer is the sport's #1/top 5%, +10 top 25%)
+//   + market signals 0-8 + side lean 0-5 + sport bonus 5
+//   + fade points 0-8 (from the OPPOSITE slot's fade-active cappers) + offset.
 //
-// The leak rule (display score ramps, 20-50 min, finished before game start)
-// is implemented here but only ENGAGES when scoring_version === 'v3'.
+// DEAD: the flat base, the resume formula, join-consensus, source-entity
+// advocacy (@src:* rows are ops display only), and the earned-scale ratchet
+// (settings v3_scale/v3_scale_anchor sit dormant). A pick whose capper can't
+// be tracked gets a flat UNRANKED_PTS. Points are still never subtracted.
+//
+// The leak rule (chunked display reveal) is unchanged and only ENGAGES when
+// scoring_version === 'v3'.
 
 const db = require('./db');
 const ratingsLib = require('./capper_ratings');
 
-// ── Constants (starting values; Phase-5 backtest fits the final numbers) ──────
-// BASE and CONSENSUS_CAP live on the EARNED-SCALE RATCHET (settings v3_scale,
-// recomputed nightly by capper_ratings.computeScaleState — see the v3.2 section
-// of docs/CA_ALGORITHM_V3.md). Launch values 45/30; base tapers toward 25 as
-// the graded ledger grows, the consensus cap stretches toward 35 with it.
-// Cached briefly so per-mention scoring stays cheap.
-const SCALE_DEFAULTS = { BASE: 45, CON_CAP: 30 };
-let _scaleCache = { at: 0, val: SCALE_DEFAULTS };
-function liveScale() {
-  const now = Date.now();
-  if (now - _scaleCache.at > 30_000) {
-    let v = SCALE_DEFAULTS;
-    try {
-      const s = JSON.parse(db.getSetting('v3_scale', 'null'));
-      if (s && Number.isFinite(s.BASE)) v = { BASE: s.BASE, CON_CAP: s.CON_CAP ?? 30 };
-    } catch (_) {}
-    _scaleCache = { at: now, val: v };
-  }
-  return _scaleCache.val;
-}
-// Consensus rework (Jack 2026-07-08, replay-verified): joiners contribute a
-// FRACTION OF THEIR OWN RESUME, not a capped join score. Under the old join
-// points the consensus-driven golds ran 38% / -20% ROI (crowd size sneaking
-// back in); resume-stacking flips them to 56% / +13% — big consensus now only
-// happens when PROVEN cappers confirm. Extra voices taper by 0.6 each.
-const JOIN_RESUME_FRAC = 0.6;
-const JOIN_TAPER = 0.6;
+const UNRANKED_PTS = ratingsLib.UNRANKED_PTS; // no trackable capper / zero decisions
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const SPORT_BONUS = 5;
@@ -82,15 +59,23 @@ function mentionsFor(pickId) {
   } catch (_) { return []; }
 }
 
-// One joining capper's raw contribution: a fraction of their own sport resume.
-// No record yet = the floor (+2, presence noted, nothing pretended). Fade-list
-// joiners add 0 — agreement from a losing capper is not evidence.
-function joinPointsFor(name, sport) {
+// One backer's ladder standing from the materialized ratings. Fade cappers
+// contribute 0 (their negativity routes to the opposite slot instead). A capper
+// with no row or no decisions is 'unranked': worth the flat UNRANKED_PTS as the
+// best backer, nothing as a joiner.
+function backerLadder(name) {
   const o = overallRow(name);
-  if (!o) return 2;
-  if (o.fade === 'active' || o.fade === 'watch') return 0;
-  const s = sportRow(name, sport);
-  return Math.max(2, (s?.resume_points ?? 0) * JOIN_RESUME_FRAC);
+  if (!o || o.band === 'entity') return { name, pts: UNRANKED_PTS, stackAdd: 0, band: 'untracked', rank: null, pctile: null, fade: null };
+  if (o.fade) return { name, pts: 0, stackAdd: 0, band: o.band, rank: o.wilson_rank, pctile: o.percentile, fade: o.fade };
+  return {
+    name,
+    pts: o.pts != null ? o.pts : UNRANKED_PTS,
+    stackAdd: o.stack_add ?? 0,
+    band: o.band ?? 'new',
+    rank: o.wilson_rank ?? null,
+    pctile: o.percentile ?? null,
+    fade: null,
+  };
 }
 
 // ── Opposite slot (fade target) ───────────────────────────────────────────────
@@ -240,33 +225,31 @@ function computeV3(pickId) {
   if (!mentions.length && pick.capper_name) cappers.push(pick.capper_name);
   if (!channels.length && pick.channel) channels.push(pick.channel);
 
-  // Advocate resume: best mentioning capper vs best source entity
-  const capperCand = cappers
-    .map(name => ({ name, pts: sportRow(name, sport)?.resume_points ?? 0 }))
-    .sort((a, b) => b.pts - a.pts);
-  const entityCand = channels
-    .map(ch => ({ name: `@src:${ch}`, pts: sportRow(`@src:${ch}`, sport)?.resume_points ?? 0 }))
-    .sort((a, b) => b.pts - a.pts);
-  const bestCapper = capperCand[0] || null;
-  const bestEntity = entityCand[0] || null;
-  const advocate = (bestCapper?.pts ?? 0) >= (bestEntity?.pts ?? 0) ? bestCapper : bestEntity;
-  const resumePts = advocate?.pts ?? 0;
+  // Every distinct backer through the Wilson ladder, best first. Source
+  // entities never advocate — an anonymous pick (no attributed capper at all)
+  // is worth the flat UNRANKED_PTS, exactly like an untracked name.
+  const backers = cappers.map(backerLadder).sort((a, b) => b.pts - a.pts);
+  const best = backers[0] ?? null;
+  const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
+  const resumePts = advocate.pts;
 
-  // Consensus: everyone except the strongest capper, quality-weighted + diminish
-  const joiners = capperCand.filter(c => c.name !== bestCapper?.name);
-  const joinRaw = joiners
-    .map(j => ({ name: j.name, pts: joinPointsFor(j.name, sport) }))
-    .sort((a, b) => b.pts - a.pts);
+  // Stack: each ADDITIONAL ranked backer adds half their own band's peak
+  // (volume-capped, precomputed as capper_ratings.stack_add). Unranked and
+  // fade backers add nothing — agreement has to come from someone with a rank.
   let consensus = 0;
   const joinLog = [];
-  joinRaw.forEach((j, i) => {
-    const factor = Math.pow(JOIN_TAPER, i);
-    const p = j.pts * factor;
-    consensus += p;
-    joinLog.push({ name: j.name, pts: +j.pts.toFixed(1), applied: +p.toFixed(1) });
-  });
-  const scale = liveScale();
-  consensus = Math.min(scale.CON_CAP, Math.round(consensus));
+  for (const b of backers.slice(1)) {
+    if (b.stackAdd > 0) {
+      consensus += b.stackAdd;
+      joinLog.push({ name: b.name, pts: b.pts, applied: b.stackAdd });
+    }
+  }
+  consensus = Math.round(consensus);
+
+  // In-sport bonus: the best backer's standing inside THIS sport's Wilson pool
+  // (+20 for the sport's #1 or top 5%, +10 for top 25%). No volume cap.
+  const bestSport = best?.name ? sportRow(best.name, sport) : null;
+  const sportPctPts = bestSport?.sport_bonus_pts ?? 0;
 
   // Market signals
   const mkt = marketSignals(pick, game);
@@ -293,38 +276,39 @@ function computeV3(pickId) {
   // min(generated fade, that capper's join points) back. Nothing ever subtracts.
   const fadeIn = fadePointsInto(pick, sport);
   let offset = 0;
-  const ownFadeActive = cappers.some(n => overallRow(n)?.fade === 'active');
+  const ownFadeActive = backers.some(b => b.fade === 'active');
   if (ownFadeActive) {
-    const proven = capperCand.find(c => {
-      const o = overallRow(c.name);
-      return o && (o.blend ?? 0) > 0 && o.picks >= 10 && o.fade == null;
-    });
+    const proven = backers.find(b => !b.fade && b.stackAdd > 0);
     if (proven) {
       // what this slot's fade-active capper sent to the opposite side
       const opp = oppositeSlot(pick);
       const sentPts = opp ? fadePointsInto(opp, sport).pts : 0;
-      offset = Math.round(Math.min(sentPts, joinPointsFor(proven.name, sport)));
+      offset = Math.round(Math.min(sentPts, proven.stackAdd));
     }
   }
 
-  // Totals gold gate (tough but not hard): advocate's totals blend must be
-  // non-negative, or the pick clears gold on non-capper strength anyway.
+  // Totals gold gate (tough but not hard): the best backer's totals blend must
+  // be non-negative, or the pick clears gold on non-capper strength anyway.
   let totalsGateOk = true;
-  if (isTotal && advocate?.name && !advocate.name.startsWith('@src:')) {
+  if (isTotal && advocate.name) {
     const t = typeRow(advocate.name, sport, pt);
     totalsGateOk = !t || (t.blend ?? 0) >= 0;
   }
 
-  const total = scale.BASE + resumePts + consensus + marketPts + leanPts + sportBonus + fadeIn.pts + offset;
+  const total = Math.round(resumePts + consensus + sportPctPts + marketPts + leanPts + sportBonus + fadeIn.pts + offset);
 
   return {
     total,
     breakdown: {
-      base: scale.BASE,
+      base: 0, // retired — kept so old readers see an explicit zero
       resume: resumePts,
-      advocate: advocate?.name ?? null,
+      advocate: advocate.name,
+      advocate_band: best?.band ?? 'untracked',
+      advocate_rank: best?.rank ?? null,
+      advocate_pctile: best?.pctile ?? null,
       consensus,
       joiners: joinLog,
+      sport_pct: { pts: sportPctPts, rank: bestSport?.wilson_rank ?? null, pctile: bestSport?.percentile ?? null },
       market: { pts: marketPts, ...mkt },
       lean: { pts: leanPts, side: leanSide },
       sport_bonus: sportBonus,
@@ -333,7 +317,7 @@ function computeV3(pickId) {
       totals_gate_ok: totalsGateOk,
       gold: total >= 100 && totalsGateOk,
       silver: total >= 75 && total < 100,
-      scale: 'v3-100',
+      scale: 'v4-wilson',
     },
   };
 }

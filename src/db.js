@@ -1311,6 +1311,22 @@ try {
 } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_ratings_scope ON capper_ratings (scope)`); } catch (_) {}
 
+// Wilson percentile engine columns (Jack 2026-07-09 rework: capper percentile
+// rank drives pick points; base + resume + join-consensus retired).
+// Overall scope: wilson/rank/percentile/band over the all-capper pool, pts =
+// per-pick points after the band slide + volume cap, stack_add = what this
+// capper adds as an extra backer. Sport scopes: wilson/rank/percentile within
+// that sport's pool + sport_bonus_pts (20 top 5%, 10 top 25%).
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN wilson          REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN wilson_rank     INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN percentile      REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN band            TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN pts             REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN stack_add       REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN decisions       INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN win_pct         REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN sport_bonus_pts INTEGER`); } catch (_) {}
+
 // ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
 // AN experts registry (discovered from public expert pages; picks land in
 // capper_history via source_ingest with source='actionnetwork').
