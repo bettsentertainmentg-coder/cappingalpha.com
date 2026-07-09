@@ -77,6 +77,14 @@ function gateT(w, decisions) {
   return Math.max(0, Math.min(1, (shrunk - GATE_LO) / (GATE_HI - GATE_LO)));
 }
 
+// THE HARD ZERO (Jack 2026-07-09, night): a capper whose RAW win% is 49 or
+// below adds NOTHING to a pick — not the flat 10, no chip-in, no in-sport
+// bonus even where their sport rank is high. A demonstrated loser is worth
+// less than an unknown name (an anonymous pick still gets the flat 10; a pick
+// backed only by a sub-49% record scores 0 from that backer). Cappers with no
+// decisions have no win% and stay at the flat 10.
+const HARD_ZERO_WIN = 49;
+
 // In-sport bonus (applies to the pick's BEST backer, no volume cap):
 //   +20 = #1 of the sport pool or top 5% | +10 = top 25%
 const SPORT_TOP_PTS = 20, SPORT_GOOD_PTS = 10;
@@ -251,7 +259,8 @@ function recomputeCapperRatings() {
     }
   }
   rankPool(overallPool);
-  const winfo = new Map(); // canonical -> the overall wilson record
+  const winfo = new Map();    // canonical -> the overall wilson record
+  const hardZero = new Set(); // cappers whose raw win% <= HARD_ZERO_WIN: contribute NOTHING
   for (const m of overallPool) {
     const band = bandFor(m.pctile);
     const cap = capForDecisions(m.decisions);
@@ -259,12 +268,14 @@ function recomputeCapperRatings() {
     const fade = band.key === 'bottom25' && m.decisions >= FADE_ACTIVE_N && m.winPct <= FADE_ACTIVE_WIN ? 'active'
                : band.key === 'bottom25' && m.decisions >= FADE_WATCH_N  && m.winPct <= FADE_WATCH_WIN  ? 'watch'
                : null;
+    const zero = m.winPct <= HARD_ZERO_WIN;
+    if (zero) hardZero.add(m.key);
     const t = gateT(m.w, m.decisions); // break-even gate: 0 below 50% shrunk, 1 at 53%
     winfo.set(m.key, {
       wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4), band: band.key,
-      pts: (fade || band.key === 'bottom25') ? 0
+      pts: (zero || fade || band.key === 'bottom25') ? 0
          : +(UNRANKED_PTS + t * (Math.min(slid, cap) - UNRANKED_PTS)).toFixed(1),
-      stackAdd: (fade || band.key === 'bottom25') ? 0 : +(t * Math.min(band.peak, cap) / 2).toFixed(1),
+      stackAdd: (zero || fade || band.key === 'bottom25') ? 0 : +(t * Math.min(band.peak, cap) / 2).toFixed(1),
       decisions: m.decisions, winPct: +m.winPct.toFixed(1), fade,
     });
   }
@@ -285,10 +296,12 @@ function recomputeCapperRatings() {
     rankPool(poolArr);
     for (const m of poolArr) {
       // Break-even gate on the SPORT record: a losing in-sport résumé earns no
-      // in-sport bonus no matter where volume ranked it in the pool.
+      // in-sport bonus no matter where volume ranked it in the pool. The hard
+      // zero goes further: an overall win% at or below 49 earns no in-sport
+      // bonus even where the sport record itself is winning.
       const raw = m.wilson > 0 && (m.rank === 1 || m.pctile <= 0.05) ? SPORT_TOP_PTS
                 : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
-      const bonus = Math.round(gateT(m.w, m.decisions) * raw);
+      const bonus = hardZero.has(m.key) ? 0 : Math.round(gateT(m.w, m.decisions) * raw);
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),

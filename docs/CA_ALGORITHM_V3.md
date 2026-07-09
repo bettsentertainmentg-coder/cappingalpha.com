@@ -47,6 +47,7 @@ ONE deliberate exception: the 9-point cliff below the top band (76 -> 67, Jack
 | 35-45%     | 30 -> 21  |
 | 45-75%     | 20 -> 11  |
 | bottom 25% | 0 (fade evaluation applies) |
+| raw win% <= 49, ANY rank | 0 (the hard zero) |
 | 0 decisions / untrackable capper / unknown source | 10 flat |
 
 (2026-07-09 evening trim: 1-5% was 75->66, 5-15% was 65->51. Chip-ins follow
@@ -188,6 +189,22 @@ graded rows included):
   cannot collect the in-sport bonus — raw below 50% always shrinks below 50%,
   so the sport-record gate already zeroes it (Jack's explicit ask, verified on
   the live pool: zero sub-50% sport records carry a bonus).
+
+## The hard zero (2026-07-09 night, refinement #5)
+
+Jack's call, one step past the break-even gate: a capper whose RAW win% is 49
+or below adds NOTHING to a pick — not the flat 10, no chip-in, and no in-sport
+bonus even where their sport record is winning (the zero keys off the OVERALL
+win%). A demonstrated loser is worth less than an unknown name: an anonymous
+pick still gets the flat 10, a pick backed only by a sub-49% record gets 0
+from that backer. Cappers with no decisions have no win% and keep the flat 10;
+records between 49% and the 50% gate line keep the gate's flat 10.
+
+Implemented as HARD_ZERO_WIN in capper_ratings.js (winfo pts/stack_add + the
+hardZero set carried into the sport-bonus pass), so the scorer again needed no
+changes. Shipped with record-sync gen 2 (the one-time flag became a
+generational counter, v4_record_sync_gen — bump RECORD_SYNC_GEN in index.js
+whenever an engine change needs a same-day membership true-up).
 
 ## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
 

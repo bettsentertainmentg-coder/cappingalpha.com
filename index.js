@@ -2614,17 +2614,21 @@ app.listen(PORT, () => {
     }
   } catch (err) { console.error('[startup] ladder2 rescore error:', err.message); }
 
-  // Record sync boot (2026-07-09 late evening), one-time: the ladder2 boot,
-  // the P4D identity merges, and the norm-variant resolver fix each re-ranked
-  // the pool in sequence, so today's MVP membership was decided on three
-  // different snapshots (France ML survived demotion at >=100, then fell to 84
-  // two merges later). One final true-up against the CURRENT engine: rescore
-  // the board, then reconcile today's record BOTH ways — every tracked row
-  // that isn't gold anymore comes off, every gold board pick missing a row
-  // goes on (result synced from the board; started/graded included, this
-  // once), and surviving rows' scores align to the corrected totals.
+  // Record sync boot (2026-07-09, generational): any engine change that
+  // re-ranks mid-day leaves today's MVP membership decided on a stale snapshot
+  // (France ML survived demotion at >=100, then fell to 84 two merges later).
+  // Bump RECORD_SYNC_GEN when a change ships that needs a same-day true-up:
+  // the next boot rescoures the board on current ratings, then reconciles
+  // today's record BOTH ways — tracked rows that aren't gold anymore come off,
+  // gold board picks missing a row go on (result + final score mirrored;
+  // started/graded included), and surviving rows' scores align to the
+  // corrected totals.
+  //   gen 1 = ladder trim + P4D merges + resolver fix (2026-07-09 evening)
+  //   gen 2 = the hard zero: win% <= 49 contributes nothing (2026-07-09 night)
+  const RECORD_SYNC_GEN = 2;
   try {
-    if (db.getSetting('scoring_version', 'v2') === 'v3' && !db.getSetting('v4_record_sync')) {
+    const syncedGen = parseInt(db.getSetting('v4_record_sync_gen', db.getSetting('v4_record_sync') ? '1' : '0'), 10);
+    if (db.getSetting('scoring_version', 'v2') === 'v3' && syncedGen < RECORD_SYNC_GEN) {
       const { computeAndLogV3 } = require('./src/scoring_v3');
       const board = db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all();
       for (const p of board) { try { computeAndLogV3(p.id); } catch (_) {} }
@@ -2693,8 +2697,8 @@ app.listen(PORT, () => {
           console.warn('[startup] record-sync promotion failed for', p.team, p.pick_type, err.message);
         }
       }
-      db.setSetting('v4_record_sync', new Date().toISOString());
-      console.log(`[startup] record sync: ${demoted} off, ${promoted} on, ${synced} score(s) aligned`);
+      db.setSetting('v4_record_sync_gen', String(RECORD_SYNC_GEN));
+      console.log(`[startup] record sync (gen ${RECORD_SYNC_GEN}): ${demoted} off, ${promoted} on, ${synced} score(s) aligned`);
     }
   } catch (err) { console.error('[startup] record sync error:', err.message); }
 
