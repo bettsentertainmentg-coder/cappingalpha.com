@@ -21,6 +21,7 @@ const db = require('./db');
 const ratingsLib = require('./capper_ratings');
 
 const UNRANKED_PTS = ratingsLib.UNRANKED_PTS; // no trackable capper / zero decisions
+const STACK_MIN_DECISIONS = 20; // graded decisions required to chip in on another pick
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const SPORT_BONUS = 5;
@@ -65,12 +66,12 @@ function mentionsFor(pickId) {
 // best backer, nothing as a joiner.
 function backerLadder(name) {
   const o = overallRow(name);
-  if (!o || o.band === 'entity') return { name, pts: UNRANKED_PTS, stackAdd: 0, band: 'untracked', rank: null, pctile: null, fade: null };
-  if (o.fade) return { name, pts: 0, stackAdd: 0, band: o.band, rank: o.wilson_rank, pctile: o.percentile, fade: o.fade };
+  if (!o || o.band === 'entity') return { name, pts: UNRANKED_PTS, decisions: 0, band: 'untracked', rank: null, pctile: null, fade: null };
+  if (o.fade) return { name, pts: 0, decisions: o.decisions ?? 0, band: o.band, rank: o.wilson_rank, pctile: o.percentile, fade: o.fade };
   return {
     name,
     pts: o.pts != null ? o.pts : UNRANKED_PTS,
-    stackAdd: o.stack_add ?? 0,
+    decisions: o.decisions ?? 0,
     band: o.band ?? 'new',
     rank: o.wilson_rank ?? null,
     pctile: o.percentile ?? null,
@@ -233,16 +234,27 @@ function computeV3(pickId) {
   const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
   const resumePts = advocate.pts;
 
-  // Stack: each ADDITIONAL ranked backer adds half their own band's peak
-  // (volume-capped, precomputed as capper_ratings.stack_add). Unranked and
-  // fade backers add nothing — agreement has to come from someone with a rank.
+  // Stack (Jack 2026-07-09, refined live): each ADDITIONAL backer chips in half
+  // of THEIR OWN WORTH (their capped solo ladder points), tapering by PAIRS
+  // WITHIN THEIR BAND — a band's 1st-2nd joiners add 1/2, its 3rd-4th add 1/4,
+  // and so on. CHIP-IN FLOOR: a backer needs 20+ graded decisions before they
+  // can boost someone else's pick at all (their own picks score regardless) —
+  // without it, piles of thin 5-1 wallets minted 200-point crowd golds.
+  // Unranked, bottom-band, and fade backers never stack.
   let consensus = 0;
   const joinLog = [];
+  const bandSeen = {};
   for (const b of backers.slice(1)) {
-    if (b.stackAdd > 0) {
-      consensus += b.stackAdd;
-      joinLog.push({ name: b.name, pts: b.pts, applied: b.stackAdd });
+    if (b.fade || b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
+    if (b.decisions < STACK_MIN_DECISIONS) {
+      joinLog.push({ name: b.name, pts: b.pts, applied: 0, floored: true });
+      continue;
     }
+    const k = bandSeen[b.band] || 0;
+    const add = b.pts / Math.pow(2, Math.floor(k / 2) + 1);
+    bandSeen[b.band] = k + 1;
+    consensus += add;
+    joinLog.push({ name: b.name, pts: b.pts, applied: +add.toFixed(1) });
   }
   consensus = Math.round(consensus);
 
@@ -278,12 +290,12 @@ function computeV3(pickId) {
   let offset = 0;
   const ownFadeActive = backers.some(b => b.fade === 'active');
   if (ownFadeActive) {
-    const proven = backers.find(b => !b.fade && b.stackAdd > 0);
+    const proven = backers.find(b => !b.fade && b.pts > 0 && b.decisions >= STACK_MIN_DECISIONS);
     if (proven) {
       // what this slot's fade-active capper sent to the opposite side
       const opp = oppositeSlot(pick);
       const sentPts = opp ? fadePointsInto(opp, sport).pts : 0;
-      offset = Math.round(Math.min(sentPts, proven.stackAdd));
+      offset = Math.round(Math.min(sentPts, proven.pts / 2));
     }
   }
 
