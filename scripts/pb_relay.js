@@ -31,9 +31,9 @@ const INTERVAL_MS      = 60 * 60 * 1000; // 1 hour
 const BOVADA_TENNIS_URL =
   'https://www.bovada.lv/services/sports/event/coupon/events/A/description/tennis?marketFilterId=def&lang=en';
 
-const SPORTS = ['NBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer'];
+const SPORTS = ['NBA', 'WNBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer'];
 const AN_SLUG = {
-  NBA: 'nba', NFL: 'nfl', MLB: 'mlb',
+  NBA: 'nba', WNBA: 'wnba', NFL: 'nfl', MLB: 'mlb',
   NHL: 'nhl', NCAAF: 'college-football', CBB: 'ncaab',
   // ActionNetwork splits soccer by competition, so Soccer fans out over several
   // pages; every batch relays under the one 'Soccer' sport. Out-of-season pages

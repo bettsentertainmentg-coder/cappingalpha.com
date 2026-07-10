@@ -4156,7 +4156,7 @@ router.post('/ingest-public-betting', (req, res) => {
     }
 
     const { sport, games } = req.body;
-    const VALID_SPORTS = ['NBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB', 'Soccer'];
+    const VALID_SPORTS = ['NBA', 'WNBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB', 'Soccer'];
     if (!VALID_SPORTS.includes(sport) || !Array.isArray(games)) {
       return res.status(400).send('Invalid payload');
     }
