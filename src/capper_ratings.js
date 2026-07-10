@@ -31,10 +31,11 @@ const WILSON_Z = 2.576; // 99% confidence
 // The ladder: points slide linearly inside each band from peak (top of band)
 // down to floor (bottom of band). Floors sit one point above the next peak so
 // the curve stays strictly rank-ordered — EXCEPT the deliberate cliff below
-// the top band (76 -> 67, Jack 2026-07-09 evening): full influence is a top-1%
-// privilege, and the 1-5% band starts 9 points below it, not 1.
+// the top band (70 -> 67, Jack 2026-07-09: top1 trimmed 95-76 -> 80-70 late
+// night): full influence is a top-1% privilege, but even the #1 capper alone
+// no longer clears gold without real company.
 const LADDER = [
-  { lo: 0.00, hi: 0.01,  peak: 95, floor: 76, key: 'top1'     },
+  { lo: 0.00, hi: 0.01,  peak: 80, floor: 70, key: 'top1'     },
   { lo: 0.01, hi: 0.05,  peak: 67, floor: 61, key: '1-5'      },
   { lo: 0.05, hi: 0.15,  peak: 60, floor: 51, key: '5-15'     },
   { lo: 0.15, hi: 0.25,  peak: 50, floor: 41, key: '15-25'    },

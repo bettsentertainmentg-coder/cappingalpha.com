@@ -2626,7 +2626,8 @@ app.listen(PORT, () => {
   //   gen 1 = ladder trim + P4D merges + resolver fix (2026-07-09 evening)
   //   gen 2 = the hard zero: win% <= 49 contributes nothing (2026-07-09 night)
   //   gen 3 = chip-in floor 20 -> 12 decisions (2026-07-09 night)
-  const RECORD_SYNC_GEN = 3;
+  //   gen 4 = top-1% band trimmed 95-76 -> 80-70 (2026-07-09 late night)
+  const RECORD_SYNC_GEN = 4;
   try {
     const syncedGen = parseInt(db.getSetting('v4_record_sync_gen', db.getSetting('v4_record_sync') ? '1' : '0'), 10);
     if (db.getSetting('scoring_version', 'v2') === 'v3' && syncedGen < RECORD_SYNC_GEN) {

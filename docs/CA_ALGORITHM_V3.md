@@ -39,7 +39,7 @@ ONE deliberate exception: the 9-point cliff below the top band (76 -> 67, Jack
 
 | Band       | Points    |
 |------------|-----------|
-| top 1%     | 95 -> 76  |
+| top 1%     | 80 -> 70  |
 | 1-5%       | 67 -> 61  |
 | 5-15%      | 60 -> 51  |
 | 15-25%     | 50 -> 41  |
@@ -101,7 +101,7 @@ Jack's call, twice refined: first "remove stacking", then restored as "each
 additional backer in a band adds HALF that band's peak", scoped to ANY ranked
 backer (Jack chose this over top-15%-only knowing the trade-off: enough mid-tier
 backers can still accumulate; the halving is the damper). Two top-band cappers on
-one side = 95ish + 47.5. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
+one side = 80ish + 40. Five 45-75% backers = 20 + 4 x 10 = 60, still no gold.
 
 ## Top band narrowed to 1% (2026-07-09, same-day refinement)
 
@@ -189,6 +189,15 @@ graded rows included):
   cannot collect the in-sport bonus — raw below 50% always shrinks below 50%,
   so the sport-record gate already zeroes it (Jack's explicit ask, verified on
   the live pool: zero sub-50% sport records carry a bonus).
+
+## Top band trimmed to 80-70 (2026-07-09 late night, refinement #7)
+
+The top-1% band drops 95->76 to 80->70 (Jack's call; the cliff to the 1-5%
+band shrinks to 70 -> 67). Consequences: even the #1 capper alone (80) no
+longer clears gold — a solo top-band pick needs the sport-rank bonus and/or
+real chip-ins to cross 100, so every gold is a top name PLUS corroboration.
+Chip-ins follow automatically (a top-band joiner stacks 40 pre-gate, was
+47.5). Shipped as record-sync gen 4.
 
 ## Chip-in floor lowered to 12 (2026-07-09 night, refinement #6)
 
