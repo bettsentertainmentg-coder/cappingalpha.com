@@ -4005,7 +4005,7 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
     return res.status(401).send('Unauthorized');
   }
-  const { id, spread, result, home_score, away_score, ml_odds, ou_odds } = req.body || {};
+  const { id, spread, result, home_score, away_score, ml_odds, ou_odds, annotation } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id required' });
   const VALID_RESULTS = ['win', 'loss', 'push', 'pending'];
   if (result && !VALID_RESULTS.includes(result)) return res.status(400).json({ error: 'invalid result' });
@@ -4016,6 +4016,10 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   if (away_score  !== undefined) { sets.push('away_score = ?');  vals.push(away_score); }
   if (ml_odds     !== undefined) { sets.push('ml_odds = ?');     vals.push(ml_odds); }
   if (ou_odds     !== undefined) { sets.push('ou_odds = ?');     vals.push(ou_odds); }
+  // annotation: pass null to CLEAR a stale void note — the public P/L excludes
+  // any row whose annotation says "not counted", so un-voiding a pick isn't
+  // complete until its annotation is wiped.
+  if (annotation  !== undefined) { sets.push('annotation = ?');  vals.push(annotation); }
   if (!sets.length) return res.status(400).json({ error: 'nothing to update' });
   vals.push(id);
   const info = db.prepare(`UPDATE mvp_picks SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
