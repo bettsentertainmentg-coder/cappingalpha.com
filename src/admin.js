@@ -475,8 +475,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
       : '<span style="color:#3b4560;font-size:11px;">—</span>';
 
     // Breakdown cell: v3 component summary (live) or the v2 channel breakdown.
+    // Base is retired (always 0 under v4) — it only renders if a legacy row
+    // somehow carries a positive one, same rule as the aggregation panel.
     const breakdown = (v3Now && bd)
-      ? `base ${bd.base}${bd.resume ? ` · rez +${bd.resume}` : ''}${bd.consensus ? ` · cons +${bd.consensus}` : ''}${(bd.market && bd.market.pts) ? ` · mkt +${bd.market.pts}` : ''}${bd.sport_bonus ? ` · sport +${bd.sport_bonus}` : ''}${(bd.fade_in && bd.fade_in.pts) ? ` · fade +${bd.fade_in.pts}` : ''}`
+      ? [
+          (bd.base || 0) > 0 ? `base ${bd.base}` : '',
+          bd.resume ? `rez +${bd.resume}` : '',
+          bd.consensus ? `cons +${bd.consensus}` : '',
+          (bd.market && bd.market.pts) ? `mkt +${bd.market.pts}` : '',
+          bd.sport_bonus ? `sport +${bd.sport_bonus}` : '',
+          (bd.fade_in && bd.fade_in.pts) ? `fade +${bd.fade_in.pts}` : '',
+        ].filter(Boolean).join(' · ') || '—'
       : (p.channel_points != null ? `ch:${p.channel_points} sport:${p.sport_bonus} home:${p.home_bonus} = ${p.sb_total}` : '—');
 
     const matchup = (p.away_team && p.home_team)
