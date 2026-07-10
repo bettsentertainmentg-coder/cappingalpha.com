@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=2';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=43';
+import { loadUserBets, setBetsData } from './track.js?v=45';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 

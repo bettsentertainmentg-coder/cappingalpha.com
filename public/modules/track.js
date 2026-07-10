@@ -756,7 +756,10 @@ export async function trackFromGame() {
   renderSportDropdown();
   mountParlayTray(); // keep a running parlay visible while picking another game
   try {
-    const res = await fetch('/api/games');
+    // board=1: today_games can hold future-dated rows (the odds engine seeds
+    // multi-day book coverage), so scope the Today list to today's board day.
+    // Other days come from the schedule feed via the date stepper.
+    const res = await fetch('/api/games?board=1');
     _trackGames = res.ok ? await res.json() : [];
   } catch (_) { _trackGames = []; }
   renderSportDropdown();
@@ -1230,6 +1233,10 @@ const BOOK_LABELS = {
 // Keep in sync with OFFSHORE in game-detail.js and OFFSHORE_BOOKS in odds_ingest.js.
 const OFFSHORE_BOOKS = new Set(['bovada', 'betonline', 'thunderpick', 'pinnacle', 'mybookie', 'betus']);
 const isOffshoreLabel = (lbl) => OFFSHORE_BOOKS.has(String(lbl).toLowerCase().replace(/[^a-z0-9]/g, ''));
+// Prediction markets: tagged purple (the detail page's Public markets group color)
+// and sorted between the regular books and offshore in the compare table.
+const PUBLIC_MARKET_BOOKS = new Set(['kalshi', 'polymarket', 'novig', 'prophetx']);
+const isMarketLabel = (lbl) => PUBLIC_MARKET_BOOKS.has(String(lbl).toLowerCase().replace(/[^a-z0-9]/g, ''));
 
 // Per-book odds + line for a slot, from the books we scrape. Spread juice isn't stored
 // per book (it's a flat -110); the meaningful spread number is the LINE. Powers the
@@ -1292,23 +1299,21 @@ function orderedFormBooks() {
 
 function renderBookBubbles() {
   const c = _confirm; if (!c) return '';
-  // No My Books saved: don't guess with every priced book — prompt the picker
-  // instead. Its X closes straight back onto this slide, and the myBooksChanged
-  // listener below swaps this prompt for real chips the moment they save.
+  // No My Books saved: show every book we have a price for (bookBubbleEntries
+  // already returns that set), with a picker chip at the end to narrow it down.
+  // Hiding all books behind the picker prompt meant most users never saw a
+  // single book label here.
   const mine = Array.isArray(window._myBooks) ? window._myBooks : [];
-  if (!mine.length) {
-    return `
-    <button type="button" class="lc-books-prompt" onclick="openBookPicker()">
-      <i class="fa-solid fa-book-open"></i> Select your sportsbooks
-      <span class="lc-books-prompt-sub">Pick where you bet to get one-tap book chips here. The compare table below still works.</span>
-    </button>`;
-  }
   const fmtO = o => (o == null ? '' : o > 0 ? '+' + o : '' + o);
   const chips = bookBubbleEntries().map(e => `
     <button type="button" class="lc-book-chip${c.book === e.label ? ' active' : ''}" data-book="${e.label}" onclick="pickConfirmBook('${e.sel}')">
       ${e.label}${e.odds != null ? `<span class="lc-chip-odds">${fmtO(e.odds)}</span>` : ''}
     </button>`).join('');
-  return chips + `<button type="button" class="lc-book-chip${c.book === 'Other' ? ' active' : ''}" data-book="Other" onclick="pickConfirmBook('other')">Other</button>`;
+  const pickerChip = mine.length ? '' : `
+    <button type="button" class="lc-book-chip" onclick="openBookPicker()" title="Pick where you bet to keep only your books here">
+      <i class="fa-solid fa-book-open"></i> My books
+    </button>`;
+  return chips + `<button type="button" class="lc-book-chip${c.book === 'Other' ? ' active' : ''}" data-book="Other" onclick="pickConfirmBook('other')">Other</button>` + pickerChip;
 }
 
 // Repaint the bubble row live when the picker modal saves while the slide is open.
@@ -1414,13 +1419,16 @@ export function openLineConfirm(id, slot, label, caOdds) {
 // The book picker IS the compare table: every book's price for this pick, side by
 // side, so the user line-shops right where they choose the book. Best payout is
 // highlighted green; tapping a row selects that book AND loads its number onto the
-// ticket. Offshore books are tagged. Ends with an Other row for unlisted books.
+// ticket. Rows sort Books, then Public markets, then Offshore (the detail page's
+// group order), with markets and offshore tagged. Ends with an Other row.
 function renderBookCompare() {
   const c = _confirm; if (!c) return '';
   // One unified list: scraped books (index i -> pickConfirmBook(i)) + the implied
   // market ('imp'). Best price = highest decimal odds (biggest payout for the side).
   const entries = c.books.map((b, i) => ({ ...b, sel: String(i) }));
   if (c.imp) entries.push({ ...c.imp, sel: 'imp' });
+  const groupOf = (b) => (isOffshoreLabel(b) ? 2 : isMarketLabel(b) ? 1 : 0);
+  entries.sort((x, y) => groupOf(x.book) - groupOf(y.book));
   let bestDec = -Infinity;
   for (const e of entries) { const d = americanToDecimal(e.odds); if (d != null && d > bestDec) bestDec = d; }
   const fmtO = o => (o == null ? '—' : o > 0 ? '+' + o : '' + o);
@@ -1434,9 +1442,12 @@ function renderBookCompare() {
     const dec = americanToDecimal(e.odds);
     const best = dec != null && Math.abs(dec - bestDec) < 1e-9;
     const off = isOffshoreLabel(e.book);
+    const mkt = !off && isMarketLabel(e.book);
+    const tag = off ? '<span class="lc-cmp-off">offshore</span>'
+              : mkt ? '<span class="lc-cmp-off lc-cmp-mkt">public market</span>' : '';
     const ls = lineStr(e.line);
     return `<button type="button" class="lc-cmp-row${best ? ' best' : ''}${c.book === e.book ? ' active' : ''}" data-book="${e.book}" onclick="pickConfirmBook(${e.sel === 'imp' ? "'imp'" : e.sel})">
-      <span class="lc-cmp-book">${e.book}${off ? '<span class="lc-cmp-off">offshore</span>' : ''}</span>
+      <span class="lc-cmp-book">${e.book}${tag}</span>
       <span class="lc-cmp-line">${ls || ''}</span>
       <span class="lc-cmp-odds">${fmtO(e.odds)}</span>
     </button>`;
