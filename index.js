@@ -2703,6 +2703,36 @@ app.listen(PORT, () => {
     }
   } catch (err) { console.error('[startup] record sync error:', err.message); }
 
+  // One-time (2026-07-09): capper_history.score carried the raw v2 stamp under
+  // v3, so profile pick lists rendered France ML at 40 while the pick reached
+  // 144. True up every row that has an archived v3 total (matched on pick_id +
+  // game_date; v2-era rows have no v3_total and stay untouched). Raw originals
+  // preserved in score_v2_original. Grade-time writes now stamp the v3 total
+  // and the profile endpoint overlays fresh totals at read time.
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3' && !db.getSetting('v4_capper_score_v3')) {
+      const info = db.prepare(`
+        UPDATE capper_history SET
+          score_v2_original = COALESCE(score_v2_original, score),
+          score = (
+            SELECT ph.v3_total FROM pick_history ph
+            WHERE ph.pick_id = capper_history.pick_id
+              AND COALESCE(ph.game_date, '') = COALESCE(capper_history.game_date, '')
+              AND ph.v3_total IS NOT NULL
+            LIMIT 1
+          )
+        WHERE pick_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM pick_history ph
+          WHERE ph.pick_id = capper_history.pick_id
+            AND COALESCE(ph.game_date, '') = COALESCE(capper_history.game_date, '')
+            AND ph.v3_total IS NOT NULL
+        )
+      `).run();
+      db.setSetting('v4_capper_score_v3', new Date().toISOString());
+      console.log(`[startup] capper_history v3 score backfill: ${info.changes} row(s) trued up`);
+    }
+  } catch (err) { console.error('[startup] capper score backfill error:', err.message); }
+
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
   stampActualEnds();

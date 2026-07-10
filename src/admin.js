@@ -4054,12 +4054,35 @@ function buildCapperDetail(name) {
   // if its stored score is missing. score >= MVP_THRESHOLD is the primary signal.
   const mvpKey = (gid, team, pt) => (gid || '') + '|' + (team || '').toLowerCase() + '|' + (pt || '').toLowerCase();
   const mvpSet = new Set();
+  const mvpScores = new Map();
   try {
-    for (const r of db.prepare(`SELECT espn_game_id, team, pick_type FROM mvp_picks`).all()) {
-      mvpSet.add(mvpKey(r.espn_game_id, r.team, r.pick_type));
+    for (const r of db.prepare(`SELECT espn_game_id, team, pick_type, score FROM mvp_picks`).all()) {
+      const k = mvpKey(r.espn_game_id, r.team, r.pick_type);
+      mvpSet.add(k);
+      if (r.score != null) mvpScores.set(k, r.score);
     }
   } catch (_) {}
   const v3Now = db.getSetting('scoring_version', 'v2') === 'v3';
+  // v3: capper_history.score can carry the raw v2 stamp (older grade-time
+  // writes) or go stale after a post-grade rescore. Overlay the archived v3
+  // total (pick_history is refreshed by every rescore), then the tracked MVP
+  // score, so the profile lists show the number the pick actually reached
+  // (France ML rendered 40 while the pick sat at 144).
+  if (v3Now) {
+    const v3Map = new Map();
+    try {
+      for (const r of db.prepare(
+        `SELECT pick_id, game_date, v3_total FROM pick_history WHERE v3_total IS NOT NULL AND pick_id IS NOT NULL`
+      ).all()) {
+        v3Map.set(r.pick_id + '|' + (r.game_date || ''), r.v3_total);
+      }
+    } catch (_) {}
+    for (const p of picks) {
+      p.score = v3Map.get(p.pick_id + '|' + (p.game_date || ''))
+             ?? mvpScores.get(mvpKey(p.espn_game_id, p.team, p.pick_type))
+             ?? p.score;
+    }
+  }
   const mvpLine  = v3Now ? 100 : MVP_THRESHOLD;
   const highLine = v3Now ? 55  : 35;
   for (const p of picks) {

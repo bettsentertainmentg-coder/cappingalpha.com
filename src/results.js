@@ -513,6 +513,17 @@ function writeBackerGrades(pick, result) {
   if (!backers.size) return 0;
   const betOdds = capperBetOdds(pick);
   const isTotal = ['over', 'under'].includes((pick.pick_type || '').toLowerCase());
+  // v3: stamp the pick's v3 total as the row's score. picks.score is the raw
+  // v2 number, which is what profile lists used to render (France ML showed
+  // 40 while the pick sat at 144). score_breakdown is still present here
+  // (grade time is pre-wipe).
+  let scoreStamp = pick.score ?? null;
+  try {
+    if (db.getSetting('scoring_version', 'v2') === 'v3') {
+      const sb = db.prepare(`SELECT v3_total FROM score_breakdown WHERE pick_id = ?`).get(pick.id);
+      if (sb?.v3_total != null) scoreStamp = sb.v3_total;
+    }
+  } catch (_) {}
   let written = 0;
   for (const [capper, channel] of backers) {
     const already = db.prepare(`
@@ -537,7 +548,7 @@ function writeBackerGrades(pick, result) {
         pick.espn_game_id ?? null,
         pick.game_date    ?? null,
         channel           ?? null,
-        pick.score        ?? null,
+        scoreStamp,
         result,
         pick.id,
         betOdds,
@@ -807,7 +818,7 @@ async function resolveResults() {
           `).run(
             capper, ph.sport ?? null, ph.pick_type ?? null, ph.team ?? null,
             ph.spread ?? null, ph.espn_game_id ?? null, ph.game_date ?? null,
-            channel ?? null, ph.score ?? null, result, ph.pick_id, phOdds,
+            channel ?? null, ph.v3_total ?? ph.score ?? null, result, ph.pick_id, phOdds,
             phSource, phIsTotal ? 0 : (ph.is_home_team ?? null)
           );
         } catch (_) {}
