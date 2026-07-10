@@ -335,6 +335,21 @@ async function cycle() {
     stats.events = { error: err.message.slice(0, 120) };
   }
 
+  // LINES LOCK AT GAME START: never relay in-play prices. Books keep pricing
+  // live games (Bovada's coupon includes them by design) and those rows were
+  // overwriting the closing line on the site with drifting in-play odds. Rows
+  // without a start_time can't be judged here — the site-side ingest guard
+  // (odds_ingest.js gameHasStarted) covers them after the next deploy.
+  const now = Date.now();
+  const preStart = all.filter(r => {
+    const t = r.start_time ? Date.parse(r.start_time) : NaN;
+    return isNaN(t) || t > now;
+  });
+  if (preStart.length < all.length) {
+    stats.dropped_started = all.length - preStart.length;
+  }
+  all = preStart;
+
   // Partial-game rows (period 'F5'/'1H') go to their OWN endpoint: a server
   // older than this engine 404s them harmlessly instead of storing F5 numbers
   // as full-game lines. Full-game rows keep the original endpoint.
