@@ -181,10 +181,10 @@ function buildResolver() {
     }
   } catch (_) {}
   // NORM-IDENTICAL VARIANTS: 'Picks4Dayzzz' and 'Picks 4 Dayzzz' normalize to
-  // the same key, so the admin merge endpoint rejects the pair as a self-merge
-  // and no alias row can ever link them — yet as raw strings they aggregate as
-  // two different cappers. Map every KNOWN canonical's norm to its exact string
-  // so spacing/punctuation variants of a canonical collapse onto it.
+  // the same key but aggregate as two different cappers as raw strings. The
+  // admin merge endpoint can alias such pairs, but until someone does, this
+  // safety net still applies: map every KNOWN canonical's norm to its exact
+  // string so spacing/punctuation variants of a canonical collapse onto it.
   const canonByNorm = new Map();
   for (const c of aliasMap.values()) canonByNorm.set(norm(c), c);
   for (const c of handleMap.values()) canonByNorm.set(norm(c), c);

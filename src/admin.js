@@ -3516,7 +3516,11 @@ router.post('/capper-alias', requireAuth, express.json(), (req, res) => {
       if (!hit || hit.canonical_name === canon) break;
       canon = hit.canonical_name;
     }
-    if (normK(canon) === normK(al)) return res.json({ ok: false, error: 'That would merge a capper into itself' });
+    // Exact compare only: spacing/punctuation variants ("HammeringHank" vs
+    // "Hammering Hank") are DISTINCT recorded names that aggregate separately,
+    // and linking them is exactly what this endpoint is for. Every resolver
+    // looks aliases up by normalized key, so the row folds both variants.
+    if (canon === al) return res.json({ ok: false, error: 'That would merge a capper into itself' });
     db.prepare(`INSERT OR REPLACE INTO capper_aliases (canonical_name, alias) VALUES (?, ?)`)
       .run(canon, al);
     // Collapse chains: anything that pointed AT the merged name now points at
