@@ -103,10 +103,12 @@ function storeTennisLines(events) {
   if (!Array.isArray(events) || !events.length) return 0;
 
   const tennisGames = db.prepare(
-    `SELECT espn_game_id, home_team, away_team FROM today_games WHERE sport IN ('ATP','WTA')`
+    `SELECT espn_game_id, home_team, away_team, status, start_time FROM today_games WHERE sport IN ('ATP','WTA')`
   ).all();
   if (!tennisGames.length) return 0;
 
+  // ca_line_locked guard: once the CA official line locks (T-90 or gold),
+  // this relay must not clobber it — same rule odds_api.refreshOdds follows.
   const update = db.prepare(`
     UPDATE today_games SET
       ml_home       = COALESCE(?, ml_home),
@@ -117,7 +119,7 @@ function storeTennisLines(events) {
       ou_over_odds  = COALESCE(?, ou_over_odds),
       ou_under_odds = COALESCE(?, ou_under_odds),
       odds_updated_at = datetime('now')
-    WHERE espn_game_id = ? AND sport IN ('ATP','WTA')
+    WHERE espn_game_id = ? AND sport IN ('ATP','WTA') AND COALESCE(ca_line_locked, 0) = 0
   `);
 
   // Also record Bovada as a per-book row so the betslip's book picker and the
@@ -152,6 +154,12 @@ function storeTennisLines(events) {
       return h && a && nameSet.has(h) && nameSet.has(a);
     });
     if (!game) continue;
+
+    // Lines lock at match start: Bovada's coupon keeps pricing matches in
+    // play, and storing those would overwrite the closing line everywhere.
+    const started = game.status === 'in' || game.status === 'post' ||
+      (game.start_time != null && Date.parse(game.start_time) <= Date.now());
+    if (started) continue;
 
     const homeP = ev.players.find(p => lastNameOf(p.name) === lastNameOf(game.home_team));
     const awayP = ev.players.find(p => lastNameOf(p.name) === lastNameOf(game.away_team));
