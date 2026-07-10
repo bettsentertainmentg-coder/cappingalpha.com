@@ -201,6 +201,36 @@
   .legend { display: flex; gap: 16px; margin-top: 8px; font-size: 10px; color: var(--dim); }
   .legend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
 
+  /* ── Cell drill-down modal ────────────────────────────────────────────── */
+  .modal-back {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.62); z-index: 50;
+    display: flex; align-items: flex-start; justify-content: center; padding: 7vh 16px 16px;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 5px;
+    width: min(860px, 100%); max-height: 82vh; display: flex; flex-direction: column;
+  }
+  .modal-hd {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 11px 16px; border-bottom: 1px solid var(--line);
+  }
+  .modal-hd .t { font-size: 12.5px; color: var(--text); letter-spacing: 0.04em; }
+  .modal-hd .t b { color: var(--accent); text-transform: uppercase; }
+  .modal-hd .x {
+    background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 3px;
+    font: inherit; font-size: 11px; padding: 3px 10px; cursor: pointer;
+  }
+  .modal-hd .x:hover { color: var(--text); border-color: var(--dim); }
+  .modal-bd { overflow: auto; padding: 6px 16px 14px; }
+  .modal-bd table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .modal-bd th { text-align: left; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .modal-bd td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; color: var(--text); }
+  .modal-bd td.dim { color: var(--dim); }
+  .modal-bd .mv { color: var(--warn); font-size: 10px; margin-left: 4px; }
+  .modal-bd .f5tag { color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; font-size: 9px; padding: 0 4px; margin-left: 6px; }
+  .modal-bd .empty { color: var(--dim); padding: 18px 8px; }
+  .matrix td.cell:not(.c-none):hover { outline: 1px solid var(--accent); cursor: pointer; }
+
   /* ── Reader card ──────────────────────────────────────────────────────── */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .card { border: 1px solid var(--line); border-radius: 4px; background: var(--panel); padding: 12px 16px; }
@@ -530,8 +560,8 @@ function renderMatrix(d) {
         return '<td class="cell c-none"><span class="empty-cell">—</span></td>';
       }
       var cls = cellClass(s.ageMin, s.games);
-      var tip = sp + ': ' + s.games + ' games, newest ' + fmtTime(s.newest) + ' (' + fmtAge(s.ageMin) + ' ago)';
-      return '<td class="cell ' + cls + '" title="' + esc(tip) + '">' + esc(s.games) + '</td>';
+      var tip = sp + ': ' + s.games + ' games, newest ' + fmtTime(s.newest) + ' (' + fmtAge(s.ageMin) + ' ago). Click for the lines.';
+      return '<td class="cell ' + cls + '" data-book="' + esc(name) + '" data-sport="' + esc(sp) + '" title="' + esc(tip) + '">' + esc(s.games) + '</td>';
     }).join('');
 
     var isOpen = !!expandedBooks[name];
@@ -582,6 +612,78 @@ function renderMatrix(d) {
       if (lastData) renderMatrix(lastData);
     });
   });
+  // Cell click opens the drill-down popup (and must not toggle the row drawer).
+  Array.prototype.forEach.call(document.querySelectorAll('.matrix td.cell[data-sport]'), function (cell) {
+    cell.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      openCellModal(cell.getAttribute('data-book'), cell.getAttribute('data-sport'));
+    });
+  });
+}
+
+/* ── Matrix cell drill-down modal ───────────────────────────────────────── */
+function closeCellModal() {
+  var m = document.getElementById('cellModal');
+  if (m) m.remove();
+  document.removeEventListener('keydown', cellModalEsc);
+}
+function cellModalEsc(e) { if (e.key === 'Escape') closeCellModal(); }
+
+function openCellModal(book, sport) {
+  closeCellModal();
+  var back = document.createElement('div');
+  back.className = 'modal-back';
+  back.id = 'cellModal';
+  back.innerHTML =
+    '<div class="modal">' +
+      '<div class="modal-hd"><span class="t"><b>' + esc(book) + '</b> · ' + esc(sport) + ' lines recorded on the CA site</span>' +
+      '<button class="x" type="button">close</button></div>' +
+      '<div class="modal-bd"><div class="empty">loading…</div></div>' +
+    '</div>';
+  document.body.appendChild(back);
+  back.addEventListener('click', function (e) { if (e.target === back) closeCellModal(); });
+  back.querySelector('.x').addEventListener('click', closeCellModal);
+  document.addEventListener('keydown', cellModalEsc);
+
+  fetch('/api/book-cell?book=' + encodeURIComponent(book) + '&sport=' + encodeURIComponent(sport))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var bd = back.querySelector('.modal-bd');
+      if (!bd) return;
+      if (j.error) { bd.innerHTML = '<div class="empty">Error: ' + esc(j.error) + '</div>'; return; }
+      var games = j.games || [];
+      if (!games.length) { bd.innerHTML = '<div class="empty">No ' + esc(sport) + ' lines stored for ' + esc(book) + '.</div>'; return; }
+      var odds = function (v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); };
+      var line = function (v) { return v == null ? '—' : (v > 0 ? '+' + v : String(v)); };
+      var mv = function (cur, prev) {
+        if (prev == null || cur == null || cur === prev) return '';
+        var d = Math.round((cur - prev) * 10) / 10;
+        return '<span class="mv">' + (d > 0 ? '+' : '') + d + '</span>';
+      };
+      var rows = games.map(function (g) {
+        var p = g.prev || {};
+        return '<tr>' +
+          '<td>' + esc(g.matchup) + (g.f5 ? '<span class="f5tag">F5</span>' : '') + '</td>' +
+          '<td class="dim">' + fmtTime(g.start_time) + '</td>' +
+          '<td class="dim">' + esc(g.status || '—') + '</td>' +
+          '<td>' + odds(g.ml_home) + mv(g.ml_home, p.ml_home) + ' / ' + odds(g.ml_away) + mv(g.ml_away, p.ml_away) + '</td>' +
+          '<td>' + line(g.spread_home) + mv(g.spread_home, p.spread_home) + ' / ' + line(g.spread_away) + mv(g.spread_away, p.spread_away) + '</td>' +
+          '<td>' + (g.over_under == null ? '—' : g.over_under + ' (' + odds(g.ou_over_odds) + '/' + odds(g.ou_under_odds) + ')') + mv(g.over_under, p.over_under) + '</td>' +
+          '<td class="dim">' + fmtAge(g.ageMin) + ' ago</td>' +
+        '</tr>';
+      }).join('');
+      var fallbackNote = j.fallback
+        ? '<div class="empty" style="padding:8px;">Lines pulled from the public API (the site build with sent-to-site times is not deployed yet).</div>'
+        : '';
+      bd.innerHTML =
+        '<table><thead><tr>' +
+        '<th>matchup</th><th>starts</th><th>status</th><th>ml h/a</th><th>spread h/a</th><th>total (o/u)</th><th>sent to site</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' + fallbackNote;
+    })
+    .catch(function (e) {
+      var bd = back.querySelector('.modal-bd');
+      if (bd) bd.innerHTML = '<div class="empty">Fetch failed: ' + esc(e && e.message || 'unknown') + '</div>';
+    });
 }
 
 function renderSources(d) {

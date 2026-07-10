@@ -9,7 +9,11 @@
 //   Adapters (v1): Bovada (all team sports), DraftKings (public JSON).
 //   Row shape:     { book, sport, home_team, away_team, ml_home, ml_away,
 //                    spread_home, spread_away, over_under, ou_over_odds, ou_under_odds }
+//                  Partial-game rows add: period ('F5' = MLB first 5 innings,
+//                  '1H' = first half) + spread_home_odds/spread_away_odds (F5
+//                  runlines are juice-heavy +-0.5 lines, the odds matter).
 //   Site ingest:   POST /admin/ingest-book-lines  -> book_lines table
+//                  (rows with a period land in book_lines_period)
 //   Heartbeat:     POST /admin/ingest-heartbeat   -> /admin/health page
 //
 // Required env vars (in .env):
@@ -70,20 +74,31 @@ const BOVADA_SPORTS = {
   Soccer: 'soccer',
 };
 
-function bovadaParseEvent(sport, ev) {
+// opts.period === 'F5' switches the parser onto the First 5 Innings markets
+// (same 'Game Lines' group, period.description 'First 5 Innings'); these only
+// exist on the per-event description endpoint, not the league coupon.
+function bovadaParseEvent(sport, ev, opts = {}) {
+  const f5 = opts.period === 'F5';
   const comps = ev.competitors || [];
   const home = comps.find(c => c.home === true), away = comps.find(c => c.home === false);
   if (!home || !away) return null;
   const row = {
     book: 'bovada', sport, home_team: home.name, away_team: away.name,
+    // Event start rides on every row so the site can match the RIGHT game when
+    // the same two teams play consecutive days (series) or twice in one day.
+    start_time: ev.startTime ? new Date(ev.startTime).toISOString() : null,
     ml_home: null, ml_away: null, spread_home: null, spread_away: null,
     over_under: null, ou_over_odds: null, ou_under_odds: null,
   };
+  if (f5) { row.period = 'F5'; row.spread_home_odds = null; row.spread_away_odds = null; }
   for (const dg of ev.displayGroups || []) {
     if ((dg.description || '') !== 'Game Lines') continue;
     for (const m of dg.markets || []) {
       const period = m.period || {};
-      if (!(period.main === true || /match|game|regulation/i.test(period.description || ''))) continue;
+      const wanted = f5
+        ? /first\s*5\s*innings/i.test(period.description || '')
+        : (period.main === true || /match|game|regulation/i.test(period.description || ''));
+      if (!wanted) continue;
       const desc = m.description || '';
       for (const o of m.outcomes || []) {
         const price = o.price || {};
@@ -94,8 +109,8 @@ function bovadaParseEvent(sport, ev) {
           else if (isAway) row.ml_away = american(price.american);
         } else if (/point spread|goal spread|spread|runline|puck line/i.test(desc)) {
           const hc = american(price.handicap);
-          if (isHome) row.spread_home = hc;
-          else if (isAway) row.spread_away = hc;
+          if (isHome) { row.spread_home = hc; if (f5) row.spread_home_odds = american(price.american); }
+          else if (isAway) { row.spread_away = hc; if (f5) row.spread_away_odds = american(price.american); }
         } else if (desc === 'Total') {
           const line = american(price.handicap);
           if (line != null && row.over_under == null) row.over_under = line;
@@ -138,6 +153,7 @@ function soccerEventOk(ev, grp) {
 
 async function fetchBovada() {
   const rows = [];
+  const mlbLinks = [];
   for (const [sport, path] of Object.entries(BOVADA_SPORTS)) {
     try {
       // preMatchOnly=false is load-bearing: without it Bovada omits same-day
@@ -148,6 +164,7 @@ async function fetchBovada() {
       for (const grp of groups) {
         for (const ev of grp.events || []) {
           if (sport === 'Soccer' && !soccerEventOk(ev, grp)) continue;
+          if (sport === 'MLB' && ev.link) mlbLinks.push(ev.link);
           const row = bovadaParseEvent(sport, ev);
           if (row) rows.push(row);
         }
@@ -156,6 +173,22 @@ async function fetchBovada() {
       if (!/HTTP 404/.test(err.message)) console.warn(`[bovada] ${sport}: ${err.message}`);
     }
     await new Promise(r => setTimeout(r, 1200)); // polite gap between sports
+  }
+  // F5 pass (MLB): First 5 Innings lines only exist on each event's own
+  // description endpoint, so one extra call per game, capped and paced.
+  for (const link of mlbLinks.slice(0, 20)) {
+    try {
+      const detail = await getJson(`https://www.bovada.lv/services/sports/event/v2/events/A/description${link}?lang=en`);
+      for (const grp of Array.isArray(detail) ? detail : []) {
+        for (const ev of grp.events || []) {
+          const row = bovadaParseEvent('MLB', ev, { period: 'F5' });
+          if (row) rows.push(row);
+        }
+      }
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) console.warn(`[bovada-f5] ${err.message}`);
+    }
+    await new Promise(r => setTimeout(r, 400));
   }
   return rows;
 }
@@ -302,24 +335,44 @@ async function cycle() {
     stats.events = { error: err.message.slice(0, 120) };
   }
 
+  // Partial-game rows (period 'F5'/'1H') go to their OWN endpoint: a server
+  // older than this engine 404s them harmlessly instead of storing F5 numbers
+  // as full-game lines. Full-game rows keep the original endpoint.
+  const gameRows   = all.filter(r => !r.period);
+  const periodRows = all.filter(r => r.period);
   try {
-    if (all.length) {
+    if (gameRows.length) {
       // storeEngineBookLines caps each POST at 800 rows and silently drops the
       // rest; a full slate plus the soccer coupon can exceed that. Chunk under
       // the cap so every row is considered.
       let stored = 0, unmatched = 0;
-      for (let i = 0; i < all.length; i += 700) {
-        const out = await relay('/admin/ingest-book-lines', { rows: all.slice(i, i + 700) });
+      for (let i = 0; i < gameRows.length; i += 700) {
+        const out = await relay('/admin/ingest-book-lines', { rows: gameRows.slice(i, i + 700) });
         stored += out.stored || 0; unmatched += out.unmatched || 0;
       }
       stats.stored = stored; stats.unmatched = unmatched;
-      console.log(`[odds-engine] relayed ${all.length} rows -> stored ${stored}, unmatched ${unmatched}`);
+      console.log(`[odds-engine] relayed ${gameRows.length} rows -> stored ${stored}, unmatched ${unmatched}`);
     } else {
       console.log('[odds-engine] no rows this cycle');
     }
   } catch (err) {
     stats.relay_error = err.message.slice(0, 120);
     console.error('[odds-engine] relay failed:', err.message);
+  }
+  try {
+    if (periodRows.length) {
+      let stored = 0, unmatched = 0;
+      for (let i = 0; i < periodRows.length; i += 700) {
+        const out = await relay('/admin/ingest-book-lines-period', { rows: periodRows.slice(i, i + 700) });
+        stored += out.stored || 0; unmatched += out.unmatched || 0;
+      }
+      stats.period = { sent: periodRows.length, stored, unmatched };
+      console.log(`[odds-engine] relayed ${periodRows.length} period rows -> stored ${stored}, unmatched ${unmatched}`);
+    }
+  } catch (err) {
+    // A 404 here just means the site hasn't deployed the period ingest yet.
+    stats.period = { sent: periodRows.length, error: err.message.slice(0, 120) };
+    console.warn('[odds-engine] period relay failed (site not deployed yet?):', err.message);
   }
   try { await relay('/admin/ingest-heartbeat', { service: 'odds-engine', meta: stats }); }
   catch (err) { console.warn('[odds-engine] heartbeat failed:', err.message); }

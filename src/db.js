@@ -334,6 +334,34 @@ try {
   `);
 } catch (_) {}
 
+// Partial-game (period) book lines — F5 (MLB first 5 innings), 1H, etc. Kept in
+// their own table because book_lines is UNIQUE(espn_game_id, book) and its read
+// path assumes one full-game row per book. Fed by the CA Odds Engine relay
+// (odds_ingest.storeEngineBookLines routes rows with a period). Not wiped, like
+// book_lines. Spread juice columns included: F5 runlines are +-0.5 juice-heavy
+// lines, so the money math needs the odds, not just the number.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_lines_period (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id      TEXT    NOT NULL,
+      book              TEXT    NOT NULL,
+      period            TEXT    NOT NULL,
+      ml_home           REAL,
+      ml_away           REAL,
+      spread_home       REAL,
+      spread_away       REAL,
+      spread_home_odds  REAL,
+      spread_away_odds  REAL,
+      over_under        REAL,
+      ou_over_odds      REAL,
+      ou_under_odds     REAL,
+      updated_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(espn_game_id, book, period)
+    )
+  `);
+} catch (_) {}
+
 // Snapshot columns for game_votes — survive daily wipe
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN home_team TEXT`);      } catch (_) {}
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN away_team TEXT`);      } catch (_) {}

@@ -367,30 +367,44 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   if (slotKey === 'over')        currentLine = game.over_under  != null ? `o${game.over_under}`       : '—';
   if (slotKey === 'under')       currentLine = game.over_under  != null ? `u${game.over_under}`       : '—';
 
-  const dk = lines?.draftkings;
-  const fd = lines?.fanduel;
-  let dkLine = '—', fdLine = '—';
-  if (dk) {
-    const mvDelta = (cur, prev) => {
-      if (prev == null || cur == null || cur === prev) return '';
-      const d = cur - prev;
-      return ` <span style="color:#94a3b8;font-size:10px;font-weight:500;">${d > 0 ? '+' : ''}${d}</span>`;
-    };
-    if (slotKey === 'home_ml')     dkLine = dk.ml_home     != null ? fmtOdds(dk.ml_home)       + mvDelta(dk.ml_home,     dk.prev_ml_home)     : '—';
-    if (slotKey === 'away_ml')     dkLine = dk.ml_away     != null ? fmtOdds(dk.ml_away)       + mvDelta(dk.ml_away,     dk.prev_ml_away)     : '—';
-    if (slotKey === 'home_spread') dkLine = dk.spread_home != null ? fmtSpread(dk.spread_home) + mvDelta(dk.spread_home, dk.prev_spread_home) : '—';
-    if (slotKey === 'away_spread') dkLine = dk.spread_away != null ? fmtSpread(dk.spread_away) + mvDelta(dk.spread_away, dk.prev_spread_away) : '—';
-    if (slotKey === 'over')        dkLine = dk.over_under  != null ? `o${dk.over_under} (${fmtOdds(dk.ou_over_odds  || -110)})` + mvDelta(dk.over_under, dk.prev_over_under) : '—';
-    if (slotKey === 'under')       dkLine = dk.over_under  != null ? `u${dk.over_under} (${fmtOdds(dk.ou_under_odds || -110)})` + mvDelta(dk.over_under, dk.prev_over_under) : '—';
-  }
-  if (fd) {
-    if (slotKey === 'home_ml')     fdLine = fd.ml_home     != null ? fmtOdds(fd.ml_home)       : '—';
-    if (slotKey === 'away_ml')     fdLine = fd.ml_away     != null ? fmtOdds(fd.ml_away)       : '—';
-    if (slotKey === 'home_spread') fdLine = fd.spread_home != null ? fmtSpread(fd.spread_home) : '—';
-    if (slotKey === 'away_spread') fdLine = fd.spread_away != null ? fmtSpread(fd.spread_away) : '—';
-    if (slotKey === 'over')        fdLine = fd.over_under  != null ? `o${fd.over_under} (${fmtOdds(fd.ou_over_odds  || -110)})` : '—';
-    if (slotKey === 'under')       fdLine = fd.over_under  != null ? `u${fd.over_under} (${fmtOdds(fd.ou_under_odds || -110)})` : '—';
-  }
+  // One extractor for every book: value for this slot + movement badge where
+  // prev_* columns exist. The odds engine feeds a dozen books beyond DK/FD;
+  // all of them render here now.
+  const mvDelta = (cur, prev) => {
+    if (prev == null || cur == null || cur === prev) return '';
+    const d = cur - prev;
+    return ` <span style="color:#94a3b8;font-size:10px;font-weight:500;">${d > 0 ? '+' : ''}${d}</span>`;
+  };
+  const slotLineFor = (src) => {
+    if (!src) return null;
+    if (slotKey === 'home_ml')     return src.ml_home     != null ? fmtOdds(src.ml_home)       + mvDelta(src.ml_home,     src.prev_ml_home)     : null;
+    if (slotKey === 'away_ml')     return src.ml_away     != null ? fmtOdds(src.ml_away)       + mvDelta(src.ml_away,     src.prev_ml_away)     : null;
+    if (slotKey === 'home_spread') return src.spread_home != null ? fmtSpread(src.spread_home) + mvDelta(src.spread_home, src.prev_spread_home) : null;
+    if (slotKey === 'away_spread') return src.spread_away != null ? fmtSpread(src.spread_away) + mvDelta(src.spread_away, src.prev_spread_away) : null;
+    if (slotKey === 'over')        return src.over_under  != null ? `o${src.over_under} (${fmtOdds(src.ou_over_odds  || -110)})` + mvDelta(src.over_under, src.prev_over_under) : null;
+    if (slotKey === 'under')       return src.over_under  != null ? `u${src.over_under} (${fmtOdds(src.ou_under_odds || -110)})` + mvDelta(src.over_under, src.prev_over_under) : null;
+    return null;
+  };
+  const dkLine = slotLineFor(lines?.draftkings) || '—';
+  const fdLine = slotLineFor(lines?.fanduel)    || '—';
+
+  // Every other stored book, regulated first then offshore (tagged). Books
+  // with no number for this slot are skipped rather than shown as dashes.
+  const EXTRA_BOOK_LABELS = {
+    betmgm: 'BetMGM', caesars: 'Caesars', betrivers: 'BetRivers', hardrock: 'Hard Rock',
+    bet365: 'bet365', espnbet: 'ESPN BET', fanatics: 'Fanatics', circa: 'Circa',
+    bovada: 'Bovada', pinnacle: 'Pinnacle', betonline: 'BetOnline', mybookie: 'MyBookie', betus: 'BetUS',
+  };
+  const OFFSHORE_TAG_BOOKS = new Set(['bovada', 'pinnacle', 'betonline', 'mybookie', 'betus', 'thunderpick']);
+  const offshoreTag = ' <span style="font-size:9px;color:#8892a4;border:1px solid #3b4560;border-radius:3px;padding:0 3px;vertical-align:1px;">offshore</span>';
+  const extraBookRows = Object.keys(lines || {})
+    .filter(k => k !== 'draftkings' && k !== 'fanduel' && lines[k])
+    .map(k => ({ k, val: slotLineFor(lines[k]) }))
+    .filter(r => r.val)
+    .sort((x, y) => ((OFFSHORE_TAG_BOOKS.has(x.k) ? 1 : 0) - (OFFSHORE_TAG_BOOKS.has(y.k) ? 1 : 0)) || x.k.localeCompare(y.k))
+    .map(({ k, val }) =>
+      `<div class="line-row"><span class="line-book">${EXTRA_BOOK_LABELS[k] || k}${OFFSHORE_TAG_BOOKS.has(k) ? offshoreTag : ''}</span> <span class="line-val">${val}</span></div>`)
+    .join('');
 
   // ── Polymarket row ──────────────────────────────────────────────────────────
   const pmTypeMap = {
@@ -466,6 +480,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
       <div class="line-row"><span class="line-book" title="${currentTitle}">${currentLabel}</span> <span class="line-val">${currentLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.draftkings.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">DraftKings</span> <span class="line-val">${dkLine}</span></div>
       <div class="line-row"><span class="line-book"><img src="https://www.fanduel.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">FanDuel</span> <span class="line-val">${fdLine}</span></div>
+      ${extraBookRows}
       ${pmRow}
     </div>${insightChip}`;
 

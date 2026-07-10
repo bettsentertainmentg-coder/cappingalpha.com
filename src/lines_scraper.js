@@ -61,8 +61,22 @@ function alignLines(lines, oddsGame, espnHomeTeam) {
   };
 }
 
+// Lines lock at game start: every book_lines row freezes at the closing
+// number. Writers check the game clock before touching a row — status can lag
+// the 5-min score cron, so start_time is the authority. Same rule the engine
+// ingest applies in odds_ingest.js.
+function gameHasStarted(espn_game_id) {
+  try {
+    const g = db.prepare(`SELECT status, start_time FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+    if (!g) return false;
+    return g.status === 'in' || g.status === 'post' ||
+      (g.start_time != null && Date.parse(g.start_time) <= Date.now());
+  } catch (_) { return false; }
+}
+
 // ── Store DK + FD lines for a game — called from odds_api.js ─────────────────
 function storeBookLines(espn_game_id, oddsGame, espnHomeTeam) {
+  if (gameHasStarted(espn_game_id)) return;
   for (const bookKey of ['draftkings', 'fanduel']) {
     const raw = extractBookLines(oddsGame, bookKey);
     if (!raw) continue;
@@ -94,6 +108,7 @@ function storeBookLines(espn_game_id, oddsGame, espnHomeTeam) {
 // ── Store ESPN-sourced DraftKings lines with movement tracking ────────────────
 // Called from espn_live.js — no Odds API credits consumed.
 function storeEspnDkLines(espn_game_id, lines) {
+  if (gameHasStarted(espn_game_id)) return;
   const { ml_home, ml_away, ml_draw = null, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds } = lines;
   db.prepare(`
     INSERT INTO book_lines
@@ -148,4 +163,31 @@ function getLinesForGame(espn_game_id) {
   return result;
 }
 
-module.exports = { storeBookLines, storeEspnDkLines, getLinesForGame };
+// ── Partial-game lines (book_lines_period, fed by the CA Odds Engine) ────────
+// period 'F5' = MLB first 5 innings, '1H' = first half. Same per-book shape as
+// getLinesForGame so a future F5 board / popup section renders with no rework.
+function getPeriodLinesForGame(espn_game_id, period = 'F5') {
+  let rows = [];
+  try {
+    rows = db.prepare(
+      `SELECT * FROM book_lines_period WHERE espn_game_id = ? AND period = ?`
+    ).all(espn_game_id, period);
+  } catch (_) {}
+  const result = {};
+  for (const row of rows) {
+    result[row.book] = {
+      ml_home:          row.ml_home,
+      ml_away:          row.ml_away,
+      spread_home:      row.spread_home,
+      spread_away:      row.spread_away,
+      spread_home_odds: row.spread_home_odds ?? null,
+      spread_away_odds: row.spread_away_odds ?? null,
+      over_under:       row.over_under,
+      ou_over_odds:     row.ou_over_odds,
+      ou_under_odds:    row.ou_under_odds,
+    };
+  }
+  return result;
+}
+
+module.exports = { storeBookLines, storeEspnDkLines, getLinesForGame, getPeriodLinesForGame };

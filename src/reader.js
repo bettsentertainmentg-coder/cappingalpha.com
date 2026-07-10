@@ -363,6 +363,43 @@ function correctPickType(parsed) {
   return parsed;
 }
 
+// ── Partial-game period (F5 / 1H) ─────────────────────────────────────────────
+// Normalize the model's period field, and as a belt-and-suspenders catch markers
+// the model missed by scanning the raw message next to the team name. The window
+// is tight (14 chars) so a marker belonging to a neighboring pick on the same
+// compact line is never grabbed. Only ever SETS a period, never clears one.
+const PERIOD_MARK   = /F5|1st\s*(?:5|five)(?:\s*innings?)?|first\s*(?:5|five)(?:\s*innings?)?|1H|H1|1st\s*half|first\s*half/i;
+const PERIOD_AFTER  = new RegExp(`^[\\s:,.-]{0,3}(?:${PERIOD_MARK.source})\\b`, 'i');
+const PERIOD_BEFORE = new RegExp(`\\b(?:${PERIOD_MARK.source})[\\s:,.-]{0,3}$`, 'i');
+function normalizePeriod(v) {
+  const s = String(v || '').trim().toUpperCase();
+  if (!s) return null;
+  if (s === 'F5') return 'F5';
+  if (s === '1H' || s === 'H1') return '1H';
+  return 'other';
+}
+function detectPeriod(parsed, content) {
+  const declared = normalizePeriod(parsed.period);
+  if (declared) return declared;
+  if (!parsed.team || !content) return null;
+  const team = String(parsed.team).trim().toLowerCase();
+  if (team.length < 3) return null;
+  const lower = content.toLowerCase();
+  let idx = lower.indexOf(team);
+  while (idx !== -1) {
+    const after  = content.slice(idx + team.length, idx + team.length + 14);
+    const before = content.slice(Math.max(0, idx - 14), idx);
+    const hit = after.match(PERIOD_AFTER)?.[0] ?? before.match(PERIOD_BEFORE)?.[0];
+    if (hit) {
+      const period = /5|five/i.test(hit) ? 'F5' : '1H';
+      console.log(`[reader] Period fallback: "${parsed.team}" marked ${period} from raw text ("${hit.trim()}")`);
+      return period;
+    }
+    idx = lower.indexOf(team, idx + 1);
+  }
+  return null;
+}
+
 const BATCH_SIZE   = 3;
 // 4000: multi-capper digests routinely run past 1500 chars; clipping the input silently
 // dropped every capper block below the cut. Haiku handles 4k-char messages fine.
@@ -398,6 +435,7 @@ async function readMessages(msgs) {
         sport:        corrected.sport        || null,
         pick_type:    corrected.pick_type    || null,
         spread_value: corrected.spread_value ?? null,
+        period:       detectPeriod(corrected, srcMsg.content),
         espn_game_id: corrected.espn_game_id || null,
         picked_side:  corrected.picked_side  || null,
         vs_player:    corrected.vs_player    || null,
@@ -431,6 +469,7 @@ async function readMessage(msg) {
       sport:        parsed.sport        || null,
       pick_type:    parsed.pick_type    || null,
       spread_value: parsed.spread_value ?? null,
+      period:       detectPeriod(parsed, content),
       espn_game_id: parsed.espn_game_id || null,
       picked_side:  parsed.picked_side  || null,
       vs_player:    parsed.vs_player    || null,

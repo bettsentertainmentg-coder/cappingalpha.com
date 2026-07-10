@@ -18,6 +18,16 @@ const numOrNull = (v) => (v == null || v === '' || !isFinite(Number(v))) ? null 
 // Wrong odds are worse than no odds, so ambiguity is fatal: if a row could match
 // more than one game, or a single game in both orientations (shared city names
 // like the two New York teams can do this), the row is dropped instead of guessed.
+//
+// DATE-AWARE (2026-07-09): the board carries several DAYS of games and books
+// list the same series pair on consecutive days, so the pair alone cannot pick
+// a day — the old earliest-upcoming rule collapsed a whole series onto one
+// game id (and dropped everything else as ambiguous: ~810 unmatched rows per
+// cycle). When the engine row carries start_time, the match must be the game
+// CLOSEST in time and within 12h — same-day (and doubleheader-leg) precision,
+// adjacent-day rejection. Rows without start_time keep the legacy rules.
+const DATE_MATCH_MS = 12 * 3600 * 1000;
+
 function matchGame(games, row) {
   const h = norm(row.home_team), a = norm(row.away_team);
   if (!h || !a || h === a) return null;
@@ -32,8 +42,27 @@ function matchGame(games, row) {
     if (fwd) hits.push({ game: g, flipped: false, pair: `${gh}|${ga}` });
     else if (rev) hits.push({ game: g, flipped: true, pair: `${gh}|${ga}` });
   }
-  if (hits.length === 1) return hits[0];
   if (hits.length === 0) return null;
+
+  const rowT = row.start_time ? Date.parse(row.start_time) : NaN;
+  if (!isNaN(rowT)) {
+    let best = null;
+    for (const x of hits) {
+      const gt = Date.parse(x.game.start_time || '');
+      if (isNaN(gt)) continue;
+      const d = Math.abs(gt - rowT);
+      if (!best || d < best.d) best = { game: x.game, flipped: x.flipped, pair: x.pair, d };
+    }
+    if (best) {
+      // Outside the window = the row is for a day the board doesn't carry
+      // (e.g. game 4 of a series): storing it would put the wrong day's line
+      // on a real game, so drop it.
+      return best.d <= DATE_MATCH_MS ? best : null;
+    }
+    // No hit had a parseable start_time — fall through to the legacy rules.
+  }
+
+  if (hits.length === 1) return hits[0];
   // Multiple games matched. Different team pairs = genuinely ambiguous, drop the
   // row. The SAME pair twice is a doubleheader: books show the upcoming leg's
   // price pre-game, so take the not-yet-final game with the earliest start.
@@ -61,16 +90,51 @@ const upsert = () => db.prepare(`
     updated_at    = datetime('now')
 `);
 
+// Partial-game rows (period 'F5', '1H', ...) land in book_lines_period — the
+// full-game table is UNIQUE(espn_game_id, book) and its readers assume one
+// full-game row per book, so period rows must never touch it.
+const upsertPeriod = () => db.prepare(`
+  INSERT INTO book_lines_period
+    (espn_game_id, book, period, ml_home, ml_away, spread_home, spread_away,
+     spread_home_odds, spread_away_odds, over_under, ou_over_odds, ou_under_odds, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  ON CONFLICT(espn_game_id, book, period) DO UPDATE SET
+    ml_home          = COALESCE(excluded.ml_home, ml_home),
+    ml_away          = COALESCE(excluded.ml_away, ml_away),
+    spread_home      = COALESCE(excluded.spread_home, spread_home),
+    spread_away      = COALESCE(excluded.spread_away, spread_away),
+    spread_home_odds = COALESCE(excluded.spread_home_odds, spread_home_odds),
+    spread_away_odds = COALESCE(excluded.spread_away_odds, spread_away_odds),
+    over_under       = COALESCE(excluded.over_under, over_under),
+    ou_over_odds     = COALESCE(excluded.ou_over_odds, ou_over_odds),
+    ou_under_odds    = COALESCE(excluded.ou_under_odds, ou_under_odds),
+    updated_at       = datetime('now')
+`);
+
+// LINES LOCK AT GAME START (Jack, 2026-07-09): once a game starts, its book
+// rows freeze at the last pregame write — the closing line. Books keep
+// publishing in-play prices for live games; storing those would overwrite the
+// closing number every surface displays (detail-page lines table, popup,
+// Track a Bet) with drifting in-play odds (+920/-2900 style). Status can lag
+// the 5-min score cron, so start_time is the authority.
+const gameHasStarted = (g) =>
+  g.status === 'in' || g.status === 'post' ||
+  (g.start_time != null && Date.parse(g.start_time) <= Date.now());
+
 function storeEngineBookLines(rows) {
-  if (!Array.isArray(rows)) return { stored: 0, unmatched: 0 };
+  if (!Array.isArray(rows)) return { stored: 0, unmatched: 0, locked: 0 };
   rows = rows.slice(0, 800); // sanity cap per POST
   const bySport = new Map();  // sport -> today_games rows
   const stmt = upsert();
-  let stored = 0, unmatched = 0;
+  const stmtPeriod = upsertPeriod();
+  let stored = 0, unmatched = 0, locked = 0;
 
   for (const row of rows) {
     const sport = String(row.sport || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10);
     const book  = String(row.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+    const period = row.period && String(row.period).toLowerCase() !== 'game'
+      ? String(row.period).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
+      : null;
     if (!sport || !book) { unmatched++; continue; }
     if (!bySport.has(sport)) {
       // Case-insensitive: today_games stores 'Soccer' while adapters send 'SOCCER'.
@@ -80,6 +144,7 @@ function storeEngineBookLines(rows) {
     }
     const hit = matchGame(bySport.get(sport), row);
     if (!hit) { unmatched++; continue; }
+    if (gameHasStarted(hit.game)) { locked++; continue; }
 
     // If the engine's home/away are swapped vs ESPN's, flip every sided number.
     const f = hit.flipped;
@@ -92,13 +157,22 @@ function storeEngineBookLines(rows) {
     if (spH != null && spA != null && spH !== 0 && spA !== 0 && Math.sign(spH) === Math.sign(spA)) {
       spH = null; spA = null;
     }
-    stmt.run(
-      hit.game.espn_game_id, book, mlH, mlA, spH, spA,
-      numOrNull(row.over_under), numOrNull(row.ou_over_odds), numOrNull(row.ou_under_odds)
-    );
+    if (period) {
+      const spHo = numOrNull(f ? row.spread_away_odds : row.spread_home_odds);
+      const spAo = numOrNull(f ? row.spread_home_odds : row.spread_away_odds);
+      stmtPeriod.run(
+        hit.game.espn_game_id, book, period, mlH, mlA, spH, spA, spHo, spAo,
+        numOrNull(row.over_under), numOrNull(row.ou_over_odds), numOrNull(row.ou_under_odds)
+      );
+    } else {
+      stmt.run(
+        hit.game.espn_game_id, book, mlH, mlA, spH, spA,
+        numOrNull(row.over_under), numOrNull(row.ou_over_odds), numOrNull(row.ou_under_odds)
+      );
+    }
     stored++;
   }
-  return { stored, unmatched };
+  return { stored, unmatched, locked };
 }
 
 // Books whose lines are informational only on the public site (unlicensed in the

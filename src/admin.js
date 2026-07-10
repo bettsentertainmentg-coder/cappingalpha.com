@@ -4202,6 +4202,40 @@ router.post('/ingest-book-lines', (req, res) => {
   }
 );
 
+// ── POST /admin/ingest-book-lines-period — partial-game lines (F5/1H, HMAC) ───
+// Deliberately a SEPARATE endpoint from ingest-book-lines: an engine newer than
+// the server then gets a 404 for period rows instead of an old server storing
+// F5 numbers as full-game lines (which the CA line lock reads). The store
+// itself routes by row.period into book_lines_period.
+router.post('/ingest-book-lines-period', (req, res) => {
+    const secret = process.env.RELAY_SECRET;
+    if (!secret) return res.status(500).send('RELAY_SECRET not configured');
+
+    const canonical = JSON.stringify(req.body);
+    const sig        = req.headers['x-relay-signature'] || '';
+    const expected   = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+    const sigBuf     = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+    const expBuf     = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    const { rows } = req.body;
+    if (!Array.isArray(rows) || rows.some(r => !r || !r.period)) {
+      return res.status(400).send('Invalid payload');
+    }
+
+    try {
+      const out = storeEngineBookLines(rows);
+      console.log(`[relay] period book lines: stored ${out.stored}/${rows.length} (${out.unmatched} unmatched)`);
+      res.json(out);
+    } catch (err) {
+      console.error('[relay] period book-lines ingest error:', err.message);
+      res.status(500).send('Store failed');
+    }
+  }
+);
+
 // ── POST /admin/ingest-engine-events — Boxing/MMA cards from the engine (HMAC) ─
 router.post('/ingest-engine-events', (req, res) => {
     const secret = process.env.RELAY_SECRET;
@@ -4262,6 +4296,56 @@ router.get('/api/books.json', requireAuth, (_req, res) => {
       `).all(b.book).map(s => ({ sport: s.sport, games: s.games, newest: s.newest, ageMin: ageMin(s.newest) })),
     }));
     res.json({ books, generatedAt: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// One matrix cell drilled down: every game this book has lines for in this
+// sport, with the lines themselves, movement, and when each row last updated
+// (updated_at IS the moment the row was stored on the CA site).
+router.get('/api/book-cell.json', requireAuth, (req, res) => {
+  try {
+    const book  = String(req.query.book  || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+    const sport = String(req.query.sport || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+    if (!book || !sport) return res.status(400).json({ error: 'book and sport required' });
+    const ageMin = (t) => {
+      if (!t) return null;
+      const ms = Date.parse(String(t).replace(' ', 'T') + 'Z');
+      return isNaN(ms) ? null : Math.round((Date.now() - ms) / 60000);
+    };
+    const rows = db.prepare(`
+      SELECT bl.*, tg.home_team, tg.away_team, tg.home_abbr, tg.away_abbr,
+             tg.start_time, tg.status
+      FROM book_lines bl JOIN today_games tg USING (espn_game_id)
+      WHERE bl.book = ? AND UPPER(tg.sport) = UPPER(?)
+      ORDER BY tg.start_time
+    `).all(book, sport);
+    let f5Ids = new Set();
+    try {
+      f5Ids = new Set(db.prepare(
+        `SELECT espn_game_id FROM book_lines_period WHERE book = ? AND period = 'F5'`
+      ).all(book).map(r => r.espn_game_id));
+    } catch (_) {}
+    res.json({
+      book, sport,
+      games: rows.map(r => ({
+        espn_game_id: r.espn_game_id,
+        matchup: `${r.away_abbr || r.away_team} @ ${r.home_abbr || r.home_team}`,
+        start_time: r.start_time,
+        status: r.status,
+        ml_home: r.ml_home, ml_away: r.ml_away,
+        spread_home: r.spread_home, spread_away: r.spread_away,
+        over_under: r.over_under, ou_over_odds: r.ou_over_odds, ou_under_odds: r.ou_under_odds,
+        prev: {
+          ml_home: r.prev_ml_home ?? null, ml_away: r.prev_ml_away ?? null,
+          spread_home: r.prev_spread_home ?? null, spread_away: r.prev_spread_away ?? null,
+          over_under: r.prev_over_under ?? null,
+        },
+        f5: f5Ids.has(r.espn_game_id),
+        updated_at: r.updated_at,
+        ageMin: ageMin(r.updated_at),
+      })),
+      generatedAt: new Date().toISOString(),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

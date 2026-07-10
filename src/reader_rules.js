@@ -14,7 +14,8 @@ A pick = a sports team (or player) + a bet type. Examples:
   "Cavaliers +4"       → team=Cavaliers, spread=+4
   "Cin over 9"         → team=Reds, over, 9
   "Pistons u213"       → team=Pistons, under, 213
-  "Cubs F5 -150"       → team=Cubs, ML (F5 = first 5 innings context; -150 is juice)
+  "Cubs F5 -150"       → team=Cubs, ML, period=F5 (first 5 innings bet; -150 is juice)
+  "Cubs F5 +0.5"       → team=Cubs, spread=+0.5, period=F5 (NOT a full-game spread)
   "Kostyuk ML"         → team=Kostyuk, ML (tennis player — a player name is a valid pick)
   "Zverev -1.5 sets"   → team=Zverev, set_spread -1.5
   "Fonseca -3.5 games" → team=Fonseca, spread -3.5 (games)
@@ -35,6 +36,23 @@ BET TYPES: ML | spread | over | under | NRFI | set_ml (tennis set winner) | set_
         "-1.5"/"+1.5" with set context → pick_type=set_spread. spread_value = the set handicap
         (e.g. -1.5). Use set_spread when the message says "set"/"sets", or the number is the
         classic set line (+/-1.5) and there's no "games" wording. When unsure, prefer spread (games).
+
+── PARTIAL-GAME PERIODS (F5 / halves / quarters) — CRITICAL ──────────────────
+Some picks are on a PART of the game, not the full game. They are valid picks —
+extract team, pick_type, and spread_value as usual, AND set the period field:
+  period=F5: MLB first 5 innings. Signals: "F5", "1st 5", "first five", "first 5 innings".
+    "Cubs F5 +0.5 (2u)"   → team=Cubs, spread=+0.5, period=F5
+    "Yankees 1st 5 ML"    → team=Yankees, ML, period=F5
+    "F5 Mets over 4.5"    → team=Mets, over 4.5, period=F5
+  period=1H: first half. Signals: "1H", "1st half", "first half", "H1".
+    "Chiefs 1H -3"           → team=Chiefs, spread=-3, period=1H
+    "Lakers first half ML"   → team=Lakers, ML, period=1H
+  period=other: any other partial segment — quarters ("1Q", "3rd quarter"),
+    NHL periods ("1st period"), single innings other than NRFI.
+Omit period entirely for full-game picks. NRFI stays pick_type=NRFI with no
+period. Tennis set bets stay set_ml / set_spread with no period.
+NEVER return a partial-game pick without its period — an F5 or 1H pick reported
+as full-game lands on the wrong betting line.
 
 ── TENNIS MATCH TOTALS ───────────────────────────────────────────────────────
 "PlayerA vs PlayerB over/under N" or "Player over/under N games" is a MATCH TOTAL on the
@@ -85,7 +103,7 @@ Extract EVERY pick from EVERY block. Assign each pick the correct capper_name.
 
   Example:
     "SmartMoneySports"          → capper=SmartMoneySports
-    "Cubs F5 -150 (2U)"         → Cubs ML, capper=SmartMoneySports
+    "Cubs F5 -150 (2U)"         → Cubs ML period=F5, capper=SmartMoneySports
     "Braves +100 (2u)"          → Braves ML, capper=SmartMoneySports
     "White Sox +100 (2u)"       → White Sox ML, capper=SmartMoneySports
     "Cavaliers +4 (5u)"         → Cavaliers spread +4, capper=SmartMoneySports
@@ -207,6 +225,7 @@ const EXTRACT_TOOL = {
             team:         { type: 'string',  description: 'Team or player name as written' },
             pick_type:    { type: 'string',  enum: ['ML', 'spread', 'over', 'under', 'NRFI', 'h2h', 'top5', 'top10', 'set_ml', 'set_spread'] },
             spread_value: { type: 'number',  description: 'Spread or total line (games for spread, set handicap for set_spread). Omit for ML.' },
+            period:       { type: 'string',  enum: ['F5', '1H', 'other'], description: 'Partial-game segment: F5 = MLB first 5 innings, 1H = first half, other = quarters/periods. OMIT for full-game picks.' },
             sport:        { type: 'string',  enum: ['NBA', 'WNBA', 'CBB', 'WCBB', 'NFL', 'NHL', 'MLB', 'NCAAF', 'ATP', 'WTA', 'Golf', 'Soccer'] },
             capper_name:  { type: 'string',  description: 'Capper handle. Omit if unclear.' },
             vs_player:    { type: 'string',  description: 'Opponent name for head-to-head or tennis match-total bets (e.g. "Kostyuk vs Svitolina over 21.5" → vs_player=Svitolina). Also golf h2h.' },

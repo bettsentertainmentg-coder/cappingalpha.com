@@ -226,6 +226,72 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'ui.html'));
 });
 
+// Public (no-auth) site JSON — used by the book-cell fallback below.
+async function publicGetJson(sitePath) {
+  const r = await fetch(SITE_URL + sitePath, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// Fallback while the site hasn't deployed /admin/api/book-cell.json yet:
+// assemble the cell from the site's PUBLIC endpoints (/api/games for the slate,
+// /api/game/:id for each game's per-book lines). Slower (one fetch per game,
+// 8 at a time) and missing the sent-to-site timestamps + F5 flags, but the
+// lines themselves are the real stored numbers. The deploy upgrades the popup
+// automatically — this path stops being hit the moment the endpoint exists.
+async function bookCellFallback(book, sport) {
+  const games = await publicGetJson(`/api/games?sport=${encodeURIComponent(sport)}`);
+  const list = Array.isArray(games) ? games : [];
+  const rows = [];
+  let i = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => {
+    while (i < list.length) {
+      const g = list[i++];
+      if (!g || !g.espn_game_id) continue;
+      try {
+        const j = await publicGetJson(`/api/game/${encodeURIComponent(g.espn_game_id)}`);
+        const src = j && j.lines && j.lines[book];
+        if (!src || (src.ml_home == null && src.spread_home == null && src.over_under == null)) continue;
+        rows.push({
+          espn_game_id: g.espn_game_id,
+          matchup: `${g.away_abbr || g.away_team || '?'} @ ${g.home_abbr || g.home_team || '?'}`,
+          start_time: g.start_time || null,
+          status: g.status || null,
+          ml_home: src.ml_home, ml_away: src.ml_away,
+          spread_home: src.spread_home, spread_away: src.spread_away,
+          over_under: src.over_under, ou_over_odds: src.ou_over_odds, ou_under_odds: src.ou_under_odds,
+          prev: {
+            ml_home: src.prev_ml_home ?? null, ml_away: src.prev_ml_away ?? null,
+            spread_home: src.prev_spread_home ?? null, spread_away: src.prev_spread_away ?? null,
+            over_under: src.prev_over_under ?? null,
+          },
+          f5: false, updated_at: null, ageMin: null,
+        });
+      } catch (_) { /* one bad game never kills the popup */ }
+    }
+  }));
+  rows.sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+  return { book, sport, games: rows, fallback: true, generatedAt: new Date().toISOString() };
+}
+
+// One matrix cell drilled down (book x sport): proxies the site's book-cell
+// endpoint so the UI can pop up the actual games + lines behind a cell.
+app.get('/api/book-cell', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const book  = String(req.query.book  || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+  const sport = String(req.query.sport || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12);
+  if (!book || !sport) return res.json({ error: 'book and sport required' });
+  let out = await section(`/admin/api/book-cell.json?book=${encodeURIComponent(book)}&sport=${encodeURIComponent(sport)}`);
+  if (out && /HTTP 40[34]/.test(String(out.error || ''))) {
+    try { out = await bookCellFallback(book, sport); }
+    catch (err) { out = { error: `fallback failed: ${err && err.message ? err.message : 'unknown'}` }; }
+  }
+  res.json(out);
+});
+
 app.get('/api/summary', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {

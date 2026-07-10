@@ -310,6 +310,15 @@ function findSlot(pick, game) {
 
 // ── Main entry point ──────────────────────────────────────────────────────────
 function savePick(pick) {
+  // Partial-game picks (F5 / first half / quarters) have no slot on the
+  // full-game board — quarantine them so they never contaminate a full-game
+  // line. Logged to skipped_messages (reason 'period_market') so a future
+  // partial-game board can rescan them.
+  if (pick.period) {
+    logPeriodPick(pick);
+    return null;
+  }
+
   // Golf picks go to a separate table — never wiped, tournament-scoped
   if ((pick.sport || '').toLowerCase() === 'golf') {
     return saveGolfPick(pick);
@@ -347,6 +356,22 @@ function savePick(pick) {
   if (slot) return updateSlot(slot, pick);
 
   return insertNewPick({ ...pick, espn_game_id: game?.espn_game_id ?? pick.espn_game_id ?? null });
+}
+
+// A partial-game pick arrived (period F5/1H/other). Record the message so the
+// pick is recoverable once partial-game markets are supported on the board.
+function logPeriodPick(pick) {
+  console.log(`[storage] period pick quarantined (${pick.period}): ${pick.team} ${pick.pick_type ?? ''} ${pick.spread_value ?? ''}`.trim());
+  const rm = pick.raw_message;
+  if (!rm?.id) return;
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO skipped_messages (message_id, channel, author, content, reason)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(String(rm.id), pick.channel || 'unknown', rm.author || null, rm.content || '', 'period_market');
+  } catch (e) {
+    console.error('[storage] logPeriodPick failed:', e.message);
+  }
 }
 
 // ── Update a pre-seeded slot with a new mention ───────────────────────────────
