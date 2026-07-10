@@ -36,12 +36,18 @@ function buildV3Timeline(pick) {
   `).all(pick.id);
   const firstMs = parseDbTs(mentions[0]?.message_timestamp) ?? parseDbTs(pick.parsed_at) ?? Date.now();
 
-  // Window end = 3 min before game start (leak rule finishes there), else +30 min.
+  // Window end = 3 min before game start (leak rule finishes there), else +30 min
+  // — CLAMPED TO NOW. The two synthetic branches below spread their points
+  // across this window; without the clamp a pick fetched at 8pm for a 10pm
+  // game drew its final step at 9:57pm, a point in the future the header
+  // already contradicted (real ramp events have real timestamps and clip
+  // future chunks themselves).
   const game = pick.espn_game_id
     ? db.prepare(`SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
     : null;
   const startMs = parseDbTs(game?.start_time);
-  const endMs = (startMs && startMs > firstMs) ? startMs - 3 * 60 * 1000 : firstMs + 30 * 60 * 1000;
+  let endMs = (startMs && startMs > firstMs) ? startMs - 3 * 60 * 1000 : firstMs + 30 * 60 * 1000;
+  endMs = Math.max(firstMs + 60 * 1000, Math.min(endMs, Date.now()));
   const span = Math.max(60 * 1000, endMs - firstMs);
 
   let bd = null;
