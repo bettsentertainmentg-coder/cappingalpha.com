@@ -664,6 +664,35 @@ function upsertScoreBreakdown(pick_id, scored) {
   }
 }
 
+// ── Rebuild a pick's scores from whatever mentions remain ────────────────────
+// Used after a mention is REMOVED (e.g. a Polymarket wallet's stance flipped
+// sides, so its old-side entry was withdrawn). Recomputes v2 from the
+// surviving raw_messages, refreshes mention_count/capper_name, and re-runs the
+// v3 dual-log so the board, admin drill-down, and the MVP sweeps all see the
+// corrected number on their next pass.
+function recomputePickFromMentions(pickId) {
+  const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
+  if (!pick) return null;
+  const rows = db.prepare(
+    `SELECT channel, author, capper_name FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
+  ).all(pickId);
+  const isTotal = pick.pick_type === 'over' || pick.pick_type === 'under';
+  const mentions = rows.map(m => ({
+    channel:      m.channel,
+    is_home_team: isTotal ? false : pick.is_home_team,
+    sport:        pick.sport,
+  }));
+  const scored = scorePick({ mentions });
+  const firstCapper = rows.find(r => r.capper_name)?.capper_name ?? null;
+  db.prepare(`
+    UPDATE picks SET score = ?, mention_count = ?, capper_name = ?, score_breakdown = ? WHERE id = ?
+  `).run(scored.total, rows.length, firstCapper, JSON.stringify(scored.breakdown), pickId);
+  upsertScoreBreakdown(pickId, scored);
+  let v3 = null;
+  try { v3 = require('./scoring_v3').computeAndLogV3(pickId); } catch (_) {}
+  return { v2: scored.total, v3: v3 ? v3.total : null, mentions: rows.length };
+}
+
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null, scale = 'v2' }) {
   // today_games gives team names + the opening line (used as a fallback only).
   let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false;
@@ -816,4 +845,4 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions };

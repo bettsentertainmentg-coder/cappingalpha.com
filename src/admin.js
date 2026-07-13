@@ -3916,6 +3916,112 @@ router.post('/api/an-experts-import', adminLoginRateLimit, express.json({ limit:
   res.json({ upserted: upserts, total });
 });
 
+// ── POST /admin/api/fix-opposite-source-picks — both-sides stance correction ─
+// One capper (in practice a Polymarket wallet that flipped or hedged) holding
+// PENDING picks on both sides of the same game + market kind is contradictory:
+// resolve each pair to at most one side and rescore. Polymarket pairs resolve
+// from the wallet's live NET position (larger share count wins, within 10% =
+// hedged flat = withdraw both); anything unresolvable keeps the NEWER entry.
+// Header-auth so it can be fired from the Mac right after a deploy. Graded
+// rows are never touched. Safe to re-run (idempotent once clean).
+router.post('/api/fix-opposite-source-picks', adminLoginRateLimit, express.json(), async (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  try {
+    const { removeSourceEntry, sideOf } = require('./source_ingest');
+    const pairs = db.prepare(`
+      SELECT a.id AS a_id, b.id AS b_id FROM capper_history a
+      JOIN capper_history b
+        ON b.capper_name = a.capper_name AND b.espn_game_id = a.espn_game_id AND b.id > a.id
+      WHERE a.result = 'pending' AND b.result = 'pending' AND a.espn_game_id IS NOT NULL
+        AND (
+          (LOWER(a.pick_type) IN ('ml','spread') AND LOWER(b.pick_type) = LOWER(a.pick_type)
+            AND LOWER(b.team) != LOWER(a.team))
+          OR (LOWER(a.pick_type) = 'over'  AND LOWER(b.pick_type) = 'under')
+          OR (LOWER(a.pick_type) = 'under' AND LOWER(b.pick_type) = 'over')
+        )
+    `).all();
+    if (!pairs.length) return res.json({ conflicts: 0, actions: [] });
+
+    // Polymarket stance lookups need the market map (espn_game_id + kind -> conditionId)
+    let mapByGameKind = new Map(), pm = null;
+    try {
+      pm = require('./polymarket_wallets');
+      const map = await pm.buildMarketMap();
+      for (const [cid, entry] of map.entries()) {
+        mapByGameKind.set(`${entry.game.espn_game_id}|${pm.classifyMarket(entry.question)}`, { cid, entry });
+      }
+    } catch (_) {}
+    const walletOf = (canonical) => db.prepare(`
+      SELECT handle FROM capper_source_handles
+      WHERE source = 'polymarket' AND canonical_name = ? AND handle LIKE '0x%' LIMIT 1
+    `).get(canonical)?.handle || null;
+
+    const rowById = db.prepare(`SELECT * FROM capper_history WHERE id = ?`);
+    const actions = [];
+    for (const { a_id, b_id } of pairs) {
+      const a = rowById.get(a_id), b = rowById.get(b_id);
+      if (!a || !b || a.result !== 'pending' || b.result !== 'pending') continue; // already handled
+      const older = a, newer = b;
+      const pt = (newer.pick_type || '').toLowerCase();
+      const isTotal = pt === 'over' || pt === 'under';
+      const kind = isTotal ? 'total' : (pt === 'spread' ? 'spread' : 'ml');
+      const drop = (row, why) => {
+        const r = removeSourceEntry({ canonical: row.capper_name, espn_game_id: row.espn_game_id, pickType: row.pick_type, team: row.team });
+        actions.push({ capper: row.capper_name, game: row.espn_game_id, dropped: `${row.team} ${row.pick_type}`, why, rescored: r.rescored });
+      };
+
+      let resolved = false;
+      if (older.source === 'polymarket' && newer.source === 'polymarket' && pm) {
+        const hit = mapByGameKind.get(`${newer.espn_game_id}|${kind}`);
+        const wallet = walletOf(newer.capper_name);
+        const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(newer.espn_game_id);
+        if (hit && wallet && game) {
+          const classify = (outcome) => {
+            if (isTotal) {
+              const o = (outcome || '').toLowerCase();
+              return o.startsWith('over') ? 'over' : o.startsWith('under') ? 'under' : null;
+            }
+            return sideOf(game, outcome);
+          };
+          const stance = await pm.resolvePmStance(wallet, hit.cid, classify);
+          const keyOf = (row) => isTotal ? (row.pick_type || '').toLowerCase() : (row.is_home_team ? 'home' : 'away');
+          if (stance && stance.flat) { drop(older, 'hedged flat'); drop(newer, 'hedged flat'); resolved = true; }
+          else if (stance && stance.side) {
+            drop(stance.side === keyOf(newer) ? older : newer, `net position is ${stance.side}`);
+            resolved = true;
+          }
+        }
+      }
+      if (!resolved) drop(older, 'kept the newer entry');
+    }
+
+    // Sync pending mvp rows for every rescored slot so the conflict resolver
+    // and the demotion sweep see the corrected totals immediately.
+    let mvpSynced = 0;
+    const games = [...new Set(actions.map(x => x.game))];
+    const touched = games.length ? db.prepare(`
+      SELECT m.id, m.espn_game_id, m.team, m.pick_type, sb.v3_total
+      FROM mvp_picks m
+      JOIN picks p ON p.espn_game_id = m.espn_game_id AND LOWER(p.team) = LOWER(m.team) AND LOWER(p.pick_type) = LOWER(m.pick_type)
+      JOIN score_breakdown sb ON sb.pick_id = p.id
+      WHERE m.result = 'pending' AND m.espn_game_id IN (${games.map(() => '?').join(',')})
+    `).all(...games) : [];
+    for (const t of touched) {
+      if (t.v3_total != null) {
+        db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`).run(t.v3_total, t.id);
+        mvpSynced++;
+      }
+    }
+    try { require('./mvp').resolveConflictingMvpPicks(); } catch (_) {}
+    res.json({ conflicts: pairs.length, actions, mvpSynced });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /admin/api/recompute-ratings — on-demand capper ratings refresh ─────
 router.post('/api/recompute-ratings', requireAuth, (_req, res) => {
   try {

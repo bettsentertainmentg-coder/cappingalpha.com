@@ -214,6 +214,64 @@ function recordSourcePick(pick) {
   return 'inserted';
 }
 
+// ── Withdraw a source capper's entry from one side of a game ─────────────────
+// Deletes the PENDING capper_history row and the board mention it minted, then
+// rescores the slot from the surviving mentions. Used when a wallet's stance
+// resolves to the other side (flip) or to flat (hedge) — a capper can never
+// legitimately hold picks on both sides of the same market. Graded rows are
+// never touched.
+function removeSourceEntry({ canonical, espn_game_id, pickType, team }) {
+  const pt = (pickType || '').toLowerCase();
+  const isTotal = pt === 'over' || pt === 'under';
+  const hist = db.prepare(`
+    SELECT id, source FROM capper_history
+    WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = ?
+      AND (LOWER(team) = LOWER(?) OR ? = 1) AND result = 'pending'
+    LIMIT 1
+  `).get(canonical, espn_game_id, pt, team || '', isTotal ? 1 : 0);
+  if (!hist) return { removed: false };
+
+  db.prepare(`DELETE FROM capper_history WHERE id = ?`).run(hist.id);
+
+  // The board mention (if one was minted): author = canonical, channel = source.
+  const slot = db.prepare(`
+    SELECT id FROM picks
+    WHERE espn_game_id = ? AND LOWER(pick_type) = ? AND (LOWER(team) = LOWER(?) OR ? = 1)
+    LIMIT 1
+  `).get(espn_game_id, pt, team || '', isTotal ? 1 : 0);
+  let rescored = null;
+  if (slot) {
+    const del = db.prepare(
+      `DELETE FROM raw_messages WHERE pick_id = ? AND author = ? AND channel = ?`
+    ).run(slot.id, canonical, hist.source);
+    if (del.changes > 0) {
+      const { recomputePickFromMentions } = require('./storage');
+      rescored = recomputePickFromMentions(slot.id);
+    }
+  }
+  return { removed: true, historyId: hist.id, pickId: slot ? slot.id : null, rescored };
+}
+
+// A capper's PENDING entry on the OPPOSITE side of the same game + market kind.
+// ml vs ml / spread vs spread on the other team; over vs under for totals.
+function findPendingOpposite({ canonical, espn_game_id, pickType, team }) {
+  const pt = (pickType || '').toLowerCase();
+  if (pt === 'over' || pt === 'under') {
+    const opp = pt === 'over' ? 'under' : 'over';
+    return db.prepare(`
+      SELECT * FROM capper_history
+      WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = ? AND result = 'pending'
+      LIMIT 1
+    `).get(canonical, espn_game_id, opp) || null;
+  }
+  return db.prepare(`
+    SELECT * FROM capper_history
+    WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = ?
+      AND LOWER(team) != LOWER(?) AND result = 'pending'
+    LIMIT 1
+  `).get(canonical, espn_game_id, pt, team || '') || null;
+}
+
 // American odds from a prediction-market price (0..1).
 function americanFromPrice(p) {
   const x = parseFloat(p);
@@ -221,4 +279,4 @@ function americanFromPrice(p) {
   return Math.round(x >= 0.5 ? (-100 * x) / (1 - x) : (100 * (1 - x)) / x);
 }
 
-module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice };
+module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice, removeSourceEntry, findPendingOpposite };

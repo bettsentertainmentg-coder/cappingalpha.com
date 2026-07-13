@@ -10,7 +10,9 @@ let mvpChart  = null;
 let homeChart = null;
 
 // ── Range key → day count ─────────────────────────────────────────────────────
-const RANGE_DAYS = { '1D': 1, '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3M': 90, 'ALL': Infinity };
+// 'YD' is yesterday: the board day before the latest one, same per-pick
+// rendering as 1D (both map to 1 so drawPlGraph takes the per-pick branch).
+const RANGE_DAYS = { '1D': 1, 'YD': 1, '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3M': 90, 'ALL': Infinity };
 let _currentRange     = 'ALL';
 let _homeRange        = 'ALL';
 
@@ -52,16 +54,18 @@ function _filterByDays(picks, dayCount) {
   return (picks || []).filter(p => (p.game_date || '') >= cutStr);
 }
 
-// The window a range key actually means. 1D is "the latest board day", NOT a
-// rolling 24h cutoff — a rolling cutoff kept yesterday's whole slate in the
-// record bar while the 1D graph plotted only today, so the widget said 28-13
-// over a 3-point line. Graph and record bar must both come through here.
+// The window a range key actually means. 1D is "the latest board day" and YD
+// the one before it — NOT rolling 24h cutoffs. A rolling cutoff kept
+// yesterday's whole slate in the record bar while the 1D graph plotted only
+// today, so the widget said 28-13 over a 3-point line. Graph and record bar
+// must both come through here.
 function _windowedPicks(picks, rangeKey) {
-  const days = RANGE_DAYS[rangeKey] ?? Infinity;
-  if (days !== 1) return _filterByDays(picks, days);
-  let latest = '';
-  for (const p of picks || []) if ((p.game_date || '') > latest) latest = p.game_date;
-  return latest ? picks.filter(p => p.game_date === latest) : [];
+  if (rangeKey === '1D' || rangeKey === 'YD') {
+    const dates = [...new Set((picks || []).map(p => p.game_date || '').filter(Boolean))].sort();
+    const day = dates[dates.length - (rangeKey === '1D' ? 1 : 2)];
+    return day ? picks.filter(p => p.game_date === day) : [];
+  }
+  return _filterByDays(picks, RANGE_DAYS[rangeKey] ?? Infinity);
 }
 
 // Resolved MVP picks that count toward the W/L/P record: decided results only,
@@ -150,6 +154,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <div class="graph-range-row">
             <button class="graph-range-btn mvp-range-btn" data-key="1D"  onclick="setGraphDays('1D')">1D</button>
+            <button class="graph-range-btn mvp-range-btn" data-key="YD"  onclick="setGraphDays('YD')">YDAY</button>
             <button class="graph-range-btn mvp-range-btn" data-key="5D"  onclick="setGraphDays('5D')">5D</button>
             <button class="graph-range-btn mvp-range-btn" data-key="7D"  onclick="setGraphDays('7D')">7D</button>
             <button class="graph-range-btn mvp-range-btn" data-key="21D" onclick="setGraphDays('21D')">21D</button>
@@ -334,12 +339,12 @@ export function drawPlGraph(picks) {
 
   const days = RANGE_DAYS[_currentRange] ?? Infinity;
 
-  // ── 1D: per-pick display for the latest day (already starts at $0) ────────
+  // ── 1D / YD: per-pick display for a single board day (starts at $0) ───────
   if (days === 1) {
-    // Same window as the record bar — the latest board day by game_date, never
-    // "the game_date of the most recently saved row" (a late-graded pick from
+    // Same window as the record bar — a board day by game_date, never "the
+    // game_date of the most recently saved row" (a late-graded pick from
     // yesterday can be the newest save).
-    const todayPicks = _windowedPicks(resolved, '1D');
+    const todayPicks = _windowedPicks(resolved, _currentRange);
     let cum = 0;
     const displayData = todayPicks.map(p => {
       const ret = calcReturn(p, unit);
@@ -350,7 +355,7 @@ export function drawPlGraph(picks) {
     const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
     _updatePlLabel(plLabel, windowPL);
     const titleEl = document.getElementById('pl-label-title');
-    if (titleEl) titleEl.textContent = "TODAY'S P/L";
+    if (titleEl) titleEl.textContent = _currentRange === 'YD' ? "YESTERDAY'S P/L" : "TODAY'S P/L";
 
     const lineColor = windowPL >= 0 ? '#4ade80' : '#f87171';
     _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, {

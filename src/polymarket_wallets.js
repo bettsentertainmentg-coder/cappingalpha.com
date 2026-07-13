@@ -14,7 +14,7 @@
 
 const https = require('https');
 const db = require('./db');
-const { recordSourcePick, findGameByTeams, sideOf, americanFromPrice } = require('./source_ingest');
+const { recordSourcePick, findGameByTeams, sideOf, americanFromPrice, removeSourceEntry, findPendingOpposite } = require('./source_ingest');
 const { ensureRegistered } = require('./storage');
 
 const HEADERS = {
@@ -140,6 +140,35 @@ function classifyMarket(question) {
   return 'ml';
 }
 
+// ── Net stance for a wallet in one market (flips and hedges) ─────────────────
+// A wallet trading in and out of a market can hold BOTH outcome tokens; every
+// qualifying BUY used to mint an independent pick, so an afternoon flip put
+// the same wallet on both MLs of one game (the Jul 13 Sparks/Dream red alert).
+// The positions API is the source of truth: for a binary market with total
+// cost C and share counts Sa/Sb, net-if-a-wins = Sa - C, so the larger share
+// count IS the directional side. Within 10% the wallet is hedged/flat.
+// classify(outcomeName) maps a position row onto the same side key as the
+// trade being ingested ('home'/'away' or 'over'/'under'). Returns
+// { side } | { flat: true } | null (API unavailable — caller falls back to
+// latest-trade-wins).
+async function resolvePmStance(wallet, conditionId, classify) {
+  const res = await getJson(`https://data-api.polymarket.com/positions?user=${encodeURIComponent(wallet)}&market=${encodeURIComponent(conditionId)}`);
+  if (res.status !== 200 || !Array.isArray(res.json)) return null;
+  const sized = new Map(); // side key -> total shares
+  for (const p of res.json) {
+    const key = classify(p.outcome || '');
+    const size = parseFloat(p.size);
+    if (!key || !Number.isFinite(size) || size <= 0) continue;
+    sized.set(key, (sized.get(key) || 0) + size);
+  }
+  const entries = [...sized.entries()].sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return { flat: true }; // fully exited — no stance
+  if (entries.length === 1) return { side: entries[0][0] };
+  const [top, second] = entries;
+  if (second[1] / top[1] >= 0.9) return { flat: true }; // hedged within 10%
+  return { side: top[0] };
+}
+
 // ── Poll tracked wallets' trades (every 15 min active hours) ──────────────────
 async function pollPmWallets() {
   if (db.getSetting('pm_scrape_enabled', '1') !== '1') return { ingested: 0 };
@@ -198,9 +227,41 @@ async function pollPmWallets() {
         line = lm ? parseFloat(lm[1]) : null;
       }
 
+      // Flip/hedge guard: if this wallet already has a PENDING entry on the
+      // OPPOSITE side of this game+market kind, this BUY is a position change,
+      // not an independent pick. Resolve the wallet's NET stance from the
+      // positions API and keep at most ONE side. API down → latest trade wins.
+      const canonical = pmDisplayName(w);
+      const isTotalKind = pickType === 'over' || pickType === 'under';
+      const team = isTotalKind ? entry.game.home_team
+        : (side === 'home' ? entry.game.home_team : entry.game.away_team);
+      const opposite = findPendingOpposite({ canonical, espn_game_id: entry.game.espn_game_id, pickType, team });
+      if (opposite) {
+        const classify = (outcome) => {
+          if (isTotalKind) {
+            const o = (outcome || '').toLowerCase();
+            return o.startsWith('over') ? 'over' : o.startsWith('under') ? 'under' : null;
+          }
+          return sideOf(entry.game, outcome);
+        };
+        const newKey = isTotalKind ? pickType : side;
+        const oppKey = isTotalKind ? (pickType === 'over' ? 'under' : 'over')
+          : (opposite.is_home_team ? 'home' : 'away');
+        const stance = await resolvePmStance(w.wallet, cid, classify);
+        if (stance && stance.flat) {
+          removeSourceEntry({ canonical, espn_game_id: entry.game.espn_game_id, pickType: opposite.pick_type, team: opposite.team });
+          console.log(`[pm_wallets] ${canonical} hedged flat on ${entry.game.espn_game_id} ${pickType} — withdrew both sides`);
+          continue;
+        }
+        if (stance && stance.side === oppKey) { continue; } // net stance unchanged — ignore this buy
+        // net stance is the NEW side (or API unavailable → latest trade wins)
+        removeSourceEntry({ canonical, espn_game_id: entry.game.espn_game_id, pickType: opposite.pick_type, team: opposite.team });
+        console.log(`[pm_wallets] ${canonical} flipped to ${newKey} on ${entry.game.espn_game_id} ${pickType} — withdrew the ${oppKey} entry`);
+      }
+
       const out = recordSourcePick({
         source: 'polymarket',
-        capperName: pmDisplayName(w),
+        capperName: canonical,
         handle: w.wallet,
         game: entry.game,
         pickType,
@@ -226,7 +287,7 @@ async function pollPmWallets() {
   return { ingested, dupes, errors };
 }
 
-module.exports = { refreshPmWallets, pollPmWallets };
+module.exports = { refreshPmWallets, pollPmWallets, resolvePmStance, buildMarketMap, pmDisplayName, classifyMarket };
 
 // CLI: node src/polymarket_wallets.js
 if (require.main === module) {
