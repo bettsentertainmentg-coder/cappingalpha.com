@@ -193,9 +193,145 @@ function kambiParseF5(ev, betOffers) {
   return rowUsable(row) ? row : null;
 }
 
-async function betrivers() {
+// Player-prop criterion families -> our market keys. Milestone criteria
+// ("2+ Hits by the Player") become yes-price rows keyed hits_2plus etc.
+const KAMBI_PROP_MARKETS = [
+  [/^total bases recorded by the player/i, 'total_bases'],
+  [/^total hits by the player/i, 'hits'],
+  [/^total rbi by the player/i, 'rbis'],
+  [/^total stolen bases by the player/i, 'stolen_bases'],
+  [/^strikeouts thrown by the player/i, 'strikeouts'],
+];
+const KAMBI_MILESTONE = /^(\d)\+\s+(hits|bases|rbis|runs scored|hits, runs & rbis|strikeouts thrown|doubles|home runs)/i;
+const KAMBI_MILESTONE_KEY = {
+  'hits': 'hits', 'bases': 'bases', 'rbis': 'rbis', 'runs scored': 'runs',
+  'hits, runs & rbis': 'hrr', 'strikeouts thrown': 'strikeouts', 'doubles': 'doubles', 'home runs': 'home_runs',
+};
+
+// Everything beyond the F5 family in the per-event catalog the F5 pass already
+// downloads: player props, team totals, and First 3 Innings period lines.
+function kambiParseExtras(sport, ev, betOffers) {
+  const out = [];
+  const props = new Map();
+  const propFor = (entity, market, line) => {
+    const key = `${entity}|${market}|${line}`;
+    if (!props.has(key)) {
+      props.set(key, {
+        book: 'betrivers', sport, home_team: ev.homeName, away_team: ev.awayName,
+        start_time: isoOrNull(ev.start), entity, market, line,
+        over_odds: null, under_odds: null,
+      });
+    }
+    return props.get(key);
+  };
+  for (const bo of betOffers || []) {
+    if (bo.suspended === true) continue;
+    const crit = (bo.criterion && bo.criterion.label) || '';
+    const typeName = (bo.betOfferType && bo.betOfferType.name) || '';
+    // Team totals: "Total Runs by SD Padres"
+    const tt = /^total (?:runs|points|goals) by (.+)$/i.exec(crit);
+    if (tt && typeName === 'Over/Under') {
+      const team = tt[1].trim();
+      for (const o of bo.outcomes || []) {
+        if (o.status === 'SUSPENDED') continue;
+        const odds = american(o.oddsAmerican);
+        const line = o.line != null ? o.line / 1000 : null;
+        if (odds == null || line == null) continue;
+        const row = propFor(team, 'team_total', line);
+        if (o.type === 'OT_OVER') row.over_odds = odds;
+        else if (o.type === 'OT_UNDER') row.under_odds = odds;
+      }
+      continue;
+    }
+    if (typeName === 'Player Occurrence Line') {
+      const ou = KAMBI_PROP_MARKETS.find(([re]) => re.test(crit));
+      const ms = KAMBI_MILESTONE.exec(crit);
+      for (const o of bo.outcomes || []) {
+        if (o.status === 'SUSPENDED') continue;
+        const player = o.participant || '';
+        const odds = american(o.oddsAmerican);
+        if (!player || odds == null) continue;
+        if (ou && (o.type === 'OT_OVER' || o.type === 'OT_UNDER')) {
+          const line = o.line != null ? o.line / 1000 : null;
+          if (line == null) continue;
+          const row = propFor(player, ou[1], line);
+          if (o.type === 'OT_OVER') row.over_odds = odds; else row.under_odds = odds;
+        } else if (ms && o.type === 'OT_YES') {
+          const key = KAMBI_MILESTONE_KEY[ms[2].toLowerCase()];
+          if (!key) continue;
+          const row = propFor(player, `${key}_${ms[1]}plus`, null);
+          row.over_odds = odds;
+        }
+      }
+    }
+  }
+  for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) out.push(row);
+  // First 3 Innings period lines: same criterion pattern as F5, period 'F3'.
+  const f3 = kambiParsePeriod(ev, betOffers, 'First 3 Innings', 'F3');
+  if (f3) out.push(f3);
+  return out;
+}
+
+// Generalized from kambiParseF5: parse one partial-game period family
+// ("Moneyline - <suffix>", "Spread - <suffix>", "Total Runs - <suffix>").
+function kambiParsePeriod(ev, betOffers, suffix, periodKey) {
+  const crits = {
+    [`Moneyline - ${suffix}`]: 'ml',
+    [`Spread - ${suffix}`]: 'spread',
+    [`Total Runs - ${suffix}`]: 'total',
+  };
+  const row = { ...emptyRow('betrivers', 'MLB', ev.homeName, ev.awayName, isoOrNull(ev.start)), period: periodKey, spread_home_odds: null, spread_away_odds: null };
+  const offers = [...(betOffers || [])].sort((a, b) =>
+    ((b.tags || []).includes('MAIN_LINE') ? 1 : 0) - ((a.tags || []).includes('MAIN_LINE') ? 1 : 0));
+  for (const bo of offers) {
+    if (bo.suspended === true) continue;
+    const kind = crits[(bo.criterion && bo.criterion.label) || ''];
+    if (!kind) continue;
+    for (const o of bo.outcomes || []) {
+      if (o.status === 'SUSPENDED') continue;
+      const odds = american(o.oddsAmerican);
+      if (odds == null) continue;
+      const name = o.participant || o.label || '';
+      const isHome = name === ev.homeName || (name !== ev.awayName && o.type === 'OT_ONE');
+      const isAway = name === ev.awayName || (name !== ev.homeName && o.type === 'OT_TWO');
+      const line = o.line != null ? o.line / 1000 : null;
+      if (kind === 'ml') {
+        if (isHome && row.ml_home == null) row.ml_home = odds;
+        else if (isAway && row.ml_away == null) row.ml_away = odds;
+      } else if (kind === 'spread') {
+        if (line == null) continue;
+        if (isHome && row.spread_home == null) { row.spread_home = line; row.spread_home_odds = odds; }
+        else if (isAway && row.spread_away == null) { row.spread_away = line; row.spread_away_odds = odds; }
+      } else {
+        if (o.type === 'OT_OVER') {
+          if (line != null && row.over_under == null) row.over_under = line;
+          if (row.ou_over_odds == null) row.ou_over_odds = odds;
+        } else if (o.type === 'OT_UNDER') {
+          if (line != null && row.over_under == null) row.over_under = line;
+          if (row.ou_under_odds == null) row.ou_under_odds = odds;
+        }
+      }
+    }
+  }
+  return rowUsable(row) ? row : null;
+}
+
+// Non-ESPN sports on the Kambi board (the working path is 4 segments deep:
+// sport/all/all/all — the 3-segment form 404s). Event-lane rows.
+const KAMBI_EVENT_SPORTS = {
+  'MMA':          'ufc_mma/all/all/all',
+  'Table Tennis': 'table_tennis/all/all/all',
+  'Cricket':      'cricket/all/all/all',
+  'Darts':        'darts/all/all/all',
+  'Rugby League': 'rugby_league/all/all/all',
+  'Aussie Rules': 'australian_rules/all/all/all',
+  'Volleyball':   'volleyball/all/all/all',
+};
+
+async function betrivers(opts = {}) {
   const rows = [];
   for (const [sport, path] of Object.entries(KAMBI_LEAGUES)) {
+    if (opts.sports && !opts.sports.has(sport)) continue;
     try {
       const data = await getJson(
         `https://eu-offering-api.kambicdn.com/offering/v2018/${KAMBI_OPERATOR}/listView/${path}/all/all/matches.json?lang=en_US&market=US&useCombined=true`
@@ -206,7 +342,7 @@ async function betrivers() {
         if (row) rows.push(row);
         if (sport === 'MLB' && e.event && e.event.id && e.event.homeName) mlbEvents.push(e.event);
       }
-      if (sport === 'MLB') {
+      if (sport === 'MLB' && !opts.lite) {
         for (const ev of mlbEvents.slice(0, 20)) {
           try {
             await sleep(400);
@@ -215,6 +351,7 @@ async function betrivers() {
             );
             const row = kambiParseF5(ev, full.betOffers);
             if (row) rows.push(row);
+            rows.push(...kambiParseExtras(sport, ev, full.betOffers));
           } catch (err) {
             if (!/HTTP 404/.test(err.message)) console.warn(`[betrivers-f5] ${err.message}`);
           }
@@ -224,6 +361,23 @@ async function betrivers() {
       if (!/HTTP 404/.test(err.message)) console.warn(`[betrivers] ${sport}: ${err.message}`);
     }
     await sleep(1200);
+  }
+  // Non-ESPN sports boards (event lane) — skipped on the hot loop.
+  if (!opts.lite && !opts.sports) {
+    for (const [sport, path] of Object.entries(KAMBI_EVENT_SPORTS)) {
+      try {
+        const data = await getJson(
+          `https://eu-offering-api.kambicdn.com/offering/v2018/${KAMBI_OPERATOR}/listView/${path}/matches.json?lang=en_US&market=US&useCombined=true`
+        );
+        for (const e of data.events || []) {
+          const row = kambiParseEvent(sport, e);
+          if (row) rows.push({ ...row, event_lane: true, league: e.event?.group || null });
+        }
+      } catch (err) {
+        if (!/HTTP 404/.test(err.message)) console.warn(`[betrivers-events] ${sport}: ${err.message}`);
+      }
+      await sleep(900);
+    }
   }
   return rows;
 }
@@ -247,9 +401,18 @@ const PINNACLE_LEAGUES = { MLB: 246, NBA: 487, WNBA: 578, NHL: 1456, NFL: 889, N
 // period 1 is a single hockey period — skipped. Period 3 (1st inning) skipped.
 const PINNACLE_P1 = { MLB: 'F5', NBA: '1H', WNBA: '1H', NFL: '1H', NCAAF: '1H', CBB: '1H' };
 
-async function pinnacle() {
+// Special (player prop) market keys: Pinnacle's units field -> our market key.
+const PINNACLE_UNITS = {
+  HomeRuns: 'home_runs', TotalBases: 'total_bases', Strikeouts: 'strikeouts',
+  HitsAllowed: 'hits_allowed', EarnedRuns: 'earned_runs', PitchingOuts: 'pitching_outs',
+  Hits: 'hits', RBIs: 'rbis', Runs: 'runs',
+  Points: 'points', Rebounds: 'rebounds', Assists: 'assists', ThreesMade: 'threes',
+};
+
+async function pinnacle(opts = {}) {
   const rows = [];
   for (const [sport, leagueId] of Object.entries(PINNACLE_LEAGUES)) {
+    if (opts.sports && !opts.sports.has(sport)) continue;
     try {
       const base = `https://guest.api.arcadia.pinnacle.com/0.1/leagues/${leagueId}`;
       const matchups = await getJson(`${base}/matchups?brandId=0`, PINNACLE_HEADERS);
@@ -257,18 +420,100 @@ async function pinnacle() {
       const markets = await getJson(`${base}/markets/straight`, PINNACLE_HEADERS);
 
       // Real games only: props/alt matchups carry type "special" or a parentId.
-      const games = new Map(); // matchupId -> row
+      const games = new Map();    // matchupId -> row
+      const specials = new Map(); // specialId -> { game, entity, market, sides: participantId -> 'over'|'under' }
       for (const m of Array.isArray(matchups) ? matchups : []) {
-        if (m.type !== 'matchup' || m.parentId) continue;
-        const home = (m.participants || []).find((p) => p.alignment === 'home');
-        const away = (m.participants || []).find((p) => p.alignment === 'away');
-        if (!home || !away) continue;
-        games.set(m.id, emptyRow('pinnacle', sport, home.name, away.name, isoOrNull(m.startTime)));
+        if (m.type === 'matchup' && !m.parentId) {
+          const home = (m.participants || []).find((p) => p.alignment === 'home');
+          const away = (m.participants || []).find((p) => p.alignment === 'away');
+          if (!home || !away) continue;
+          games.set(m.id, emptyRow('pinnacle', sport, home.name, away.name, isoOrNull(m.startTime)));
+          continue;
+        }
+        // Player-prop specials: description "Trea Turner (Home Runs)(must start)",
+        // units names the stat, participants are the Over/Under sides. Priced in
+        // the SAME markets/straight payload under matchupId = the special's id.
+        if (!opts.lite && m.type === 'special' && m.parentId && m.special) {
+          const market = PINNACLE_UNITS[m.special.units];
+          if (!market) continue;
+          const entity = String(m.special.description || '').split('(')[0].trim();
+          if (!entity) continue;
+          const sides = new Map();
+          for (const p of m.participants || []) {
+            const n = String(p.name || '').toLowerCase();
+            if (n === 'over' || n === 'under') sides.set(p.id, n);
+          }
+          if (sides.size) specials.set(m.id, { parentId: m.parentId, entity, market, sides });
+        }
       }
       const p1 = PINNACLE_P1[sport];
       const gamesP1 = new Map(); // matchupId -> period row
+      const props = new Map();   // dedupe key -> prop row (merged over/under)
+      const propFor = (game, entity, market, line) => {
+        const key = `${entity}|${market}|${line}`;
+        if (!props.has(key)) {
+          props.set(key, {
+            book: 'pinnacle', sport, home_team: game.home_team, away_team: game.away_team,
+            start_time: game.start_time, entity, market, line,
+            over_odds: null, under_odds: null,
+          });
+        }
+        return props.get(key);
+      };
+
       for (const m of Array.isArray(markets) ? markets : []) {
-        if (m.isAlternate) continue;
+        // Alternate ladders (spread/total) -> prop rows. Everything else
+        // alternate is skipped as before.
+        if (m.isAlternate) {
+          if (opts.lite) continue;
+          const game = games.get(m.matchupId);
+          if (!game || m.period !== 0) continue;
+          for (const p of m.prices || []) {
+            const price = american(p.price);
+            if (price == null || p.points == null) continue;
+            if (m.type === 'spread') {
+              const team = p.designation === 'home' ? game.home_team : p.designation === 'away' ? game.away_team : null;
+              if (!team) continue;
+              const row = propFor(game, team, 'alt_spread', p.points);
+              row.over_odds = price; // one price per (team, points)
+            } else if (m.type === 'total') {
+              const row = propFor(game, '', 'alt_total', p.points);
+              if (p.designation === 'over') row.over_odds = price;
+              else if (p.designation === 'under') row.under_odds = price;
+            }
+          }
+          continue;
+        }
+        // Priced specials ride matchupId = special id.
+        const sp = !opts.lite && specials.get(m.matchupId);
+        if (sp) {
+          const game = games.get(sp.parentId);
+          if (!game) continue;
+          for (const p of m.prices || []) {
+            const price = american(p.price);
+            if (price == null) continue;
+            const side = sp.sides.get(p.participantId);
+            if (!side) continue;
+            const row = propFor(game, sp.entity, sp.market, p.points != null ? p.points : null);
+            if (side === 'over') row.over_odds = price; else row.under_odds = price;
+          }
+          continue;
+        }
+        // Team totals: first-class market type with a side field.
+        if (m.type === 'team_total' && m.period === 0 && !opts.lite) {
+          const game = games.get(m.matchupId);
+          if (!game) continue;
+          const team = m.side === 'home' ? game.home_team : m.side === 'away' ? game.away_team : null;
+          if (!team) continue;
+          for (const p of m.prices || []) {
+            const price = american(p.price);
+            if (price == null || p.points == null) continue;
+            const row = propFor(game, team, 'team_total', p.points);
+            if (p.designation === 'over') row.over_odds = price;
+            else if (p.designation === 'under') row.under_odds = price;
+          }
+          continue;
+        }
         let row = null;
         if (m.period === 0) {
           row = games.get(m.matchupId);
@@ -301,10 +546,85 @@ async function pinnacle() {
       }
       for (const row of games.values()) if (rowUsable(row)) rows.push(row);
       for (const row of gamesP1.values()) if (rowUsable(row)) rows.push(row);
+      for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) rows.push(row);
     } catch (err) {
       if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle] ${sport}: ${err.message}`);
     }
     await sleep(1200);
+  }
+  return rows;
+}
+
+// ── pinnacle event lane: esports / MMA / boxing / cricket ────────────────────
+// Sports with no ESPN scoreboard, so their lines ride the engine_events lane
+// (event_lane: true rows -> /admin/ingest-event-lines). Same guest API, same
+// matchup/straight shape as team sports. League ids rotate per tournament
+// (esports especially), so each cycle discovers leagues fresh; the busiest
+// leagues are fetched first and the total is capped for politeness.
+const PINNACLE_EVENT_SPORTS = { 12: 'Esports', 22: 'MMA', 6: 'Boxing', 8: 'Cricket' };
+const PINNACLE_EVENT_LEAGUE_CAP = { 12: 6, 22: 3, 6: 2, 8: 3 };
+
+async function pinnacleEvents() {
+  const rows = [];
+  for (const [sportId, sport] of Object.entries(PINNACLE_EVENT_SPORTS)) {
+    try {
+      const leagues = await getJson(
+        `https://guest.api.arcadia.pinnacle.com/0.1/sports/${sportId}/leagues?all=false`,
+        PINNACLE_HEADERS
+      );
+      await sleep(600);
+      const cap = PINNACLE_EVENT_LEAGUE_CAP[sportId] || 3;
+      const top = (Array.isArray(leagues) ? leagues : [])
+        .filter((l) => (l.matchupCount ?? 0) > 0)
+        .sort((a, b) => (b.matchupCount ?? 0) - (a.matchupCount ?? 0))
+        .slice(0, cap);
+      for (const lg of top) {
+        try {
+          const base = `https://guest.api.arcadia.pinnacle.com/0.1/leagues/${lg.id}`;
+          const matchups = await getJson(`${base}/matchups?brandId=0`, PINNACLE_HEADERS);
+          await sleep(600);
+          const markets = await getJson(`${base}/markets/straight`, PINNACLE_HEADERS);
+          const events = new Map();
+          for (const m of Array.isArray(matchups) ? matchups : []) {
+            if (m.type !== 'matchup' || m.parentId) continue;
+            const home = (m.participants || []).find((p) => p.alignment === 'home');
+            const away = (m.participants || []).find((p) => p.alignment === 'away');
+            if (!home || !away) continue;
+            events.set(m.id, {
+              ...emptyRow('pinnacle', sport, home.name, away.name, isoOrNull(m.startTime)),
+              event_lane: true, league: lg.name || null,
+            });
+          }
+          for (const m of Array.isArray(markets) ? markets : []) {
+            if (m.period !== 0 || m.isAlternate) continue;
+            const row = events.get(m.matchupId);
+            if (!row) continue;
+            for (const p of m.prices || []) {
+              const price = american(p.price);
+              if (price == null) continue;
+              if (m.type === 'moneyline') {
+                if (p.designation === 'home') row.ml_home = price;
+                else if (p.designation === 'away') row.ml_away = price;
+              } else if (m.type === 'spread') {
+                if (p.designation === 'home') row.spread_home = p.points != null ? p.points : null;
+                else if (p.designation === 'away') row.spread_away = p.points != null ? p.points : null;
+              } else if (m.type === 'total') {
+                if (p.points != null && row.over_under == null) row.over_under = p.points;
+                if (p.designation === 'over') row.ou_over_odds = price;
+                else if (p.designation === 'under') row.ou_under_odds = price;
+              }
+            }
+          }
+          for (const row of events.values()) if (rowUsable(row)) rows.push(row);
+        } catch (err) {
+          if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle-events] ${sport}/${lg.id}: ${err.message}`);
+        }
+        await sleep(600);
+      }
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle-events] ${sport}: ${err.message}`);
+    }
+    await sleep(900);
   }
   return rows;
 }
@@ -466,9 +786,126 @@ function fanduelRunnerOdds(r) {
   return w && w.americanDisplayOdds ? american(w.americanDisplayOdds.americanOdds) : null;
 }
 
-async function fanduel() {
+// tab=popular: the F5 family + alternate ladders + team totals in one payload.
+function fanduelParsePopular(sport, gameRow, ep) {
+  const out = [];
+  const f5 = { ...emptyRow('fanduel', sport, gameRow.home_team, gameRow.away_team, gameRow.start_time), period: 'F5', spread_home_odds: null, spread_away_odds: null };
+  const props = new Map();
+  const propFor = (entity, market, line) => {
+    const key = `${entity}|${market}|${line}`;
+    if (!props.has(key)) {
+      props.set(key, {
+        book: 'fanduel', sport, home_team: gameRow.home_team, away_team: gameRow.away_team,
+        start_time: gameRow.start_time, entity, market, line, over_odds: null, under_odds: null,
+      });
+    }
+    return props.get(key);
+  };
+  for (const mk of Object.values((ep.attachments || {}).markets || {})) {
+    const type = mk.marketType || '';
+    if (mk.marketStatus && mk.marketStatus !== 'OPEN') continue;
+    const runners = mk.runners || [];
+    const home = runners.find((r) => r.result && r.result.type === 'HOME');
+    const away = runners.find((r) => r.result && r.result.type === 'AWAY');
+    const over = runners.find((r) => r.result && r.result.type === 'OVER');
+    const under = runners.find((r) => r.result && r.result.type === 'UNDER');
+    if (type === '1ST_HALF_MONEY_LINE') {
+      if (home) f5.ml_home = fanduelRunnerOdds(home);
+      if (away) f5.ml_away = fanduelRunnerOdds(away);
+    } else if (type === '1ST_HALF_RUN_LINE') {
+      if (home) { f5.spread_home = home.handicap != null ? home.handicap : null; f5.spread_home_odds = fanduelRunnerOdds(home); }
+      if (away) { f5.spread_away = away.handicap != null ? away.handicap : null; f5.spread_away_odds = fanduelRunnerOdds(away); }
+    } else if (type === '1ST_HALF_TOTAL_RUNS') {
+      if (over) { if (over.handicap != null) f5.over_under = over.handicap; f5.ou_over_odds = fanduelRunnerOdds(over); }
+      if (under) { if (f5.over_under == null && under.handicap != null) f5.over_under = under.handicap; f5.ou_under_odds = fanduelRunnerOdds(under); }
+    } else if (type === 'ALTERNATE_RUN_LINES') {
+      for (const r of runners) {
+        const side = r.result && r.result.type;
+        if ((side !== 'HOME' && side !== 'AWAY') || r.handicap == null) continue;
+        const odds = fanduelRunnerOdds(r);
+        if (odds == null) continue;
+        const team = side === 'HOME' ? gameRow.home_team : gameRow.away_team;
+        propFor(team, 'alt_spread', r.handicap).over_odds = odds;
+      }
+    } else if (type === 'ALTERNATE_TOTAL_RUNS') {
+      for (const r of runners) {
+        const side = r.result && r.result.type;
+        if ((side !== 'OVER' && side !== 'UNDER') || r.handicap == null) continue;
+        const odds = fanduelRunnerOdds(r);
+        if (odds == null) continue;
+        const row = propFor('', 'alt_total', r.handicap);
+        if (side === 'OVER') row.over_odds = odds; else row.under_odds = odds;
+      }
+    } else if (type === 'HOME_TOTAL_RUNS' || type === 'AWAY_TOTAL_RUNS') {
+      const team = type === 'HOME_TOTAL_RUNS' ? gameRow.home_team : gameRow.away_team;
+      for (const r of runners) {
+        const side = r.result && r.result.type;
+        if ((side !== 'OVER' && side !== 'UNDER') || r.handicap == null) continue;
+        const odds = fanduelRunnerOdds(r);
+        if (odds == null) continue;
+        const row = propFor(team, 'team_total', r.handicap);
+        if (side === 'OVER') row.over_odds = odds; else row.under_odds = odds;
+      }
+    }
+  }
+  if (rowUsable(f5)) out.push(f5);
+  for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) out.push(row);
+  return out;
+}
+
+// Prop tabs: yes-price batter markets + pitcher strikeout O/U.
+const FD_YES_MARKETS = {
+  TO_HIT_A_HOME_RUN: 'to_hit_hr',
+  PLAYER_TO_RECORD_A_HIT: 'to_record_hit',
+  TO_RECORD_A_HIT: 'to_record_hit',
+  TO_RECORD_AN_RBI: 'to_record_rbi',
+};
+function fanduelParseProps(sport, gameRow, ep) {
+  const out = [];
+  const props = new Map();
+  const propFor = (entity, market, line) => {
+    const key = `${entity}|${market}|${line}`;
+    if (!props.has(key)) {
+      props.set(key, {
+        book: 'fanduel', sport, home_team: gameRow.home_team, away_team: gameRow.away_team,
+        start_time: gameRow.start_time, entity, market, line, over_odds: null, under_odds: null,
+      });
+    }
+    return props.get(key);
+  };
+  for (const mk of Object.values((ep.attachments || {}).markets || {})) {
+    const type = mk.marketType || '';
+    if (mk.marketStatus && mk.marketStatus !== 'OPEN') continue;
+    const yesKey = FD_YES_MARKETS[type];
+    if (yesKey) {
+      for (const r of mk.runners || []) {
+        const odds = fanduelRunnerOdds(r);
+        const player = (r.runnerName || '').trim();
+        if (odds == null || !player) continue;
+        propFor(player, yesKey, null).over_odds = odds;
+      }
+      continue;
+    }
+    // Pitcher strikeouts O/U: runnerName is "Name Over"/"Name Under" + handicap.
+    if (/TOTAL_STRIKEOUTS/.test(type) && !/ALT/.test(type)) {
+      for (const r of mk.runners || []) {
+        const odds = fanduelRunnerOdds(r);
+        if (odds == null || r.handicap == null) continue;
+        const m = /^(.*)\s+(Over|Under)$/i.exec((r.runnerName || '').trim());
+        if (!m) continue;
+        const row = propFor(m[1].trim(), 'strikeouts', r.handicap);
+        if (/over/i.test(m[2])) row.over_odds = odds; else row.under_odds = odds;
+      }
+    }
+  }
+  for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) out.push(row);
+  return out;
+}
+
+async function fanduel(opts = {}) {
   const rows = [];
   for (const [sport, pageId] of Object.entries(FANDUEL_PAGES)) {
+    if (opts.sports && !opts.sports.has(sport)) continue;
     try {
       const data = await getJson(
         `https://sbapi.nj.sportsbook.fanduel.com/api/content-managed-page?page=CUSTOM&customPageId=${pageId}&pbHorizontal=false&_ak=${FANDUEL_AK}&timezone=America%2FNew_York`,
@@ -525,37 +962,36 @@ async function fanduel() {
       }
       for (const row of byEvent.values()) if (rowUsable(row)) rows.push(row);
 
-      // F5 pass (MLB): First 5 Innings markets live on each event's own page
-      // under the 'first-5-innings' tab (marketTypes are the 1ST_HALF_* family,
-      // named "First 5 Innings ..." for baseball). One call per game, paced.
-      if (sport === 'MLB') {
-        for (const [eventId, gameRow] of [...byEvent.entries()].slice(0, 20)) {
+      // Per-event depth pass (MLB): tab=popular is a SUPERSET of the old
+      // first-5-innings tab — the whole 1ST_HALF_* (F5) family PLUS alternate
+      // run lines, alternate totals, and team totals in one call per game.
+      // Games starting within 12h also get the two prop tabs (props hang on
+      // game day only). All skipped on the hot loop.
+      if (sport === 'MLB' && !opts.lite) {
+        const entries = [...byEvent.entries()].slice(0, 20);
+        for (const [eventId, gameRow] of entries) {
           try {
             await sleep(400);
             const ep = await getJson(
-              `https://sbapi.nj.sportsbook.fanduel.com/api/event-page?eventId=${eventId}&tab=first-5-innings&_ak=${FANDUEL_AK}`,
+              `https://sbapi.nj.sportsbook.fanduel.com/api/event-page?eventId=${eventId}&tab=popular&_ak=${FANDUEL_AK}`,
               FANDUEL_HEADERS
             );
-            const row = { ...emptyRow('fanduel', sport, gameRow.home_team, gameRow.away_team, gameRow.start_time), period: 'F5', spread_home_odds: null, spread_away_odds: null };
-            for (const mk of Object.values((ep.attachments || {}).markets || {})) {
-              const type = mk.marketType || '';
-              if (mk.marketStatus && mk.marketStatus !== 'OPEN') continue;
-              const home = (mk.runners || []).find((r) => r.result && r.result.type === 'HOME');
-              const away = (mk.runners || []).find((r) => r.result && r.result.type === 'AWAY');
-              const over = (mk.runners || []).find((r) => r.result && r.result.type === 'OVER');
-              const under = (mk.runners || []).find((r) => r.result && r.result.type === 'UNDER');
-              if (type === '1ST_HALF_MONEY_LINE') {
-                if (home) row.ml_home = fanduelRunnerOdds(home);
-                if (away) row.ml_away = fanduelRunnerOdds(away);
-              } else if (type === '1ST_HALF_RUN_LINE') {
-                if (home) { row.spread_home = home.handicap != null ? home.handicap : null; row.spread_home_odds = fanduelRunnerOdds(home); }
-                if (away) { row.spread_away = away.handicap != null ? away.handicap : null; row.spread_away_odds = fanduelRunnerOdds(away); }
-              } else if (type === '1ST_HALF_TOTAL_RUNS') {
-                if (over) { if (over.handicap != null) row.over_under = over.handicap; row.ou_over_odds = fanduelRunnerOdds(over); }
-                if (under) { if (row.over_under == null && under.handicap != null) row.over_under = under.handicap; row.ou_under_odds = fanduelRunnerOdds(under); }
+            rows.push(...fanduelParsePopular(sport, gameRow, ep));
+            const startsSoon = gameRow.start_time && (Date.parse(gameRow.start_time) - Date.now()) < 12 * 3600 * 1000;
+            if (startsSoon) {
+              for (const tab of ['batter-props', 'pitcher-props']) {
+                try {
+                  await sleep(400);
+                  const pp = await getJson(
+                    `https://sbapi.nj.sportsbook.fanduel.com/api/event-page?eventId=${eventId}&tab=${tab}&_ak=${FANDUEL_AK}`,
+                    FANDUEL_HEADERS
+                  );
+                  rows.push(...fanduelParseProps(sport, gameRow, pp));
+                } catch (err) {
+                  if (!/HTTP 404/.test(err.message)) console.warn(`[fanduel-props] ${err.message}`);
+                }
               }
             }
-            if (rowUsable(row)) rows.push(row);
           } catch (err) {
             if (!/HTTP 404/.test(err.message)) console.warn(`[fanduel-f5] ${err.message}`);
           }
@@ -698,10 +1134,145 @@ function dkNashParseF5(data) {
   return rows;
 }
 
-async function draftkings() {
+// Depth payloads (alt ladders, team totals, player props) share one shape:
+// events + markets + selections, with the market type name classifying the
+// family and selections carrying participants[].name + points + outcomeType.
+const DK_PROP_MARKETS = [
+  [/run line alternate|alternate run line/i, 'alt_spread'],
+  [/alternate total runs/i, 'alt_total'],
+  [/team total runs/i, 'team_total'],
+  [/^hits$/i, 'hits'],
+  [/^strikeouts thrown$/i, 'strikeouts'],
+  [/^total bases$/i, 'total_bases'],
+  [/^rbis?$/i, 'rbis'],
+];
+
+function dkDepthParse(sport, data) {
+  const out = [];
+  const events = new Map();
+  for (const ev of data.events || []) {
+    const home = (ev.participants || []).find((p) => p.venueRole === 'Home');
+    const away = (ev.participants || []).find((p) => p.venueRole === 'Away');
+    if (!home || !away) continue;
+    events.set(ev.id, { home: home.name, away: away.name, start: isoOrNull(ev.startEventDate) });
+  }
+  const marketOf = new Map();
+  for (const m of data.markets || []) {
+    const ev = events.get(m.eventId);
+    if (!ev) continue;
+    const typeName = (m.marketType && m.marketType.name) || '';
+    const hit = DK_PROP_MARKETS.find(([re]) => re.test(typeName));
+    if (!hit) continue;
+    // Team totals name the team in the market name ("SD Padres: Team Total Runs").
+    const teamPrefix = hit[1] === 'team_total' ? String(m.name || '').split(':')[0].trim() : null;
+    marketOf.set(m.id, { ev, market: hit[1], teamPrefix });
+  }
+  const props = new Map();
+  const propFor = (ev, entity, market, line) => {
+    const key = `${ev.home}|${entity}|${market}|${line}`;
+    if (!props.has(key)) {
+      props.set(key, {
+        book: 'draftkings', sport, home_team: ev.home, away_team: ev.away, start_time: ev.start,
+        entity, market, line, over_odds: null, under_odds: null,
+      });
+    }
+    return props.get(key);
+  };
+  for (const sel of data.selections || []) {
+    const mk = marketOf.get(sel.marketId);
+    if (!mk) continue;
+    const odds = sel.displayOdds ? american(sel.displayOdds.american) : null;
+    const points = sel.points != null ? american(sel.points) : null;
+    if (odds == null) continue;
+    const side = sel.outcomeType; // Home / Away / Over / Under
+    const player = (sel.participants || []).find((p) => p.type === 'Player');
+    if (mk.market === 'alt_spread') {
+      if (points == null) continue;
+      const team = side === 'Home' ? mk.ev.home : side === 'Away' ? mk.ev.away : null;
+      if (!team) continue;
+      propFor(mk.ev, team, 'alt_spread', points).over_odds = odds;
+    } else if (mk.market === 'alt_total') {
+      if (points == null) continue;
+      const row = propFor(mk.ev, '', 'alt_total', points);
+      if (side === 'Over') row.over_odds = odds; else if (side === 'Under') row.under_odds = odds;
+    } else if (mk.market === 'team_total') {
+      if (points == null || !mk.teamPrefix) continue;
+      const row = propFor(mk.ev, mk.teamPrefix, 'team_total', points);
+      if (side === 'Over') row.over_odds = odds; else if (side === 'Under') row.under_odds = odds;
+    } else {
+      // Player O/U prop (hits, strikeouts, total bases, rbis).
+      if (points == null || !player) continue;
+      const row = propFor(mk.ev, player.name, mk.market, points);
+      if (side === 'Over') row.over_odds = odds; else if (side === 'Under') row.under_odds = odds;
+    }
+  }
+  for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) out.push(row);
+  return out;
+}
+
+// MLB depth endpoints (category/subcategory ids verified live 2026-07-09).
+const DK_MLB_DEPTH = [
+  'categories/493/subcategories/13168',  // Alternate Run Line
+  'categories/493/subcategories/13169',  // Alternate Total Runs
+  'categories/1674',                     // Team Totals (default subcategory)
+  'categories/743/subcategories/6719',   // Batter Hits O/U
+  'categories/1031',                     // Pitcher Strikeouts (default subcategory)
+];
+
+// MMA (UFC) rides the same nash API under league 9034 with fight-specific
+// market names. Event-lane rows (no ESPN scoreboard for MMA).
+const DK_MMA_LEAGUE = 9034;
+function dkMmaParse(data) {
+  const rows = [];
+  const events = new Map();
+  for (const ev of data.events || []) {
+    const home = (ev.participants || []).find((p) => p.venueRole === 'Home');
+    const away = (ev.participants || []).find((p) => p.venueRole === 'Away');
+    if (!home || !away) continue;
+    events.set(ev.id, {
+      ...emptyRow('draftkings', 'MMA', home.name, away.name, isoOrNull(ev.startEventDate)),
+      event_lane: true, league: 'UFC',
+    });
+  }
+  const marketOf = new Map();
+  for (const m of data.markets || []) {
+    const row = events.get(m.eventId);
+    const typeName = (m.marketType && m.marketType.name) || '';
+    if (!row || m.main === false) continue;
+    const kind = typeName === 'Moneyline' ? 'ml'
+               : typeName === 'Point Spread' ? 'spread'
+               : typeName === 'Total Rounds' ? 'total' : null;
+    if (kind) marketOf.set(m.id, { row, kind });
+  }
+  for (const sel of data.selections || []) {
+    const mk = marketOf.get(sel.marketId);
+    if (!mk) continue;
+    const { row, kind } = mk;
+    const odds = sel.displayOdds ? american(sel.displayOdds.american) : null;
+    const line = sel.points != null ? american(sel.points) : null;
+    const side = sel.outcomeType;
+    if (kind === 'ml') {
+      if (side === 'Home' && row.ml_home == null) row.ml_home = odds;
+      else if (side === 'Away' && row.ml_away == null) row.ml_away = odds;
+    } else if (kind === 'spread') {
+      if (side === 'Home' && row.spread_home == null) row.spread_home = line;
+      else if (side === 'Away' && row.spread_away == null) row.spread_away = line;
+    } else {
+      if (line != null && row.over_under == null) row.over_under = line;
+      if (side === 'Over' && row.ou_over_odds == null) row.ou_over_odds = odds;
+      else if (side === 'Under' && row.ou_under_odds == null) row.ou_under_odds = odds;
+    }
+  }
+  const out = [];
+  for (const row of events.values()) if (rowUsable(row)) out.push(row);
+  return out;
+}
+
+async function draftkings(opts = {}) {
   const rows = [];
   const H = { Referer: 'https://sportsbook.draftkings.com/', Origin: 'https://sportsbook.draftkings.com' };
   for (const [sport, leagueId] of Object.entries(DK_NASH_LEAGUES)) {
+    if (opts.sports && !opts.sports.has(sport)) continue;
     try {
       const data = await getJson(
         `https://sportsbook-nash.draftkings.com/api/sportscontent/dkusoh/v1/leagues/${leagueId}`,
@@ -711,7 +1282,7 @@ async function draftkings() {
     } catch (err) {
       if (!/HTTP 404/.test(err.message)) console.warn(`[draftkings] ${sport}: ${err.message}`);
     }
-    if (sport === 'MLB') {
+    if (sport === 'MLB' && !opts.lite) {
       try {
         await sleep(600);
         const cdata = await getJson(
@@ -722,8 +1293,32 @@ async function draftkings() {
       } catch (err) {
         if (!/HTTP 404/.test(err.message)) console.warn(`[draftkings-f5] ${err.message}`);
       }
+      for (const path of DK_MLB_DEPTH) {
+        try {
+          await sleep(600);
+          const ddata = await getJson(
+            `https://sportsbook-nash.draftkings.com/api/sportscontent/dkusoh/v1/leagues/${leagueId}/${path}`,
+            H
+          );
+          rows.push(...dkDepthParse(sport, ddata));
+        } catch (err) {
+          if (!/HTTP 404/.test(err.message)) console.warn(`[draftkings-depth] ${path}: ${err.message}`);
+        }
+      }
     }
     await sleep(1200);
+  }
+  // MMA event lane — skipped on the hot loop.
+  if (!opts.lite && !opts.sports) {
+    try {
+      const mdata = await getJson(
+        `https://sportsbook-nash.draftkings.com/api/sportscontent/dkusoh/v1/leagues/${DK_MMA_LEAGUE}`,
+        H
+      );
+      rows.push(...dkMmaParse(mdata));
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) console.warn(`[draftkings-mma] ${err.message}`);
+    }
   }
   return rows;
 }
@@ -742,6 +1337,12 @@ const AN_TARGET_BOOKS = [
   [/bet365/i, 'bet365'],
   [/hard ?rock/i, 'hardrock'],
   [/betonline/i, 'betonline'],
+  // 2026-07-09 expansion — all verified returning 13/13 MLB odds via AN.
+  [/fanatics/i, 'fanatics'],
+  [/the ?score/i, 'thescore'],
+  [/bally/i, 'ballybet'],
+  [/unibet/i, 'unibet'],
+  [/betvictor/i, 'betvictor'],
 ];
 
 let _anBookMap = null; // book_id -> our book key, discovered from AN's own catalog
@@ -833,6 +1434,21 @@ async function actionnetwork() {
               rows.push(row);
               seen.add(book);
             }
+            // TEAM TOTALS: the one extra market AN ships (Caesars + BetMGM
+            // brands only). Rows are over/under x both teams with a team_id.
+            for (const o of ev.core_bet_type_6_team_score || []) {
+              const teamId = o.team_id ?? o.teamId ?? null;
+              const team = teamId === g.home_team_id ? home.full_name
+                         : teamId === g.away_team_id ? away.full_name : null;
+              if (!team || o.value == null) continue;
+              rows.push({
+                book, sport, home_team: home.full_name, away_team: away.full_name,
+                start_time: isoOrNull(g.start_time),
+                entity: team, market: 'team_total', line: parseFloat(o.value),
+                over_odds:  o.side === 'over'  ? american(o.odds) : null,
+                under_odds: o.side === 'under' ? american(o.odds) : null,
+              });
+            }
           }
         }
       } catch (err) {
@@ -844,4 +1460,4 @@ async function actionnetwork() {
   return rows;
 }
 
-module.exports = { betrivers, pinnacle, betonline, caesars, hardrock, thunderpick, fanduel, draftkings, actionnetwork };
+module.exports = { betrivers, pinnacle, pinnacleEvents, betonline, caesars, hardrock, thunderpick, fanduel, draftkings, actionnetwork };

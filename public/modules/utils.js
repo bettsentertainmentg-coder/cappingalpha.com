@@ -158,9 +158,13 @@ export function scoreDisplay(p) {
 
   if (status === 'in') {
     const sport = (p.sport || '').toUpperCase();
-    const clock  = (p.game_clock && sport !== 'MLB') ? ` · ${p.game_clock}` : '';
+    const isTennis = sport === 'ATP' || sport === 'WTA';
+    // Tennis has no game clock worth showing (scores are sets, not time).
+    const clock  = (p.game_clock && sport !== 'MLB' && !isTennis) ? ` · ${p.game_clock}` : '';
     const periodLabel = (n) => {
       if (sport === 'MLB') return ` ${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`} Inn`;
+      if (isTennis) return ` Set ${n}`;
+      if (sport === 'SOCCER') return ` H${n}`;
       if (sport === 'NHL') return ` P${n}`;
       if (sport === 'CBB') return ` H${n}`;   // men's college hoops plays halves
       if (sport === 'NFL' || sport === 'NCAAF' || sport === 'WCBB') return ` Q${n}`;

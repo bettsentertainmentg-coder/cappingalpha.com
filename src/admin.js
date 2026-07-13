@@ -9,7 +9,8 @@ const { reseedFromExisting } = require('./lines');
 const { rescanSkipped }      = require('./expert_data');
 const { storePublicBettingGames } = require('./public_betting');
 const { storeTennisLines } = require('./bovada');
-const { storeEngineBookLines, storeEngineEvents, OFFSHORE_BOOKS } = require('./odds_ingest');
+const { storeEngineBookLines, storeBookProps, storeEngineEventLines, storeEngineEvents, OFFSHORE_BOOKS } = require('./odds_ingest');
+const { getClosingLines } = require('./closing_lines');
 const { recordHeartbeat, getHealthSnapshot, getBookReceptions } = require('./ops_health');
 const { normalizeCapper } = require('./storage');
 const dummyAccounts = require('./dummy_accounts');
@@ -4018,12 +4019,18 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
     return res.status(401).send('Unauthorized');
   }
-  const { id, spread, result, home_score, away_score, ml_odds, ou_odds, annotation } = req.body || {};
+  const { id, spread, result, home_score, away_score, ml_odds, ou_odds, annotation, game_date } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id required' });
   const VALID_RESULTS = ['win', 'loss', 'push', 'pending'];
   if (result && !VALID_RESULTS.includes(result)) return res.status(400).json({ error: 'invalid result' });
+  if (game_date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(game_date))) {
+    return res.status(400).json({ error: 'game_date must be YYYY-MM-DD' });
+  }
   const sets = [], vals = [];
   if (spread      !== undefined) { sets.push('spread = ?');      vals.push(spread); }
+  // game_date: re-file a row under its game's true board day (tennis stamps can
+  // be a day stale — see storage.saveMvpPick).
+  if (game_date   !== undefined) { sets.push('game_date = ?');   vals.push(game_date); }
   if (result      !== undefined) { sets.push('result = ?');      vals.push(result); }
   if (home_score  !== undefined) { sets.push('home_score = ?');  vals.push(home_score); }
   if (away_score  !== undefined) { sets.push('away_score = ?');  vals.push(away_score); }
@@ -4276,6 +4283,55 @@ router.post('/ingest-book-lines-period', (req, res) => {
   }
 );
 
+// Shared HMAC check for the newer engine relay endpoints (same scheme the
+// blocks above inline). Returns the payload rows or null after replying.
+function verifyRelayRows(req, res) {
+  const secret = process.env.RELAY_SECRET;
+  if (!secret) { res.status(500).send('RELAY_SECRET not configured'); return null; }
+  const canonical = JSON.stringify(req.body);
+  const sig      = req.headers['x-relay-signature'] || '';
+  const expected = crypto.createHmac('sha256', secret).update(canonical).digest('hex');
+  const sigBuf   = Buffer.from(sig.length === 64 ? sig : '', 'hex');
+  const expBuf   = Buffer.from(expected, 'hex');
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    res.status(401).send('Invalid signature');
+    return null;
+  }
+  const { rows } = req.body;
+  if (!Array.isArray(rows)) { res.status(400).send('Invalid payload'); return null; }
+  return rows;
+}
+
+// ── POST /admin/ingest-book-props — player props / team totals / alternates ───
+// Separate endpoint on the period-endpoint pattern: an older deployed server
+// 404s prop rows instead of misfiling them.
+router.post('/ingest-book-props', (req, res) => {
+  const rows = verifyRelayRows(req, res);
+  if (!rows) return;
+  try {
+    const out = storeBookProps(rows);
+    console.log(`[relay] book props: stored ${out.stored}/${rows.length} (${out.unmatched} unmatched, ${out.locked} locked)`);
+    res.json(out);
+  } catch (err) {
+    console.error('[relay] book-props ingest error:', err.message);
+    res.status(500).send('Store failed');
+  }
+});
+
+// ── POST /admin/ingest-event-lines — non-ESPN sports lane (esports, MMA...) ───
+router.post('/ingest-event-lines', (req, res) => {
+  const rows = verifyRelayRows(req, res);
+  if (!rows) return;
+  try {
+    const out = storeEngineEventLines(rows);
+    console.log(`[relay] event lines: stored ${out.stored}/${rows.length} (${out.locked} locked, ${out.dropped} dropped)`);
+    res.json(out);
+  } catch (err) {
+    console.error('[relay] event-lines ingest error:', err.message);
+    res.status(500).send('Store failed');
+  }
+});
+
 // ── POST /admin/ingest-engine-events — Boxing/MMA cards from the engine (HMAC) ─
 router.post('/ingest-engine-events', (req, res) => {
     const secret = process.env.RELAY_SECRET;
@@ -4335,7 +4391,23 @@ router.get('/api/books.json', requireAuth, (_req, res) => {
         WHERE bl.book = ? GROUP BY tg.sport ORDER BY tg.sport
       `).all(b.book).map(s => ({ sport: s.sport, games: s.games, newest: s.newest, ageMin: ageMin(s.newest) })),
     }));
-    res.json({ books, generatedAt: new Date().toISOString() });
+    // Market-depth + non-ESPN lanes (empty arrays until those relays flow).
+    let props = [];
+    try {
+      props = db.prepare(`
+        SELECT book, COUNT(*) rows, COUNT(DISTINCT espn_game_id) games, MAX(updated_at) newest
+        FROM book_props GROUP BY book ORDER BY book
+      `).all().map(p => ({ book: p.book, rows: p.rows, games: p.games, newest: p.newest, ageMin: ageMin(p.newest) }));
+    } catch (_) {}
+    let eventLane = [];
+    try {
+      eventLane = db.prepare(`
+        SELECT sport, COUNT(DISTINCT home_team || '|' || away_team) events,
+               COUNT(DISTINCT book) books, MAX(updated_at) newest
+        FROM engine_event_lines GROUP BY sport ORDER BY sport
+      `).all().map(e => ({ sport: e.sport, events: e.events, books: e.books, newest: e.newest, ageMin: ageMin(e.newest) }));
+    } catch (_) {}
+    res.json({ books, props, eventLane, generatedAt: new Date().toISOString() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -4359,11 +4431,22 @@ router.get('/api/book-cell.json', requireAuth, (req, res) => {
       WHERE bl.book = ? AND UPPER(tg.sport) = UPPER(?)
       ORDER BY tg.start_time
     `).all(book, sport);
-    let f5Ids = new Set();
+    // Period coverage per game (F5, 1H, Q1...) — was a hardcoded F5 boolean.
+    const periodsByGame = new Map();
     try {
-      f5Ids = new Set(db.prepare(
-        `SELECT espn_game_id FROM book_lines_period WHERE book = ? AND period = 'F5'`
-      ).all(book).map(r => r.espn_game_id));
+      for (const r of db.prepare(
+        `SELECT espn_game_id, period FROM book_lines_period WHERE book = ?`
+      ).all(book)) {
+        if (!periodsByGame.has(r.espn_game_id)) periodsByGame.set(r.espn_game_id, []);
+        periodsByGame.get(r.espn_game_id).push(r.period);
+      }
+    } catch (_) {}
+    // Prop coverage per game for this book (count of prop rows).
+    const propsByGame = new Map();
+    try {
+      for (const r of db.prepare(
+        `SELECT espn_game_id, COUNT(*) n FROM book_props WHERE book = ? GROUP BY espn_game_id`
+      ).all(book)) propsByGame.set(r.espn_game_id, r.n);
     } catch (_) {}
     res.json({
       book, sport,
@@ -4380,12 +4463,25 @@ router.get('/api/book-cell.json', requireAuth, (req, res) => {
           spread_home: r.prev_spread_home ?? null, spread_away: r.prev_spread_away ?? null,
           over_under: r.prev_over_under ?? null,
         },
-        f5: f5Ids.has(r.espn_game_id),
+        f5: (periodsByGame.get(r.espn_game_id) || []).includes('F5'),
+        periods: periodsByGame.get(r.espn_game_id) || [],
+        props: propsByGame.get(r.espn_game_id) || 0,
         updated_at: r.updated_at,
         ageMin: ageMin(r.updated_at),
       })),
       generatedAt: new Date().toISOString(),
     });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── GET /admin/api/closing-lines.json?date=&sport=&book= — the closing archive ─
+router.get('/api/closing-lines.json', requireAuth, (req, res) => {
+  try {
+    const date  = String(req.query.date || '').replace(/[^0-9-]/g, '').slice(0, 10) || undefined;
+    const sport = String(req.query.sport || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 12) || undefined;
+    const book  = String(req.query.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24) || undefined;
+    const rows = getClosingLines({ date, sport, book });
+    res.json({ date: date || new Date().toISOString().slice(0, 10), count: rows.length, rows, generatedAt: new Date().toISOString() });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

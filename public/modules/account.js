@@ -1,7 +1,7 @@
 // modules/account.js — "My Tracking" + "Settings" views (split from the old My Account tab)
 
 import { state } from './state.js';
-import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=2';
+import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=3';
 import { doRedeemCode } from './paywall.js';
 import { loadUserBets, setBetsData } from './track.js?v=45';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
@@ -308,7 +308,13 @@ function urlB64ToUint8(b64) {
 }
 async function currentPushSub() {
   try {
-    const reg = await navigator.serviceWorker.ready;
+    // .ready never resolves when no service worker is registered (localhost
+    // actively unregisters it) — race a short timeout so the card never hangs.
+    const reg = await Promise.race([
+      navigator.serviceWorker.ready,
+      new Promise(resolve => setTimeout(() => resolve(null), 1500)),
+    ]);
+    if (!reg) return null;
     return await reg.pushManager.getSubscription();
   } catch (_) { return null; }
 }
@@ -342,18 +348,90 @@ export async function togglePush(btn) {
     refreshPushCard();
   }
 }
+// ── Notification preference center ────────────────────────────────────────────
+// Topic list mirrors src/push.js TOPICS (server enforces prefs + paid gating on
+// every send; this UI is the control surface). Absent pref = on.
+const NOTIFY_TOPICS = [
+  { key: 'grades',     label: 'Bet and pick grades', desc: 'A ping when your tracked bets and voted picks grade.',   paid: false },
+  { key: 'game_start', label: 'Your game is live',   desc: 'When a game you bet or voted on starts.',                paid: false },
+  { key: 'top_pick',   label: "Today's #1 pick",     desc: 'Once a day when the top-ranked pick is up.',             paid: false },
+  { key: 'steam',      label: 'Line steam',          desc: 'A sharp line move on a game carrying a CA pick.',        paid: true  },
+  { key: 'swing',      label: 'Live swings',         desc: 'Lead changes in games where you have action.',           paid: true  },
+];
+let _notifyPrefs = {};
+let _notifyPaid  = false;
+
+export async function saveNotifyPref(topic, on) {
+  _notifyPrefs = { ..._notifyPrefs, [topic]: !!on };
+  try {
+    await fetch('/api/account/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notify_prefs: _notifyPrefs }),
+    });
+  } catch (_) {}
+}
+
+function notifyTopicsHtml() {
+  return NOTIFY_TOPICS.map(t => {
+    const locked = t.paid && !_notifyPaid;
+    const on = !locked && _notifyPrefs[t.key] !== false;
+    return `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--border);${locked ? 'opacity:.55;' : ''}">
+        <input type="checkbox" ${on ? 'checked' : ''} ${locked ? 'disabled' : ''}
+               style="margin-top:3px;accent-color:var(--gold,#d4af37);"
+               onchange="saveNotifyPref('${t.key}', this.checked)" />
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;">${t.label}${t.paid ? ' <span style="font-size:10px;font-weight:700;color:var(--gold,#d4af37);border:1px solid var(--gold,#d4af37);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:1px;">PAID</span>' : ''}</div>
+          <div style="font-size:12px;color:var(--muted);">${t.desc}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 async function refreshPushCard() {
   const el = document.getElementById('push-card-body');
   if (!el) return;
+
+  // Topic choices are account-wide: they apply to every device now and to any
+  // future delivery channel (app push, email) later, so they always render.
+  const emailOn = _notifyPrefs.channel_email === true;
+  const topicsBlock = `
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px;">What you get</div>
+    <div>${notifyTopicsHtml()}</div>`;
+
+  // Delivery: web push per device (opt-in), email saved now and switched on
+  // when the email sender ships.
+  let pushRow;
   if (!pushSupported()) {
-    el.innerHTML = `<div style="font-size:13px;color:var(--muted);">This browser does not support notifications yet. On iPhone, add CappingAlpha to your Home Screen (Share, then Add to Home Screen), then open it from that icon and turn notifications on here in Settings.</div>`;
-    return;
+    pushRow = `<div style="font-size:12px;color:var(--muted);padding:8px 0;">This browser does not support push yet. On iPhone, add CappingAlpha to your Home Screen (Share, then Add to Home Screen), then open it from that icon and turn push on here.</div>`;
+  } else {
+    const sub = await currentPushSub();
+    pushRow = `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;">Push on this device</div>
+          <div style="font-size:12px;color:var(--muted);">${sub ? 'On for this device.' : 'Off. Each device opts in separately.'}</div>
+        </div>
+        <button class="sport-pill-save" onclick="togglePush(this)">${sub ? 'Turn off' : 'Turn on'}</button>
+      </div>`;
   }
-  const sub = await currentPushSub();
+  const emailRow = `
+    <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--border);">
+      <input type="checkbox" ${emailOn ? 'checked' : ''} style="margin-top:3px;accent-color:var(--gold,#d4af37);"
+             onchange="saveNotifyPref('channel_email', this.checked)" />
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:600;">Email alerts</div>
+        <div style="font-size:12px;color:var(--muted);">Email delivery is coming soon. Your choice saves now and applies the day it ships.</div>
+      </div>
+    </div>`;
+
   el.innerHTML = `
-    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">A ping when your tracked bets and verified picks grade. Per device, off by default.</div>
-    <button class="sport-pill-save" onclick="togglePush(this)">${sub ? 'Turn off on this device' : 'Turn on notifications'}</button>
-    ${sub ? `<div style="font-size:12px;color:var(--green);margin-top:8px;">On for this device.</div>` : ''}`;
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick what you want to hear about. Choices apply to your whole account.</div>
+    ${topicsBlock}
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 2px;">How you get it</div>
+    ${pushRow}
+    ${emailRow}`;
 }
 
 // Password reset — sends a reset link to the account email (reuses the existing
@@ -1332,6 +1410,14 @@ function renderTracking(data) {
       <span class="tfr-note">Applies to the stats and charts below.</span>
     </div>`;
 
+  // Second-screen dashboard link: shows whenever the user has pending action.
+  const liveNowBar = pend > 0 ? `
+    <a href="/mylive" class="account-reveal" style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid #2f7d4f;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-decoration:none;color:inherit;">
+      <span style="width:9px;height:9px;border-radius:50%;background:#4ade80;flex:none;"></span>
+      <span style="flex:1;font-size:13px;"><strong>My Action, Live</strong> <span style="color:var(--muted);">follow your ${pend} pending pick${pend === 1 ? '' : 's'} on one live screen</span></span>
+      <span style="color:var(--muted);font-size:13px;">&rarr;</span>
+    </a>` : '';
+
   // Friends (followed members), each clickable into their profile.
   const friendsHtml = friends.length === 0
     ? `<div style="padding:24px 20px;color:var(--muted);font-size:14px;">You're not following anyone yet. Open a member from the Leaderboard and tap Follow.</div>`
@@ -1417,6 +1503,7 @@ function renderTracking(data) {
       <div class="perf-body" id="track-perf">${performanceHtml(items, pend)}</div>
     </div>
     <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
+    ${liveNowBar}
     ${filterBar}
     <div class="account-reveal" style="display:flex;gap:14px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
       <div class="track-verified-note" style="margin-bottom:0;flex:1;min-width:240px;">
@@ -1550,7 +1637,9 @@ function renderTracking(data) {
 // ── Settings view ─────────────────────────────────────────────────────────────
 function renderSettings(data) {
   const el = document.getElementById('settings-content');
-  const { user, favoriteSports = [], allPicks = [], isPublic, avatarUrl, unitSize, startingBankroll, defaultOdds = 'consensus', myBooks = [] } = data;
+  const { user, favoriteSports = [], allPicks = [], isPublic, avatarUrl, unitSize, startingBankroll, defaultOdds = 'consensus', myBooks = [], referral = null, notifyPrefs = {}, isPaid = false } = data;
+  _notifyPrefs = notifyPrefs || {};
+  _notifyPaid  = !!isPaid;
   window._myBooks = myBooks;
   const unit = Number(unitSize) > 0 ? Number(unitSize) : 20;
   const bankroll = Number(startingBankroll) || 0;
@@ -1741,6 +1830,22 @@ function renderSettings(data) {
             ${accessStatusWidget(user)}
           </div>
         </div>
+
+        ${referral && referral.code ? `
+        <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header"><span class="card-title">Refer a Friend</span></div>
+          <div style="padding:14px 20px 18px;">
+            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Give a day, get a day. When a friend redeems your code, you both get a free day of full access.</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" readonly value="${referral.code}" id="referral-code-input"
+                     style="flex:1;font-size:14px;font-weight:700;letter-spacing:.08em;text-align:center;" onclick="this.select()" />
+              <button class="btn btn-ghost" style="font-size:13px;padding:8px 12px;" onclick="copyReferral(this)">Copy link</button>
+            </div>
+            <div style="font-size:12px;color:var(--muted);margin-top:8px;">${referral.redemptions > 0
+              ? `${referral.redemptions} friend${referral.redemptions === 1 ? '' : 's'} joined with your code. ${referral.days_earned} day${referral.days_earned === 1 ? '' : 's'} earned.`
+              : 'No redemptions yet. Send your link to get started.'}</div>
+          </div>
+        </div>` : ''}
 
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Favorite Sports</span></div>
@@ -1972,10 +2077,25 @@ function toggleSetupMore() {
     : 'View more <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i>';
 }
 
+// Copy the referral share link (falls back to selecting the code input).
+function copyReferral(btn) {
+  const input = document.getElementById('referral-code-input');
+  if (!input) return;
+  const link = `${location.origin}/?ref=${encodeURIComponent(input.value)}`;
+  const done = () => {
+    const old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  };
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(link).then(done).catch(() => { input.select(); });
+  else input.select();
+}
+
 Object.assign(window, {
   deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,
   openRecordView, closeRecordView, recSetWindow, recToggleFilters, recSetFilter, shareRecord,
+  copyReferral, saveNotifyPref,
 });

@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
-import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=2';
+import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=3';
 import { cappingGauge } from './gauge.js';
 
 // Sport → unit suffix for the over/under total line value.
@@ -724,8 +724,11 @@ function renderGameData(data) {
     </div>
     <div class="gd-badge" style="margin-top:6px;">Final</div>`;
   } else if (game.status === 'in') {
-    const period = game.game_period ? `${game.game_period}${sport === 'MLB' ? ' Inn' : sport === 'NHL' ? ' Per' : ''}` : '';
-    const clock  = game.game_clock ? ` · ${game.game_clock}` : '';
+    const isTennis = sport === 'ATP' || sport === 'WTA';
+    const period = game.game_period
+      ? (isTennis ? `Set ${game.game_period}` : `${game.game_period}${sport === 'MLB' ? ' Inn' : sport === 'NHL' ? ' Per' : ''}`)
+      : '';
+    const clock  = (game.game_clock && !isTennis) ? ` · ${game.game_clock}` : '';
     scoreStr = `<div class="gd-score-line gd-live">
       <div class="gd-team-score">${game.away_team?.split(' ').pop() || '?'}<span>${game.away_score}</span></div>
       <div class="gd-sep">–</div>

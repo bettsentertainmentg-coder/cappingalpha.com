@@ -6,7 +6,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { state } from '/modules/state.js';
-import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=2';
+import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=3';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js';
@@ -1387,6 +1387,15 @@ function renderLines() {
   for (const k of extraKeys.filter(k => OFFSHORE.has(k)).sort())  offshore.push({ key: k, book: `${label(k)} ${offTag}`, src: lines[k], prev: null });
   const rows = [...regulated, ...offshore];
 
+  // CA Consensus: the no-vig blend across every stored book (sharp books
+  // weighted heavier). Same row shape as a book, renders in Public markets.
+  const cons = _data.consensus;
+  const consRow = (cons && cons.books_used >= 3)
+    ? { key: 'ca_consensus',
+        book: `CA Consensus <span class="ca-lt-offshore" title="No-vig blend of ${cons.books_used} books, sharp books weighted heavier. Not a sportsbook price.">${cons.books_used} books</span>`,
+        src: cons, prev: null }
+    : null;
+
   const hasAny = rows.some(r => awayFn(r.src) != null || homeFn(r.src) != null);
   if (!hasAny) {
     el.innerHTML = `<div class="ca-lt-empty">Lines not yet available for this game.</div>`;
@@ -1615,6 +1624,7 @@ function renderLines() {
   const restReg = hasMine ? regulated.filter(r => r.key === 'open' || !mine.includes(r.key)) : regulated;
   const restOff = hasMine ? offshore.filter(r => !mine.includes(r.key)) : offshore;
   const pubRows = [
+    consRow ? rowHtml(consRow) : '',
     (hasMine && mine.includes('polymarket')) ? '' : polyHtml,
     (hasMine && mine.includes('kalshi'))     ? '' : kalshiHtml,
   ].filter(Boolean);

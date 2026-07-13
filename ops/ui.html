@@ -595,6 +595,24 @@ function renderMatrix(d) {
     return rowHtml + drawerHtml;
   }).join('');
 
+  // Depth lanes: player props per book + the non-ESPN event lane (esports,
+  // MMA, boxing...). One compact line each; empty until those relays flow.
+  var depthHtml = '';
+  var props = books.props || [];
+  if (props.length) {
+    depthHtml += '<div class="book-meta" style="margin-top:8px;">PROPS   ' +
+      props.map(function (p) {
+        return esc(p.book) + ' ' + esc(p.rows) + ' rows/' + esc(p.games) + ' games (' + fmtAge(p.ageMin) + ')';
+      }).join('   ') + '</div>';
+  }
+  var lane = books.eventLane || [];
+  if (lane.length) {
+    depthHtml += '<div class="book-meta" style="margin-top:4px;">EVENT LANE   ' +
+      lane.map(function (e) {
+        return esc(e.sport) + ' ' + esc(e.events) + ' events x ' + esc(e.books) + ' books (' + fmtAge(e.ageMin) + ')';
+      }).join('   ') + '</div>';
+  }
+
   el('matrixHost').innerHTML =
     '<div class="tbl-wrap"><table class="matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>' +
     '<div class="legend">' +
@@ -602,7 +620,7 @@ function renderMatrix(d) {
       '<span><span class="sw" style="background:var(--warn-bg);border:1px solid var(--warn)"></span>aging (under ' + (AGING_MIN / 60) + 'h)</span>' +
       '<span><span class="sw" style="background:var(--bad-bg);border:1px solid var(--bad)"></span>stale</span>' +
       '<span><span class="sw" style="border:1px solid var(--faint)"></span>no lines</span>' +
-    '</div>';
+    '</div>' + depthHtml;
 
   // Row click toggles drawer. Re-render just the matrix so state applies.
   Array.prototype.forEach.call(document.querySelectorAll('.matrix .book-row'), function (row) {
@@ -662,8 +680,12 @@ function openCellModal(book, sport) {
       };
       var rows = games.map(function (g) {
         var p = g.prev || {};
+        var tags = (g.periods || (g.f5 ? ['F5'] : [])).map(function (per) {
+          return '<span class="f5tag">' + esc(per) + '</span>';
+        }).join('');
+        if (g.props) tags += '<span class="f5tag" title="prop rows stored">' + esc(g.props) + ' props</span>';
         return '<tr>' +
-          '<td>' + esc(g.matchup) + (g.f5 ? '<span class="f5tag">F5</span>' : '') + '</td>' +
+          '<td>' + esc(g.matchup) + tags + '</td>' +
           '<td class="dim">' + fmtTime(g.start_time) + '</td>' +
           '<td class="dim">' + esc(g.status || '—') + '</td>' +
           '<td>' + odds(g.ml_home) + mv(g.ml_home, p.ml_home) + ' / ' + odds(g.ml_away) + mv(g.ml_away, p.ml_away) + '</td>' +

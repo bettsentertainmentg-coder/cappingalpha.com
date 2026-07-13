@@ -102,6 +102,8 @@ function pmDisplayName(w) {
 
 // ── Market map: conditionId -> today_games row (rebuilt per poll, cheap) ──────
 const SPORT_TAGS = ['mlb', 'nba', 'wnba', 'nhl', 'nfl', 'cfb', 'soccer', 'tennis'];
+// today_games sport label per tag ('Tennis' blends ATP+WTA in the matcher).
+const TAG_SPORT = { mlb: 'MLB', nba: 'NBA', wnba: 'WNBA', nhl: 'NHL', nfl: 'NFL', cfb: 'NCAAF', soccer: 'Soccer', tennis: 'Tennis' };
 const SKIP_Q = /(1h |half|1st |inning|series|champion|mvp|rebounds|assists|total games|to score|anytime)/i;
 
 async function buildMarketMap() {
@@ -114,7 +116,9 @@ async function buildMarketMap() {
       const title = ev.title || '';
       const parts = title.split(/\s+(?:vs\.?|@)\s+/i);
       if (parts.length !== 2) continue;
-      const game = findGameByTeams(parts[0], parts[1]);
+      // Constrain the match to the tag's sport — a bare city pair ("Toronto vs
+      // Miami") exists in several leagues at once.
+      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null);
       if (!game) continue;
       for (const mkt of (ev.markets || [])) {
         const cid = mkt.conditionId || mkt.condition_id;

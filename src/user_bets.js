@@ -459,8 +459,8 @@ async function gradePendingBets() {
   }
 
   if (notify.length) {
-    const { sendToUser } = require('./push');
-    for (const n of notify) sendToUser(n.user_id, n.payload).catch(() => {});
+    const { sendToUserTopic } = require('./push');
+    for (const n of notify) sendToUserTopic(n.user_id, 'grades', n.payload).catch(() => {});
   }
 
   if (graded > 0) console.log(`[user_bets] graded ${graded} bet(s)`);

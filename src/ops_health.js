@@ -13,11 +13,19 @@ const db = require('./db');
 function recordHeartbeat(service, meta) {
   const name = String(service || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
   if (!name) return false;
+  // A hard slice() mid-JSON leaves unparseable meta and the health board
+  // silently blanks — the failure that hides all the others. Cap generously,
+  // and when a payload still exceeds it, store a valid JSON stub instead of
+  // truncated garbage.
+  let metaJson = JSON.stringify(meta || {});
+  if (metaJson.length > 12000) {
+    metaJson = JSON.stringify({ truncated: true, bytes: metaJson.length });
+  }
   db.prepare(`
     INSERT INTO service_heartbeats (service, last_seen, meta_json)
     VALUES (?, datetime('now'), ?)
     ON CONFLICT(service) DO UPDATE SET last_seen = datetime('now'), meta_json = excluded.meta_json
-  `).run(name, JSON.stringify(meta || {}).slice(0, 4000));
+  `).run(name, metaJson);
   return true;
 }
 

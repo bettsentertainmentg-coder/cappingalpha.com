@@ -171,7 +171,14 @@ router.post('/redeem-code', express.json(), (req, res) => {
   if (!code) return res.status(400).json({ error: 'No code provided.' });
 
   const row = db.prepare(`SELECT * FROM access_codes WHERE LOWER(code) = LOWER(?)`).get(code.trim());
-  if (!row) return res.status(401).json({ error: 'Invalid code. Try again.' });
+  if (!row) {
+    // Not an admin code — maybe a member's referral code (give-a-day / get-a-day).
+    const referrer = db.prepare(
+      `SELECT id, username, email FROM users WHERE referral_code IS NOT NULL AND LOWER(referral_code) = LOWER(?)`
+    ).get(code.trim());
+    if (referrer) return redeemReferral(req, res, referrer);
+    return res.status(401).json({ error: 'Invalid code. Try again.' });
+  }
 
   const userId  = req.session.user.id;
   const maxUses = row.max_uses == null ? 1 : row.max_uses;   // 0 = unlimited
@@ -225,6 +232,71 @@ router.post('/redeem-code', express.json(), (req, res) => {
   res.json({ success: true });
 });
 
+// ── Referral loop (give-a-day / get-a-day) ────────────────────────────────────
+// Every account can hold a referral code (generated lazily via
+// ensureReferralCode). A friend redeems it through the same redeem-code flow:
+// the redeemer gets 1 day, the referrer gets 1 day back. Guards: no self-
+// redeem, one referral redemption per account ever, and a lifetime cap on
+// days a referrer can earn (keeps a farm of throwaway accounts from minting
+// unlimited access).
+const REFERRAL_GRANT_DAYS   = 1;
+const REFERRAL_EARN_CAP     = 30;   // max days a referrer can earn, lifetime
+
+function grantAccessDays(userId, days) {
+  const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const cur = db.prepare(`SELECT subscription_tier, subscription_expires, stripe_subscription_id FROM users WHERE id = ?`).get(userId);
+  const merged = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, expires);
+  // Same tier rule as code redemption: a live Stripe subscriber stays 'paid'
+  // so the cancellation webhook can still revoke them.
+  const hasLiveSub = cur?.subscription_tier === 'paid' && cur?.stripe_subscription_id != null;
+  const newTier = hasLiveSub ? 'paid' : 'code';
+  db.prepare(`UPDATE users SET subscription_tier = ?, subscription_expires = ? WHERE id = ?`).run(newTier, merged, userId);
+  return newTier;
+}
+
+function redeemReferral(req, res, referrer) {
+  const userId = req.session.user.id;
+  if (referrer.id === userId) {
+    return res.status(400).json({ error: 'That is your own referral code. Share it with a friend instead.' });
+  }
+  const prior = db.prepare(`SELECT 1 FROM referral_redemptions WHERE referred_id = ?`).get(userId);
+  if (prior) return res.status(409).json({ error: 'You have already used a referral code.' });
+
+  db.prepare(`INSERT INTO referral_redemptions (referrer_id, referred_id) VALUES (?, ?)`).run(referrer.id, userId);
+
+  const newTier = grantAccessDays(userId, REFERRAL_GRANT_DAYS);
+
+  // Credit the referrer their day back, up to the lifetime cap.
+  const earned = db.prepare(`SELECT COUNT(*) AS n FROM referral_redemptions WHERE referrer_id = ?`).get(referrer.id).n;
+  if (earned <= REFERRAL_EARN_CAP) grantAccessDays(referrer.id, REFERRAL_GRANT_DAYS);
+
+  console.log(`[auth] Referral code of user ${referrer.id} redeemed by user ${userId} (referral #${earned})`);
+  req.session.user.tier = newTier;
+  res.json({ success: true, referral: true });
+}
+
+// Lazily mint a user's referral code (8 chars, same alphabet as access codes,
+// collision-checked against both tables). Returns the code.
+const REF_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function ensureReferralCode(userId) {
+  const cur = db.prepare(`SELECT referral_code FROM users WHERE id = ?`).get(userId);
+  if (!cur) return null;
+  if (cur.referral_code) return cur.referral_code;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    let code = '';
+    const bytes = crypto.randomBytes(8);
+    for (let i = 0; i < 8; i++) code += REF_ALPHABET[bytes[i] % REF_ALPHABET.length];
+    const clash = db.prepare(`SELECT 1 FROM access_codes WHERE LOWER(code) = LOWER(?)`).get(code)
+               || db.prepare(`SELECT 1 FROM users WHERE LOWER(referral_code) = LOWER(?)`).get(code);
+    if (clash) continue;
+    try {
+      db.prepare(`UPDATE users SET referral_code = ? WHERE id = ? AND referral_code IS NULL`).run(code, userId);
+      return db.prepare(`SELECT referral_code FROM users WHERE id = ?`).get(userId).referral_code;
+    } catch (_) { /* unique-index race — retry */ }
+  }
+  return null;
+}
+
 // ── Stripe ────────────────────────────────────────────────────────────────────
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -244,7 +316,7 @@ function mergedExpiry(curTier, curExpires, newExpires) {
 
 const PLANS = {
   'price_1TMhkAB0ohior8iouVKseqmk': { label: 'Day Pass', mode: 'payment',      hours: 24 },
-  'price_1TMhkCB0ohior8iomOMDlrts': { label: 'Weekly',   mode: 'subscription'               },
+  'price_1TMhkCB0ohior8iomOMDlrts': { label: 'Weekly',   mode: 'subscription', trialDays: 3 },
   'price_1TMhkAB0ohior8iohRBOZKdH': { label: 'Annual',   mode: 'subscription'               },
 };
 
@@ -259,14 +331,26 @@ router.post('/create-checkout-session', express.json(), async (req, res) => {
 
   try {
     const baseUrl = process.env.SITE_URL || 'http://localhost:3001';
-    const session = await stripe.checkout.sessions.create({
+    const params = {
       mode:       plan.mode,
       line_items: [{ price: priceId, quantity: 1 }],
       metadata:   { userId: String(user.id) },
       customer_email: user.email,
       success_url: `${baseUrl}/?payment=success`,
       cancel_url:  `${baseUrl}/?payment=cancelled`,
-    });
+    };
+    // Intro trial (weekly plan): first-time subscribers only. stripe_customer_id
+    // is stamped on the first completed subscription and never cleared (the
+    // cancel webhook only nulls stripe_subscription_id), so it's the durable
+    // "has subscribed before" marker — cancel-and-resubscribe can't re-trial.
+    // A past day pass doesn't disqualify (that path never sets the customer id).
+    if (plan.trialDays && plan.mode === 'subscription') {
+      const row = db.prepare(`SELECT stripe_customer_id FROM users WHERE id = ?`).get(user.id);
+      if (!row?.stripe_customer_id) {
+        params.subscription_data = { trial_period_days: plan.trialDays };
+      }
+    }
+    const session = await stripe.checkout.sessions.create(params);
     res.json({ url: session.url });
   } catch (err) {
     console.error('[stripe] checkout error:', err.message);
@@ -551,7 +635,8 @@ function requirePaid(req, res, next) {
 }
 
 module.exports = router;
-module.exports.isPaid        = isPaid;
-module.exports.isAuthed      = isAuthed;
-module.exports.requirePaid   = requirePaid;
-module.exports.stripeWebhook = stripeWebhook;
+module.exports.isPaid             = isPaid;
+module.exports.isAuthed           = isAuthed;
+module.exports.requirePaid        = requirePaid;
+module.exports.stripeWebhook      = stripeWebhook;
+module.exports.ensureReferralCode = ensureReferralCode;

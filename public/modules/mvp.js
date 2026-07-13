@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js?v=2';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js?v=3';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
 
@@ -50,6 +50,18 @@ function _filterByDays(picks, dayCount) {
   cutoff.setDate(cutoff.getDate() - dayCount);
   const cutStr = cutoff.toISOString().slice(0, 10);
   return (picks || []).filter(p => (p.game_date || '') >= cutStr);
+}
+
+// The window a range key actually means. 1D is "the latest board day", NOT a
+// rolling 24h cutoff — a rolling cutoff kept yesterday's whole slate in the
+// record bar while the 1D graph plotted only today, so the widget said 28-13
+// over a 3-point line. Graph and record bar must both come through here.
+function _windowedPicks(picks, rangeKey) {
+  const days = RANGE_DAYS[rangeKey] ?? Infinity;
+  if (days !== 1) return _filterByDays(picks, days);
+  let latest = '';
+  for (const p of picks || []) if ((p.game_date || '') > latest) latest = p.game_date;
+  return latest ? picks.filter(p => p.game_date === latest) : [];
 }
 
 // Resolved MVP picks that count toward the W/L/P record: decided results only,
@@ -122,7 +134,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     </div>`;
 
   // Compute initial record for selected range
-  const filteredForBar = _filterByDays(_resolvedPicks(picks), RANGE_DAYS[_currentRange] ?? Infinity);
+  const filteredForBar = _windowedPicks(_resolvedPicks(picks), _currentRange);
   const barRec = _computeRecord(filteredForBar);
   if (!limited) barRec.pending = record.pending;
 
@@ -324,8 +336,10 @@ export function drawPlGraph(picks) {
 
   // ── 1D: per-pick display for the latest day (already starts at $0) ────────
   if (days === 1) {
-    const latestDate = resolved[resolved.length - 1].game_date;
-    const todayPicks = resolved.filter(p => p.game_date === latestDate);
+    // Same window as the record bar — the latest board day by game_date, never
+    // "the game_date of the most recently saved row" (a late-graded pick from
+    // yesterday can be the newest save).
+    const todayPicks = _windowedPicks(resolved, '1D');
     let cum = 0;
     const displayData = todayPicks.map(p => {
       const ret = calcReturn(p, unit);
@@ -486,7 +500,7 @@ export function setGraphDays(key) {
   if (state.mvpData) {
     drawPlGraph(state.mvpData.picks);
     // Update record bar for this range
-    const filtered = _filterByDays(_resolvedPicks(state.mvpData.picks), RANGE_DAYS[key] ?? Infinity);
+    const filtered = _windowedPicks(_resolvedPicks(state.mvpData.picks), key);
     const rec = _computeRecord(filtered);
     const barEl = document.getElementById('record-bar');
     const limited = !isPaying();
@@ -581,8 +595,7 @@ function drawHomeGraph(picks) {
   }
 
   if (days === 1) {
-    const latestDate = resolved[resolved.length - 1].game_date;
-    const todayPicks = resolved.filter(p => p.game_date === latestDate);
+    const todayPicks = _windowedPicks(resolved, '1D');
     let cum = 0;
     const displayData = todayPicks.map(p => {
       const ret = calcReturn(p, unit); cum = +(cum + ret).toFixed(2);
@@ -668,7 +681,7 @@ export function setHomeGraphDays(key) {
   if (state.homeMvpPicks) {
     drawHomeGraph(state.homeMvpPicks);
     // Update home record bar
-    const filtered = _filterByDays(_resolvedPicks(state.homeMvpPicks), RANGE_DAYS[key] ?? Infinity);
+    const filtered = _windowedPicks(_resolvedPicks(state.homeMvpPicks), key);
     const rec = _computeRecord(filtered);
     const barEl = document.getElementById('home-record-bar');
     if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);

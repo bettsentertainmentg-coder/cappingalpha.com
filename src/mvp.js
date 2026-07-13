@@ -76,11 +76,23 @@ function setMvpResult(id, result) {
 // corrected retroactively. The kept pick keeps its result; voided picks get
 // result='void' + annotation. results.js never overwrites a voided pick.
 // Safe to call on cron — idempotent, no-ops when nothing to resolve.
-const NOTE_LESS = '*had less points — not counted';
-const NOTE_TIE  = '*rare push — both picks scored equal (so wild)';
-
 const _type = p => (p.pick_type || '').toLowerCase();
 const _line = p => Number(p.spread ?? 0) || 0;
+
+// Void notes name the exact pick that won the points battle and stamp both
+// scores as they stood at decision time, so the reason stays true even if a
+// displayed score moves later. Every note contains 'not counted' (the record
+// queries and the frontend void styling both key on that phrase).
+const _label = p => {
+  const t = _type(p);
+  if (t === 'over' || t === 'under') return `${t === 'over' ? 'Over' : 'Under'} ${p.spread ?? ''}`.trim();
+  if (t === 'ml') return `${p.team} ML`;
+  const n = _line(p);
+  return `${p.team} ${n > 0 ? '+' : ''}${n}`;
+};
+const noteLess = (winner, loser) => `*not counted: ${_label(winner)} had more points (${winner.score} vs ${loser.score})`;
+const noteDup  = (kept, dup)     => `*not counted: same call as ${_label(kept)}, which had more points (${kept.score} vs ${dup.score})`;
+const noteTie  = (other, p)      => `*rare push: tied with ${_label(other)} at ${p.score} points, both not counted (so wild)`;
 
 // Is there an achievable integer strictly inside the open interval (lo, hi)?
 // This answers "does any final score let both picks win?" — if not, they conflict.
@@ -219,12 +231,16 @@ function resolveConflictingMvpPicks() {
       SELECT start_time, status FROM today_games WHERE espn_game_id = ?
     `).get(espn_game_id);
 
-    // Timing gate applies only to pre-game today's games: wait until ~10 min before
-    // start so all cappers' picks are in. Final/live games and historical games
-    // (no today_games row after the daily wipe) always pass.
+    // Timing gate: resolve only once the game has STARTED. Scores can move all
+    // the way to lock (late backers keep arriving), so deciding at T-10 could
+    // void on stale numbers — the Jul 12 Aces ML was voided as the lower pick,
+    // then climbed past the kept one before tip and the note read as nonsense.
+    // Live/final games and historical games (no today_games row after the
+    // daily wipe) always pass; /api/mvp hides pending pregame rows anyway, so
+    // nothing user-visible waits on this.
     if (game && game.status === 'pre') {
-      const minsUntil = (new Date(game.start_time).getTime() - Date.now()) / 60000;
-      if (minsUntil > 10) continue;
+      const startMs = new Date(game.start_time).getTime();
+      if (!Number.isFinite(startMs) || startMs > Date.now()) continue;
     }
 
     const allPicks = db.prepare(`
@@ -247,7 +263,7 @@ function resolveConflictingMvpPicks() {
       for (const group of byKey.values()) {
         group.sort((a, b) => b.score - a.score || a.id - b.id);
         survivors.push(group[0]);
-        for (const dup of group.slice(1)) _void(NOTE_LESS, dup);
+        for (const dup of group.slice(1)) _void(noteDup(group[0], dup), dup);
       }
       if (survivors.length < 2) continue;
 
@@ -261,12 +277,12 @@ function resolveConflictingMvpPicks() {
         const clash = kept.find(k => k.result !== 'void' && dim.conflict(k, p));
         if (!clash) { kept.push(p); continue; }
         if (clash.score === p.score) {
-          _void(NOTE_TIE, clash);
-          _void(NOTE_TIE, p);
+          _void(noteTie(p, clash), clash);
+          _void(noteTie(clash, p), p);
           const i = kept.indexOf(clash); if (i >= 0) kept.splice(i, 1);
           console.log(`[mvp] Opposing tie game ${espn_game_id} (${dim.name}): voided ${clash.id} + ${p.id}`);
         } else {
-          _void(NOTE_LESS, p);
+          _void(noteLess(clash, p), p);
           console.log(`[mvp] Conflict game ${espn_game_id} (${dim.name}): kept ${clash.id} (${clash.score}pts), voided ${p.id} (${p.score}pts)`);
         }
       }

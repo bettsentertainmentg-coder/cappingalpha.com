@@ -129,7 +129,10 @@ function storeEngineBookLines(rows) {
   const stmtPeriod = upsertPeriod();
   let stored = 0, unmatched = 0, locked = 0;
 
-  for (const row of rows) {
+  // One transaction per POST: 700 individual WAL commits per chunk stall the
+  // event loop; one commit does not.
+  const run = db.transaction((batch) => {
+  for (const row of batch) {
     const sport = String(row.sport || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10);
     const book  = String(row.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
     const period = row.period && String(row.period).toLowerCase() !== 'game'
@@ -172,7 +175,136 @@ function storeEngineBookLines(rows) {
     }
     stored++;
   }
+  });
+  run(rows);
   return { stored, unmatched, locked };
+}
+
+// ── Player props / team totals / alternate ladders (book_props) ───────────────
+// Engine prop rows share the event fields (book, sport, home_team, away_team,
+// start_time) plus { entity, market, line, over_odds, under_odds }. Rows are
+// grouped per (book, event) so team matching runs ONCE per event, then every
+// prop fans out under the matched game — props are 50-200 rows per game and
+// per-row matching would burn the ingest thread.
+function storeBookProps(rows) {
+  if (!Array.isArray(rows)) return { stored: 0, unmatched: 0, locked: 0 };
+  rows = rows.slice(0, 5000);
+  const bySport = new Map();
+  const stmt = db.prepare(`
+    INSERT INTO book_props
+      (espn_game_id, book, entity, market, line, over_odds, under_odds, game_date, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(espn_game_id, book, entity, market, line) DO UPDATE SET
+      over_odds  = COALESCE(excluded.over_odds, over_odds),
+      under_odds = COALESCE(excluded.under_odds, under_odds),
+      updated_at = datetime('now')
+  `);
+  let stored = 0, unmatched = 0, locked = 0;
+
+  // Group rows by (book|sport|home|away) — one match per event.
+  const groups = new Map();
+  for (const row of rows) {
+    if (!row) continue;
+    const key = `${row.book}|${row.sport}|${row.home_team}|${row.away_team}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const run = db.transaction(() => {
+    for (const group of groups.values()) {
+      const head = group[0];
+      const sport = String(head.sport || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10);
+      const book  = String(head.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+      if (!sport || !book) { unmatched += group.length; continue; }
+      if (!bySport.has(sport)) {
+        bySport.set(sport, db.prepare(
+          `SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`
+        ).all(sport));
+      }
+      const hit = matchGame(bySport.get(sport), head);
+      if (!hit) { unmatched += group.length; continue; }
+      if (gameHasStarted(hit.game)) { locked += group.length; continue; }
+      const gameDate = String(hit.game.start_time || '').slice(0, 10) || null;
+      for (const row of group) {
+        const entity = String(row.entity ?? '').slice(0, 80);
+        const market = String(row.market || '').toLowerCase().replace(/[^a-z0-9_+]/g, '').slice(0, 40);
+        if (!market) { unmatched++; continue; }
+        // line is part of the UNIQUE key and SQLite treats NULLs as distinct
+        // there — a NULL line (yes-price markets) would mint a new row every
+        // cycle. Normalize to 0: occurrence markets have no real line anyway.
+        const line = numOrNull(row.line) ?? 0;
+        stmt.run(
+          hit.game.espn_game_id, book, entity, market,
+          line, numOrNull(row.over_odds), numOrNull(row.under_odds), gameDate
+        );
+        stored++;
+      }
+    }
+  });
+  run();
+  return { stored, unmatched, locked };
+}
+
+// ── Non-ESPN sports lane (engine_event_lines keyed to engine_events) ─────────
+// Esports/MMA/boxing/table tennis/cricket/darts/golf H2H have no ESPN game
+// rows, so their lines live against engine_events instead. Display and
+// Track a Bet only — never the CA line, grading, or rankings. The event row
+// is upserted from the line row itself (Pinnacle-only events would otherwise
+// be orphaned), and started events are locked exactly like book_lines.
+function storeEngineEventLines(rows) {
+  if (!Array.isArray(rows)) return { stored: 0, locked: 0, dropped: 0 };
+  rows = rows.slice(0, 2000);
+  const clean = (s) => String(s || '').replace(/[^A-Za-z0-9 .\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const upEvent = db.prepare(`
+    INSERT INTO engine_events (sport, home_team, away_team, start_time, league, updated_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(sport, home_team, away_team) DO UPDATE SET
+      start_time = COALESCE(excluded.start_time, start_time),
+      league     = COALESCE(excluded.league, league),
+      updated_at = datetime('now')
+  `);
+  const upLine = db.prepare(`
+    INSERT INTO engine_event_lines
+      (sport, home_team, away_team, book, league, start_time,
+       ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(sport, home_team, away_team, book) DO UPDATE SET
+      league        = COALESCE(excluded.league, league),
+      start_time    = COALESCE(excluded.start_time, start_time),
+      ml_home       = COALESCE(excluded.ml_home, ml_home),
+      ml_away       = COALESCE(excluded.ml_away, ml_away),
+      spread_home   = COALESCE(excluded.spread_home, spread_home),
+      spread_away   = COALESCE(excluded.spread_away, spread_away),
+      over_under    = COALESCE(excluded.over_under, over_under),
+      ou_over_odds  = COALESCE(excluded.ou_over_odds, ou_over_odds),
+      ou_under_odds = COALESCE(excluded.ou_under_odds, ou_under_odds),
+      updated_at    = datetime('now')
+  `);
+  let stored = 0, locked = 0, dropped = 0;
+  const run = db.transaction(() => {
+    for (const row of rows) {
+      if (!row) { dropped++; continue; }
+      const sport = String(row.sport || '').replace(/[^A-Za-z0-9 ]/g, '').slice(0, 20);
+      const book  = String(row.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
+      const home = clean(row.home_team), away = clean(row.away_team);
+      if (!sport || !book || !home || !away || home === away) { dropped++; continue; }
+      const st = row.start_time && !isNaN(Date.parse(row.start_time)) ? new Date(row.start_time).toISOString() : null;
+      if (st && Date.parse(st) <= Date.now()) { locked++; continue; }
+      const league = row.league ? clean(row.league).slice(0, 40) : null;
+      upEvent.run(sport, home, away, st, league);
+      upLine.run(
+        sport, home, away, book, league, st,
+        numOrNull(row.ml_home), numOrNull(row.ml_away),
+        numOrNull(row.spread_home), numOrNull(row.spread_away),
+        numOrNull(row.over_under), numOrNull(row.ou_over_odds), numOrNull(row.ou_under_odds)
+      );
+      stored++;
+    }
+    // Same retention as engine_events: gone from the feed 2 days = settled.
+    db.prepare(`DELETE FROM engine_event_lines WHERE updated_at < datetime('now', '-2 days')`).run();
+  });
+  run();
+  return { stored, locked, dropped };
 }
 
 // Books whose lines are informational only on the public site (unlicensed in the
@@ -207,4 +339,4 @@ function storeEngineEvents(events) {
   return { stored };
 }
 
-module.exports = { storeEngineBookLines, storeEngineEvents, OFFSHORE_BOOKS };
+module.exports = { storeEngineBookLines, storeBookProps, storeEngineEventLines, storeEngineEvents, OFFSHORE_BOOKS };

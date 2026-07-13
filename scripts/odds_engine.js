@@ -151,10 +151,11 @@ function soccerEventOk(ev, grp) {
   return true;
 }
 
-async function fetchBovada() {
+async function fetchBovada(opts = {}) {
   const rows = [];
   const mlbLinks = [];
   for (const [sport, path] of Object.entries(BOVADA_SPORTS)) {
+    if (opts.sports && !opts.sports.has(sport)) continue;
     try {
       // preMatchOnly=false is load-bearing: without it Bovada omits same-day
       // events entirely (and it also brings in live in-play odds, which the
@@ -174,21 +175,185 @@ async function fetchBovada() {
     }
     await new Promise(r => setTimeout(r, 1200)); // polite gap between sports
   }
-  // F5 pass (MLB): First 5 Innings lines only exist on each event's own
-  // description endpoint, so one extra call per game, capped and paced.
-  for (const link of mlbLinks.slice(0, 20)) {
+  // Depth pass (MLB): the per-event description endpoint carries the F5
+  // family PLUS pitcher/player props, team totals, and alternate ladders —
+  // one call per game covers all of it. Skipped on the hot loop.
+  if (!opts.lite) {
+    for (const link of mlbLinks.slice(0, 20)) {
+      try {
+        const detail = await getJson(`https://www.bovada.lv/services/sports/event/v2/events/A/description${link}?lang=en`);
+        for (const grp of Array.isArray(detail) ? detail : []) {
+          for (const ev of grp.events || []) {
+            const row = bovadaParseEvent('MLB', ev, { period: 'F5' });
+            if (row) rows.push(row);
+            rows.push(...bovadaParseDepth('MLB', ev));
+          }
+        }
+      } catch (err) {
+        if (!/HTTP 404/.test(err.message)) console.warn(`[bovada-f5] ${err.message}`);
+      }
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
+  return rows;
+}
+
+// ── Bovada per-event depth: props / team totals / alternates ─────────────────
+// Parsed from the SAME detail payload the F5 pass downloads. Player props sit
+// in the Pitcher/Player Props groups ("Total Strikeouts - Name (TEAM)"),
+// team totals + alternate ladders in the Alternate Lines group.
+const BOVADA_PROP_MARKETS = [
+  [/^total strikeouts/i, 'strikeouts'],
+  [/^total hits allowed/i, 'hits_allowed'],
+  [/^total bases/i, 'total_bases'],
+  [/^total hits/i, 'hits'],
+  [/^total doubles/i, 'doubles'],
+  [/^total rbis?/i, 'rbis'],
+  [/^total runs scored/i, 'runs'],
+];
+
+function bovadaParseDepth(sport, ev) {
+  const out = [];
+  const comps = ev.competitors || [];
+  const home = comps.find(c => c.home === true), away = comps.find(c => c.home === false);
+  if (!home || !away) return out;
+  const startTime = ev.startTime ? new Date(ev.startTime).toISOString() : null;
+  const props = new Map();
+  const propFor = (entity, market, line) => {
+    const key = `${entity}|${market}|${line}`;
+    if (!props.has(key)) {
+      props.set(key, {
+        book: 'bovada', sport, home_team: home.name, away_team: away.name,
+        start_time: startTime, entity, market, line, over_odds: null, under_odds: null,
+      });
+    }
+    return props.get(key);
+  };
+  for (const dg of ev.displayGroups || []) {
+    const group = dg.description || '';
+    for (const m of dg.markets || []) {
+      const period = m.period || {};
+      if (!(period.main === true || /game/i.test(period.abbreviation || ''))) continue;
+      const desc = m.description || '';
+      if (group === 'Pitcher Props' || group === 'Player Props') {
+        // "Total Strikeouts - Brandon Sproat (MIL)" -> market + player.
+        const dash = desc.indexOf(' - ');
+        if (dash === -1) continue;
+        const marketHit = BOVADA_PROP_MARKETS.find(([re]) => re.test(desc));
+        if (!marketHit) continue;
+        const player = desc.slice(dash + 3).replace(/\([A-Z]{2,4}\)\s*$/, '').trim();
+        if (!player) continue;
+        for (const o of m.outcomes || []) {
+          const price = o.price || {};
+          const odds = american(price.american);
+          const line = american(price.handicap);
+          if (odds == null || line == null) continue;
+          const row = propFor(player, marketHit[1], line);
+          const od = (o.description || '').toLowerCase();
+          if (od.startsWith('over')) row.over_odds = odds;
+          else if (od.startsWith('under')) row.under_odds = odds;
+        }
+      } else if (group === 'Alternate Lines') {
+        // Team totals: "Total Runs O/U - Milwaukee Brewers". Alternate spread /
+        // total ladders: "Spread" / "Total Runs O/U" with laddered handicaps.
+        const teamTT = /^total (?:runs|points) o\/u - (.+)$/i.exec(desc);
+        for (const o of m.outcomes || []) {
+          const price = o.price || {};
+          const odds = american(price.american);
+          const line = american(price.handicap);
+          if (odds == null || line == null) continue;
+          const od = (o.description || '').toLowerCase();
+          if (teamTT) {
+            const row = propFor(teamTT[1].trim(), 'team_total', line);
+            if (od.startsWith('over')) row.over_odds = odds;
+            else if (od.startsWith('under')) row.under_odds = odds;
+          } else if (/^spread$/i.test(desc)) {
+            const isHome = (o.description || '') === home.name || o.type === 'H';
+            const isAway = (o.description || '') === away.name || o.type === 'A';
+            const team = isHome ? home.name : isAway ? away.name : null;
+            if (!team) continue;
+            propFor(team, 'alt_spread', line).over_odds = odds;
+          } else if (/^total(?:\s+runs)?(?:\s+o\/u)?$/i.test(desc)) {
+            const row = propFor('', 'alt_total', line);
+            if (od.startsWith('over')) row.over_odds = odds;
+            else if (od.startsWith('under')) row.under_odds = odds;
+          }
+        }
+      }
+    }
+  }
+  for (const row of props.values()) if (row.over_odds != null || row.under_odds != null) out.push(row);
+  return out;
+}
+
+// ── Bovada event-lane coupons: sports with no ESPN scoreboard ────────────────
+// Same coupon endpoint as the team sports; ML market names differ per sport
+// ("Fight Winner", "To Win the Bout"), handled by the parser regex below.
+const BOVADA_EVENT_SPORTS = {
+  'Esports':      'esports',
+  'Table Tennis': 'table-tennis',
+  'Cricket':      'cricket',
+  'MMA':          'ufc-mma',
+  'Boxing':       'boxing',
+};
+
+function bovadaParseEventLane(sport, ev, grp) {
+  const comps = ev.competitors || [];
+  const home = comps.find(c => c.home === true), away = comps.find(c => c.home === false);
+  if (!home || !away) return null;
+  const row = {
+    book: 'bovada', sport, home_team: home.name, away_team: away.name,
+    start_time: ev.startTime ? new Date(ev.startTime).toISOString() : null,
+    event_lane: true, league: (grp && grp.path && grp.path[0] && grp.path[0].description) || null,
+    ml_home: null, ml_away: null, spread_home: null, spread_away: null,
+    over_under: null, ou_over_odds: null, ou_under_odds: null,
+  };
+  for (const dg of ev.displayGroups || []) {
+    for (const m of dg.markets || []) {
+      const period = m.period || {};
+      if (!(period.main === true || /match|game|regulation|bout|fight/i.test(period.description || ''))) continue;
+      const desc = m.description || '';
+      for (const o of m.outcomes || []) {
+        const price = o.price || {};
+        const isHome = (o.description || '') === home.name || o.type === 'H';
+        const isAway = (o.description || '') === away.name || o.type === 'A';
+        if (/moneyline|fight winner|to win the bout|match winner/i.test(desc)) {
+          if (isHome) row.ml_home = american(price.american);
+          else if (isAway) row.ml_away = american(price.american);
+        } else if (/point spread|spread|map handicap|game handicap/i.test(desc)) {
+          const hc = american(price.handicap);
+          if (isHome) row.spread_home = hc;
+          else if (isAway) row.spread_away = hc;
+        } else if (/^total/i.test(desc)) {
+          const line = american(price.handicap);
+          if (line != null && row.over_under == null) row.over_under = line;
+          const od = (o.description || '').toLowerCase();
+          if (od.startsWith('over'))  row.ou_over_odds  = american(price.american);
+          if (od.startsWith('under')) row.ou_under_odds = american(price.american);
+        }
+      }
+    }
+  }
+  const usable = row.ml_home != null || row.spread_home != null || row.over_under != null;
+  return usable ? row : null;
+}
+
+async function fetchBovadaEventLane() {
+  const rows = [];
+  for (const [sport, path] of Object.entries(BOVADA_EVENT_SPORTS)) {
     try {
-      const detail = await getJson(`https://www.bovada.lv/services/sports/event/v2/events/A/description${link}?lang=en`);
-      for (const grp of Array.isArray(detail) ? detail : []) {
+      const groups = await getJson(`https://www.bovada.lv/services/sports/event/coupon/events/A/description/${path}?marketFilterId=def&preMatchOnly=false&lang=en`);
+      if (!Array.isArray(groups)) continue;
+      for (const grp of groups) {
         for (const ev of grp.events || []) {
-          const row = bovadaParseEvent('MLB', ev, { period: 'F5' });
+          const row = bovadaParseEventLane(sport, ev, grp);
           if (row) rows.push(row);
         }
       }
     } catch (err) {
-      if (!/HTTP 404/.test(err.message)) console.warn(`[bovada-f5] ${err.message}`);
+      if (!/HTTP 404/.test(err.message)) console.warn(`[bovada-events] ${sport}: ${err.message}`);
     }
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 900));
   }
   return rows;
 }
@@ -310,89 +475,167 @@ async function relay(path, payload) {
 // v5 one, which the books 403.
 const ADAPTERS = { bovada: fetchBovada, draftkings: fetchDraftKings, ...require('./odds_adapters') };
 
-async function cycle() {
-  const stats = { interval_min: Math.round(INTERVAL_MS / 60000), adapters: {} };
-  let all = [];
-  for (const book of BOOKS) {
-    const fn = ADAPTERS[book];
-    if (!fn) { stats.adapters[book] = 'unknown adapter'; continue; }
-    try {
-      const rows = await fn();
-      all = all.concat(rows);
-      stats.adapters[book] = { rows: rows.length };
-    } catch (err) {
-      stats.adapters[book] = { error: err.message.slice(0, 120) };
-    }
-  }
-  // Fight-card events (Boxing + MMA) ride along each cycle.
+// Chunked relay for one row kind. tolerate404 marks endpoints the deployed
+// site may not have yet (they 404 until the next ship — by design, never an
+// error loud enough to kill the cycle).
+async function relayRows(path, rows, chunk, tolerate404) {
+  if (!rows.length) return null;
   try {
-    const events = await fetchBovadaEvents();
-    if (events.length) {
-      const out = await relay('/admin/ingest-engine-events', { events });
-      stats.events = { sent: events.length, stored: out.stored };
+    let stored = 0, unmatched = 0, locked = 0;
+    for (let i = 0; i < rows.length; i += chunk) {
+      const out = await relay(path, { rows: rows.slice(i, i + chunk) });
+      stored += out.stored || 0; unmatched += out.unmatched || 0; locked += out.locked || 0;
     }
+    return { sent: rows.length, stored, unmatched, locked };
   } catch (err) {
-    stats.events = { error: err.message.slice(0, 120) };
+    if (tolerate404 && /HTTP 404/.test(err.message)) {
+      console.warn(`[odds-engine] ${path} 404 (site not deployed yet?)`);
+      return { sent: rows.length, error: 'HTTP 404' };
+    }
+    console.error(`[odds-engine] relay ${path} failed:`, err.message);
+    return { sent: rows.length, error: err.message.slice(0, 100) };
   }
+}
 
-  // LINES LOCK AT GAME START: never relay in-play prices. Books keep pricing
-  // live games (Bovada's coupon includes them by design) and those rows were
-  // overwriting the closing line on the site with drifting in-play odds. Rows
-  // without a start_time can't be judged here — the site-side ingest guard
-  // (odds_ingest.js gameHasStarted) covers them after the next deploy.
-  const now = Date.now();
-  const preStart = all.filter(r => {
-    const t = r.start_time ? Date.parse(r.start_time) : NaN;
-    return isNaN(t) || t > now;
-  });
-  if (preStart.length < all.length) {
-    stats.dropped_started = all.length - preStart.length;
-  }
-  all = preStart;
+// Hot list source: the last cold sweep's game rows (kept pre-relay).
+let lastSweepRows = [];
+let cycleRunning = false;
+let hotRunning = false;
 
-  // Partial-game rows (period 'F5'/'1H') go to their OWN endpoint: a server
-  // older than this engine 404s them harmlessly instead of storing F5 numbers
-  // as full-game lines. Full-game rows keep the original endpoint.
-  const gameRows   = all.filter(r => !r.period);
-  const periodRows = all.filter(r => r.period);
+async function cycle() {
+  // In-flight guard: at short intervals an overlapping tick would double
+  // per-host request volume and interleave relay POSTs.
+  if (cycleRunning) { console.warn('[odds-engine] previous cycle still running — tick skipped'); return; }
+  cycleRunning = true;
   try {
-    if (gameRows.length) {
-      // storeEngineBookLines caps each POST at 800 rows and silently drops the
-      // rest; a full slate plus the soccer coupon can exceed that. Chunk under
-      // the cap so every row is considered.
-      let stored = 0, unmatched = 0;
-      for (let i = 0; i < gameRows.length; i += 700) {
-        const out = await relay('/admin/ingest-book-lines', { rows: gameRows.slice(i, i + 700) });
-        stored += out.stored || 0; unmatched += out.unmatched || 0;
+    const stats = { interval_min: Math.round(INTERVAL_MS / 60000), adapters: {} };
+    // Adapters run in PARALLEL — each book is its own host, so per-host
+    // politeness is unchanged and wall clock drops to the slowest adapter.
+    // Same-host extras (pinnacle event lane, bovada event lane) run inside
+    // their book's task, sequentially, to keep per-host pacing intact.
+    const tasks = BOOKS.map(async (book) => {
+      const fn = ADAPTERS[book];
+      if (!fn) return { book, error: 'unknown adapter' };
+      try {
+        let rows = await fn();
+        if (book === 'pinnacle' && ADAPTERS.pinnacleEvents) {
+          try { rows = rows.concat(await ADAPTERS.pinnacleEvents()); }
+          catch (err) { console.warn('[pinnacle-events]', err.message); }
+        }
+        if (book === 'bovada') {
+          try { rows = rows.concat(await fetchBovadaEventLane()); }
+          catch (err) { console.warn('[bovada-events]', err.message); }
+        }
+        return { book, rows };
+      } catch (err) {
+        return { book, error: err.message.slice(0, 100) };
       }
-      stats.stored = stored; stats.unmatched = unmatched;
-      console.log(`[odds-engine] relayed ${gameRows.length} rows -> stored ${stored}, unmatched ${unmatched}`);
+    });
+    const results = await Promise.all(tasks);
+    let all = [];
+    for (const r of results) {
+      if (r.error) stats.adapters[r.book] = { error: r.error };
+      else { stats.adapters[r.book] = { rows: r.rows.length }; all = all.concat(r.rows); }
+    }
+    // Fight-card events (Boxing + MMA fixtures) ride along each cycle.
+    try {
+      const events = await fetchBovadaEvents();
+      if (events.length) {
+        const out = await relay('/admin/ingest-engine-events', { events });
+        stats.events = { sent: events.length, stored: out.stored };
+      }
+    } catch (err) {
+      stats.events = { error: err.message.slice(0, 100) };
+    }
+
+    // LINES LOCK AT GAME START: never relay in-play prices. Rows without a
+    // start_time can't be judged here — the site-side ingest guard covers them.
+    const now = Date.now();
+    const preStart = all.filter(r => {
+      const t = r.start_time ? Date.parse(r.start_time) : NaN;
+      return isNaN(t) || t > now;
+    });
+    if (preStart.length < all.length) stats.dropped_started = all.length - preStart.length;
+    all = preStart;
+
+    // Split by row kind. Order matters: event-lane rows carry no entity;
+    // prop rows carry entity+market; period rows carry period.
+    const eventRows  = all.filter(r => r.event_lane);
+    const propRows   = all.filter(r => !r.event_lane && r.market !== undefined && r.entity !== undefined);
+    const periodRows = all.filter(r => !r.event_lane && r.market === undefined && r.period);
+    const gameRows   = all.filter(r => !r.event_lane && r.market === undefined && !r.period);
+    lastSweepRows = gameRows;
+
+    const outGame = await relayRows('/admin/ingest-book-lines', gameRows, 700, false);
+    if (outGame) {
+      stats.stored = outGame.stored; stats.unmatched = outGame.unmatched;
+      if (outGame.locked) stats.locked = outGame.locked;
+      console.log(`[odds-engine] relayed ${gameRows.length} rows -> stored ${outGame.stored}, unmatched ${outGame.unmatched}`);
     } else {
       console.log('[odds-engine] no rows this cycle');
     }
-  } catch (err) {
-    stats.relay_error = err.message.slice(0, 120);
-    console.error('[odds-engine] relay failed:', err.message);
-  }
-  try {
-    if (periodRows.length) {
-      let stored = 0, unmatched = 0;
-      for (let i = 0; i < periodRows.length; i += 700) {
-        const out = await relay('/admin/ingest-book-lines-period', { rows: periodRows.slice(i, i + 700) });
-        stored += out.stored || 0; unmatched += out.unmatched || 0;
-      }
-      stats.period = { sent: periodRows.length, stored, unmatched };
-      console.log(`[odds-engine] relayed ${periodRows.length} period rows -> stored ${stored}, unmatched ${unmatched}`);
+    stats.period = await relayRows('/admin/ingest-book-lines-period', periodRows, 700, true) || undefined;
+    stats.props  = await relayRows('/admin/ingest-book-props', propRows, 1500, true) || undefined;
+    stats.event_lines = await relayRows('/admin/ingest-event-lines', eventRows, 500, true) || undefined;
+    if (propRows.length || eventRows.length) {
+      console.log(`[odds-engine] depth: ${propRows.length} prop rows, ${eventRows.length} event-lane rows`);
     }
-  } catch (err) {
-    // A 404 here just means the site hasn't deployed the period ingest yet.
-    stats.period = { sent: periodRows.length, error: err.message.slice(0, 120) };
-    console.warn('[odds-engine] period relay failed (site not deployed yet?):', err.message);
+
+    try { await relay('/admin/ingest-heartbeat', { service: 'odds-engine', meta: stats }); }
+    catch (err) { console.warn('[odds-engine] heartbeat failed:', err.message); }
+  } finally {
+    cycleRunning = false;
   }
-  try { await relay('/admin/ingest-heartbeat', { service: 'odds-engine', meta: stats }); }
-  catch (err) { console.warn('[odds-engine] heartbeat failed:', err.message); }
 }
 
-console.log(`[odds-engine] up. books: ${BOOKS.join(', ')} · every ${Math.round(INTERVAL_MS / 60000)} min -> ${RAILWAY_URL}`);
+// ── Hot loop: games starting soon get a fast mainline refresh ─────────────────
+// Every ODDS_ENGINE_HOT_SEC (default 75s), re-fetch ONLY the one-call league
+// boards (opts.lite skips every per-event pass) for the sports that have a
+// game starting within 90 minutes, filter to those games, and relay a small
+// mainline POST. AN sits out (day-level fan-out). The cold cycle takes
+// precedence: hot ticks skip while it runs.
+const HOT_INTERVAL_MS = Math.max(45, parseInt(process.env.ODDS_ENGINE_HOT_SEC || '75', 10)) * 1000;
+const HOT_WINDOW_MS   = 90 * 60 * 1000;
+const HOT_BOOKS = ['bovada', 'draftkings', 'fanduel', 'betrivers', 'pinnacle'];
+
+async function hotCycle() {
+  if (cycleRunning || hotRunning) return;
+  const now = Date.now();
+  const hotKeys = new Set(), hotSports = new Set();
+  for (const r of lastSweepRows) {
+    if (!r.start_time) continue;
+    const t = Date.parse(r.start_time);
+    if (t > now && t - now <= HOT_WINDOW_MS) {
+      hotKeys.add(`${r.sport}|${r.home_team}|${r.away_team}`);
+      hotSports.add(r.sport);
+    }
+  }
+  if (!hotKeys.size) return;
+  hotRunning = true;
+  try {
+    const results = await Promise.all(HOT_BOOKS.map(async (book) => {
+      const fn = ADAPTERS[book];
+      if (!fn) return [];
+      try { return await fn({ lite: true, sports: hotSports }); }
+      catch (err) { console.warn(`[odds-engine] hot ${book}:`, err.message); return []; }
+    }));
+    const cutoff = Date.now();
+    const rows = [].concat(...results).filter(r =>
+      !r.event_lane && r.market === undefined && !r.period &&
+      r.start_time && Date.parse(r.start_time) > cutoff &&
+      hotKeys.has(`${r.sport}|${r.home_team}|${r.away_team}`)
+    );
+    if (!rows.length) return;
+    const out = await relayRows('/admin/ingest-book-lines', rows, 700, false);
+    if (out && out.stored != null) {
+      console.log(`[odds-engine] hot: ${rows.length} rows for ${hotKeys.size} imminent event(s) -> stored ${out.stored}`);
+    }
+  } finally {
+    hotRunning = false;
+  }
+}
+
+console.log(`[odds-engine] up. books: ${BOOKS.join(', ')} · cold every ${Math.round(INTERVAL_MS / 60000)} min, hot every ${Math.round(HOT_INTERVAL_MS / 1000)}s (T-90 window) -> ${RAILWAY_URL}`);
 cycle().catch(e => console.error('[odds-engine] first cycle error:', e.message));
 setInterval(() => cycle().catch(e => console.error('[odds-engine] cycle error:', e.message)), INTERVAL_MS);
+setInterval(() => hotCycle().catch(e => console.error('[odds-engine] hot cycle error:', e.message)), HOT_INTERVAL_MS);

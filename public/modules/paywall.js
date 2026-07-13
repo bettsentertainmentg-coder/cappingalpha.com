@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isViewer, isAccount, isPaying } from './auth.js';
-import { LOCK_SVG } from './utils.js?v=2';
+import { LOCK_SVG } from './utils.js?v=3';
 
 const PRICE_IDS = {
   day:  'price_1TMhkAB0ohior8iouVKseqmk',
@@ -150,11 +150,11 @@ export function renderPaywallDefault() {
   if (!card) return;
   card.innerHTML = `
     <h3>Unlock CappingAlpha</h3>
-    <p>$1 day pass &middot; $4/week &middot; $75/year</p>
+    <p>3 days free, then $4/week &middot; $75/year (about $1.44/week) &middot; $1 day pass</p>
     <div class="inline-paywall-btns">
-      <button class="btn btn-gold" onclick="startCheckout('day')">Day $1</button>
-      <button class="btn btn-primary" onclick="startCheckout('week')">Week $4</button>
+      <button class="btn btn-gold" onclick="startCheckout('week')">3 Days Free</button>
       <button class="btn btn-primary" onclick="startCheckout('year')">Annual $75</button>
+      <button class="btn btn-primary" onclick="startCheckout('day')">Day $1</button>
     </div>
     <div class="inline-paywall-login">Already have access? <a onclick="openLogin()">Log in</a> &nbsp;·&nbsp; <a onclick="openSignup()">Sign up free</a></div>
     <div class="paywall-code-link"><a onclick="openCodeEntry()">I have an access code</a></div>`;

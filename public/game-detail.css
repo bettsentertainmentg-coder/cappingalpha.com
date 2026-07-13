@@ -143,6 +143,10 @@ nav {
 .btn-gold    { background: var(--gold); color: #111; }
 .btn-danger  { background: var(--red); color: #fff; font-size: 13px; padding: 5px 12px; }
 .btn-block   { display: block; width: 100%; margin-top: 14px; }
+/* Nav "Unlock CappingAlpha" — same gold as the SPA nav (index.html #btn-unlock),
+   so the top bar looks identical on every server-rendered page. */
+#btn-unlock { background: var(--gold); color: #111; font-weight: 800; }
+#btn-unlock:hover { opacity: 0.9; }
 
 /* Back button in nav */
 .ca-back-btn {

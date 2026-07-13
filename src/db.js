@@ -473,6 +473,9 @@ try { db.exec(`ALTER TABLE user_preferences ADD COLUMN default_odds TEXT NOT NUL
 // Sportsbooks the user actually bets at ("My books"): JSON array of book keys.
 // Drives the Track a Bet book bubbles + the detail-page "My books" lines group.
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN my_books TEXT NOT NULL DEFAULT '[]'`); } catch (_) {}
+// Notification preference center: JSON of topic -> boolean (absent = on).
+// Topics + paid gating live in src/push.js TOPICS; enforced in sendToUserTopic.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN notify_prefs TEXT NOT NULL DEFAULT '{}'`); } catch (_) {}
 
 // ── user_bets (Phase B) — free-entry + game-linked personal bet tracking ──────
 // The MANUAL counterpart to game_votes. A bet may be game-linked (espn_game_id set
@@ -620,8 +623,9 @@ try {
 } catch (_) {}
 
 // Events relayed by the odds engine for sports ESPN has no free scoreboard for
-// (boxing, non-UFC MMA). Feeds the betslip's game picker as custom-only entries.
-// Refreshed every engine cycle; old rows pruned on ingest.
+// (boxing, non-UFC MMA, esports, table tennis, cricket, ...). Feeds the
+// betslip's game picker as custom-only entries. Refreshed every engine cycle;
+// old rows pruned on ingest.
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS engine_events (
@@ -635,6 +639,108 @@ try {
     )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_engine_events_start ON engine_events (start_time)`);
 } catch (_) {}
+// League/competition label for engine events (esports title, MMA org, ...).
+try { db.exec(`ALTER TABLE engine_events ADD COLUMN league TEXT`); } catch (_) {}
+
+// Per-book lines for ENGINE EVENTS (the non-ESPN sports lane: esports, MMA,
+// boxing, table tennis, cricket, darts, golf H2H...). Kept apart from
+// book_lines because these events have no espn_game_id and never enter the
+// CA-line/grading/rankings pipeline — display and Track a Bet only. Keyed by
+// the engine_events natural key + book; pruned alongside engine_events.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS engine_event_lines (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      sport         TEXT NOT NULL,
+      home_team     TEXT NOT NULL,
+      away_team     TEXT NOT NULL,
+      book          TEXT NOT NULL,
+      league        TEXT,
+      start_time    TEXT,
+      ml_home       REAL,
+      ml_away       REAL,
+      spread_home   REAL,
+      spread_away   REAL,
+      over_under    REAL,
+      ou_over_odds  REAL,
+      ou_under_odds REAL,
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(sport, home_team, away_team, book)
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_engine_event_lines_ev ON engine_event_lines (sport, home_team, away_team)`);
+} catch (_) {}
+
+// Per-book PLAYER PROPS + team totals + alternate ladders (the market-depth
+// lane). entity = player name, team name (team totals / alt spreads), or ''
+// (alt totals). market = normalized market key per parser ('strikeouts',
+// 'to_hit_hr', 'team_total', 'alt_spread', 'alt_total', ...). Yes-price
+// markets store the price in over_odds with line/under_odds NULL. UNLIKE
+// book_lines this table is PRUNED (game_date + the stale-game sweep): props
+// at full scale are ~50k rows/day and have no long-term read path.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_props (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      espn_game_id TEXT NOT NULL,
+      book         TEXT NOT NULL,
+      entity       TEXT NOT NULL,
+      market       TEXT NOT NULL,
+      line         REAL,
+      over_odds    REAL,
+      under_odds   REAL,
+      game_date    TEXT,
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(espn_game_id, book, entity, market, line)
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_book_props_game ON book_props (espn_game_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_book_props_date ON book_props (game_date)`);
+} catch (_) {}
+
+// Closing-line archive: one row per (game_date, game, book) snapshotted at the
+// 4:58am reset from book_lines (rows are already frozen at each game's start
+// by the lines-lock rule, so this captures true closes). Never wiped — this is
+// the long-term product surface the paid odds APIs charge extra for.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS book_lines_closing (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_date     TEXT NOT NULL,
+      espn_game_id  TEXT NOT NULL,
+      sport         TEXT,
+      matchup       TEXT,
+      start_time    TEXT,
+      book          TEXT NOT NULL,
+      ml_home       REAL,
+      ml_away       REAL,
+      spread_home   REAL,
+      spread_away   REAL,
+      over_under    REAL,
+      ou_over_odds  REAL,
+      ou_under_odds REAL,
+      snapped_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(espn_game_id, book)
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_book_lines_closing_date ON book_lines_closing (game_date)`);
+} catch (_) {}
+
+// CA consensus line: the no-vig, Pinnacle-anchored blend across every stored
+// book for a game. Recomputed by cron pre-game; frozen once the game starts
+// (the compute skips started games, same lock rule as book_lines).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ca_consensus (
+      espn_game_id  TEXT PRIMARY KEY,
+      books_used    INTEGER,
+      ml_home       REAL,
+      ml_away       REAL,
+      home_prob     REAL,
+      away_prob     REAL,
+      spread_home   REAL,
+      spread_away   REAL,
+      over_under    REAL,
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+} catch (_) {}
 
 // Web-push subscriptions (one row per device endpoint per user) — never wiped.
 try {
@@ -647,6 +753,20 @@ try {
       created_at TEXT DEFAULT (datetime('now'))
     )`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions (user_id)`);
+} catch (_) {}
+// Content-push dedupe log (push.sendOnce): one row per (user, topic, key) so
+// the alert crons can re-observe the same event without double-notifying.
+// Pruned by the live-alerts cron (rows older than 14 days), never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_log (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      topic      TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL,
+      sent_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, topic, dedupe_key)
+    )`);
 } catch (_) {}
 // Permanent record of weekly/monthly leaderboard finishes (top 10) → drives profile
 // badges. Never wiped. tier: gold (#1), silver (top 5), bronze (top 10).
@@ -724,6 +844,23 @@ try {
     FROM access_codes
     WHERE activated_by IS NOT NULL
   `);
+} catch (_) {}
+
+// Referral loop (give-a-day / get-a-day): every account can hold a referral
+// code (minted lazily by auth.ensureReferralCode); each account may redeem one
+// referral code ever (referred_id UNIQUE). Redemptions grant a day to both sides.
+try { db.exec(`ALTER TABLE users ADD COLUMN referral_code TEXT`); } catch (_) {}
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code) WHERE referral_code IS NOT NULL`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS referral_redemptions (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      referrer_id INTEGER NOT NULL,
+      referred_id INTEGER NOT NULL UNIQUE,
+      redeemed_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_referral_redemptions_referrer ON referral_redemptions (referrer_id)`);
 } catch (_) {}
 
 try {

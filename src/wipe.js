@@ -94,6 +94,11 @@ function pruneStaleGames() {
     db.prepare(`DELETE FROM line_snapshots WHERE ${delSnapWhere}`).run(...keep);
     // Age-prune the pending-attribution queue.
     db.prepare(`DELETE FROM skipped_messages WHERE skipped_at < datetime('now','-${GRACE_DAYS} days')`).run();
+    // Props are day-of data at ~50k rows/day full-scale; no long-term read
+    // path once games grade, so age them out with the same grace window.
+    try {
+      db.prepare(`DELETE FROM book_props WHERE (game_date IS NULL AND updated_at < datetime('now','-${GRACE_DAYS} days')) OR game_date < date('now','-${GRACE_DAYS} days')`).run();
+    } catch (_) {}
   });
 
   try {

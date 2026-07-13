@@ -86,7 +86,26 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 // user never sees Login/Get Access (or a flash of them) before client JS runs.
 function buildNav(user) {
   const on     = !!user;
-  const paying = on && user.tier && user.tier !== 'free';
+  // Paying comes from a FRESH DB read, never the session snapshot: the session
+  // tier is stamped at login and goes stale the moment a code redemption or
+  // Stripe webhook changes it (a paid member was still shown "Unlock
+  // CappingAlpha" here). Mirrors auth.isPaid: tier not 'free' + unexpired
+  // (null expiry = lifetime; unparseable fails open).
+  let paying = false;
+  if (on) {
+    try {
+      const row = require('./db').prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id = ?`).get(user.id);
+      if (row && row.subscription_tier !== 'free') {
+        if (!row.subscription_expires) paying = true;
+        else {
+          const exp = Date.parse(row.subscription_expires);
+          paying = isNaN(exp) ? true : exp > Date.now();
+        }
+      }
+    } catch (_) {
+      paying = !!(user.tier && user.tier !== 'free');   // DB error -> session fallback
+    }
+  }
   const acct   = on ? esc(user.username || user.email || '') : '';
   const hide   = 'display:none;';
   // Logo styling is inlined so it always matches the main nav (22px) — the detail
@@ -144,6 +163,7 @@ function buildNav(user) {
           <div class="about-dropdown hidden" id="ca-about-dd" role="menu">
             <a class="about-dropdown-item" role="menuitem" href="/#about">About</a>
             <a class="about-dropdown-item" role="menuitem" href="/faq">FAQ</a>
+            <a class="about-dropdown-item" role="menuitem" href="/tools">Betting Calculators</a>
           </div>
         </div>
       </div>
@@ -163,6 +183,7 @@ function buildNav(user) {
     <a href="/#leaderboard">Leaderboard</a>
     <a href="/#about">About</a>
     <a href="/faq">FAQ</a>
+    <a href="/tools">Betting Calculators</a>
     <a href="/#account">My Account</a>
   </div>
   <script>
@@ -304,11 +325,13 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta property="og:description" content="${esc(desc)}" />
   <meta property="og:type" content="article" />
   <meta property="og:url" content="${esc(canonical)}" />
-  <meta property="og:image" content="https://cappingalpha.com/ca-logo.png" />
+  <meta property="og:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${esc(title)}" />
   <meta name="twitter:description" content="${esc(desc)}" />
-  <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
+  <meta name="twitter:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -528,7 +551,7 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=2"></script>
+<script type="module" src="/game-detail.js?v=4"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
 <script type="module" src="/modules/track.js?v=43"></script>

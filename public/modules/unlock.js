@@ -325,8 +325,8 @@ function unlockHtml() {
          <div class="unlock-buy-head"><span class="unlock-gold">Unlock</span> CappingAlpha</div>
          <div class="unlock-price-row">
            ${priceCard('day', '$1', '/day', 'One day', false, paying)}
-           ${priceCard('week', '$4', '/week', 'Cancel anytime', false, paying)}
-           ${priceCard('year', '$75', '/year', 'Best value', true, paying)}
+           ${priceCard('week', '$4', '/week', '3 days free to start. Cancel anytime', false, paying)}
+           ${priceCard('year', '$75', '/year', 'About $1.44/week. Save 64% vs weekly', true, paying)}
          </div>
        </div>`;
 

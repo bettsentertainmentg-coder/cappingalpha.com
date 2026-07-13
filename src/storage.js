@@ -666,12 +666,20 @@ function upsertScoreBreakdown(pick_id, scored) {
 
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null, scale = 'v2' }) {
   // today_games gives team names + the opening line (used as a fallback only).
-  let ml_odds = null, ou_odds = null, home_team = null, away_team = null;
+  let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false;
   if (espn_game_id) {
     const game = db.prepare(
-      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds FROM today_games WHERE espn_game_id = ?`
+      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds, status, start_time FROM today_games WHERE espn_game_id = ?`
     ).get(espn_game_id);
     if (game) {
+      const startMs = new Date(game.start_time).getTime();
+      gameStarted = game.status !== 'pre' || (Number.isFinite(startMs) && startMs <= Date.now());
+      // Board day comes from the GAME's start_time, never the caller's stamp.
+      // Tennis lists tomorrow's matches on today's board and ESPN corrects
+      // start times after first listing, so slot/pick game_date can be a day
+      // stale — that filed a whole morning of Jul-13 tennis golds under Jul 12.
+      const boardDay = game.start_time ? cycleDateForInstant(game.start_time) : null;
+      if (boardDay) game_date = boardDay;
       home_team = game.home_team || null;
       away_team = game.away_team || null;
       const type = (pick_type || '').toLowerCase();
@@ -688,23 +696,59 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     if (cap.ml != null)      ml_odds = cap.ml;
     if (cap.ou_odds != null) ou_odds = cap.ou_odds;
   }
+  // Last resort for an ML price: any book the engine stored for this game
+  // (Bovada carries tennis matches the DK/Odds-API feeds skip). Freshest first.
+  if ((pick_type || '').toLowerCase() === 'ml' && ml_odds == null && espn_game_id) {
+    try {
+      const isHome = (home_team || '').toLowerCase() === (team || '').toLowerCase();
+      const col = isHome ? 'ml_home' : 'ml_away';
+      const bl = db.prepare(
+        `SELECT ${col} AS ml FROM book_lines WHERE espn_game_id = ? AND ${col} IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
+      ).get(espn_game_id);
+      if (bl && bl.ml != null) ml_odds = bl.ml;
+    } catch (_) {}
+  }
   const capSpread = cap ? cap.spread : null;
   const capTotal  = cap ? cap.total  : null;
   const capAt     = cap ? cap.at     : null;
 
-  const exists = db.prepare(
-    `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`
-  ).get(team, game_date, pick_type ?? null);
+  // Identity: the game key first (espn_game_id + team + type survives a
+  // game_date re-stamp), then the legacy (team, game_date, type) key so rows
+  // saved before the game row existed are still found.
+  const exists = (espn_game_id
+    ? db.prepare(
+        `SELECT id, result FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ?`
+      ).get(espn_game_id, team, pick_type ?? null)
+    : null)
+    || db.prepare(
+      `SELECT id, result FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`
+    ).get(team, game_date, pick_type ?? null);
 
   if (!exists) {
+    // No odds anywhere = the pick can't be tracked (Jack 2026-07-13): an ML
+    // pick without a price has no P/L truth. Skip the insert — mentions keep
+    // arriving, so the row lands the moment any source posts a line, and a
+    // pick whose line never materializes is never tracked. Spreads and totals
+    // settle at standard juice, so only ML is gated.
+    if ((pick_type || '').toLowerCase() === 'ml' && ml_odds == null) {
+      console.log(`[mvp] not tracking ${team} ML — no betting line available yet`);
+      return;
+    }
     db.prepare(`
       INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale);
   } else {
+    // Score LOCKS once the row is decided (win/loss/push/void) or the game has
+    // started. Post-decision mentions used to keep bumping the number, so a
+    // voided row could display a higher score than the pick that beat it and
+    // its "had more points" note read as a contradiction.
+    const scoreLocked = gameStarted
+      || ['win', 'loss', 'push', 'void'].includes((exists.result || '').toLowerCase());
     db.prepare(`
       UPDATE mvp_picks
-      SET score        = ?,
+      SET score        = CASE WHEN ? = 1 THEN score ELSE ? END,
+          game_date    = ?,
           espn_game_id = ?,
           ml_odds      = COALESCE(ml_odds, ?),
           ou_odds      = COALESCE(ou_odds, ?),
@@ -713,8 +757,8 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
           captured_spread  = COALESCE(captured_spread, ?),
           captured_total   = COALESCE(captured_total, ?),
           line_captured_at = COALESCE(line_captured_at, ?)
-      WHERE team = ? AND game_date = ? AND pick_type = ?
-    `).run(score, espn_game_id, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, team, game_date, pick_type ?? null);
+      WHERE id = ?
+    `).run(scoreLocked ? 1 : 0, score, game_date ?? null, espn_game_id, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, exists.id);
   }
 }
 

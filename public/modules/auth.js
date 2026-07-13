@@ -1,7 +1,7 @@
 // modules/auth.js — Auth state, tier helpers, login/signup/logout
 
 import { state } from './state.js';
-import { avatarFor } from './utils.js?v=2';
+import { avatarFor } from './utils.js?v=3';
 
 // ── Tier helpers ──────────────────────────────────────────────────────────────
 export function isViewer()  { return !state.currentUser; }
@@ -167,6 +167,17 @@ export async function doSignup() {
     });
     const data = await res.json();
     if (!res.ok) { errEl.textContent = data.error || 'Signup failed.'; return; }
+    // Referral loop: if this visit came from a ?ref= share link, redeem it now
+    // (session is live after signup). Best-effort — a bad code just no-ops.
+    const ref = localStorage.getItem('ca_ref');
+    if (ref) {
+      localStorage.removeItem('ca_ref');
+      await fetch('/auth/redeem-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: ref }),
+      }).catch(() => {});
+    }
     location.reload();
   } catch (_) { errEl.textContent = 'Network error. Try again.'; }
 }

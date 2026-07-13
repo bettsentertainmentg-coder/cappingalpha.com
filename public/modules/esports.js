@@ -1,6 +1,6 @@
 // modules/esports.js — Esports tab
 
-import { sportBadge } from './utils.js?v=2';
+import { sportBadge } from './utils.js?v=3';
 
 const ESPORTS_GAMES = [
   { rank: 1,  name: 'Rainbow Six Siege',   short: 'R6S',  genre: 'Tactical FPS',  grad: 'linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%)',   icon: 'fa-solid fa-crosshairs',      color: '#38bdf8' },

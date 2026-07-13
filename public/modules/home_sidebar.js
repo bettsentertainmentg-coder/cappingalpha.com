@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js?v=2';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js?v=3';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -81,6 +81,8 @@ async function _renderTopPick() {
         const sp = (pick.sport || '').toUpperCase();
         const n = pick.game_period;
         if (sp === 'MLB') fallback = `${n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : n + 'th'} Inn`;
+        else if (sp === 'ATP' || sp === 'WTA') fallback = `Set ${n}`;
+        else if (sp === 'SOCCER') fallback = `H${n}`;
         else if (sp === 'NHL' || sp === 'CBB' || sp === 'WCBB') fallback = `P${n}`;
         else fallback = `Q${n}`;
       }
@@ -185,6 +187,13 @@ function _resolvedMvp(picks) {
 
 function _filterDays(picks, days) {
   if (!isFinite(days)) return picks.slice();
+  if (days === 1) {
+    // "1-Day" = the latest board day only. A rolling 24h cutoff spans two board
+    // days (yesterday's slate grades into today), same trap as the MVP tab bar.
+    let latest = '';
+    for (const p of picks) if ((p.game_date || '') > latest) latest = p.game_date;
+    return latest ? picks.filter(p => p.game_date === latest) : [];
+  }
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   const cutStr = cutoff.toISOString().slice(0, 10);

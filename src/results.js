@@ -7,6 +7,10 @@ const db    = require('./db');
 const axios = require('axios');
 
 // ── Evaluate a single pick against final scores ───────────────────────────────
+// Annotation stamped on picks voided by the tennis replacement guard below.
+// Must contain 'not counted' — the record queries and void styling key on it.
+const VOID_SWAP_NOTE = '*not counted: a listed player was replaced before this match';
+
 function evaluatePick(pick, game) {
   const type = (pick.pick_type || '').toLowerCase();
   const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
@@ -29,6 +33,19 @@ function evaluatePick(pick, game) {
   const homeNames = [game.home_team, game.home_short, game.home_name, game.home_abbr]
     .filter(Boolean).map(n => n.toLowerCase());
   const pickedHome = homeNames.some(n => n === (pick.team || '').toLowerCase());
+
+  // Tennis replacement guard (Jack 2026-07-13): withdrawals and lucky losers
+  // swap a listed player after picks land, so a side pick can name a player in
+  // NEITHER slot of the final matchup. It used to grade silently as the away
+  // side (no home match = away). Books void those bets; so do we. Side bets
+  // only (a total doesn't ride a player), and only when both sides' names are
+  // actually known — a name-less snapshot must never void anything.
+  if (isTennis && ['ml', 'spread', 'set_spread'].includes(type)) {
+    const awayNames = [game.away_team, game.away_short, game.away_name, game.away_abbr]
+      .filter(Boolean).map(n => n.toLowerCase());
+    const pickedAway = awayNames.some(n => n === (pick.team || '').toLowerCase());
+    if (homeNames.length && awayNames.length && !pickedHome && !pickedAway) return 'void';
+  }
 
   const pickedScore = pickedHome ? game.home_score : game.away_score;
   const oppScore    = pickedHome ? game.away_score  : game.home_score;
@@ -286,8 +303,8 @@ async function resolveVotes() {
 
   // Fire-and-forget: a push failure must never affect grading.
   if (notify.length) {
-    const { sendToUser } = require('./push');
-    for (const n of notify) sendToUser(n.user_id, n.payload).catch(() => {});
+    const { sendToUserTopic } = require('./push');
+    for (const n of notify) sendToUserTopic(n.user_id, 'grades', n.payload).catch(() => {});
   }
 
   if (resolved > 0) console.log(`[results] Resolved ${resolved} vote results`);
@@ -641,7 +658,7 @@ async function resolveResults() {
   const picks = db.prepare(`
     SELECT p.*, tg.home_score, tg.away_score, tg.status, tg.sport,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
-           tg.away_team, tg.first_inning_runs,
+           tg.away_team, tg.away_short, tg.away_name, tg.away_abbr, tg.first_inning_runs,
            tg.ml_home, tg.ml_away, tg.over_under, tg.ou_over_odds, tg.ou_under_odds,
            tg.spread_home_odds, tg.spread_away_odds,
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
@@ -684,18 +701,23 @@ async function resolveResults() {
     // EVERY attributed backer gets a graded row the moment the game grades —
     // not just picks.capper_name (the earliest mention). today_games is still
     // present here (game just finished, pre-wipe) so bet odds capture works.
-    try { writeBackerGrades(pick, result); } catch (_) {}
+    // A voided pick (tennis replacement) is nobody's win or loss — no rows.
+    if (result !== 'void') { try { writeBackerGrades(pick, result); } catch (_) {} }
 
-    // Match mvp_picks by team + game_date + pick_type to avoid cross-type clobber
+    // Match mvp_picks by the game key first (espn_game_id + team + type — immune
+    // to a game_date re-stamp), then the legacy team + game_date + type key.
     // Never overwrite a voided pick — conflict resolver already settled it
-    const mvp = db.prepare(
-      `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void'`
-    ).get(pick.team, pick.game_date, pick.pick_type ?? null);
+    const mvp = (pick.espn_game_id ? db.prepare(
+      `SELECT id FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ? AND result != 'void'`
+    ).get(pick.espn_game_id, pick.team, pick.pick_type ?? null) : null)
+      || db.prepare(
+        `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void'`
+      ).get(pick.team, pick.game_date, pick.pick_type ?? null);
 
     if (mvp) {
       // Never overwrite score — the original MVP score is what qualified it
-      db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ? WHERE id = ?`)
-        .run(result, pick.home_score, pick.away_score, mvp.id);
+      db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+        .run(result, pick.home_score, pick.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     }
 
     resolved++;
@@ -705,7 +727,7 @@ async function resolveResults() {
   const directMvps = db.prepare(`
     SELECT m.*, tg.sport AS sport, tg.home_score, tg.away_score, tg.status,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
-           tg.away_team, tg.first_inning_runs,
+           tg.away_team, tg.away_short, tg.away_name, tg.away_abbr, tg.first_inning_runs,
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
     FROM mvp_picks m
     JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
@@ -715,8 +737,8 @@ async function resolveResults() {
   for (const mvp of directMvps) {
     const result = evaluatePick(mvp, mvp);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ? WHERE id = ?`)
-      .run(result, mvp.home_score, mvp.away_score, mvp.id);
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+      .run(result, mvp.home_score, mvp.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     resolved++;
   }
 
@@ -732,8 +754,8 @@ async function resolveResults() {
     if (!gameData) continue;
     const result = evaluatePick(mvp, gameData);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ? WHERE id = ?`)
-      .run(result, gameData.home_score, gameData.away_score, mvp.id);
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+      .run(result, gameData.home_score, gameData.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     resolved++;
   }
 
@@ -836,10 +858,17 @@ async function resolveResults() {
     WHERE result = 'pending' AND source != 'discord' AND espn_game_id IS NOT NULL
   `).all();
 
+  // Age cutoff: a pending row whose game finished days ago and still can't be
+  // graded is permanently unresolvable (ESPN dropped or never had the event) —
+  // without a bound it gets re-fetched from ESPN on every pass forever. Retire
+  // those as 'void' (excluded from records, drops out of this query). A row
+  // with no game_date gets the same treatment once the fetch comes back empty.
+  const srcCutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const srcGameCache = new Map();
   for (const row of pendingSource) {
     let game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(row.espn_game_id);
     if (game && game.status !== 'post') continue;
+    const tooOld = !row.game_date || row.game_date < srcCutoff;
     if (!game) {
       const key = `${row.espn_game_id}|${row.sport || ''}|${row.game_date || ''}`;
       if (srcGameCache.has(key)) game = srcGameCache.get(key);
@@ -848,9 +877,15 @@ async function resolveResults() {
         srcGameCache.set(key, game);
       }
     }
-    if (!game) continue;
+    if (!game) {
+      if (tooOld) db.prepare(`UPDATE capper_history SET result = 'void' WHERE id = ?`).run(row.id);
+      continue;
+    }
     const result = evaluatePick(row, game);
-    if (result === 'pending') continue;
+    if (result === 'pending') {
+      if (tooOld) db.prepare(`UPDATE capper_history SET result = 'void' WHERE id = ?`).run(row.id);
+      continue;
+    }
     db.prepare(`UPDATE capper_history SET result = ? WHERE id = ?`).run(result, row.id);
     resolved++;
   }
@@ -871,4 +906,4 @@ async function resolveResults() {
   return resolved;
 }
 
-module.exports = { resolveResults, resolveVotes, evaluateVote, fetchGameResult, backfillBackerGrades };
+module.exports = { resolveResults, resolveVotes, evaluatePick, evaluateVote, fetchGameResult, backfillBackerGrades };
