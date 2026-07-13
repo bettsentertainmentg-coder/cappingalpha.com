@@ -1035,7 +1035,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">SOURCE</span>
       <button class="btn-sm src-filter-btn active" data-src="all" onclick="filterCapperSrc('all', this)"
-        style="border:1px solid #3b4560;color:#e6e9f0;">All · ${sortedCappers.length}</button>
+        style="border:1px solid #3b4560;color:#000;">All · ${sortedCappers.length}</button>
       ${srcFilterChips}
       <input id="capper-search" type="text" placeholder="Search cappers..." oninput="searchCappers(this.value)"
         style="margin-left:auto;padding:5px 10px;background:#0d1017;border:1px solid #2a3142;border-radius:6px;color:#e6e9f0;font-size:13px;min-width:200px;">
@@ -1043,7 +1043,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">BAND</span>
       <button class="btn-sm band-filter-btn active" data-band="all" onclick="filterCapperBand('all', this)"
-        style="border:1px solid #3b4560;color:#e6e9f0;">All</button>
+        style="border:1px solid #3b4560;color:#000;">All</button>
       ${bandFilterChips}
       ${fadeCount ? `<button class="btn-sm band-filter-btn" data-band="fade" onclick="filterCapperBand('fade', this)"
         style="border:1px solid #ef444444;color:#ef4444;background:#ef444411;">FADE · ${fadeCount}</button>` : ''}
