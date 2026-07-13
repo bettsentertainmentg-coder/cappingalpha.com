@@ -19,15 +19,39 @@
 const db = require('./db');
 const { resolveCapperName, ensureRegistered, savePick } = require('./storage');
 
+// Multi-match resolver: a doubleheader (same two teams twice today) or a
+// cross-sport city collision (Toronto/Miami/Dallas exist in 3+ leagues) makes
+// the team-name match return several games. A source's pending pick is for the
+// upcoming game, so prefer the nearest one that hasn't started; if every
+// candidate has already started, the pick is genuinely ambiguous — return null
+// and drop it rather than guess (a game-2 pick graded on game 1's final is
+// exactly the corruption this blocks).
+function resolveGameMatches(rows) {
+  if (!rows || rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  const now = Date.now();
+  const upcoming = rows
+    .filter(g => {
+      if (g.status === 'pre') return true;
+      const start = gameStartMs(g);
+      return start != null && start > now;
+    })
+    .sort((a, b) => (gameStartMs(a) || Infinity) - (gameStartMs(b) || Infinity));
+  return upcoming.length ? upcoming[0] : null;
+}
+
 // Fuzzy today_games matcher by two team names (the proven odds_api.js pattern).
-function findGameByTeams(teamA, teamB) {
+// sport (optional) constrains the match to one league — pass it whenever the
+// caller knows it ('Tennis' blends ATP+WTA); without it a bare city pair can
+// hit the wrong sport's game.
+function findGameByTeams(teamA, teamB, sport) {
   const t1 = (teamA || '').toLowerCase();
   const t2 = (teamB || '').toLowerCase();
   if (!t1 || !t2) return null;
   const n1 = t1.split(' ').pop();
   const n2 = t2.split(' ').pop();
   try {
-    return db.prepare(`
+    let sql = `
       SELECT * FROM today_games
       WHERE (
         LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
@@ -35,22 +59,30 @@ function findGameByTeams(teamA, teamB) {
       ) AND (
         LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
         OR LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?
-      )
-      LIMIT 1
-    `).get(n1, n1, t1, t1, n2, n2, t2, t2);
+      )`;
+    const params = [n1, n1, t1, t1, n2, n2, t2, t2];
+    if (sport) {
+      if (String(sport).toLowerCase() === 'tennis') sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
+      else { sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport); }
+    }
+    return resolveGameMatches(db.prepare(sql).all(...params));
   } catch (_) { return null; }
 }
 
-function findGameByAbbrs(abbrA, abbrB) {
+function findGameByAbbrs(abbrA, abbrB, sport) {
   const a = (abbrA || '').toLowerCase(), b = (abbrB || '').toLowerCase();
   if (!a || !b) return null;
   try {
-    return db.prepare(`
+    let sql = `
       SELECT * FROM today_games
       WHERE (LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?)
-        AND (LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?)
-      LIMIT 1
-    `).get(a, a, b, b);
+        AND (LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?)`;
+    const params = [a, a, b, b];
+    if (sport) {
+      if (String(sport).toLowerCase() === 'tennis') sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
+      else { sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport); }
+    }
+    return resolveGameMatches(db.prepare(sql).all(...params));
   } catch (_) { return null; }
 }
 
