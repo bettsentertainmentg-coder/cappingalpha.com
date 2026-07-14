@@ -148,7 +148,7 @@ function resolveConflictingMvpPicks() {
   try {
     if (db.getSetting('scoring_version', 'v2') === 'v3') {
       const pendingRows = db.prepare(`
-        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score, tg.start_time FROM mvp_picks m
+        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
@@ -175,12 +175,13 @@ function resolveConflictingMvpPicks() {
         // refreshes score on the mention path — so the tracked score drifts.
         // The conflict resolver below compares mvp_picks.score, so drift can
         // void the pick the board shows as HIGHER with a backwards note (the
-        // Jul 14 Tsitsipas/Buse tennis void). Track the true total until the
-        // game-start freeze; a started game leaves this sweep, so the last
-        // pregame value locks exactly like before.
-        const startMs = new Date(m.start_time).getTime();
-        if ((!Number.isFinite(startMs) || startMs > Date.now())
-            && cur.v3_total != null && cur.v3_total !== m.score) {
+        // Jul 14 Tsitsipas/Buse tennis void). Track the true total for as long
+        // as ESPN still lists the game pregame (the JOIN above). Deliberately
+        // NOT clock-gated: tennis start times are "not before" estimates that
+        // list EARLY, and the board legitimately moves until the real first
+        // serve. The freeze is the status flip to live — the game then leaves
+        // this sweep and the last pregame value locks.
+        if (cur.v3_total != null && cur.v3_total !== m.score) {
           syncStmt.run(cur.v3_total, m.id);
           synced++;
         }
@@ -244,20 +245,21 @@ function resolveConflictingMvpPicks() {
 
   for (const { espn_game_id } of games) {
     const game = db.prepare(`
-      SELECT start_time, status FROM today_games WHERE espn_game_id = ?
+      SELECT status FROM today_games WHERE espn_game_id = ?
     `).get(espn_game_id);
 
-    // Timing gate: resolve only once the game has STARTED. Scores can move all
-    // the way to lock (late backers keep arriving), so deciding at T-10 could
-    // void on stale numbers — the Jul 12 Aces ML was voided as the lower pick,
-    // then climbed past the kept one before tip and the note read as nonsense.
-    // Live/final games and historical games (no today_games row after the
-    // daily wipe) always pass; /api/mvp hides pending pregame rows anyway, so
-    // nothing user-visible waits on this.
-    if (game && game.status === 'pre') {
-      const startMs = new Date(game.start_time).getTime();
-      if (!Number.isFinite(startMs) || startMs > Date.now()) continue;
-    }
+    // Timing gate: resolve only once ESPN says the game is actually LIVE (or
+    // final). Scores move all the way to the true start (late backers keep
+    // arriving), so deciding early voids on stale numbers — the Jul 12 Aces ML
+    // was voided as the lower pick, then climbed past the kept one before tip.
+    // The clock is NOT trusted here: tennis start times are "not before"
+    // estimates that list EARLY, so a clock gate fired while the match hadn't
+    // begun and the board was still moving (Jul 14 Tsitsipas/Buse — the kept
+    // pick's note stamped 147, then the score legitimately reached 175 before
+    // first serve). Status flips within one 5-min score cron of the real
+    // start. Historical games (no today_games row after the daily wipe) always
+    // pass; /api/mvp hides pending pregame rows, so nothing user-visible waits.
+    if (game && game.status === 'pre') continue;
 
     const allPicks = db.prepare(`
       SELECT id, score, team, pick_type, spread, result FROM mvp_picks
