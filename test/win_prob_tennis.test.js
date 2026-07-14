@@ -69,6 +69,15 @@ ok(bestOfFor(st([
   { home: 6, away: 4, winner: 'home' }, { home: 1, away: 1, winner: null },
 ])) === 5, 'a fourth set means best-of-5');
 
+// The replay-step trap: a reconstructed "after set 3" step of a FINISHED bo3
+// carries 2 banked sets with status 'in', which the ladder heuristic reads as a
+// live bo5. The bestOf override must pin it back to the real format.
+const replayStep = st([
+  { home: 4, away: 6, winner: 'away' }, { home: 6, away: 3, winner: 'home' }, { home: 6, away: 4, winner: 'home' },
+]);
+ok(tennisMatchWP(replayStep, 0.7, 'ATP') < 1, 'without the override the heuristic reads bo5');
+ok(tennisMatchWP(replayStep, 0.7, 'ATP', 3) === 1, 'bestOf override pins the finished bo3 at 1');
+
 // ── Progress / games / trailing ────────────────────────────────────────────────
 ok(tennisProgress(s0) < 0.05, 'match start is ~0 progress');
 ok(tennisProgress(oneSetUp) > 0.3 && tennisProgress(oneSetUp) < 0.6, 'a set banked is mid progress');

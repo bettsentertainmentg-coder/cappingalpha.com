@@ -1713,6 +1713,9 @@ function buildTennisPulseArc(state, { sport, type, home, caScore, publicPct, mvp
   const sets = Array.isArray(state?.sets) ? state.sets : [];
   const done = sets.filter(s => s.winner != null);
   if (!done.length) return null;
+  // The REAL state knows the format; a replayed mid-match step (2 sets banked,
+  // status 'in') would misread a finished best-of-3 as a live best-of-5.
+  const bestOf = bestOfFor(state);
   const lastPeriod = state.status === 'post' ? Math.max(done.length, 1) : done.length + 1;
   const steps = [];
   for (let i = 0; i <= done.length; i++) {
@@ -1728,12 +1731,12 @@ function buildTennisPulseArc(state, { sport, type, home, caScore, publicPct, mvp
   for (const st of steps) {
     let now, pre;
     if (type === 'ml' || type === 'spread') {
-      const wp = tennisMatchWP(st, pregameHomeProb, sport);
+      const wp = tennisMatchWP(st, pregameHomeProb, sport, bestOf);
       if (wp == null) return null;   // retirement/walkover — no honest arc
       now = home ? wp : 1 - wp;
       pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
     } else if (type === 'over' || type === 'under') {
-      const op = tennisOverProb(st, overUnder, pregameHomeProb, sport, preOverRaw);
+      const op = tennisOverProb(st, overUnder, pregameHomeProb, sport, preOverRaw, bestOf);
       if (op == null) return null;
       now = type === 'over' ? op : Math.max(0, Math.min(1, 1 - op));
       pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
@@ -1742,7 +1745,7 @@ function buildTennisPulseArc(state, { sport, type, home, caScore, publicPct, mvp
     const trailing = (type === 'ml' || type === 'spread') ? tennisTrailing(st, home) : false;
     const pulse = computeValuePulse({
       pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
-      gameProgress: tennisProgress(st), prevMagnitude: prev, mvpThreshold,
+      gameProgress: tennisProgress(st, bestOf), prevMagnitude: prev, mvpThreshold,
     });
     prev = pulse.magnitude;
     out.push({ v: pulse.magnitude, p: st.period });

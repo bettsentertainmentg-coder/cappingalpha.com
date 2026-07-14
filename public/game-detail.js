@@ -9,7 +9,7 @@ import { state } from '/modules/state.js';
 import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=3';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
-import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js';
+import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js?v=2';
 
 function formatActualStart(actualIso, scheduledIso) {
   if (!actualIso) return '';

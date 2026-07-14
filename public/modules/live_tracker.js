@@ -423,7 +423,11 @@ function pulseCellHtml(pulse, isFinal, dims = null, pickName = '') {
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
   const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx" title="Read off our win probability model rather than a live market for this exact bet type">approx</span>` : '';
   const noPick = pulse.hasPick === false ? ` <span class="ca-lc-pulse-approx" title="No CappingAlpha pick on this side today; this is the market read only">no CA pick</span>` : '';
-  const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num" title="Our live estimate of the chance this pick cashes">${pulse.winPct}% to cash</span>` : '';
+  const winPct = (typeof pulse.winPct === 'number')
+    ? (isFinal
+        ? ` <span class="ca-lc-pulse-wp ca-num">${pulse.winPct >= 50 ? 'Cashed' : 'Missed'}</span>`
+        : ` <span class="ca-lc-pulse-wp ca-num" title="Our live estimate of the chance this pick cashes">${pulse.winPct}% to cash</span>`)
+    : '';
   const pick = pickName ? `<span class="ca-lc-pulse-pick">${esc(pickName)}</span> ` : '';
   const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `
