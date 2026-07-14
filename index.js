@@ -64,6 +64,7 @@ const community          = require('./src/community');
 const { getLiveState, prevPulseMag, savePulseMag, pushPulseHistory, getPulseHistory, seedPulseHistory, pushWpHistory, getWpHistory } = require('./src/live_tracker');
 const { liveWinProb, liveHomeWinProb, liveOverProb, gameProgress } = require('./src/win_prob');
 const { genericProgress, clockHomeWP, anchoredWP, soccerProbs, genericOverProb, mlbCountAdjust } = require('./src/win_prob_generic');
+const { tennisMatchWP, tennisProgress, tennisOverProb, tennisGamesPlayed, tennisTrailing, bestOfFor } = require('./src/win_prob_tennis');
 const { SPORT_FAMILY } = require('./src/live_state');
 const { getFeed } = require('./src/espn_summary');
 const { getEspnWinProb, getGameTimeline } = require('./src/espn_summary');
@@ -1575,8 +1576,9 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // Stats + weather in parallel (non-blocking — return nulls on error)
   let stats = { pitchers: [], injuries: [], venue: null, weather: null };
   try {
-    // league_path unlocks soccer (per-competition ESPN path lives on the game row)
-    stats = await getFullGameContext(espn_game_id, game.sport, game.home_team, game.league_path);
+    // league_path unlocks soccer (per-competition ESPN path lives on the game row);
+    // away_team feeds the tennis last-5 form (players, not teams, for ATP/WTA)
+    stats = await getFullGameContext(espn_game_id, game.sport, game.home_team, game.league_path, game.away_team);
   } catch (_) {}
 
   const publicBetting = getPublicBettingForGame(espn_game_id);
@@ -1700,6 +1702,54 @@ function buildSlotPulseArc(timeline, { family, type, home, caScore, publicPct, m
   return out.length >= 2 ? out : null;
 }
 
+// Tennis counterpart to buildSlotPulseArc: ESPN has no timeline for ATP/WTA,
+// but the set ladder IS the timeline — replay the match through the same
+// per-slot math and sequential EMA at each set boundary (match start, after
+// each completed set, then "now"). Coarse (one point per set) but spans the
+// whole match the first time a slot is watched instead of starting blank.
+// Returns [{ v, p }] (p = set number) or null; the caller drops the last point
+// in favor of the authoritative live sample, same as the timeline arc.
+function buildTennisPulseArc(state, { sport, type, home, caScore, publicPct, mvpThreshold, pregameHomeProb, preOverRaw, overUnder }) {
+  const sets = Array.isArray(state?.sets) ? state.sets : [];
+  const done = sets.filter(s => s.winner != null);
+  if (!done.length) return null;
+  const lastPeriod = state.status === 'post' ? Math.max(done.length, 1) : done.length + 1;
+  const steps = [];
+  for (let i = 0; i <= done.length; i++) {
+    const sub = done.slice(0, i);
+    let h = 0, a = 0;
+    for (const s of sub) { if (s.winner === 'home') h++; else a++; }
+    steps.push({ status: 'in', sets: sub, homeScore: h, awayScore: a, serving: null, period: Math.min(i + 1, lastPeriod) });
+  }
+  steps.push({ ...state, period: lastPeriod });   // "now" — dropped by the caller
+
+  let prev = null;
+  const out = [];
+  for (const st of steps) {
+    let now, pre;
+    if (type === 'ml' || type === 'spread') {
+      const wp = tennisMatchWP(st, pregameHomeProb, sport);
+      if (wp == null) return null;   // retirement/walkover — no honest arc
+      now = home ? wp : 1 - wp;
+      pre = pregameHomeProb == null ? now : (home ? pregameHomeProb : 1 - pregameHomeProb);
+    } else if (type === 'over' || type === 'under') {
+      const op = tennisOverProb(st, overUnder, pregameHomeProb, sport, preOverRaw);
+      if (op == null) return null;
+      now = type === 'over' ? op : Math.max(0, Math.min(1, 1 - op));
+      pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
+    } else { return null; }
+
+    const trailing = (type === 'ml' || type === 'spread') ? tennisTrailing(st, home) : false;
+    const pulse = computeValuePulse({
+      pickWP_now: now, pickWP_pre: pre, caScore, trailing, publicPct,
+      gameProgress: tennisProgress(st), prevMagnitude: prev, mvpThreshold,
+    });
+    prev = pulse.magnitude;
+    out.push({ v: pulse.magnitude, p: st.period });
+  }
+  return out.length >= 2 ? out : null;
+}
+
 app.get('/api/game/:espn_game_id/live', async (req, res) => {
   const { espn_game_id } = req.params;
   try {
@@ -1765,8 +1815,9 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
     const pulses = {};
     let winProb = null;   // free { source, home } block — the game-level win prob read
     // Pulses compute while live AND on the finished game (the completed curve) for
-    // every sport with a win-prob read. Tennis has none (set state only).
-    if ((state.status === 'in' || state.status === 'post') && family && family !== 'tennis') {
+    // every sport with a win-prob read. Tennis rides its own set/game ladder
+    // model (win_prob_tennis.js) — no ESPN win prob or summary exists for it.
+    if ((state.status === 'in' || state.status === 'post') && family) {
       // Free ESPN sources, cached + request-collapsed. Mock games skip both;
       // replays too (their espn_game_id is synthetic, ESPN would 404 each poll).
       const mock = isMockId(espn_game_id) || isReplay;
@@ -1792,10 +1843,13 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         if (typeof h0 === 'number' && h0 > 0 && h0 < 100) pregameHomeProb = h0 / 100;
       }
 
-      // Game progress 0..1: outs-based for baseball, clock-based otherwise.
+      // Game progress 0..1: outs-based for baseball, set-ladder for tennis,
+      // clock-based otherwise.
       const gp = family === 'baseball'
         ? gameProgress({ inning: state.inning, half: state.half, outs: state.outs })
-        : genericProgress(sport, state.period, state.clock);
+        : family === 'tennis'
+          ? tennisProgress(state)
+          : genericProgress(sport, state.period, state.clock);
 
       // Live home win prob: freshest free ESPN source first (basketball rides one
       // on the last play), homegrown anchored model as the universal fallback.
@@ -1807,6 +1861,10 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         soccerTrio    = soccerProbs({ homeScore: state.homeScore, awayScore: state.awayScore, progress: gp, preHome3: pregameHomeProb });
         soccerPreTrio = soccerProbs({ homeScore: 0, awayScore: 0, progress: 0, preHome3: pregameHomeProb });
         homeWpNow = soccerTrio.home;
+      } else if (family === 'tennis') {
+        // Set/game ladder model, serve-aware, anchored to the pre-game market.
+        // Null on a retirement/walkover (no set majority) — no pulse then.
+        homeWpNow = tennisMatchWP(state, pregameHomeProb, sport);
       } else {
         const fresh = (family === 'basketball' && typeof state.lastPlayHomeWP === 'number') ? state.lastPlayHomeWP
                     : (coreProbs?.latest?.homeWin ?? espnWp?.latestHome ?? null);
@@ -1829,7 +1887,10 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
         pushWpHistory(espn_game_id, gp, homeWpNow);
       }
 
-      const totalPts = (state.homeScore || 0) + (state.awayScore || 0);
+      // Tennis scores are SETS won — the totals market is GAMES, so count those.
+      const totalPts = family === 'tennis'
+        ? tennisGamesPlayed(state)
+        : (state.homeScore || 0) + (state.awayScore || 0);
       const preOverRaw = (() => {
         const o = _americanToProb(game.ou_over_odds), u = _americanToProb(game.ou_under_odds);
         return (o != null && u != null && o + u > 0) ? o / (o + u) : 0.5;
@@ -1909,7 +1970,9 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
           } else {
             const op = family === 'baseball'
               ? liveOverProb(totalPts, game.over_under, gp)
-              : genericOverProb(totalPts, game.over_under, gp, family);
+              : family === 'tennis'
+                ? tennisOverProb(state, game.over_under, pregameHomeProb, sport, preOverRaw)
+                : genericOverProb(totalPts, game.over_under, gp, family);
             if (op == null) continue;
             now = type === 'over' ? op : 1 - op;
             pre = type === 'over' ? preOverRaw : 1 - preOverRaw;
@@ -1919,9 +1982,13 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
 
         if (!paid) { pulses[slot] = { locked: true, pickType: type }; continue; }
 
-        // Is the pick's side behind on the scoreboard? (gates the "comeback" wording)
+        // Is the pick's side behind on the scoreboard? (gates the "comeback"
+        // wording). Tennis: behind in sets, or level on sets and behind in the
+        // current set's games — a set board reads "behind" set-first.
         const trailing = (type === 'ml' || type === 'spread')
-          ? (home ? (state.homeScore < state.awayScore) : (state.awayScore < state.homeScore))
+          ? (family === 'tennis'
+              ? tennisTrailing(state, home)
+              : (home ? (state.homeScore < state.awayScore) : (state.awayScore < state.homeScore)))
           : false;
         // Public lean on the pick's side at game start (0..1), for the conviction blend.
         let publicPct = null;
@@ -1951,16 +2018,20 @@ app.get('/api/game/:espn_game_id/live', async (req, res) => {
             ? mockFullPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id)
             : mockPulseHistory(pregameHomeProb, caScore, caThreshold, mside, publicPct, espn_game_id);
         } else {
-          // First time this slot is watched, seed the whole-game arc from the ESPN
-          // timeline so the chart shows how value built across every inning/period,
-          // not just from the moment the page opened. The arc's final point is "now"
-          // and gets dropped — the live sample pushed below is the authoritative one,
-          // keeping the chart's endpoint equal to the big value number.
-          if (getPulseHistory(key).length === 0 && timeline) {
-            const arc = buildSlotPulseArc(timeline, {
-              family, type, home, caScore, publicPct, mvpThreshold: caThreshold,
+          // First time this slot is watched, seed the whole-game arc — from the
+          // ESPN timeline where one exists, from the set ladder for tennis — so
+          // the chart shows how value built across every inning/period/set, not
+          // just from the moment the page opened. The arc's final point is "now"
+          // and gets dropped — the live sample pushed below is the authoritative
+          // one, keeping the chart's endpoint equal to the big value number.
+          if (getPulseHistory(key).length === 0) {
+            const arcOpts = {
+              family, sport, type, home, caScore, publicPct, mvpThreshold: caThreshold,
               pregameHomeProb, preOverRaw, overUnder: game.over_under,
-            });
+            };
+            const arc = family === 'tennis'
+              ? buildTennisPulseArc(state, arcOpts)
+              : (timeline ? buildSlotPulseArc(timeline, arcOpts) : null);
             if (arc && arc.length > 1) seedPulseHistory(key, arc.slice(0, -1));
           }
           pushPulseHistory(key, pulse.magnitude, state.period);
@@ -2434,7 +2505,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
     }
 
     // ESPN stats are re-fetchable for past games, so always pull live.
-    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team, game.league_path).catch(() => ({}));
+    const stats = await getFullGameContext(game.espn_game_id, game.sport, game.home_team, game.league_path, game.away_team).catch(() => ({}));
 
     const pick = (key, liveFn) => (opts[key] !== undefined ? opts[key] : liveFn());
     const lines         = pick('lines',         () => getLinesForGame(game.espn_game_id));

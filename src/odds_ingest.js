@@ -9,9 +9,25 @@
 
 const db = require('./db');
 
-const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+// fold() strips diacritics before norm: book feeds spell "Tomás"/"Kühn" where
+// ESPN writes "Tomas"/"Kuhn", and the old norm() turned the accented char into
+// a word break, killing containment matches (a tennis-sized problem).
+const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+const norm = (s) => fold(s).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const nick = (s) => norm(s).split(' ').pop();
 const numOrNull = (v) => (v == null || v === '' || !isFinite(Number(v))) ? null : Number(v);
+
+// Tennis rows match PLAYERS, not teams: full names usually agree across books
+// and ESPN, but middle names / initials drift, so fall back to last name +
+// first initial ("Alexander Zverev" vs "A. Zverev" vs "Sascha Zverev" fails
+// the last one on purpose — initial must agree, wrong-player matches are worse
+// than none).
+const tennisSame = (x, y) => {
+  if (x === y) return true;
+  const xw = x.split(' '), yw = y.split(' ');
+  if (xw[xw.length - 1] !== yw[yw.length - 1]) return false; // last name must match
+  return xw[0][0] === yw[0][0]; // first initial must agree
+};
 
 // Match a row's team pair to a today_games row for its sport. Handles nickname
 // vs full-name mismatches ("Yankees" vs "New York Yankees") in either order.
@@ -28,10 +44,12 @@ const numOrNull = (v) => (v == null || v === '' || !isFinite(Number(v))) ? null 
 // adjacent-day rejection. Rows without start_time keep the legacy rules.
 const DATE_MATCH_MS = 12 * 3600 * 1000;
 
-function matchGame(games, row) {
+function matchGame(games, row, isTennis = false) {
   const h = norm(row.home_team), a = norm(row.away_team);
   if (!h || !a || h === a) return null;
-  const same = (x, y) => x === y || nick(x) === nick(y) || x.includes(y) || y.includes(x);
+  const same = isTennis
+    ? tennisSame
+    : (x, y) => x === y || nick(x) === nick(y) || x.includes(y) || y.includes(x);
   const hits = [];
   for (const g of games) {
     const gh = norm(g.home_team), ga = norm(g.away_team);
@@ -139,13 +157,17 @@ function storeEngineBookLines(rows) {
       ? String(row.period).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
       : null;
     if (!sport || !book) { unmatched++; continue; }
-    if (!bySport.has(sport)) {
+    // Tennis rows match PLAYERS across both tours: some books label ATP/WTA
+    // (Pinnacle league names), some don't (Kambi) and send sport TENNIS.
+    const isTennis = sport === 'ATP' || sport === 'WTA' || sport === 'TENNIS';
+    const poolKey = isTennis ? 'TENNIS' : sport;
+    if (!bySport.has(poolKey)) {
       // Case-insensitive: today_games stores 'Soccer' while adapters send 'SOCCER'.
-      bySport.set(sport, db.prepare(
-        `SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`
-      ).all(sport));
+      bySport.set(poolKey, isTennis
+        ? db.prepare(`SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE sport IN ('ATP','WTA')`).all()
+        : db.prepare(`SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`).all(sport));
     }
-    const hit = matchGame(bySport.get(sport), row);
+    const hit = matchGame(bySport.get(poolKey), row, isTennis);
     if (!hit) { unmatched++; continue; }
     if (gameHasStarted(hit.game)) { locked++; continue; }
 
@@ -216,12 +238,14 @@ function storeBookProps(rows) {
       const sport = String(head.sport || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 10);
       const book  = String(head.book || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24);
       if (!sport || !book) { unmatched += group.length; continue; }
-      if (!bySport.has(sport)) {
-        bySport.set(sport, db.prepare(
-          `SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`
-        ).all(sport));
+      const isTennis = sport === 'ATP' || sport === 'WTA' || sport === 'TENNIS';
+      const poolKey = isTennis ? 'TENNIS' : sport;
+      if (!bySport.has(poolKey)) {
+        bySport.set(poolKey, isTennis
+          ? db.prepare(`SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE sport IN ('ATP','WTA')`).all()
+          : db.prepare(`SELECT espn_game_id, home_team, away_team, start_time, status FROM today_games WHERE UPPER(sport) = ?`).all(sport));
       }
-      const hit = matchGame(bySport.get(sport), head);
+      const hit = matchGame(bySport.get(poolKey), head, isTennis);
       if (!hit) { unmatched += group.length; continue; }
       if (gameHasStarted(hit.game)) { locked += group.length; continue; }
       const gameDate = String(hit.game.start_time || '').slice(0, 10) || null;

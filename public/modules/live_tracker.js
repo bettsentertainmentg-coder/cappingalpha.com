@@ -6,7 +6,8 @@
 //
 // Below the grid: the tracked-bets row, then a tab strip (Value pulse | Plays |
 // Leaders | Stats). The VALUE PULSE is the tracker's only chart (members-only,
-// fed by the ~12s /live poll); Plays/Leaders/Stats are free content fed by
+// fed by the ~12s /live poll) and runs on EVERY sport here, tennis included
+// (set-ladder model server-side); Plays/Leaders/Stats are free content fed by
 // GET /api/game/:id/live/feed (~25s, lazy). Tennis has no feed, so its strip
 // carries the pulse tab alone.
 //
@@ -420,9 +421,9 @@ function pulseCellHtml(pulse, isFinal, dims = null, pickName = '') {
   const v = (typeof pulse.value === 'number') ? pulse.value : 0;
   const caret = pulse.sign > 0 ? '▲' : pulse.sign < 0 ? '▼' : '•';
   const vtxt = `${v > 0 ? '+' : ''}${Math.round(v)}`;
-  const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx">approx</span>` : '';
-  const noPick = pulse.hasPick === false ? ` <span class="ca-lc-pulse-approx">no CA pick</span>` : '';
-  const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num">${pulse.winPct}%</span>` : '';
+  const approx = pulse.approx ? ` <span class="ca-lc-pulse-approx" title="Read off our win probability model rather than a live market for this exact bet type">approx</span>` : '';
+  const noPick = pulse.hasPick === false ? ` <span class="ca-lc-pulse-approx" title="No CappingAlpha pick on this side today; this is the market read only">no CA pick</span>` : '';
+  const winPct = (typeof pulse.winPct === 'number') ? ` <span class="ca-lc-pulse-wp ca-num" title="Our live estimate of the chance this pick cashes">${pulse.winPct}% to cash</span>` : '';
   const pick = pickName ? `<span class="ca-lc-pulse-pick">${esc(pickName)}</span> ` : '';
   const lead = isFinal ? '<span class="ca-lc-pulse-final">Closed</span> ' : `<span class="ca-lc-pulse-caret" style="color:${esc(color)}">${caret}</span> `;
   return `

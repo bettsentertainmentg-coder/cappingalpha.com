@@ -521,6 +521,8 @@ async function cycle() {
         if (book === 'pinnacle' && ADAPTERS.pinnacleEvents) {
           try { rows = rows.concat(await ADAPTERS.pinnacleEvents()); }
           catch (err) { console.warn('[pinnacle-events]', err.message); }
+          try { if (ADAPTERS.pinnacleTennis) rows = rows.concat(await ADAPTERS.pinnacleTennis()); }
+          catch (err) { console.warn('[pinnacle-tennis]', err.message); }
         }
         if (book === 'bovada') {
           try { rows = rows.concat(await fetchBovadaEventLane()); }

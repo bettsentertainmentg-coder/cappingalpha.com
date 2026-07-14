@@ -17,13 +17,20 @@ ok(/comeback/i.test(earlyDown.label), 'trailing pick reads as comeback');
 const tiedDown = computeValuePulse({ pickWP_now: 0.42, pickWP_pre: 0.62, caScore: 55, gameProgress: 0.2, trailing: false });
 ok(!/comeback/i.test(tiedDown.label), 'non-trailing pick never reads comeback');
 
-// Cruising favorite (priced up past its lock) -> negative swing pulls value down.
+// Cruising favorite (priced up past its lock) -> negative swing pulls value down,
+// and the label says the edge is SPENT, never that the pick is fading.
 const cruising = computeValuePulse({ pickWP_now: 0.85, pickWP_pre: 0.62, caScore: 55, gameProgress: 0.5 });
 ok(cruising.value < earlyDown.value, 'cruising pick shows less value than a live buy-low');
+ok(/priced/i.test(cruising.label) && !/fading|comeback/i.test(cruising.label), 'winning pick priced past its lock reads priced-in');
 
-// Hopeless pick late -> negative value (blue).
+// Hopeless pick late -> negative value (blue), fading-side wording.
 const blowout = computeValuePulse({ pickWP_now: 0.04, pickWP_pre: 0.55, caScore: 55, gameProgress: 0.9, trailing: true });
 ok(blowout.value < -12 && blowout.sign === -1 && blowout.color === '#3b82f6', 'hopeless spot goes negative (blue)');
+ok(/fading|little value left/i.test(blowout.label), 'dying trailing pick reads fading, never priced-in');
+
+// Flat spot (no move off the lock, no conviction) -> distinct neutral label.
+const flat = computeValuePulse({ pickWP_now: 0.55, pickWP_pre: 0.55, caScore: 0, gameProgress: 0.3 });
+ok(flat.sign === 0 && flat.label === 'Fairly priced', 'neutral band reads fairly priced');
 
 // Conviction: higher CA -> higher target, but modest.
 const lowCA  = computeValuePulse({ pickWP_now: 0.5, pickWP_pre: 0.55, caScore: 35, gameProgress: 0.3 });

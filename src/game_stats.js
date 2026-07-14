@@ -415,11 +415,12 @@ async function getTeamForm(teamId, leaguePath, n = 5) {
 }
 
 // ── Main export: stats + optional weather + team form ─────────────────────────
-async function getFullGameContext(espn_game_id, sport, homeTeamName, leaguePathOverride = null) {
+async function getFullGameContext(espn_game_id, sport, homeTeamName, leaguePathOverride = null, awayTeamName = null) {
   const stats = await getGameStats(espn_game_id, sport, leaguePathOverride);
 
   const leaguePath = LEAGUE_PATH[sport] || leaguePathOverride;
-  const isTeamSport = leaguePath && sport !== 'ATP' && sport !== 'WTA';
+  const isTennis = sport === 'ATP' || sport === 'WTA';
+  const isTeamSport = leaguePath && !isTennis;
 
   // Build weather promise
   let weatherP = Promise.resolve(null);
@@ -433,11 +434,23 @@ async function getFullGameContext(espn_game_id, sport, homeTeamName, leaguePathO
     if (coords) weatherP = getWeather(coords.lat, coords.lng);
   }
 
+  // Tennis: the header's last-5 form comes from the same per-player history
+  // the Player Form tab uses (cached in tennis_player_form, so the popup and
+  // the tab share the fetch). home/away are player names for ATP/WTA.
+  const tennisForm = (name) => {
+    if (!isTennis || !name) return Promise.resolve(null);
+    try {
+      return require('./tennis_player_form').getTennisHistory(name, sport, null)
+        .then((h) => (h && h.form && h.form.lastFive && h.form.lastFive.length ? h.form.lastFive : null))
+        .catch(() => null);
+    } catch (_) { return Promise.resolve(null); }
+  };
+
   // Fetch weather + team form in parallel
   const [weather, homeForm, awayForm] = await Promise.all([
     weatherP,
-    isTeamSport ? getTeamForm(stats.homeTeamId, leaguePath) : Promise.resolve(null),
-    isTeamSport ? getTeamForm(stats.awayTeamId, leaguePath) : Promise.resolve(null),
+    isTeamSport ? getTeamForm(stats.homeTeamId, leaguePath) : tennisForm(homeTeamName),
+    isTeamSport ? getTeamForm(stats.awayTeamId, leaguePath) : tennisForm(awayTeamName),
   ]);
 
   return { ...stats, weather, homeForm, awayForm };

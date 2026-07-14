@@ -362,6 +362,27 @@ async function betrivers(opts = {}) {
     }
     await sleep(1200);
   }
+  // Tennis board rows: Kambi carries the whole tour week (~225 singles) with
+  // full natural names. No ATP/WTA label exists in the payload, so rows go out
+  // as sport TENNIS and the site ingest matches them against both tours'
+  // today_games rows. Doubles (names with "/") skipped.
+  if (!opts.lite && !opts.sports) {
+    try {
+      const data = await getJson(
+        `https://eu-offering-api.kambicdn.com/offering/v2018/${KAMBI_OPERATOR}/listView/tennis/all/all/all/matches.json?lang=en_US&market=US&useCombined=true`
+      );
+      for (const e of data.events || []) {
+        const ev = e.event || {};
+        if (String(ev.homeName || '').includes('/') || String(ev.awayName || '').includes('/')) continue;
+        const row = kambiParseEvent('TENNIS', e);
+        if (row) rows.push(row);
+      }
+    } catch (err) {
+      if (!/HTTP 404/.test(err.message)) console.warn(`[betrivers-tennis] ${err.message}`);
+    }
+    await sleep(900);
+  }
+
   // Non-ESPN sports boards (event lane) — skipped on the hot loop.
   if (!opts.lite && !opts.sports) {
     for (const [sport, path] of Object.entries(KAMBI_EVENT_SPORTS)) {
@@ -551,6 +572,81 @@ async function pinnacle(opts = {}) {
       if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle] ${sport}: ${err.message}`);
     }
     await sleep(1200);
+  }
+  return rows;
+}
+
+// ── pinnacle tennis (sport id 33): board rows for ATP/WTA ─────────────────────
+// Main-tour leagues only ("ATP Bastad - R1", "WTA Athens - R1"); Challenger and
+// ITF events never reach the site's board (tier filter), so their rows would
+// only be unmatched noise. Participants are full natural names ("Stan
+// Wawrinka"), the same format ESPN puts in today_games. Doubles (names with
+// "/") are skipped. Spread = games handicap, total = games, like Bovada's.
+const PINNACLE_TENNIS_SPORT = 33;
+const PINNACLE_TENNIS_LEAGUE_CAP = 8;
+
+async function pinnacleTennis() {
+  const rows = [];
+  try {
+    const leagues = await getJson(
+      `https://guest.api.arcadia.pinnacle.com/0.1/sports/${PINNACLE_TENNIS_SPORT}/leagues?all=false`,
+      PINNACLE_HEADERS
+    );
+    const main = (Array.isArray(leagues) ? leagues : [])
+      .filter((l) => /^(ATP|WTA) /i.test(l.name || '') && !/challenger|doubles/i.test(l.name || '') && (l.matchupCount ?? 0) > 0)
+      .sort((a, b) => (b.matchupCount ?? 0) - (a.matchupCount ?? 0))
+      .slice(0, PINNACLE_TENNIS_LEAGUE_CAP);
+    for (const lg of main) {
+      const sport = /^WTA/i.test(lg.name) ? 'WTA' : 'ATP';
+      try {
+        const base = `https://guest.api.arcadia.pinnacle.com/0.1/leagues/${lg.id}`;
+        const matchups = await getJson(`${base}/matchups?brandId=0`, PINNACLE_HEADERS);
+        await sleep(600);
+        const markets = await getJson(`${base}/markets/straight`, PINNACLE_HEADERS);
+        const games = new Map();
+        for (const m of Array.isArray(matchups) ? matchups : []) {
+          if (m.type !== 'matchup' || m.parentId) continue;
+          const home = (m.participants || []).find((p) => p.alignment === 'home');
+          const away = (m.participants || []).find((p) => p.alignment === 'away');
+          if (!home || !away) continue;
+          if (String(home.name).includes('/') || String(away.name).includes('/')) continue; // doubles
+          games.set(m.id, emptyRow('pinnacle', sport, home.name, away.name, isoOrNull(m.startTime)));
+        }
+        for (const m of Array.isArray(markets) ? markets : []) {
+          if (m.period !== 0 || m.isAlternate) continue;
+          const row = games.get(m.matchupId);
+          if (!row) continue;
+          for (const p of m.prices || []) {
+            const price = american(p.price);
+            if (price == null) continue;
+            // Pinnacle lists SETS and GAMES markets under the same type with
+            // no units field: totals of 2.5/3.5 are set totals, 12+ are games
+            // (what the site displays, matching Bovada). Spreads of |1.5| or
+            // less are usually the set handicap — skipped rather than risk
+            // storing a sets number in the games column.
+            if (m.type === 'moneyline') {
+              if (p.designation === 'home') row.ml_home = price;
+              else if (p.designation === 'away') row.ml_away = price;
+            } else if (m.type === 'spread') {
+              if (p.points == null || Math.abs(p.points) <= 2) continue;
+              if (p.designation === 'home') row.spread_home = p.points;
+              else if (p.designation === 'away') row.spread_away = p.points;
+            } else if (m.type === 'total') {
+              if (p.points == null || p.points < 10) continue;
+              if (row.over_under == null) row.over_under = p.points;
+              if (p.designation === 'over') row.ou_over_odds = price;
+              else if (p.designation === 'under') row.ou_under_odds = price;
+            }
+          }
+        }
+        for (const row of games.values()) if (rowUsable(row)) rows.push(row);
+      } catch (err) {
+        if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle-tennis] ${lg.id}: ${err.message}`);
+      }
+      await sleep(600);
+    }
+  } catch (err) {
+    if (!/HTTP 404/.test(err.message)) console.warn(`[pinnacle-tennis] ${err.message}`);
   }
   return rows;
 }
@@ -1460,4 +1556,4 @@ async function actionnetwork() {
   return rows;
 }
 
-module.exports = { betrivers, pinnacle, pinnacleEvents, betonline, caesars, hardrock, thunderpick, fanduel, draftkings, actionnetwork };
+module.exports = { betrivers, pinnacle, pinnacleEvents, pinnacleTennis, betonline, caesars, hardrock, thunderpick, fanduel, draftkings, actionnetwork };

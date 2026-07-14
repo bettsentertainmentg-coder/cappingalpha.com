@@ -16,9 +16,15 @@
 //            read, just dampened (never zeroed — a trailing pre-game favorite is a
 //            buy-low spot whether or not CA is on it).
 //
-// The "comeback" wording is reserved for picks that are ACTUALLY TRAILING on the
-// scoreboard (passed in as `trailing`). A tied or leading pick never reads "comeback";
-// it shows its line/conviction value as "value holding". Constants tunable on localhost.
+// LABELS tell the right story per band. The positive side splits on `trailing`
+// (is the pick's side actually behind on the scoreboard?); the negative side
+// splits on where the pick trades versus its lock, which covers totals too:
+//   positive + trailing      -> comeback value (buy-low on a live deficit)
+//   positive + level/up      -> value building / strong value
+//   near zero                -> fairly priced (the pick sits about where it locked)
+//   negative, at/above lock  -> priced up (the pick is winning; the edge is spent)
+//   negative, below lock     -> value fading / little value left (position dying)
+// Constants tunable on localhost.
 
 const EMA_ALPHA   = 0.6;   // light smoothing — stays reactive per play
 const EMA_FAST    = 0.85;  // catch-up smoothing when the target jumps hard
@@ -102,12 +108,16 @@ function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress =
   if (value > NEUTRAL) {
     sign = 1; color = COLORS.gold;
     if (trailing) label = value >= STRONG ? 'Strong comeback value' : 'Comeback value building';
-    else          label = value >= STRONG ? 'Strong value'         : 'Value holding';
+    else          label = value >= STRONG ? 'Strong value'         : 'Value building';
   } else if (value < -NEUTRAL) {
     sign = -1; color = COLORS.blue;
-    label = value <= -STRONG ? 'Little value here' : 'Value fading';
+    // Which negative story is this? Trading at/above the lock = the edge is
+    // spent (a cruising winner). Below it = the position is dying. Works for
+    // totals too, where the scoreboard `trailing` flag never applies.
+    if (now >= pre) label = value <= -STRONG ? 'Fully priced in'   : 'Priced up now';
+    else            label = value <= -STRONG ? 'Little value left' : 'Value fading';
   } else {
-    sign = 0; color = COLORS.slate; label = 'Value holding';
+    sign = 0; color = COLORS.slate; label = 'Fairly priced';
   }
 
   // `magnitude` is kept as an alias of the signed value so the EMA + history stores
