@@ -78,6 +78,28 @@ function gateT(w, decisions) {
   return Math.max(0, Math.min(1, (shrunk - GATE_LO) / (GATE_HI - GATE_LO)));
 }
 
+// ── THE MONEY GATE (Jack 2026-07-13) ──────────────────────────────────────────
+// Win% ignores price. A favorite-heavy capper can hit 61% and still bleed
+// units flat-staked (swisstony, 101-65 and about -$150 at $10/pick, held full
+// top-band value) — the win% gate can't see it, because at heavy juice a
+// losing ledger and a winning percentage coexist. Ranking is evidence you
+// exist; the win% gate is evidence you win; this gate is evidence the MONEY
+// agrees. Smoothed flat-stake ROI (units / (decisions + GATE_K), same
+// stabilizer as the win% gate) must be non-negative for full value; the value
+// slides linearly below breakeven and pins to the unknown-capper flat 10 at
+// -5% and beyond — deep enough that a $40 hole over 200 picks (normal
+// variance, -1.8%) keeps most of its value while a swisstony-sized hole
+// (-10%) pins hard. Applies to ladder points, chip-ins, AND the in-sport
+// bonus (the OVERALL ledger governs: down bad = flat 10, full stop). Releases
+// on its own — ratings recompute after every grading pass, so the first
+// profitable stretch starts restoring value. Rank/band stay untouched, fade
+// rules stay win%-based.
+const MONEY_LO = -0.05, MONEY_HI = 0;
+function moneyGateT(units, decisions) {
+  const shrunkRoi = (units || 0) / (decisions + GATE_K);
+  return Math.max(0, Math.min(1, (shrunkRoi - MONEY_LO) / (MONEY_HI - MONEY_LO)));
+}
+
 // THE HARD ZERO (Jack 2026-07-09, night): a capper whose RAW win% is 49 or
 // below adds NOTHING to a pick — not the flat 10, no chip-in, no in-sport
 // bonus even where their sport rank is high. A demonstrated loser is worth
@@ -256,12 +278,13 @@ function recomputeCapperRatings() {
   for (const [name, c] of cappers) {
     const decisions = c.w + c.l;
     if (decisions >= 1) {
-      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions, w: c.w });
+      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions, w: c.w, u: c.u });
     }
   }
   rankPool(overallPool);
   const winfo = new Map();    // canonical -> the overall wilson record
   const hardZero = new Set(); // cappers whose raw win% <= HARD_ZERO_WIN: contribute NOTHING
+  const moneyT = new Map();   // canonical -> overall money-gate factor (in-sport bonus reads it too)
   for (const m of overallPool) {
     const band = bandFor(m.pctile);
     const cap = capForDecisions(m.decisions);
@@ -271,7 +294,10 @@ function recomputeCapperRatings() {
                : null;
     const zero = m.winPct <= HARD_ZERO_WIN;
     if (zero) hardZero.add(m.key);
-    const t = gateT(m.w, m.decisions); // break-even gate: 0 below 50% shrunk, 1 at 53%
+    // Both gates must pass in full for full value — the stricter one binds.
+    const mt = moneyGateT(m.u, m.decisions);
+    moneyT.set(m.key, mt);
+    const t = Math.min(gateT(m.w, m.decisions), mt); // win% gate x money gate
     winfo.set(m.key, {
       wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4), band: band.key,
       pts: (zero || fade || band.key === 'bottom25') ? 0
@@ -299,10 +325,13 @@ function recomputeCapperRatings() {
       // Break-even gate on the SPORT record: a losing in-sport résumé earns no
       // in-sport bonus no matter where volume ranked it in the pool. The hard
       // zero goes further: an overall win% at or below 49 earns no in-sport
-      // bonus even where the sport record itself is winning.
+      // bonus even where the sport record itself is winning. The MONEY gate
+      // rides along on the OVERALL ledger: a capper who is down bad hands out
+      // nothing extra anywhere, even in their best sport (Jack 2026-07-13).
       const raw = m.wilson > 0 && (m.rank === 1 || m.pctile <= 0.05) ? SPORT_TOP_PTS
                 : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
-      const bonus = hardZero.has(m.key) ? 0 : Math.round(gateT(m.w, m.decisions) * raw);
+      const bonus = hardZero.has(m.key) ? 0
+        : Math.round(Math.min(gateT(m.w, m.decisions), moneyT.get(m.key) ?? 1) * raw);
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),

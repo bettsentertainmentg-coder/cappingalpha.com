@@ -228,6 +228,37 @@ changes. Shipped with record-sync gen 2 (the one-time flag became a
 generational counter, v4_record_sync_gen — bump RECORD_SYNC_GEN in index.js
 whenever an engine change needs a same-day membership true-up).
 
+## The money gate (2026-07-13, refinement #6)
+
+The bug it fixes: win% ignores price. A favorite-heavy capper hits a high win
+rate while bleeding money flat-staked — swisstony at 101-65 (61%, 69% favorites)
+was about -$150 at $10/pick and held full 1-5% band value (66 pts); ferrari
+Champions2026 (55%, -$202) and RN1 (59%, -$117) same story. The win% gate can't
+see it: at heavy juice a losing ledger and a winning percentage coexist. (The
+mirror-image bug — a profitable dog specialist zeroed by the 49% hard zero —
+exists too but had one marginal case in the pool; the full fix for both is the
+beat-the-odds ranking, parked for v4.1 once n supports a backtest.)
+
+The gate: ranking is evidence you exist, the win% gate is evidence you win,
+this gate is evidence the MONEY agrees. Smoothed flat-stake ROI =
+units / (n + 25) (same 25-pseudo-decision stabilizer). At >= 0 (breakeven or
+better): full value. Below breakeven the value above the flat 10 slides
+linearly; at -5% and beyond it pins to 10 — no chip-ins, no in-sport bonus
+(the OVERALL ledger governs the sport bonus too, Jack's call: down bad =
+flat 10, full stop). Calibration anchors: -$40 over 200 picks (-1.8%, inside
+normal variance — ledger std over 200 picks is ~$140) keeps ~64% of its extra
+value; swisstony (-10%) pins with 2x room to spare. The stricter of the two
+gates binds (t = min(win% gate, money gate)). Rank/band/percentile untouched;
+fade rules stay win%-based (fade asks "reliably wrong", where win rate is the
+right lens); release is automatic since ratings recompute after every grading
+pass.
+
+Implemented as moneyGateT() (MONEY_LO -0.05, MONEY_HI 0) in capper_ratings.js,
+applied in the overall pool (pts/stack_add) and carried into the sport-bonus
+pass via the moneyT map. Shipped with POST /admin/api/rescore-board (recompute
+v3 over every mentioned board pick) so an engine change reaches live picks
+without waiting for their next mention.
+
 ## Rank-only sanity anchors (2026-07-09 prod pull, 343 cappers)
 
 - 99% ranking: 1 MidwestMike (85-49), 2 Whale (7-0), 3 swisstony (25-14),

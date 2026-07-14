@@ -4032,6 +4032,32 @@ router.post('/api/recompute-ratings', requireAuth, (_req, res) => {
   }
 });
 
+// ── POST /admin/api/rescore-board — recompute v3 for every live board pick ───
+// The board stores each pick's v3 total at last-mention time, so an engine or
+// ratings change only reaches existing picks when something touches them. This
+// re-runs the scorer over every mentioned pick (same loop as the scoring_v3
+// CLI). Header-auth OR session so it can be fired from the Mac post-deploy.
+router.post('/api/rescore-board', adminLoginRateLimit, (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  const headerOk = pw && process.env.ADMIN_PASSWORD && safeEqual(pw, process.env.ADMIN_PASSWORD);
+  if (!headerOk && !req.session?.admin) return res.status(401).send('Unauthorized');
+  try {
+    const { computeAndLogV3 } = require('./scoring_v3');
+    const picks = db.prepare(`SELECT id FROM picks WHERE mention_count > 0`).all();
+    let rescored = 0, golds = 0;
+    for (const p of picks) {
+      try {
+        const v3 = computeAndLogV3(p.id);
+        if (v3) { rescored++; if (v3.total >= 100) golds++; }
+      } catch (_) {}
+    }
+    try { require('./mvp').resolveConflictingMvpPicks(); } catch (_) {}
+    res.json({ rescored, golds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /admin/api/capper-sources.json — CA Ops capper pipeline health ────────
 // Consumed by the desktop ops console (ops/server.js). One JSON with: per-source
 // ingestion health, ratings summary, fade list, and the drift-monitor skeleton
