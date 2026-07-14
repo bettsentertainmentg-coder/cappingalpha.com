@@ -57,18 +57,6 @@ export function switchTab(tabName) {
     try { posthog.capture('tab_viewed', { tab: tabName }); } catch (e) {}
   }
 
-  // Keep the URL hash in sync with the active tab. Tab clicks normally never touch
-  // the URL, so a stale hash (e.g. #mvp left over from a Rankings visit) lingered —
-  // and the standalone detail page's Back button uses history.back(), which would
-  // reload that stale URL and applyHashTab() would re-open Rankings instead of the
-  // page you actually came from. Syncing the hash makes "back" land on the right
-  // tab. replaceState (not a hash assignment) avoids firing hashchange (no
-  // re-entrancy) and avoids piling up a history entry on every tab switch.
-  try {
-    const base = location.pathname + location.search;
-    history.replaceState(null, '', tabName === 'home' ? base : base + '#' + tabName);
-  } catch (_) {}
-
   const logo = document.querySelector('.logo');
   if (logo) logo.classList.toggle('active', tabName === 'home');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
@@ -112,6 +100,27 @@ export function switchTab(tabName) {
     if (state.currentUser) loadProfile();
     else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
   }
+
+  // Keep the URL hash in sync with the active tab, and give each real tab
+  // change its own history entry. This used to replaceState instead, which
+  // overwrote the only SPA entry: the tab you were just on never existed in
+  // history, so browser Back skipped the site entirely and landed on whatever
+  // page came before it (Safari: Rankings then Back dropped onto the betting
+  // calculators). pushState never fires hashchange, so no re-entrancy; Back /
+  // Forward fire hashchange, and applyHashTab re-enters here with the hash
+  // already matching, so nothing extra is pushed. A same-tab respelling
+  // (#account to #tracking) is normalized in place. Runs after the auth gates
+  // so a bounced gated tab never lands in history.
+  try {
+    const base = location.pathname + location.search;
+    const target = tabName === 'home' ? base : base + '#' + tabName;
+    if (base + location.hash !== target) {
+      const cur = (location.hash || '').replace('#', '').trim().toLowerCase();
+      const curTab = cur === 'account' ? 'tracking' : (cur || 'home');
+      if (curTab === tabName) history.replaceState(null, '', target);
+      else history.pushState(null, '', target);
+    }
+  } catch (_) {}
 
   // Close mobile drawer when navigating
   closeDrawer();
@@ -186,9 +195,16 @@ window.sendSupport = sendSupport;
 // Honor a hash like #about / #mvp / #sports on initial load and on subsequent
 // hashchange events (e.g. someone clicks "Learn how" on the standalone game
 // detail page, which links back to /#about).
-const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'tracking', 'settings', 'unlock']);
+const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'tracking', 'settings', 'unlock', 'profile']);
 function applyHashTab() {
   const h = (location.hash || '').replace('#', '').trim().toLowerCase();
+  if (!h) {
+    // Browser Back/Forward to the bare URL: return to the Home tab. Skipped on
+    // the initial page load, where panel-home is already the active default
+    // (avoids a redundant switchTab on every plain visit).
+    if (!document.getElementById('panel-home')?.classList.contains('active')) switchTab('home');
+    return;
+  }
   if (HASH_TABS.has(h)) switchTab(h);
 }
 window.addEventListener('hashchange', applyHashTab);
@@ -342,6 +358,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   if (state.leaderboardLoaded) loadLeaderboard(state.leaderboardWindow);
   if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
   if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
+  if (document.getElementById('panel-profile')?.classList.contains('active')) switchTab('profile');
 
   // Handle Stripe redirect back to site
   const params = new URLSearchParams(location.search);
