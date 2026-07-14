@@ -32,6 +32,26 @@ ok(/fading|little value left/i.test(blowout.label), 'dying trailing pick reads f
 const flat = computeValuePulse({ pickWP_now: 0.55, pickWP_pre: 0.55, caScore: 0, gameProgress: 0.3 });
 ok(flat.sign === 0 && flat.label === 'Fairly priced', 'neutral band reads fairly priced');
 
+// Trend axis: the same strong spot reads differently climbing, level, and cooling.
+// (First sample has no prev -> trend 0 -> steady.)
+const strongSteady = computeValuePulse({ pickWP_now: 0.30, pickWP_pre: 0.60, caScore: 90, trailing: true });
+ok(strongSteady.value >= 40 && strongSteady.label === 'Strong comeback value, holding steady',
+  'strong spot that leveled off reads holding steady');
+const strongBuilding = computeValuePulse({ pickWP_now: 0.30, pickWP_pre: 0.60, caScore: 90, trailing: true, prevMagnitude: 40 });
+ok(strongBuilding.label === 'Strong comeback value, still building', 'strong spot still climbing reads still building');
+const strongCooling = computeValuePulse({ pickWP_now: 0.30, pickWP_pre: 0.60, caScore: 90, trailing: true, prevMagnitude: 62 });
+ok(/cooling/.test(strongCooling.label) && strongCooling.value >= 40, 'strong spot coming off its peak reads cooling');
+
+// Deep band: a big-swing spot outranks "strong".
+const deep = computeValuePulse({ pickWP_now: 0.35, pickWP_pre: 0.80, caScore: 90, trailing: true });
+ok(deep.value >= 70 && /^Deep comeback value/.test(deep.label), 'deep band gets its own wording');
+
+// Negative-side trend states: a dying pick recovering vs a winner pricing up fast.
+const creep = computeValuePulse({ pickWP_now: 0.06, pickWP_pre: 0.55, caScore: 55, trailing: true, prevMagnitude: -30 });
+ok(creep.label === 'Value creeping back' && creep.sign === -1, 'recovering from a dying spot reads creeping back');
+const pricingFast = computeValuePulse({ pickWP_now: 0.85, pickWP_pre: 0.62, caScore: 55, prevMagnitude: -10 });
+ok(pricingFast.label === 'Pricing up fast', 'winner pricing up quickly reads pricing up fast');
+
 // Conviction: higher CA -> higher target, but modest.
 const lowCA  = computeValuePulse({ pickWP_now: 0.5, pickWP_pre: 0.55, caScore: 35, gameProgress: 0.3 });
 const highCA = computeValuePulse({ pickWP_now: 0.5, pickWP_pre: 0.55, caScore: 65, gameProgress: 0.3 });

@@ -75,7 +75,7 @@
         "name": "What is the Live Value Pulse?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "The Live Value Pulse is a real time read on how much betting value a pick holds while its game is live, updated every few seconds. The graph plots a single signed number from +100 (high value) at the top to -100 (low value) at the bottom, with a zero line through the middle. Gold (positive) means buy low value is building: the pick is trading below where it started but our live model still gives it a real chance. Slate (near zero) means it is roughly where it began. Blue (negative) means the value is fading, either because the pick is now priced up or because the deficit is getting hard to recover. It reacts to the full game state (score, inning, outs, baserunners and the count), and the x axis is labeled by period and builds out as the game goes. It is a probabilistic read, not a guarantee, and it never tells you how to bet."
+          "text": "The Live Value Pulse is a real time read on how much betting value a pick holds while its game is live, updated every few seconds. The graph plots a single signed number from +100 (high value) at the top to -100 (low value) at the bottom, with a zero line through the middle. Gold (positive) means buy low value: the pick is trading below where it started but our live model still gives it a real chance. Slate (near zero) means it is fairly priced, roughly where it began. Blue (negative) splits two ways and the label says which: the pick is winning and the value has already been priced in, or the deficit is getting hard to recover. It reacts to the full game state (score, inning, outs, baserunners and the count in baseball; the set and game ladder in tennis), and the x axis is labeled by period and builds out as the game goes. It is a probabilistic read, not a guarantee, and it never tells you how to bet."
         }
       },
       {
@@ -368,7 +368,7 @@
         </button>
         <div class="faq-a" id="a4b" role="region" aria-labelledby="q4b">
           <div class="faq-a-inner">
-            <p>The line every pick is recorded, ranked, and graded at is the market line captured 90 minutes before that game starts, or the moment the pick reaches CA pick status, whichever comes first. Lines move during the day, so a pick tracks the market until one of those triggers, then that number is captured once and locked. That locked line is what you see in the rankings and what a tracked bet settles against, so the line you see is the line you get. The 90-minute mark follows the real start time, so a schedule slip moves it too.</p>
+            <p>The line every pick is recorded, ranked, and graded at is the market line captured 1 hour before that game starts. Lines move during the day, so a pick tracks the market until then; at the 1-hour mark the number is captured once and locked, as if the bet were placed right there. That locked line is what you see in the rankings and what a tracked bet settles against, so the line you see is the line you get. The 1-hour mark follows the real start time, so a schedule slip moves it too. One more rule: until a game actually begins, the tracked call on it can still change. If our scoring moves ahead on the other side before the start, the recorded bet flips with it, at that same locked line.</p>
           </div>
         </div>
       </div>

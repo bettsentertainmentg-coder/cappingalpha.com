@@ -16,15 +16,17 @@
 //            read, just dampened (never zeroed — a trailing pre-game favorite is a
 //            buy-low spot whether or not CA is on it).
 //
-// LABELS tell the right story per band. The positive side splits on `trailing`
-// (is the pick's side actually behind on the scoreboard?); the negative side
-// splits on where the pick trades versus its lock, which covers totals too:
-//   positive + trailing      -> comeback value (buy-low on a live deficit)
-//   positive + level/up      -> value building / strong value
-//   near zero                -> fairly priced (the pick sits about where it locked)
-//   negative, at/above lock  -> priced up (the pick is winning; the edge is spent)
-//   negative, below lock     -> value fading / little value left (position dying)
-// Constants tunable on localhost.
+// LABELS tell the right story per band, and the story has three axes:
+//   LEVEL      mild (12-40) / strong (40-70) / deep (70+)
+//   DIRECTION  building (trend up) / holding steady (flat) / cooling (down)
+//   SITUATION  positive splits on `trailing` (comeback wording only when the
+//              pick's side is actually behind); negative splits on where the
+//              pick trades versus its lock, which covers totals too
+// So a spot that climbed and then leveled off reads "Strong value, holding
+// steady", not the same text as one still climbing. Negative side:
+//   at/above lock  -> priced up now / pricing up fast / fully priced in
+//   below lock     -> value fading (fast) / creeping back / little value left
+// Near zero -> fairly priced. Constants tunable on localhost.
 
 const EMA_ALPHA   = 0.6;   // light smoothing — stays reactive per play
 const EMA_FAST    = 0.85;  // catch-up smoothing when the target jumps hard
@@ -36,8 +38,10 @@ const HOPELESS    = 1.10;  // how hard a hopeless spot pulls the swing negative
 const SWING_SCALE = 23;    // how strongly the live buy-low movement moves the value
 const DEAD        = 0.08;  // win prob at which the pick is considered dead
 const VIABLE_FULL = 0.35;  // win prob at/above which the conviction baseline is fully present
-const NEUTRAL     = 12;    // |value| below this reads as "holding"
+const NEUTRAL     = 12;    // |value| below this reads as "fairly priced"
 const STRONG      = 40;    // |value| above this is the strong band
+const DEEP        = 70;    // |value| above this is the deep band (rare, big-swing spots)
+const TREND_FLAT  = 3;     // |trend| under this reads as steady between polls
 
 // Conviction baseline: a pick's RESTING value from CA score (primary) + pre-game
 // favorite-ness + public lean. Positive for strong/favored picks, near zero for weak
@@ -105,17 +109,40 @@ function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress =
   const trend = round1(value - prev);
 
   let sign, color, label;
+  // Direction between polls: the first sample has no prev, so it reads steady.
+  const dir = trend >= TREND_FLAT ? 'up' : trend <= -TREND_FLAT ? 'down' : 'flat';
   if (value > NEUTRAL) {
     sign = 1; color = COLORS.gold;
-    if (trailing) label = value >= STRONG ? 'Strong comeback value' : 'Comeback value building';
-    else          label = value >= STRONG ? 'Strong value'         : 'Value building';
+    const head = (value >= DEEP ? 'Deep ' : value >= STRONG ? 'Strong ' : '')
+      + (trailing ? 'comeback value' : 'value');
+    let text;
+    if (value >= STRONG) {
+      // Strong/deep: the level leads, the direction rides behind a comma —
+      // "it was building, now it's steady and strong" is its own state.
+      text = dir === 'up' ? `${head}, still building`
+        : dir === 'down' ? `${head}, cooling`
+        : `${head}, holding steady`;
+    } else {
+      text = dir === 'up' ? `${head} building`
+        : dir === 'down' ? `${head} cooling`
+        : `${head} holding`;
+    }
+    label = text.charAt(0).toUpperCase() + text.slice(1);
   } else if (value < -NEUTRAL) {
     sign = -1; color = COLORS.blue;
     // Which negative story is this? Trading at/above the lock = the edge is
     // spent (a cruising winner). Below it = the position is dying. Works for
     // totals too, where the scoreboard `trailing` flag never applies.
-    if (now >= pre) label = value <= -STRONG ? 'Fully priced in'   : 'Priced up now';
-    else            label = value <= -STRONG ? 'Little value left' : 'Value fading';
+    if (now >= pre) {
+      label = value <= -STRONG ? 'Fully priced in'
+        : dir === 'down' ? 'Pricing up fast'
+        : 'Priced up now';
+    } else {
+      label = value <= -STRONG ? 'Little value left'
+        : dir === 'up' ? 'Value creeping back'
+        : dir === 'down' ? 'Value fading fast'
+        : 'Value fading';
+    }
   } else {
     sign = 0; color = COLORS.slate; label = 'Fairly priced';
   }
