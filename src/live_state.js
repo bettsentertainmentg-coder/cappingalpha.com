@@ -147,9 +147,19 @@ function parseLiveState(sport, ev) {
     const n = Math.max(hl.length, al.length);
     const sets = [];
     let homeSets = 0, awaySets = 0;
+    // A set counts only when it's COMPLETE: 6+ games with a 2-game lead, or a
+    // 7-6 tiebreak (super tiebreaks like 10-8 pass the first clause). ESPN's
+    // per-set winner flag wins when present. The old fallback handed the set
+    // to whoever merely LED it, so a live 4-3 third set rendered as a won set
+    // on the set board (Jul 14).
+    const setDone = (g, o) => (g >= 6 && g - o >= 2) || (g === 7 && o === 6);
     for (let i = 0; i < n; i++) {
       const h = intOr(hl[i]?.value, 0), a = intOr(al[i]?.value, 0);
-      const winner = hl[i]?.winner === true ? 'home' : (al[i]?.winner === true ? 'away' : (h > a ? 'home' : (a > h ? 'away' : null)));
+      const winner = hl[i]?.winner === true ? 'home'
+        : al[i]?.winner === true ? 'away'
+        : setDone(h, a) ? 'home'
+        : setDone(a, h) ? 'away'
+        : null;
       sets.push({ home: h, away: a, homeTb: hl[i]?.tiebreak ?? null, awayTb: al[i]?.tiebreak ?? null, winner });
       if (winner === 'home') homeSets++; else if (winner === 'away') awaySets++;
     }

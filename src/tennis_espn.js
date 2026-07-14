@@ -89,7 +89,13 @@ function upsertTennisMatch(comp, sportLabel) {
   const homeLinescores = homeComp.linescores || [];
   const awayLinescores = awayComp.linescores || [];
 
-  // Sets won = count of sets where this player won more games
+  // Sets won = count of COMPLETED sets this player won: 6+ games with a 2-game
+  // lead, or a 7-6 tiebreak (super tiebreaks like 10-8 pass the first clause).
+  // ESPN's per-set winner flag wins when present. Never credit a set to whoever
+  // merely leads it — a live 4-3 set used to count as won in home_score/
+  // away_score, which the board tiles show and ML/set-handicap grading read
+  // (Jul 14). Same rule as live_state.js.
+  const setDone = (g, o) => (g >= 6 && g - o >= 2) || (g === 7 && o === 6);
   const numSets = Math.max(homeLinescores.length, awayLinescores.length);
   let homeSetsWon = 0, awaySetsWon = 0;
   const setDetails = [];
@@ -97,8 +103,8 @@ function upsertTennisMatch(comp, sportLabel) {
     const h = Number(homeLinescores[i]?.value) || 0;
     const a = Number(awayLinescores[i]?.value) || 0;
     setDetails.push({ set: i + 1, home: h, away: a });
-    if (h > a) homeSetsWon++;
-    else if (a > h) awaySetsWon++;
+    if (homeLinescores[i]?.winner === true || setDone(h, a)) homeSetsWon++;
+    else if (awayLinescores[i]?.winner === true || setDone(a, h)) awaySetsWon++;
   }
 
   // Total games for spread/O-U grading

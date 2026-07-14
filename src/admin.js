@@ -4151,9 +4151,11 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
     return res.status(401).send('Unauthorized');
   }
-  const { id, spread, result, home_score, away_score, ml_odds, ou_odds, annotation, game_date } = req.body || {};
+  const { id, spread, result, home_score, away_score, ml_odds, ou_odds, annotation, game_date, score } = req.body || {};
   if (!id) return res.status(400).json({ error: 'id required' });
-  const VALID_RESULTS = ['win', 'loss', 'push', 'pending'];
+  // 'void' included so a mis-resolved conflict (kept/voided sides swapped) can
+  // be repaired by hand — pair it with a '*not counted:' annotation.
+  const VALID_RESULTS = ['win', 'loss', 'push', 'pending', 'void'];
   if (result && !VALID_RESULTS.includes(result)) return res.status(400).json({ error: 'invalid result' });
   if (game_date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(game_date))) {
     return res.status(400).json({ error: 'game_date must be YYYY-MM-DD' });
@@ -4168,6 +4170,9 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   if (away_score  !== undefined) { sets.push('away_score = ?');  vals.push(away_score); }
   if (ml_odds     !== undefined) { sets.push('ml_odds = ?');     vals.push(ml_odds); }
   if (ou_odds     !== undefined) { sets.push('ou_odds = ?');     vals.push(ou_odds); }
+  // score: correct a row whose tracked score drifted from the board's true
+  // total before the pregame score sync existed (see mvp.js).
+  if (score       !== undefined) { sets.push('score = ?');       vals.push(score); }
   // annotation: pass null to CLEAR a stale void note — the public P/L excludes
   // any row whose annotation says "not counted", so un-voiding a pick isn't
   // complete until its annotation is wiped.

@@ -148,7 +148,7 @@ function resolveConflictingMvpPicks() {
   try {
     if (db.getSetting('scoring_version', 'v2') === 'v3') {
       const pendingRows = db.prepare(`
-        SELECT m.id, m.espn_game_id, m.team, m.pick_type FROM mvp_picks m
+        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score, tg.start_time FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
@@ -158,8 +158,9 @@ function resolveConflictingMvpPicks() {
         JOIN score_breakdown sb ON sb.pick_id = p.id
         WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
       `);
-      const delStmt = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
-      let demoted = 0;
+      const delStmt  = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
+      const syncStmt = db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`);
+      let demoted = 0, synced = 0;
       for (const m of pendingRows) {
         const cur = curStmt.get(m.espn_game_id, m.team || '', m.pick_type || '');
         if (!cur) continue; // board pick gone — leave the tracked row alone
@@ -168,9 +169,24 @@ function resolveConflictingMvpPicks() {
           const j = JSON.parse(cur.v3_json || '{}');
           if (typeof j.gold === 'boolean') isGold = j.gold; // includes the totals gate
         } catch (_) {}
-        if (!isGold) { delStmt.run(m.id); demoted++; }
+        if (!isGold) { delStmt.run(m.id); demoted++; continue; }
+        // Score sync: board-wide rescores (nightly re-rank, new grades, merges)
+        // move a pick's true total WITHOUT a new mention, and saveMvpPick only
+        // refreshes score on the mention path — so the tracked score drifts.
+        // The conflict resolver below compares mvp_picks.score, so drift can
+        // void the pick the board shows as HIGHER with a backwards note (the
+        // Jul 14 Tsitsipas/Buse tennis void). Track the true total until the
+        // game-start freeze; a started game leaves this sweep, so the last
+        // pregame value locks exactly like before.
+        const startMs = new Date(m.start_time).getTime();
+        if ((!Number.isFinite(startMs) || startMs > Date.now())
+            && cur.v3_total != null && cur.v3_total !== m.score) {
+          syncStmt.run(cur.v3_total, m.id);
+          synced++;
+        }
       }
       if (demoted) console.log(`[mvp] pregame demotion sweep removed ${demoted} no-longer-gold row(s)`);
+      if (synced)  console.log(`[mvp] pregame score sync refreshed ${synced} tracked row(s)`);
 
       // ── Promotion sweep: the mirror image ─────────────────────────────────
       // A pick can cross gold through a board-wide rescore (nightly re-rank,
