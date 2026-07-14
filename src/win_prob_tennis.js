@@ -5,6 +5,8 @@
 //
 //   pre-game match prob  ->  per-set strength s (invert the best-of formula)
 //                        ->  per-game serve/return edge d (invert the set tree)
+//   games already played ->  bounded skill update on d (a heavy favorite who
+//                            keeps getting broken is not just unlucky)
 //   live state           ->  P(win current set) from the exact game tree
 //                        ->  P(win match) from the best-of set recursion
 //
@@ -116,18 +118,52 @@ function setWinProb(gh, ga, serving, pServe, pReturn, pTB) {
 // Per-game skill shift d for a target per-set prob s: home wins a service game
 // with hold + d and a return game with (1 - hold) + d; solve d so the from-
 // scratch set prob (server unknown) lands on s.
-function gameProbsFor(s, tour) {
+function probsAtD(d, tour) {
   const hold = HOLD_BASE[String(tour || '').toUpperCase()] ?? HOLD_DEFAULT;
-  const probsAt = (d) => ({
+  return {
     pServe:  clamp(hold + d, 0.05, 0.97),
     pReturn: clamp(1 - hold + d, 0.03, 0.95),
     pTB:     clamp(0.5 + TB_EDGE * d, 0.05, 0.95),
-  });
+    d,
+  };
+}
+function gameProbsFor(s, tour) {
   const d = bisect((x) => {
-    const p = probsAt(x);
+    const p = probsAtD(x, tour);
     return setWinProb(0, 0, null, p.pServe, p.pReturn, p.pTB);
   }, clamp(s, 0.03, 0.97), -0.6, 0.6, 26);
-  return probsAt(d);
+  return probsAtD(d, tour);
+}
+
+// In-match skill update. A fixed prior thinks a -2000 favorite dropping a set
+// merely got unlucky and re-prices the dog near zero; the games already played
+// are real evidence about today's skill gap. The per-game edge d equals
+// (home game share - 0.5) by construction (serve + return probs average to
+// 0.5 + d), so blend the prior d with the observed share, data weighted
+// n / (n + N0) — about two and a half sets of prior weight. Returns the game
+// probs at the blended edge plus sLive, the per-set prob to run the ladder at.
+const SKILL_N0 = 24;
+// The update scales with how extreme the prior is: for even-ish matches the
+// set ladder alone is already well calibrated (pre-match odds encode skill),
+// so the games evidence would double count what the ladder banked; for a
+// lopsided prior the fixed-skill assumption is what produces the absurd
+// re-pricing, so the evidence gets full weight there.
+const SKILL_EXT_LO = 0.25, SKILL_EXT_K = 6.0;
+function liveGameProbs(state, sPrior, tour) {
+  const prior = gameProbsFor(sPrior, tour);
+  const sets = Array.isArray(state?.sets) ? state.sets : [];
+  let gH = 0, n = 0;
+  for (const st of sets) {
+    const h = parseInt(st.home, 10) || 0, a = parseInt(st.away, 10) || 0;
+    gH += h; n += h + a;
+  }
+  if (n < 6) return { ...prior, sLive: clamp(sPrior, 0.03, 0.97) };
+  const extremity = clamp(SKILL_EXT_LO + SKILL_EXT_K * Math.abs(prior.d), SKILL_EXT_LO, 1);
+  const w = (n / (n + SKILL_N0)) * extremity;
+  const dObs = clamp(gH / n, 0.08, 0.92) - 0.5;
+  const probs = probsAtD((1 - w) * prior.d + w * dObs, tour);
+  const sLive = setWinProb(0, 0, null, probs.pServe, probs.pReturn, probs.pTB);
+  return { ...probs, sLive };
 }
 
 // ── State readers ──────────────────────────────────────────────────────────────
@@ -197,12 +233,12 @@ function tennisMatchWP(state, pregameHomeProb, tour, bestOfKnown = null) {
   if (needA <= 0) return 0;
   if (state?.status === 'post') return null;   // no set majority on a finished match — walkover/retirement; no read
 
-  const s = perSetProb(pregameHomeProb == null ? 0.5 : pregameHomeProb, bestOf);
-  const { pServe, pReturn, pTB } = gameProbsFor(s, tour);
+  const sPrior = perSetProb(pregameHomeProb == null ? 0.5 : pregameHomeProb, bestOf);
+  const { pServe, pReturn, pTB, sLive } = liveGameProbs(state, sPrior, tour);
   const cur = currentSet(state);
   const pCur = setWinProb(cur.home, cur.away, state?.serving ?? null, pServe, pReturn, pTB);
-  return pCur * matchFromSets(needH - 1, needA, s)
-    + (1 - pCur) * matchFromSets(needH, needA - 1, s);
+  return pCur * matchFromSets(needH - 1, needA, sLive)
+    + (1 - pCur) * matchFromSets(needH, needA - 1, sLive);
 }
 
 // ── Match progress 0..1 ────────────────────────────────────────────────────────
@@ -241,8 +277,9 @@ function tennisOverProb(state, line, pregameHomeProb, tour, preOverProb = null, 
     return played > L ? 0.99 : 0.01;
   }
 
-  const s = perSetProb(pregameHomeProb == null ? 0.5 : pregameHomeProb, bestOf);
-  const { pServe, pReturn, pTB } = gameProbsFor(s, tour);
+  const sPrior = perSetProb(pregameHomeProb == null ? 0.5 : pregameHomeProb, bestOf);
+  const { pServe, pReturn, pTB, sLive } = liveGameProbs(state, sPrior, tour);
+  const s = sLive;
   const cur = currentSet(state);
   const curDist = setDistFrom(cur.home, cur.away, state?.serving ?? null, pServe, pReturn, pTB);
 
@@ -298,5 +335,5 @@ function tennisOverProb(state, line, pregameHomeProb, tour, preOverProb = null, 
 module.exports = {
   tennisMatchWP, tennisProgress, tennisOverProb, tennisGamesPlayed, tennisTrailing,
   // internals exported for tests/calibration
-  perSetProb, matchFromSets, expSetsLeft, setWinProb, gameProbsFor, bestOfFor,
+  perSetProb, matchFromSets, expSetsLeft, setWinProb, gameProbsFor, liveGameProbs, bestOfFor,
 };

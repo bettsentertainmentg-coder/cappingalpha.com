@@ -42,7 +42,7 @@ ok(Math.abs(tennisMatchWP(s0, 0.7, 'ATP') - 0.7) < 0.01, 'model opens at the mar
 
 const oneSetUp = st([{ home: 6, away: 4, winner: 'home' }, { home: 0, away: 0, winner: null }]);
 const w1 = tennisMatchWP(oneSetUp, 0.5, 'ATP');
-ok(w1 > 0.70 && w1 < 0.80, 'a set up in an even bo3 is ~75%');
+ok(w1 > 0.72 && w1 < 0.86, 'a set up in an even bo3 is ~75-85% (ladder + games evidence)');
 
 // A just-finished set with no new set row must not double count.
 const justFinished = st([{ home: 6, away: 4, winner: 'home' }]);
@@ -68,6 +68,18 @@ ok(bestOfFor(st([
   { home: 6, away: 4, winner: 'home' }, { home: 4, away: 6, winner: 'away' },
   { home: 6, away: 4, winner: 'home' }, { home: 1, away: 1, winner: null },
 ])) === 5, 'a fourth set means best-of-5');
+
+// In-match skill update: a heavy pre-game underdog who has hung dead level for
+// two sets is no longer a heavy underdog. Without the update, the fixed prior
+// re-priced this near zero for the decider.
+const decider = st([
+  { home: 6, away: 4, winner: 'home' }, { home: 4, away: 6, winner: 'away' }, { home: 0, away: 0, winner: null },
+]);
+const dogWP = tennisMatchWP(decider, 0.08, 'ATP');
+ok(dogWP > 0.12 && dogWP < 0.45, 'level-through-two heavy dog rehabilitates meaningfully');
+ok(dogWP < tennisMatchWP(decider, 0.5, 'ATP'), 'the prior still matters after the update');
+const cruise = st([{ home: 6, away: 1, winner: 'home' }, { home: 2, away: 0, winner: null }]);
+ok(tennisMatchWP(cruise, 0.5, 'ATP') > 0.85, 'dominant games flow lifts the leader beyond the raw ladder');
 
 // The replay-step trap: a reconstructed "after set 3" step of a FINISHED bo3
 // carries 2 banked sets with status 'in', which the ladder heuristic reads as a
