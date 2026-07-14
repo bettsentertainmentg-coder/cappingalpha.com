@@ -1601,7 +1601,7 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
           payload.pickRanks = pd.pickRanks || {};
         }
         if (pd.publicBetting && !payload.publicBetting) payload.publicBetting = pd.publicBetting;
-        if (pd.lineHistory && !(payload.lineHistory || []).length) payload.lineHistory = pd.lineHistory;
+        if (pd.lineHistory && !payload.lineHistory) payload.lineHistory = pd.lineHistory;
         if (pd.insights && !(payload.insights || []).length) payload.insights = pd.insights;
       }
     } catch (_) {}
@@ -2946,14 +2946,16 @@ app.listen(PORT, () => {
   }
 
   // Seed line history + prediction market caches on startup (free APIs, no credits).
-  // Line history is a pre-game concept, so it stays scoped to games with odds. The
-  // market-volume syncs (Polymarket + Kalshi) run over the WHOLE board — pre/in/post —
-  // exactly like the 15-min cron does. Finished games carry the day's biggest volume
+  // Line history covers ALL pre-game rows including the forward window — a game with
+  // no odds stored yet often already has lines at ESPN, and the sooner we hit the
+  // endpoint the earlier its opening capture (captured_at) lands. The market-volume
+  // syncs (Polymarket + Kalshi) run over the WHOLE board — pre/in/post — exactly
+  // like the 15-min cron does. Finished games carry the day's biggest volume
   // (a settled World Cup match tops the board), and soccer often has no ml_home stored
-  // (ESPN free odds), so the old status='pre' AND ml_home filter left every finished or
+  // (ESPN free odds), so a status='pre' AND ml_home filter would leave every finished or
   // oddless soccer game with zero market data until the next active-hours cron tick.
   // Backfilling the full board on boot makes a redeploy self-heal that immediately.
-  const preGamesOnStart = db.prepare("SELECT * FROM today_games WHERE status='pre' AND ml_home IS NOT NULL").all();
+  const preGamesOnStart = db.prepare("SELECT * FROM today_games WHERE status='pre'").all();
   const allGamesOnStart = db.prepare("SELECT * FROM today_games").all();
   syncLineHistory(preGamesOnStart).catch(e => console.error('[startup] syncLineHistory:', e.message));
   syncPolymarketData(allGamesOnStart).catch(e => console.error('[startup] syncPolymarket:', e.message));
@@ -3259,5 +3261,10 @@ cron.schedule('0 * * * *', async () => {
     await fetchForwardGames().catch(err => console.error('[cron] hourly fetchForwardGames error:', err.message));
     const { seedPickSlots } = require('./src/lines');
     await seedPickSlots().catch(err => console.error('[cron] hourly seedPickSlots error:', err.message));
+    // Capture opening lines for games that just entered the forward window. The
+    // 15-min sync is active-hours only, so this hourly pass is also what keeps
+    // the earliest-capture stamp honest overnight. Free (ESPN).
+    const fwdPre = db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all();
+    syncLineHistory(fwdPre).catch(err => console.error('[cron] hourly syncLineHistory error:', err.message));
   }
 }, { timezone: 'America/New_York' });

@@ -103,7 +103,7 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>${esc(title)}</title>
   <meta name="description" content="${esc(desc)}" />
   <link rel="canonical" href="${canonical}" />
@@ -122,6 +122,9 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
   <script type="application/ld+json">${jsonLd}</script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    html, body { max-width: 100%; overflow-x: hidden; overflow-x: clip; }
+    a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; font-size: 15px; line-height: 1.6; padding: 0 0 96px; }
     .site-header { border-bottom: 1px solid #1e2535; padding: 14px 16px; display: flex; align-items: center; gap: 16px; }
     .site-header-logo { font-size: 15px; font-weight: 700; color: #e2e8f0; letter-spacing: 0.02em; }
@@ -137,6 +140,9 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
     .stat .v { font-size: 24px; font-weight: 700; }
     .stat .l { font-size: 12px; color: #8892a4; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
     .stat .v.win { color: #4ade80; } .stat .v.loss { color: #f87171; } .stat .v.rate { color: #FFD700; }
+    /* The 7-column table scrolls inside its own container on phones — the page
+       itself never scrolls sideways. */
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
     table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
     thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #8892a4; padding: 10px 10px; border-bottom: 1px solid #252c3b; }
     tbody td { padding: 10px 10px; border-bottom: 1px solid #1a2130; color: #c8d3e0; }
@@ -149,6 +155,14 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
     .footer-links { margin-top: 40px; font-size: 13px; color: #8892a4; }
     .footer-links a { color: #8892a4; text-decoration: none; } .footer-links a:hover { color: #3b82f6; }
     .empty { color: #8892a4; padding: 40px 0; }
+    @media (max-width: 560px) {
+      .wrap { padding-top: 26px; }
+      h1 { font-size: 23px; }
+      .stat { min-width: 88px; padding: 11px 14px; flex: 1 1 88px; }
+      .stat .v { font-size: 20px; }
+      thead th, tbody td { padding: 9px 8px; }
+      table { font-size: 12.5px; }
+    }
   </style>
 </head>
 <body>
@@ -169,12 +183,12 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
       <div class="stat"><div class="v">${total}</div><div class="l">Total graded</div></div>
     </div>
 
-    ${shown.length ? `<table>
+    ${shown.length ? `<div class="table-wrap"><table>
       <thead><tr><th>Date</th><th>Sport</th><th>Matchup</th><th>Pick</th><th>Final</th><th>Score</th><th>Result</th></tr></thead>
       <tbody>
 ${rows}
       </tbody>
-    </table>${picks.length > MAX_ROWS ? `<p class="disclaimer">Showing the most recent ${MAX_ROWS} of ${picks.length} graded MVP picks.</p>` : ''}`
+    </table></div>${picks.length > MAX_ROWS ? `<p class="disclaimer">Showing the most recent ${MAX_ROWS} of ${picks.length} graded MVP picks.</p>` : ''}`
       : `<p class="empty">No graded MVP picks yet. Check back after today's slate finishes.</p>`}
 
     <a class="cta" href="/">See today's board</a>

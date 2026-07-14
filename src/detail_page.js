@@ -127,24 +127,30 @@ function buildNav(user) {
   const avatarBg = (s) => { s = String(s || 'user'); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return AVATAR_COLORS[h % AVATAR_COLORS.length]; };
   const nm = on ? (user.username || user.email || '') : '';
   const ddItem = (href, icon, label, extra = '') => `<a ${href ? `href="${href}"` : ''} ${extra} style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#e2e8f0;text-decoration:none;cursor:pointer;"><i class="${icon}" style="width:16px;text-align:center;color:#8892a4;"></i> ${label}</a>`;
-  const navAccount = on ? `
-    <div style="position:relative;" id="ca-acct">
+  // Desktop + mobile top bars each get an avatar trigger; ONE shared dropdown
+  // (fixed under the sticky nav) serves both — same pattern as index.html's
+  // nav-avatar-btn / m-nav-avatar-btn pair.
+  const avatarBtnHtml = (wrapId) => `
+    <div style="position:relative;" id="${wrapId}">
       <button onclick="event.stopPropagation();var d=document.getElementById('ca-acct-dd');d.style.display=d.style.display==='block'?'none':'block';" aria-label="Account menu" style="background:none;border:none;padding:0;cursor:pointer;border-radius:50%;display:inline-flex;">
         <span style="width:30px;height:30px;border-radius:50%;background:${avatarBg(nm)};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;letter-spacing:.01em;">${initialsOf(nm)}</span>
       </button>
-      <div id="ca-acct-dd" style="display:none;position:absolute;top:calc(100% + 8px);right:0;min-width:210px;background:#171b24;border:1px solid #252c3b;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);padding:6px;z-index:200;">
-        <div style="padding:8px 12px 10px;border-bottom:1px solid #252c3b;margin-bottom:6px;font-weight:700;font-size:14px;color:#e2e8f0;">@${esc(nm)}</div>
-        ${ddItem('/#tracking', 'fa-solid fa-chart-line', 'My Tracking')}
-        ${ddItem('/#settings', 'fa-solid fa-gear', 'Settings')}
-        ${ddItem('/#about', 'fa-regular fa-circle-question', 'Support')}
-        <div style="height:1px;background:#252c3b;margin:6px 4px;"></div>
-        <a onclick="doLogout()" style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#ef4444;cursor:pointer;"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;text-align:center;color:#ef4444;"></i> Logout</a>
-      </div>
-    </div>
-    <script>document.addEventListener('click',function(e){var dd=document.getElementById('ca-acct-dd'),w=document.getElementById('ca-acct');if(dd&&w&&!w.contains(e.target))dd.style.display='none';});</script>` : '';
+    </div>`;
+  const navAccount  = on ? avatarBtnHtml('ca-acct') : '';
+  const navAccountM = on ? avatarBtnHtml('ca-acct-m') : '';
+  const acctDropdown = on ? `
+  <div id="ca-acct-dd" style="display:none;position:fixed;top:62px;right:14px;min-width:210px;background:#171b24;border:1px solid #252c3b;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.45);padding:6px;z-index:1200;">
+    <div style="padding:8px 12px 10px;border-bottom:1px solid #252c3b;margin-bottom:6px;font-weight:700;font-size:14px;color:#e2e8f0;">@${esc(nm)}</div>
+    ${ddItem('/#tracking', 'fa-solid fa-chart-line', 'My Tracking')}
+    ${ddItem('/#settings', 'fa-solid fa-gear', 'Settings')}
+    ${ddItem('/#about', 'fa-regular fa-circle-question', 'Support')}
+    <div style="height:1px;background:#252c3b;margin:6px 4px;"></div>
+    <a onclick="doLogout()" style="display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;font-size:14px;color:#ef4444;cursor:pointer;"><i class="fa-solid fa-arrow-right-from-bracket" style="width:16px;text-align:center;color:#ef4444;"></i> Logout</a>
+  </div>
+  <script>document.addEventListener('click',function(e){var dd=document.getElementById('ca-acct-dd');if(!dd||dd.style.display!=='block')return;var a=document.getElementById('ca-acct'),b=document.getElementById('ca-acct-m');if(!(a&&a.contains(e.target))&&!(b&&b.contains(e.target))&&!dd.contains(e.target))dd.style.display='none';});</script>` : '';
   return `<nav>
     <div class="nav-left">
-      <button class="ca-hamburger" aria-label="Menu" onclick="document.getElementById('ca-detail-menu').classList.toggle('open')">
+      <button class="ca-hamburger" aria-label="Menu" onclick="caToggleDrawer()">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
       </button>
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
@@ -173,19 +179,65 @@ function buildNav(user) {
       <button class="btn btn-ghost" id="btn-login" onclick="openLogin()" style="${on ? hide : ''}">Login</button>
       ${navAccount}
     </div>
+    <!-- Compact top-bar actions for phones (desktop actions hide ≤768px, same as index.html) -->
+    <div class="nav-actions-mobile">
+      ${paying ? '' : `<button class="nav-unlock-m" onclick="location.href='/#unlock'">Unlock<img src="/ca-logo.png" alt="" class="nav-unlock-m-logo" onerror="this.style.display='none'"></button>`}
+      ${navAccountM}
+    </div>
   </nav>
-  <!-- Mobile dropdown menu (matches the home hamburger) -->
-  <div id="ca-detail-menu" class="ca-detail-menu">
-    <a href="/">Home</a>
-    <a href="/#mvp">CA Rankings</a>
-    ${SPORT_PAGES.map(s => `<a href="/${s.slug}" style="padding-left:26px;">${s.label}</a>`).join('\n    ')}
-    <a href="/#esports">Esports</a>
-    <a href="/#leaderboard">Leaderboard</a>
-    <a href="/#about">About</a>
-    <a href="/faq">FAQ</a>
-    <a href="/tools">Betting Calculators</a>
-    <a href="/#account">My Account</a>
+  ${acctDropdown}
+  <!-- Mobile drawer + overlay (same structure/classes as the index.html drawer,
+       so navigation looks and moves identically on every page of the site) -->
+  <div id="ca-drawer-overlay" class="ca-drawer-overlay" onclick="caCloseDrawer()"></div>
+  <div id="ca-drawer" class="ca-drawer" role="navigation" aria-label="Mobile navigation">
+    <div class="ca-drawer-header">
+      <div class="ca-drawer-logo">Capping<span>Alpha</span></div>
+      <button class="ca-drawer-close" aria-label="Close menu" onclick="caCloseDrawer()">&#x2715;</button>
+    </div>
+    <a class="ca-drawer-nav-item" href="/">Home <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
+    <a class="ca-drawer-nav-item gold" href="/#mvp">
+      <span style="display:inline-flex;align-items:center;gap:8px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Rankings</span>
+      <span class="ca-drawer-nav-chevron" style="color:var(--gold-ink,var(--gold));">&rsaquo;</span>
+    </a>
+    <div class="ca-drawer-account-toggle" onclick="caDrawerSub('ca-drawer-sports-sub','ca-drawer-sports-chev')">
+      Sports <span class="ca-drawer-nav-chevron" id="ca-drawer-sports-chev">&rsaquo;</span>
+    </div>
+    <div id="ca-drawer-sports-sub" class="ca-drawer-sub">
+      ${SPORT_PAGES.map(s => `<a class="ca-drawer-sub-item" href="/${s.slug}">${s.label} <span>&rsaquo;</span></a>`).join('\n      ')}
+    </div>
+    <a class="ca-drawer-nav-item" href="/#esports">Esports <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
+    <a class="ca-drawer-nav-item" href="/#leaderboard">Leaderboard <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
+    <div class="ca-drawer-account-toggle" onclick="caDrawerSub('ca-drawer-about-sub','ca-drawer-about-chev')">
+      <span>About</span> <span class="ca-drawer-nav-chevron" id="ca-drawer-about-chev">&rsaquo;</span>
+    </div>
+    <div id="ca-drawer-about-sub" class="ca-drawer-sub">
+      <a class="ca-drawer-sub-item" href="/#about">About <span>&rsaquo;</span></a>
+      <a class="ca-drawer-sub-item" href="/faq">FAQ <span>&rsaquo;</span></a>
+      <a class="ca-drawer-sub-item" href="/tools">Betting Calculators <span>&rsaquo;</span></a>
+    </div>
+    <div class="ca-drawer-account-toggle" onclick="caDrawerSub('ca-drawer-account-sub','ca-drawer-account-chev')">
+      <span>My Account</span> <span class="ca-drawer-nav-chevron" id="ca-drawer-account-chev">&rsaquo;</span>
+    </div>
+    <div id="ca-drawer-account-sub" class="ca-drawer-sub">
+      ${paying ? '' : `<a class="ca-drawer-sub-item" href="/#unlock">Premium Access <span>&rsaquo;</span></a>`}
+      <a class="ca-drawer-sub-item" href="/#tracking">My Tracking <span>&rsaquo;</span></a>
+      <a class="ca-drawer-sub-item" href="/#settings">Settings <span>&rsaquo;</span></a>
+      <a class="ca-drawer-sub-item" href="/#about">Support <span>&rsaquo;</span></a>
+    </div>
+    ${on ? '' : `
+    <div class="ca-drawer-footer">
+      <button class="btn" onclick="location.href='/#unlock'">Unlock CappingAlpha</button>
+      <div class="ca-drawer-login-row">Already have access? <a onclick="caNavLogin()">Log in</a></div>
+    </div>`}
   </div>
+
+  <!-- Mobile bottom tab bar (same items as the index.html tab bar) -->
+  <nav class="ca-tabbar" aria-label="Primary">
+    <a class="ca-tabbar-item" href="/"><i class="fa-solid fa-house"></i><span>Home</span></a>
+    <a class="ca-tabbar-item" href="/#mvp"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></a>
+    <button class="ca-tabbar-item" onclick="caOpenDrawerSports()"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <a class="ca-tabbar-item" href="/#tracking"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></a>
+  </nav>
   <script>
     // About nav dropdown: click toggles, outside click + Escape close (same
     // behavior as the SPA nav's About menu in index.html).
@@ -226,7 +278,51 @@ function buildNav(user) {
       var sw = document.getElementById('ca-sports-nav');
       if (!(sw && sw.contains(e.target))) caCloseSportsMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseSportsMenu(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseSportsMenu(); caCloseDrawer(); } });
+
+    // ── Mobile drawer (same behavior as app.js toggleDrawer/closeDrawer) ──
+    function caToggleDrawer() {
+      var o = document.getElementById('ca-drawer-overlay');
+      var d = document.getElementById('ca-drawer');
+      if (!o || !d) return;
+      if (d.classList.contains('open')) { caCloseDrawer(); return; }
+      o.classList.add('open');
+      d.classList.add('open');
+    }
+    function caCloseDrawer() {
+      var o = document.getElementById('ca-drawer-overlay');
+      var d = document.getElementById('ca-drawer');
+      if (!o || !d) return;
+      o.classList.remove('open');
+      d.classList.remove('open');
+      ['ca-drawer-sports-sub', 'ca-drawer-about-sub', 'ca-drawer-account-sub'].forEach(function (id) {
+        var s = document.getElementById(id); if (s) s.classList.remove('open');
+      });
+      ['ca-drawer-sports-chev', 'ca-drawer-about-chev', 'ca-drawer-account-chev'].forEach(function (id) {
+        var c = document.getElementById(id); if (c) c.innerHTML = '&rsaquo;';
+      });
+    }
+    function caDrawerSub(subId, chevId) {
+      var s = document.getElementById(subId);
+      var c = document.getElementById(chevId);
+      if (!s) return;
+      var open = s.classList.toggle('open');
+      if (c) c.innerHTML = open ? '&#9662;' : '&rsaquo;';
+    }
+    // Tab bar "Sports": open the drawer with the sports list expanded.
+    function caOpenDrawerSports() {
+      var d = document.getElementById('ca-drawer');
+      if (d && !d.classList.contains('open')) caToggleDrawer();
+      var s = document.getElementById('ca-drawer-sports-sub');
+      var c = document.getElementById('ca-drawer-sports-chev');
+      if (s && !s.classList.contains('open')) { s.classList.add('open'); if (c) c.innerHTML = '&#9662;'; }
+    }
+    // Login from pages that don't ship the auth module (e.g. /tools): fall back
+    // to the SPA, which opens the login modal for logged-out #account visits.
+    function caNavLogin() {
+      if (typeof window.openLogin === 'function') { caCloseDrawer(); window.openLogin(); }
+      else location.href = '/#account';
+    }
   </script>`;
 }
 
@@ -310,7 +406,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>${esc(title)}</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -336,9 +432,9 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css" />
+  <link rel="stylesheet" href="/game-detail.css?v=2" />
   <link rel="stylesheet" href="/gauge.css" />
-  <link rel="stylesheet" href="/track-sheet.css" />
+  <link rel="stylesheet" href="/track-sheet.css?v=2" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -551,7 +647,7 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=4"></script>
+<script type="module" src="/game-detail.js?v=5"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
 <script type="module" src="/modules/track.js?v=43"></script>

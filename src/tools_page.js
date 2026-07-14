@@ -297,7 +297,9 @@ const TOOLS_CSS = `
 .tools-card p { font-size: 13px; margin: 0; color: var(--muted, #9aa4b2); line-height: 1.45; }
 .tool-calc { background: var(--card, #141a24); border: 1px solid var(--line, #232b38); border-radius: 12px; padding: 18px; margin: 18px 0; }
 .tool-calc label { display: block; font-size: 13px; color: var(--muted, #9aa4b2); margin: 10px 0 4px; }
-.tool-calc input, .tool-calc select { width: 100%; max-width: 260px; display: block; background: #0d1119; color: #e8edf4; border: 1px solid var(--line, #232b38); border-radius: 8px; padding: 9px 10px; font-size: 15px; }
+/* 16px minimum: anything smaller makes iOS Safari zoom the page when the input
+   takes focus, and the zoom sticks after (the "floating screen" bug). */
+.tool-calc input, .tool-calc select { width: 100%; max-width: 260px; display: block; background: #0d1119; color: #e8edf4; border: 1px solid var(--line, #232b38); border-radius: 8px; padding: 9px 10px; font-size: 16px; }
 .tool-calc input:focus, .tool-calc select:focus { outline: none; border-color: var(--gold, #d4af37); }
 .tool-calc select { max-width: 340px; }
 .tool-add { background: none; border: 1px dashed var(--line, #232b38); color: var(--muted, #9aa4b2); border-radius: 8px; padding: 6px 12px; margin-top: 10px; cursor: pointer; font-size: 13px; }
@@ -318,7 +320,7 @@ function pageShell({ title, desc, canonical, jsonLd, body, user }) {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>${esc(title)}</title>
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
@@ -341,7 +343,8 @@ function pageShell({ title, desc, canonical, jsonLd, body, user }) {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/game-detail.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="/game-detail.css?v=2" />
   <style>${TOOLS_CSS}</style>
   <script type="application/ld+json">${jsonLd}</script>
 </head>

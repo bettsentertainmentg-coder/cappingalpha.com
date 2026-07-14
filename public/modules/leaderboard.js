@@ -316,8 +316,8 @@ function table(rows, minVotes, window) {
   const body = sortedRows(rows).map(r => {
     const cls = r.is_house ? 'lb-row lb-house' : `lb-row${r.is_me ? ' lb-me' : ''}`;
     const member = r.is_house
-      ? `<div class="lb-member"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1a2030,#3b82f6);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;flex-shrink:0;">CA</div>${r.username}${r.sport ? ' ' + sportBadge(r.sport) : ''} <span class="lb-house-badge">Official</span></div>`
-      : `<div class="lb-member">${avatarFor(r.username, 30)} @${r.username}${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(r)}</div>`;
+      ? `<div class="lb-member"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1a2030,#3b82f6);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;flex-shrink:0;">CA</div><span class="lb-member-name">${r.username}</span>${r.sport ? ' ' + sportBadge(r.sport) : ''} <span class="lb-house-badge">Official</span></div>`
+      : `<div class="lb-member">${avatarFor(r.username, 30)} <span class="lb-member-name">@${r.username}</span>${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(r)}</div>`;
     return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? "View the CA Rankings" : 'View profile'}">
       <td class="lb-left lb-rank${r.rank === 1 ? ' lb-r1' : ''}">${r.rank}${rankMedal(r.rank)}</td>
       <td class="lb-left">${member}</td>

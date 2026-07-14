@@ -1362,11 +1362,27 @@ function renderLines() {
     return src.ml_home;
   };
 
+  // Open (ESPN): the true opening line from ESPN's odds history (line_history
+  // 'opening' row — ESPN's own open values, locked at our earliest capture).
+  // Falls back to today's board values for sports/games with no history row.
+  const lhOpen = _data.lineHistory?.opening || null;
   const openGame = {
-    spread_away: game.spread_away, spread_home: game.spread_home,
-    ml_away: game.ml_away,         ml_home: game.ml_home,         ml_draw: game.ml_draw,
-    over_under: game.over_under,   ou_over_odds: game.ou_over_odds, ou_under_odds: game.ou_under_odds,
+    spread_away: lhOpen?.spread_home != null ? (lhOpen.spread_home === 0 ? 0 : -lhOpen.spread_home) : game.spread_away,
+    spread_home: lhOpen?.spread_home ?? game.spread_home,
+    ml_away: lhOpen?.ml_away ?? game.ml_away,
+    ml_home: lhOpen?.ml_home ?? game.ml_home,
+    ml_draw: game.ml_draw,
+    over_under: lhOpen?.over_under ?? game.over_under,
+    ou_over_odds: game.ou_over_odds, ou_under_odds: game.ou_under_odds,
   };
+  // Earliest moment we captured odds for this game — small grey stamp under the label.
+  let openCapturedAt = '';
+  if (lhOpen?.captured_at) {
+    const capD = new Date(lhOpen.captured_at);
+    if (!isNaN(capD)) {
+      openCapturedAt = capD.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+  }
 
   // Every book the odds engine or the crons have stored appears here. Regulated
   // books first; offshore books group after them with a visible tag (their lines
@@ -1377,7 +1393,7 @@ function renderLines() {
   const offTag = `<span class="ca-lt-offshore" title="Offshore book. Line shown for information only.">offshore</span>`;
 
   const regulated = [
-    { key: 'open',       book: 'Open (ESPN)', src: openGame, prev: null },
+    { key: 'open',       book: 'Open (ESPN)', src: openGame, prev: null, sub: openCapturedAt, subTitle: 'Earliest time we captured this line' },
     { key: 'draftkings', book: 'DraftKings',  src: dk,       prev: dk   },
     { key: 'fanduel',    book: 'FanDuel',     src: fd,       prev: null },
   ];
@@ -1476,8 +1492,11 @@ function renderLines() {
     }
 
     const drawVal = threeWay ? drawFn(r.src) : null;
+    const bookHtml = r.sub
+      ? `<span>${r.book}</span><span class="ca-lt-book-vol"${r.subTitle ? ` title="${r.subTitle}"` : ''}>${r.sub}</span>`
+      : r.book;
     return `<div class="ca-lt-row">
-      <div class="ca-lt-book">${r.book}</div>
+      <div class="ca-lt-book">${bookHtml}</div>
       <div class="ca-lt-val ca-num">${awayVal != null ? awayVal : '<span class="ca-lt-na">—</span>'}${awayDelta}</div>
       <div class="ca-lt-val ca-num">${homeVal != null ? homeVal : '<span class="ca-lt-na">—</span>'}${homeDelta}</div>
       ${threeWay ? `<div class="ca-lt-val ca-num">${drawVal != null ? drawVal : '<span class="ca-lt-na">—</span>'}</div>` : ''}

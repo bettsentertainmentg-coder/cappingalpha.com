@@ -7,7 +7,7 @@ import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=5';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
-import { loadLeaderboard } from './modules/leaderboard.js?v=8';
+import { loadLeaderboard } from './modules/leaderboard.js?v=9';
 import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=54';
 import './modules/track.js?v=45';
 import './modules/books.js?v=2';

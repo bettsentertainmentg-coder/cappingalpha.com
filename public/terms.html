@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Terms of Service | CappingAlpha</title>
 
   <!-- ── Favicon / app icons ── -->
@@ -60,10 +60,16 @@
     }
     .site-header-back:hover { color: #3b82f6; text-decoration: none; }
     .terms-footer-version {
-      position: fixed; right: 14px; bottom: 12px;
+      position: fixed; right: 14px; bottom: max(12px, env(safe-area-inset-bottom));
       font-size: 11px; color: #4a5468; opacity: 0.55;
       pointer-events: none; letter-spacing: .03em;
     }
+
+    /* App-ready mobile guards (match index.html / game-detail.css) */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    html, body { max-width: 100%; overflow-x: hidden; overflow-x: clip; }
+    a, button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    main, article, section, p, li, td { overflow-wrap: break-word; }
   </style>
 </head>
 <body>

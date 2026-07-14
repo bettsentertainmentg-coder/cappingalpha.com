@@ -1220,10 +1220,12 @@ try {
       ml_home      REAL,
       ml_away      REAL,
       over_under   REAL,
+      captured_at  TEXT,
       UNIQUE(espn_game_id, book, recorded_at)
     )
   `);
 } catch (_) {}
+try { db.exec(`ALTER TABLE line_history ADD COLUMN captured_at TEXT`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_lh_game ON line_history (espn_game_id, recorded_at DESC)`); } catch (_) {}
 
 // ── Polymarket prediction market cache ───────────────────────────────────────

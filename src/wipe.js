@@ -19,11 +19,13 @@ const { cycleDateForInstant, cycleClearCutoff } = require('./cycle');
 // Tables with no carryover semantics — always cleared at 4:58am, re-synced at 5am.
 // (skipped_messages is intentionally NOT here — it's the pending-attribution queue,
 //  age-pruned to 3 days inside pruneStaleGames so forward skips survive to re-match.)
+// (line_history is intentionally NOT here — its 'opening' row is the earliest
+//  odds capture for a game, often taken a day+ early via the forward window, and
+//  a full wipe would re-stamp it at 5am. It's pruned per-game below instead.)
 const FULL_WIPE_TABLES = [
   'live_games',
   'scanner_state',
   'live_lines',
-  'line_history',
   'polymarket_cache',
   'kalshi_cache',
 ];
@@ -92,6 +94,7 @@ function pruneStaleGames() {
     deleted.picks = db.prepare(`DELETE FROM picks WHERE ${delPicksWhere}`).run(...keep).changes;
     deleted.games = db.prepare(`DELETE FROM today_games WHERE ${delGamesWhere}`).run(...keep).changes;
     db.prepare(`DELETE FROM line_snapshots WHERE ${delSnapWhere}`).run(...keep);
+    db.prepare(`DELETE FROM line_history WHERE ${delGamesWhere}`).run(...keep);
     // Age-prune the pending-attribution queue.
     db.prepare(`DELETE FROM skipped_messages WHERE skipped_at < datetime('now','-${GRACE_DAYS} days')`).run();
     // Props are day-of data at ~50k rows/day full-scale; no long-term read

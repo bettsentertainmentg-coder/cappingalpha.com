@@ -1,7 +1,10 @@
 // src/line_history.js
 // Fetches opening line data from ESPN's sports.core API (odds endpoint).
 // The /odds endpoint returns both open and current values per provider.
-// We store the opening values with INSERT OR IGNORE so they lock on first write.
+// The opening row locks on first write and carries captured_at — the earliest
+// moment we saw odds for the game. Forward games (today+2d) are synced too, so
+// the open is usually captured a day or more before game day; rows survive the
+// daily reset (per-game prune in wipe.js) so that early capture is never lost.
 // Free, no auth, no rate limit. Called every 15 min + every 5 min for soon games.
 
 const db = require('./db');
@@ -9,6 +12,7 @@ const db = require('./db');
 // ESPN sport → path for sports.core.api.espn.com
 const ESPN_PATH = {
   NBA:   { sport: 'basketball',       league: 'nba' },
+  WNBA:  { sport: 'basketball',       league: 'wnba' },
   MLB:   { sport: 'baseball',         league: 'mlb' },
   NHL:   { sport: 'hockey',           league: 'nhl' },
   NFL:   { sport: 'americanfootball', league: 'nfl' },
@@ -64,30 +68,52 @@ async function fetchAndStore(game) {
     const curMlA     = away?.moneyLine ?? null;
     const curOU      = item.overUnder  ?? null;
 
-    // Opening values (from the 'open' sub-object)
+    // Opening values (from the 'open' sub-objects). The open total lives at
+    // item.open.total (openOverUnder is never populated); fall back to current
+    // like the other fields — first capture is the earliest we can know.
     const openSpreadH = parseAmerican(home?.open?.pointSpread?.american) ?? curSpreadH;
     const openMlH     = parseAmerican(home?.open?.moneyLine?.american)    ?? curMlH;
     const openMlA     = parseAmerican(away?.open?.moneyLine?.american)    ?? curMlA;
-    const openOU      = item.openOverUnder ?? null; // may not exist
+    const openOU      = parseAmerican(item.open?.total?.american) ?? item.openOverUnder ?? curOU;
 
-    // Store opening snapshot with INSERT OR IGNORE (locked after first write per day)
-    db.prepare(`
-      INSERT OR IGNORE INTO line_history
-        (espn_game_id, book, recorded_at, spread_home, ml_home, ml_away, over_under)
-      VALUES (?, 'espn_dk', 'opening', ?, ?, ?, ?)
-    `).run(game.espn_game_id, openSpreadH, openMlH, openMlA, openOU);
+    const now = new Date().toISOString();
+
+    // Store opening snapshot with INSERT OR IGNORE (locked on first write, kept
+    // for the game's lifetime). Skip when ESPN has no values yet — an all-null
+    // row would lock and block the real open from ever landing.
+    const hasOpen = openSpreadH != null || openMlH != null || openMlA != null || openOU != null;
+    if (hasOpen) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO line_history
+          (espn_game_id, book, recorded_at, spread_home, ml_home, ml_away, over_under, captured_at)
+        VALUES (?, 'espn_dk', 'opening', ?, ?, ?, ?, ?)
+      `).run(game.espn_game_id, openSpreadH, openMlH, openMlA, openOU, now);
+      if (!ins.changes) {
+        // Row already locked — fill only fields that were null at first capture
+        // (ESPN's open values are retroactive facts). Never overwrite a value.
+        db.prepare(`
+          UPDATE line_history SET
+            spread_home = COALESCE(spread_home, ?),
+            ml_home     = COALESCE(ml_home, ?),
+            ml_away     = COALESCE(ml_away, ?),
+            over_under  = COALESCE(over_under, ?)
+          WHERE espn_game_id = ? AND book = 'espn_dk' AND recorded_at = 'opening'
+        `).run(openSpreadH, openMlH, openMlA, openOU, game.espn_game_id);
+      }
+    }
 
     // Store current snapshot — update existing (we always want the latest)
     db.prepare(`
       INSERT INTO line_history
-        (espn_game_id, book, recorded_at, spread_home, ml_home, ml_away, over_under)
-      VALUES (?, 'espn_dk', 'current', ?, ?, ?, ?)
+        (espn_game_id, book, recorded_at, spread_home, ml_home, ml_away, over_under, captured_at)
+      VALUES (?, 'espn_dk', 'current', ?, ?, ?, ?, ?)
       ON CONFLICT(espn_game_id, book, recorded_at) DO UPDATE SET
         spread_home = excluded.spread_home,
         ml_home     = excluded.ml_home,
         ml_away     = excluded.ml_away,
-        over_under  = excluded.over_under
-    `).run(game.espn_game_id, curSpreadH, curMlH, curMlA, curOU);
+        over_under  = excluded.over_under,
+        captured_at = excluded.captured_at
+    `).run(game.espn_game_id, curSpreadH, curMlH, curMlA, curOU, now);
 
   } catch (_) {
     // Silently ignore — endpoint may not have data for all sports

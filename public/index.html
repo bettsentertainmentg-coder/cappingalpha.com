@@ -222,9 +222,15 @@
     html[data-theme="light"] .ca-tg-ca-lock { text-shadow: none; }
 
     html, body {
-      /* Never let the page itself scroll/zoom sideways — only inner rows do. */
+      /* Never let the page itself scroll/zoom sideways — only inner rows do.
+         `clip` (over `hidden`, where supported) avoids creating a scroll
+         container, which is what breaks position:sticky on iOS Safari.
+         overscroll-behavior-x stops sideways rubber-banding from chaining
+         out of edge-scrolled rails into the page. */
       max-width: 100%;
       overflow-x: hidden;
+      overflow-x: clip;
+      overscroll-behavior-x: none;
     }
     body {
       font-family: 'Source Sans Pro', sans-serif;
@@ -579,9 +585,10 @@
       }
       .ca-tabbar-item i { font-size: 18px; }
       .ca-tabbar-item.active { color: var(--accent); }
-      /* Lift the FAB above the tab bar; keep page content clear of the fixed bar. */
-      .track-fab { bottom: calc(60px + env(safe-area-inset-bottom)); padding: 11px 16px; }
-      body { padding-bottom: 56px; }
+      /* Lift the FAB above the tab bar; keep page content clear of the fixed bar
+         (bar is ~48px of items + the home-indicator inset on notched phones). */
+      .track-fab { bottom: calc(64px + env(safe-area-inset-bottom)); padding: 11px 16px; }
+      body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
     }
 
     .track-overlay {
@@ -628,7 +635,7 @@
     .track-submit:hover:not(:disabled) { filter: brightness(1.05); }
 
     .track-game-search #tg-search { width: 100%; padding: 11px 14px; font-size: 14px; margin-bottom: 10px; }
-    .tg-results { height: 46vh; overflow-y: auto; } /* fixed height so day-stepping never collapses/flickers the sheet */
+    .tg-results { height: 46vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; } /* fixed height so day-stepping never collapses/flickers the sheet */
     .tg-row {
       display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px;
       background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: inherit;
@@ -1006,6 +1013,10 @@
       cursor: pointer;
     }
     .ca-cookie-banner button:hover { opacity: 0.9; }
+    /* Phones: the banner rides above the fixed tab bar instead of covering it. */
+    @media (max-width: 768px) {
+      .ca-cookie-banner { bottom: calc(64px + env(safe-area-inset-bottom)); }
+    }
     footer .footer-col a { color: var(--muted); text-decoration: none; }
     footer .footer-col a:hover { color: var(--accent); }
 
@@ -1053,17 +1064,26 @@
     .lb-priv-knob { position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: transform .16s; }
     .lb-priv-toggle.is-public .lb-priv-knob { transform: translateX(15px); }
     .lb-windows { display: flex; justify-content: center; gap: 6px; margin: 4px auto 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px; max-width: 540px; }
-    .lb-win-btn { flex: 1; background: none; border: none; color: var(--muted); font-family: inherit; font-size: 15.5px; font-weight: 800; letter-spacing: .01em; padding: 12px 20px; border-radius: 999px; cursor: pointer; transition: all .14s; }
+    /* min-width:0 + nowrap: three labels must always shrink INTO the pill row.
+       Without it their min-content (~405px) beats a phone's 342px content box,
+       overflows right, and gives iOS an excuse to pan the whole page. */
+    .lb-win-btn { flex: 1; min-width: 0; white-space: nowrap; background: none; border: none; color: var(--muted); font-family: inherit; font-size: 15.5px; font-weight: 800; letter-spacing: .01em; padding: 12px 20px; border-radius: 999px; cursor: pointer; transition: all .14s; }
     .lb-win-btn:hover { color: var(--text); }
     .lb-win-btn.active { color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); box-shadow: 0 2px 10px rgba(255,215,0,0.25); }
+    @media (max-width: 480px) {
+      .lb-windows { padding: 5px; gap: 4px; }
+      .lb-win-btn { font-size: 13px; padding: 10px 6px; }
+    }
 
-    /* Stat cards */
+    /* Stat cards — min-width:0 + overflow clip + anywhere-wrap so a long
+       @handle wraps inside its own card instead of painting over the neighbor. */
     .lb-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 22px; }
-    .lb-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+    .lb-stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; min-width: 0; overflow: hidden; }
     .lb-stat-card.house { border-color: rgba(59,130,246,0.4); background: linear-gradient(180deg, rgba(59,130,246,0.07), var(--surface)); }
     .lb-stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
-    .lb-stat-val { font-size: 24px; font-weight: 800; margin-top: 6px; line-height: 1.1; }
+    .lb-stat-val { font-size: 24px; font-weight: 800; margin-top: 6px; line-height: 1.1; overflow-wrap: anywhere; }
     .lb-stat-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    @media (max-width: 480px) { .lb-stat-val { font-size: 20px; } }
 
     /* Podium */
     .lb-podium { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 12px; align-items: end; margin-bottom: 24px; }
@@ -1081,6 +1101,15 @@
     .lb-podium-rec { font-size: 12px; color: var(--muted); margin-top: 1px; }
     .lb-podium-empty { opacity: 0.45; }
     .lb-podium-house-tag { display: inline-block; margin-top: 2px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); padding: 1px 7px; border-radius: 999px; }
+    /* Phones: all three podium slots always fit the screen edge-to-edge. */
+    @media (max-width: 480px) {
+      .lb-podium { gap: 8px; }
+      .lb-podium-slot { padding: 12px 6px 12px; min-width: 0; }
+      .lb-podium-1 { padding-top: 20px; padding-bottom: 18px; }
+      .lb-podium-name { font-size: 12px; }
+      .lb-podium-units { font-size: 16px; }
+      .lb-podium-rec { font-size: 11px; }
+    }
 
     /* How it works */
     .lb-howto { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 20px; margin-top: 24px; }
@@ -1092,8 +1121,10 @@
     .lb-howto-p { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
     .lb-banner { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .lb-banner.me { border-color: rgba(255,215,0,0.35); background: rgba(255,215,0,0.04); }
-    .lb-table-scroll { max-height: 612px; overflow-y: auto; }
-    .lb-table-scroll::-webkit-scrollbar { width: 6px; }
+    /* Explicit two-axis scroll container: momentum scrolling, no scroll-chaining
+       into the page (the table used to rubber-band the whole screen on iOS). */
+    .lb-table-scroll { max-height: 612px; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+    .lb-table-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
     .lb-table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
     .lb-table { width: 100%; border-collapse: collapse; }
     .lb-table th { text-align: right; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; padding: 8px 10px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
@@ -1111,8 +1142,9 @@
     .lb-row.lb-house:hover { background: rgba(59,130,246,0.12); }
     .lb-rank { width: 44px; font-weight: 800; color: var(--muted); }
     .lb-rank.lb-r1 { color: var(--gold-ink); }
-    .lb-member { display: flex; align-items: center; gap: 10px; font-weight: 600; }
-    .lb-house-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); padding: 2px 8px; border-radius: 999px; }
+    .lb-member { display: flex; align-items: center; gap: 10px; font-weight: 600; min-width: 0; }
+    .lb-member-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lb-house-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a1205; background: linear-gradient(135deg, #FFD700, #f0b400); padding: 2px 8px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
     .lb-follow-cell { text-align: right; width: 96px; }
     .lb-follow-btn {
       background: none; border: 1px solid var(--accent); color: var(--accent);
@@ -1125,6 +1157,32 @@
     .lb-units.pos { color: var(--green); font-weight: 700; }
     .lb-units.neg { color: var(--red); font-weight: 700; }
     .lb-mini-medal { font-size: 11px; margin-left: 4px; }
+
+    /* ── Leaderboard table on phones: "sticky rail" pattern ──
+       Rank + Member pin to the left while Record/Win%/Units/ROI scroll under
+       them, so a horizontally scrolled row never loses who it belongs to. */
+    @media (max-width: 768px) {
+      .lb-table td { padding: 10px 8px; font-size: 13px; }
+      .lb-table th { padding: 8px 8px; }
+      .lb-table th:first-child, .lb-table td:first-child { width: 44px; min-width: 44px; max-width: 44px; }
+      .lb-table th:nth-child(-n+2), .lb-table td:nth-child(-n+2) { position: sticky; background: var(--surface); }
+      .lb-table td:nth-child(1) { left: 0; z-index: 2; }
+      .lb-table td:nth-child(2) { left: 44px; z-index: 2; border-right: 1px solid var(--border); }
+      /* header cells stick on BOTH axes (top from the base rule + left here) */
+      .lb-table th:nth-child(1) { left: 0; z-index: 3; }
+      .lb-table th:nth-child(2) { left: 44px; z-index: 3; border-right: 1px solid var(--border); }
+      /* sticky cells repaint the row tints (they need opaque backgrounds) */
+      .lb-row:hover td:nth-child(-n+2) { background: var(--surface2); }
+      .lb-row.lb-house td:nth-child(-n+2) { background: color-mix(in srgb, var(--surface) 93%, #3b82f6 7%); }
+      .lb-row.lb-house:hover td:nth-child(-n+2) { background: color-mix(in srgb, var(--surface) 88%, #3b82f6 12%); }
+      .lb-row.lb-me td:nth-child(-n+2) { background: color-mix(in srgb, var(--surface) 95%, #FFD700 5%); }
+      /* Badges wrap under the name so the sticky member column stays narrow
+         enough for the record/win% columns to peek in (scroll affordance). */
+      .lb-member { gap: 6px 8px; flex-wrap: wrap; max-width: 168px; }
+      .lb-member-name { max-width: 124px; }
+      .lb-follow-cell { width: 84px; }
+      .lb-follow-btn { padding: 4px 10px; }
+    }
 
     /* Member profile badges — always a single, top-aligned row regardless of counts */
     .mp-badges { display: flex; flex-wrap: nowrap; gap: 30px; justify-content: center; align-items: flex-start; margin: 14px 0 2px; }
@@ -2330,9 +2388,12 @@
 
     /* ── Mobile drawer — Yahoo Finance style ── */
     .ca-drawer {
-      position: fixed; top: 0; left: -320px; width: 300px; height: 100vh;
+      /* 100dvh where supported: 100vh hides the drawer footer behind the iOS
+         Safari toolbar because vh ignores the collapsed browser chrome. */
+      position: fixed; top: 0; left: -320px; width: 300px; height: 100vh; height: 100dvh;
       background: var(--surface); border-right: 1px solid var(--border);
       z-index: 201; transition: left .24s ease; overflow-y: auto;
+      overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
       display: flex; flex-direction: column;
     }
     .ca-drawer.open { left: 0; }
@@ -2386,7 +2447,7 @@
 
     /* Auth footer */
     .ca-drawer-footer {
-      padding: 20px 20px 28px; margin-top: auto;
+      padding: 20px 20px calc(28px + env(safe-area-inset-bottom)); margin-top: auto;
       border-top: 1px solid var(--border);
     }
 
@@ -2577,6 +2638,20 @@
       .unlock-pillars { grid-template-columns: repeat(2,1fr); }
       .unlock-price-row { grid-template-columns: 1fr; max-width:340px; }
       .uc-row { grid-template-columns: 1fr 70px 90px; }
+    }
+
+    /* ── App-ready mobile polish (keep in sync with game-detail.css) ──
+       1. Text-entry controls never render under 16px on phones: iOS Safari
+          auto-zooms the whole page when a smaller input takes focus, and the
+          zoom sticks after — the "floating screen" bug.
+       2. No grey tap flash; no double-tap-to-zoom delay on controls. */
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    a, button, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
+    a, button { touch-action: manipulation; }
+    @media (max-width: 768px) {
+      input[type="text"], input[type="number"], input[type="email"],
+      input[type="password"], input[type="search"], input:not([type]),
+      select, textarea { font-size: 16px !important; }
     }
   </style>
 </head>
@@ -3353,6 +3428,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=72"></script>
+  <script type="module" src="app.js?v=73"></script>
 </body>
 </html>
