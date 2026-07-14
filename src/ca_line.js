@@ -1,25 +1,26 @@
 // src/ca_line.js — the CA official line lock.
 //
-// THE RULE (Jack): a game's line locks at WHICHEVER COMES FIRST —
-//   (a) 90 MINUTES BEFORE GAME START, or
-//   (b) the moment a pick on that game crosses the 100-point GOLD threshold.
-// Whatever the market shows at that trigger becomes the official line: the number the
-// CA rankings display and every tracked bet grades against. We write it EVERYWHERE a
-// reader looks (today_games odds, the picks rows the rankings display, line_snapshots
+// THE RULE (Jack, 2026-07-14): a game's line locks ONE HOUR BEFORE GAME START.
+// That is the moment the hypothetical bet is "placed": whatever the market shows
+// at T-60 becomes the official line — the number the CA rankings display and every
+// tracked bet is priced at and grades against. We write it EVERYWHERE a reader
+// looks (today_games odds, the picks rows the rankings display, line_snapshots
 // that grading reads, mvp_picks + pick_history P/L) and set ca_line_locked=1 so no
-// later refresh moves it. Before the trigger, a pick shows the current (5am-seeded)
-// line as a placeholder.
+// later refresh moves it. Before T-60, a pick shows the current (5am-seeded) line
+// as a placeholder. A pick that reaches gold inside the final hour simply inherits
+// the already-locked line (the old lock-on-gold trigger was retired 2026-07-14 —
+// it priced bets hours before the market settled).
 //
-// Pregame only — there is no live in-game line (ESPN drops odds once a game is 'in',
-// and the licensed live feed isn't built yet). By the time a game is live it has
-// already passed T-90 and locked, so the gold trigger only ever fires pre-game.
+// Points are separate: scores keep tallying until the game actually goes live, and
+// the tracked bet can FLIP to the other side any time pregame (mvp.js flip pass).
+// A flipped bet is priced at this same locked line.
 //
-// lockCaLinesAtT90() is the 5-min cron backstop (index.js); lockCaLineOnGold() is
-// called from storage.js the instant a pick reaches gold.
+// Pregame only — there is no live in-game line (ESPN drops odds once a game is
+// 'in'). lockCaLinesAtT60() is the 5-min cron (index.js).
 
 const db = require('./db');
 
-const T90_MS = 90 * 60 * 1000;
+const T60_MS = 60 * 60 * 1000;
 
 // Which book's number counts as "the line". Recognizable licensed US books first,
 // offshore/sharp last. Each market takes its value from the first book in this order
@@ -68,7 +69,7 @@ function sideLine(game, team, pick_type) {
 }
 
 // The display line for a seeded slot — mirrors src/lines.js seedPickSlots exactly so
-// the picks row shows the same shape it always did, now at the T-90 value.
+// the picks row shows the same shape it always did, now at the T-60 value.
 function slotDisplay(pick, line) {
   const t = (pick.pick_type || '').toLowerCase();
   const isHome = pick.is_home_team === 1;
@@ -137,10 +138,10 @@ function lockCaLineForGame(game) {
   catch (e) { console.error(`[ca_line] lock failed for ${game && game.espn_game_id}:`, e.message); return false; }
 }
 
-// TRIGGER (a): T-90 backstop. Lock every pre-game within 90 min of start that isn't
-// locked yet. Idempotent, cheap, safe to run every 5 min.
-function lockCaLinesAtT90() {
-  const cutoff = new Date(Date.now() + T90_MS).toISOString();
+// THE trigger: T-60. Lock every pre-game within 1 hour of start that isn't locked
+// yet. Idempotent, cheap, safe to run every 5 min.
+function lockCaLinesAtT60() {
+  const cutoff = new Date(Date.now() + T60_MS).toISOString();
   let games = [];
   try {
     games = db.prepare(`
@@ -151,22 +152,8 @@ function lockCaLinesAtT90() {
   } catch (_) { return 0; }
   let locked = 0;
   for (const game of games) if (lockCaLineForGame(game)) locked++;
-  if (locked) console.log(`[ca_line] T-90 locked ${locked} game(s)`);
+  if (locked) console.log(`[ca_line] T-60 locked ${locked} game(s)`);
   return locked;
 }
 
-// TRIGGER (b): gold crossing. Called from storage.js the instant a pick reaches gold.
-// Locks the game's line to the market at THIS moment, but only while the game is still
-// pre-game and not already locked (a game past T-90 is already locked, so this no-ops).
-function lockCaLineOnGold(espn_game_id) {
-  if (!espn_game_id) return false;
-  let game;
-  try { game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id); }
-  catch (_) { return false; }
-  if (!game || game.status !== 'pre' || isLocked(game)) return false;
-  const ok = lockCaLineForGame(game);
-  if (ok) console.log(`[ca_line] gold-locked ${espn_game_id}`);
-  return ok;
-}
-
-module.exports = { lockCaLinesAtT90, lockCaLineOnGold, lockCaLineForGame, bestBookLineForGame };
+module.exports = { lockCaLinesAtT60, lockCaLineForGame, bestBookLineForGame };

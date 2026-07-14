@@ -3227,12 +3227,13 @@ if (!UI_ONLY) cron.schedule('0 6-23 * * *', async () => {
   await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
 }, { timezone: 'America/New_York' });
 
-// CA official line lock: 90 min before each game starts, snapshot the market line and
-// lock it as the number the CA rankings + every tracked bet display and grade against.
-// Cheap gated query; runs every 5 min and is not active-hours-bound (late starts).
+// CA official line lock: 1 hour before each game starts, snapshot the market line and
+// lock it as the number the CA rankings + every tracked bet is priced at and grades
+// against (the "bet placed" moment). Cheap gated query; runs every 5 min and is not
+// active-hours-bound (late starts).
 if (!UI_ONLY) cron.schedule('*/5 * * * *', () => {
-  try { require('./src/ca_line').lockCaLinesAtT90(); }
-  catch (e) { console.error('[cron] lockCaLinesAtT90:', e.message); }
+  try { require('./src/ca_line').lockCaLinesAtT60(); }
+  catch (e) { console.error('[cron] lockCaLinesAtT60:', e.message); }
 }, { timezone: 'America/New_York' });
 
 cron.schedule('*/5 * * * *', () => {

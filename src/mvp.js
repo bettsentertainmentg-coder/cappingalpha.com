@@ -201,6 +201,10 @@ function resolveConflictingMvpPicks() {
         WHERE tg.status = 'pre' AND sb.v3_total >= 100
       `).all();
       let promoted = 0;
+      const pendingOnGame = db.prepare(`
+        SELECT id, score, team, pick_type, spread FROM mvp_picks
+        WHERE espn_game_id = ? AND (result IS NULL OR result NOT IN ('win','loss','push','void'))
+      `);
       for (const p of goldPicks) {
         let isGold = true;
         try {
@@ -211,6 +215,13 @@ function resolveConflictingMvpPicks() {
         const exists = db.prepare(`SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ?`)
           .get(p.team, p.game_date, p.pick_type ?? null);
         if (exists) continue;
+        // Flip guard: never track a side that is already BEATEN — a conflicting
+        // pending row with a strictly higher score owns this game's bet right
+        // now. Without this, the flip pass below would delete the row and this
+        // sweep would re-insert it every 5 minutes.
+        const dim = DIMENSIONS.find(d => d.match(p));
+        if (dim && pendingOnGame.all(p.espn_game_id)
+            .some(o => dim.match(o) && dim.conflict(o, p) && o.score > (p.v3_total ?? 0))) continue;
         try {
           const { saveMvpPick } = require('./storage'); // lazy: avoids any load-order cycle
           saveMvpPick({
@@ -225,6 +236,58 @@ function resolveConflictingMvpPicks() {
         }
       }
       if (promoted) console.log(`[mvp] promotion sweep tracked ${promoted} rescore-minted gold(s)`);
+
+      // ── Pregame flip (Jack 2026-07-14): the bet follows the leader ────────
+      // One tracked bet per game per dimension. If a shift puts the OTHER side
+      // strictly ahead while the game is still pregame, the bet flips: the old
+      // hypothetical bet is REMOVED from the record (pending pregame rows are
+      // never public, /api/mvp hides them) and the new leader rides as its own
+      // flat-unit bet — already inserted by the promotion sweep above, priced
+      // at the game's T-60 locked line by saveMvpPick. Dead ties ride to the
+      // start backstop below (both voided, the existing "rare push"). After
+      // the true start nothing moves; the resolver below is the final word.
+      const flipRows = db.prepare(`
+        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.spread, m.score FROM mvp_picks m
+        JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+        WHERE tg.status = 'pre'
+          AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
+      `).all();
+      const byGame = new Map();
+      for (const r of flipRows) {
+        if (!byGame.has(r.espn_game_id)) byGame.set(r.espn_game_id, []);
+        byGame.get(r.espn_game_id).push(r);
+      }
+      let flipped = 0;
+      for (const [gid, rows] of byGame) {
+        for (const dim of DIMENSIONS) {
+          const inDim = rows.filter(dim.match);
+          if (inDim.length < 2) continue;
+          // Same-call duplicates: keep the oldest row (the original bet stamp).
+          const byKey = new Map();
+          for (const r of inDim) {
+            const k = dim.dedupKey(r);
+            const cur = byKey.get(k);
+            if (!cur) { byKey.set(k, r); continue; }
+            const drop = r.id < cur.id ? cur : r;
+            if (r.id < cur.id) byKey.set(k, r);
+            delStmt.run(drop.id); flipped++;
+          }
+          // Conflicts: a strictly higher score owns the bet; beaten sides are
+          // removed. Sorted so the leader is kept first.
+          const survivors = [...byKey.values()].sort((a, b) => b.score - a.score || a.id - b.id);
+          const kept = [];
+          for (const r of survivors) {
+            const beat = kept.find(k => dim.conflict(k, r) && k.score > r.score);
+            if (beat) {
+              delStmt.run(r.id); flipped++;
+              console.log(`[mvp] pregame flip on ${gid} (${dim.name}): ${beat.team} ${beat.pick_type} (${beat.score}) replaces ${r.team} ${r.pick_type} (${r.score})`);
+            } else {
+              kept.push(r);
+            }
+          }
+        }
+      }
+      if (flipped) console.log(`[mvp] pregame flip removed ${flipped} beaten row(s)`);
     }
   } catch (err) {
     console.warn('[mvp] demotion sweep failed:', err.message);

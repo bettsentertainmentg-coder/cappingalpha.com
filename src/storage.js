@@ -459,10 +459,9 @@ function updateSlot(slot, pick) {
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
 
-  // CA official line — gold trigger: a pick reaching GOLD locks its game's line to the
-  // market right now (the other trigger is the T-90 cron). Runs BEFORE the capture so
-  // the captured line is the gold-moment line. No-ops if the game already locked (T-90).
-  if (isMvp) { try { require('./ca_line').lockCaLineOnGold(slot.espn_game_id); } catch (_) {} }
+  // CA official line: locks at T-60 only (ca_line.js cron). The old lock-on-gold
+  // trigger was retired 2026-07-14 — the bet is priced at the 1-hour line, so a
+  // pick reaching gold earlier keeps tracking the market until then.
 
   // Capture the pick's line from the canonical today_games line (the CA official line
   // once locked; the 5am placeholder before).
@@ -551,10 +550,6 @@ function insertNewPick(pick) {
   const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
   const effTotal = v3Live && v3 ? v3.total : scored.total;
-
-  // CA official line — gold trigger (see updateSlot): lock the game's line the moment
-  // this pick reaches gold, before capturing so cap is the gold-moment line.
-  if (isMvp) { try { require('./ca_line').lockCaLineOnGold(espn_game_id); } catch (_) {} }
 
   const cap = archives
     ? captureLineAtThreshold(pick_id, espn_game_id, team, pick_type)
