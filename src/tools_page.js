@@ -288,7 +288,7 @@ function runCalc(){
 // ── Page CSS (shares game-detail.css variables; scoped to .tools-*) ───────────
 const TOOLS_CSS = `
 .tools-wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
-.tools-hero h1 { font-family: 'Space Grotesk', sans-serif; font-size: 28px; margin: 8px 0 6px; }
+.tools-hero h1 { font-family: 'Source Sans Pro', system-ui, sans-serif; font-weight: 700; letter-spacing: -0.3px; font-size: 28px; margin: 8px 0 6px; }
 .tools-tagline { color: var(--muted, #9aa4b2); margin: 0 0 20px; font-size: 15px; }
 .tools-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 .tools-card { display: block; background: var(--card, #141a24); border: 1px solid var(--line, #232b38); border-radius: 12px; padding: 16px; text-decoration: none; color: inherit; transition: border-color .15s; }
