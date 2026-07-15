@@ -2732,6 +2732,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
             \${rl === 'pending' ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1e2330;color:#64748b;font-size:11px;">Projected — result still pending</div>' : ''}
           </div></div>\`;
 
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
         const chColor = { 'free-plays': '#3b82f6', 'pod-thread': '#8b5cf6', 'community-leaks': '#f59e0b' };
         const msgHtml = messages.length
           ? messages.map(msg => {
@@ -2739,14 +2741,91 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const ts = msg.message_timestamp ? new Date(msg.message_timestamp).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
               return \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:14px;margin-bottom:8px;">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-                  <span style="background:\${cc}22;color:\${cc};border:1px solid \${cc}44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">#\${msg.channel}</span>
-                  \${msg.author ? \`<span style="color:#e2e8f0;font-weight:600;font-size:13px;">\${msg.author}</span>\` : ''}
+                  <span style="background:\${cc}22;color:\${cc};border:1px solid \${cc}44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;">#\${esc(msg.channel)}</span>
+                  \${msg.author ? \`<span style="color:#e2e8f0;font-weight:600;font-size:13px;">\${esc(msg.author)}</span>\` : ''}
                   \${ts ? \`<span style="color:#64748b;font-size:12px;margin-left:auto;">\${ts} ET</span>\` : ''}
                 </div>
-                <div style="color:#cbd5e1;font-size:13px;line-height:1.5;white-space:pre-wrap;">\${msg.message_text || ''}</div>
+                <div style="color:#cbd5e1;font-size:13px;line-height:1.5;white-space:pre-wrap;">\${esc(msg.message_text || '')}</div>
               </div>\`;
             }).join('')
           : '<div style="color:#8892a4;padding:12px 0;">No raw messages on record.</div>';
+
+        // ── Cappers & points: who backed it and what each contributed ──────────
+        const v3 = d.v3 || null, capperRows = d.capperRows || [], ratings = d.ratings || {};
+        const capLink = name => {
+          const nm = String(name ?? '');
+          if (!nm || nm.startsWith('@src:')) return \`<span style="color:#8892a4;">\${esc(nm || 'Anonymous')}</span>\`;
+          return \`<span data-capper="\${esc(nm)}" onclick="showCapperDetail(this.getAttribute('data-capper'))" style="color:#93c5fd;cursor:pointer;font-weight:600;">\${esc(nm)}</span>\`;
+        };
+        const standing = name => {
+          const r = ratings[name];
+          if (!r) return '<span style="color:#3b4560;font-size:11px;margin-left:6px;">unranked</span>';
+          const bits = [];
+          if (r.fade) bits.push(r.fade === 'active' ? 'FADE ACTIVE' : 'FADE WATCH');
+          if (r.wilson_rank != null) bits.push('rank #' + r.wilson_rank);
+          bits.push((r.wins || 0) + '-' + (r.losses || 0));
+          return \`<span style="color:\${r.fade ? '#ef4444' : '#64748b'};font-size:11px;margin-left:6px;">\${esc(bits.join(' · '))}</span>\`;
+        };
+        const tRow = (left, right, opts) => \`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:5px 0;border-bottom:1px solid #1e2330;\${opts && opts.indent ? 'padding-left:14px;' : ''}"><span style="min-width:0;">\${left}</span><span style="white-space:nowrap;font-weight:\${opts && opts.bold ? '700' : '400'};">\${right}</span></div>\`;
+
+        let capperCount = 0;
+        let capperHtml = '';
+        if (v3) {
+          const rows = [];
+          if (v3.advocate) {
+            capperCount++;
+            rows.push(tRow(\`Lead backer: \${capLink(v3.advocate)}\${standing(v3.advocate)}\`, '+' + (v3.resume ?? 0), { bold: true }));
+          } else {
+            rows.push(tRow('<span style="color:#8892a4;">No tracked capper on record (flat unranked points)</span>', '+' + (v3.resume ?? 0)));
+          }
+          for (const j of (v3.joiners || [])) {
+            capperCount++;
+            const note = j.floored
+              ? '<span style="color:#64748b;font-size:11px;"> · under the 12-decision floor, adds 0</span>'
+              : \`<span style="color:#64748b;font-size:11px;"> · own worth \${j.pts}, halved into the stack</span>\`;
+            rows.push(tRow(\`Joined: \${capLink(j.name)}\${standing(j.name)}\${note}\`, '+' + (j.applied ?? 0), { indent: true }));
+          }
+          if (v3.sport_pct && v3.sport_pct.pts) {
+            const where = v3.sport_pct.rank === 1 ? '#1' : 'top ' + Math.max(1, Math.round((v3.sport_pct.pctile ?? 0) * 100)) + '%';
+            rows.push(tRow(\`In-sport bonus <span style="color:#64748b;font-size:11px;">lead backer is \${where} in \${esc(m.sport || 'this sport')}</span>\`, '+' + v3.sport_pct.pts));
+          }
+          if (v3.market && v3.market.pts) {
+            const mb = [];
+            if (v3.market.edge_pts) mb.push('edge ' + v3.market.edge_pts);
+            if (v3.market.steam_pts) mb.push('steam ' + v3.market.steam_pts);
+            if (v3.market.contrarian_pts) mb.push('contrarian ' + v3.market.contrarian_pts);
+            rows.push(tRow(\`Market signals\${mb.length ? ' <span style="color:#64748b;font-size:11px;">' + esc(mb.join(', ')) + '</span>' : ''}\`, '+' + v3.market.pts));
+          }
+          if (v3.lean && v3.lean.pts) rows.push(tRow(\`Side lean <span style="color:#64748b;font-size:11px;">\${esc(v3.lean.side || '')}</span>\`, '+' + v3.lean.pts));
+          for (const f of ((v3.fade_in && v3.fade_in.from) || [])) {
+            capperCount++;
+            rows.push(tRow(\`Fading \${capLink(f.capper)}\${standing(f.capper)} <span style="color:#64748b;font-size:11px;">on the opposite side</span>\`, '+' + f.pts, { indent: true }));
+          }
+          if (v3.conflict_offset) rows.push(tRow('Conflict offset', '+' + v3.conflict_offset));
+          const tierChip = v3.gold ? '<span style="background:#FFD70022;color:#FFD700;border:1px solid #FFD70044;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">GOLD</span>'
+            : v3.silver ? '<span style="background:#c0c8d422;color:#c0c8d4;border:1px solid #c0c8d444;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:8px;">SILVER</span>' : '';
+          rows.push(\`<div style="display:flex;justify-content:space-between;padding:7px 0 0;font-weight:700;"><span style="color:#FFD700;">Total\${tierChip}</span><span style="color:#FFD700;">\${v3.total ?? m.score} pts</span></div>\`);
+          const notes = [];
+          if (v3.totals_gate_ok === false) notes.push('Totals gate: the lead backer has a negative totals record, so this pick does not take the gold tier.');
+          if (v3.total != null && m.score != null && Math.round(v3.total) !== Math.round(m.score)) notes.push('Board total now. The tracked bet froze at ' + Math.round(m.score) + ' when the game started.');
+          capperHtml = \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-size:13px;">\${rows.join('')}\${notes.length ? '<div style="color:#64748b;font-size:11px;margin-top:8px;">' + esc(notes.join(' ')) + '</div>' : ''}</div>\`;
+        } else if (capperRows.length) {
+          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const bySrc = new Map();
+          for (const r of capperRows) {
+            if (!r.capper_name) continue;
+            if (!bySrc.has(r.capper_name)) bySrc.set(r.capper_name, new Set());
+            bySrc.get(r.capper_name).add(r.source || 'discord');
+          }
+          capperCount = bySrc.size;
+          const items = [...bySrc.entries()].map(([name, srcs]) => {
+            const chips = [...srcs].map(s => { const c = SRC[s] || [String(s).slice(0,2).toUpperCase(), '#8892a4']; return \`<span style="background:\${c[1]}22;color:\${c[1]};border:1px solid \${c[1]}44;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:6px;">\${esc(c[0])}</span>\`; }).join('');
+            return \`<div style="padding:5px 0;border-bottom:1px solid #1e2330;">\${capLink(name)}\${chips}\${standing(name)}</div>\`;
+          }).join('');
+          capperHtml = \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-size:13px;">\${items}<div style="color:#64748b;font-size:11px;margin-top:8px;">Backers from the permanent log. The point-by-point tally only lives on the board day, so it is not on record here. Standing shown is current.</div></div>\`;
+        } else {
+          capperHtml = '<div style="color:#8892a4;padding:12px 0;">No capper data on record for this pick.</div>';
+        }
 
         const firstSeen = messages.length && messages[0].message_timestamp
           ? new Date(messages[0].message_timestamp).toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
@@ -2788,8 +2867,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
               }).join('')}
             </div>
           </div>
+          <div style="margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Cappers & Points\${capperCount ? ' (' + capperCount + ')' : ''}</div>
+            \${capperHtml}
+          </div>
           <div>
-            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Cappers & Messages (\${messages.length})</div>
+            <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:10px;">Messages (\${messages.length})</div>
             \${msgHtml}
           </div>\`;
       }
@@ -3792,7 +3875,49 @@ router.get('/mvp-detail/:id', requireAuth, (req, res) => {
   }
   const messages  = pick ? db.prepare(`SELECT * FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, saved_at ASC`).all(pick.id) : [];
   const breakdown = pick ? db.prepare(`SELECT * FROM score_breakdown WHERE pick_id = ? LIMIT 1`).get(pick.id) : null;
-  res.json({ mvp, pick, messages, breakdown });
+
+  // v4 capper tally, parsed from the dual-log. score_breakdown is wiped daily,
+  // so this exists while the pick is on the live board and goes missing after.
+  let v3 = null;
+  if (breakdown && breakdown.v3_json) {
+    try { v3 = { total: breakdown.v3_total, ...JSON.parse(breakdown.v3_json) }; } catch (_) {}
+  }
+
+  // Cappers involved, from the permanent log (survives the wipe; wave-1 source
+  // picks land here as pending rows at ingest). Totals rows can carry either
+  // side's team string, so totals match on game + pick_type only.
+  const isTotalPick = ['over', 'under'].includes((mvp.pick_type || '').toLowerCase());
+  let capperRows = [];
+  if (mvp.espn_game_id) {
+    try {
+      capperRows = isTotalPick
+        ? db.prepare(`SELECT capper_name, source, channel, result, odds FROM capper_history
+                      WHERE espn_game_id = ? AND LOWER(COALESCE(pick_type,'')) = LOWER(?) ORDER BY id ASC`)
+            .all(mvp.espn_game_id, mvp.pick_type || '')
+        : db.prepare(`SELECT capper_name, source, channel, result, odds FROM capper_history
+                      WHERE espn_game_id = ? AND LOWER(team) = LOWER(?) AND LOWER(COALESCE(pick_type,'')) = LOWER(?) ORDER BY id ASC`)
+            .all(mvp.espn_game_id, mvp.team, mvp.pick_type || '');
+    } catch (_) {}
+  }
+
+  // Today's Wilson standing for every name the modal will show. Names on
+  // mentions/history are already canonical, so exact lookup matches the scorer.
+  const names = new Set(capperRows.map(r => r.capper_name).filter(Boolean));
+  if (v3) {
+    if (v3.advocate) names.add(v3.advocate);
+    for (const j of v3.joiners || []) if (j.name) names.add(j.name);
+    for (const f of (v3.fade_in && v3.fade_in.from) || []) if (f.capper) names.add(f.capper);
+  }
+  const ratings = {};
+  for (const n of names) {
+    try {
+      const r = db.prepare(`SELECT band, wilson_rank, percentile, pts, fade, decisions, wins, losses
+                            FROM capper_ratings WHERE canonical_name = ? AND scope = 'overall'`).get(n);
+      if (r) ratings[n] = r;
+    } catch (_) {}
+  }
+
+  res.json({ mvp, pick, messages, breakdown, v3, capperRows, ratings });
 });
 
 // ── GET /admin/game-detail/:espn_game_id — full debug payload ─────────────────
