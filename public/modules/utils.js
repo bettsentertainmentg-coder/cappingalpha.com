@@ -191,19 +191,36 @@ const TWO_WORD_CITIES = new Set([
   'fort worth','st louis','st. louis',
 ]);
 
-export function teamNickname(name) {
+export function teamNickname(name, opponent) {
   if (!name) return '';
   const words = name.trim().split(' ');
   if (words.length <= 1) return name;
   const twoWordCity = (words[0] + ' ' + words[1]).toLowerCase();
-  if (TWO_WORD_CITIES.has(twoWordCity) && words.length > 2) return words.slice(2).join(' ');
-  return words.slice(1).join(' ');
+  const nick = (TWO_WORD_CITIES.has(twoWordCity) && words.length > 2)
+    ? words.slice(2).join(' ')
+    : words.slice(1).join(' ');
+  // Both sides of a game can carry the exact same nickname ("National All-Stars"
+  // vs "American All-Stars") — the tail identifies nothing there, so when the
+  // opponent's nickname is the same word, the lead part of the name is the
+  // identity instead: "National" / "American".
+  if (opponent && nick.toLowerCase() === teamNickname(opponent).toLowerCase()) {
+    const lead = name.trim().slice(0, name.trim().length - nick.length).trim();
+    if (lead) return lead;
+  }
+  return nick;
 }
 
 export function pickLabel(p) {
   const type   = (p.pick_type || '').toLowerCase();
   const spread = p.spread != null ? p.spread : null;
-  const nick   = teamNickname(p.team);
+  // The opponent (when the row carries the matchup) lets teamNickname tell apart
+  // two sides whose nicknames are the exact same word (the All-Star squads).
+  const team = (p.team || '').trim();
+  const opp  = team && p.home_team && p.away_team
+    ? (team === p.home_team.trim() ? p.away_team
+      : team === p.away_team.trim() ? p.home_team : null)
+    : null;
+  const nick   = teamNickname(p.team, opp);
   const isTennis = ['ATP', 'WTA'].includes((p.sport || '').toUpperCase());
   // Tennis lines need a unit. Totals + game spreads are games; set_spread is sets.
   const totalUnit = isTennis ? ' games' : '';

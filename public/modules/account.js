@@ -72,12 +72,26 @@ export async function deleteVote(espn_game_id, slot) {
   } catch (_) {}
 }
 
+// Vote nicknames: last word of each side, except when both sides share the
+// exact same tail ("National All-Stars" vs "American All-Stars") — then the
+// lead part of each name is the only part that identifies the team.
+function voteNicks(v) {
+  let home = (v.home_team || '').trim().split(' ').pop();
+  let away = (v.away_team || '').trim().split(' ').pop();
+  if (home && away && home.toLowerCase() === away.toLowerCase()) {
+    home = (v.home_team || '').trim().split(' ').slice(0, -1).join(' ') || home;
+    away = (v.away_team || '').trim().split(' ').slice(0, -1).join(' ') || away;
+  }
+  return { home, away };
+}
+
 function voteSlotLabel(v) {
+  const n = voteNicks(v);
   return {
-    home_ml:     `${(v.home_team||'').split(' ').pop()} ML`,
-    away_ml:     `${(v.away_team||'').split(' ').pop()} ML`,
-    home_spread: `${(v.home_team||'').split(' ').pop()} Spread`,
-    away_spread: `${(v.away_team||'').split(' ').pop()} Spread`,
+    home_ml:     `${n.home} ML`,
+    away_ml:     `${n.away} ML`,
+    home_spread: `${n.home} Spread`,
+    away_spread: `${n.away} Spread`,
     over:        v.spread ? `Over ${v.spread}` : 'Over',
     under:       v.spread ? `Under ${v.spread}` : 'Under',
   }[v.pick_slot] || v.pick_slot;
@@ -630,27 +644,27 @@ function americanProfit(odds, stake) {
 }
 // Display bits for the record drill-down list: what was picked + the game line.
 function voteSelOf(v) {
-  const nick = (t) => (t || '').split(' ').pop();
+  const n    = voteNicks(v);
   const slot = v.pick_slot || '';
   const spr  = v.spread != null ? (v.spread > 0 ? '+' + v.spread : String(v.spread)) : '';
-  if (slot === 'home_ml')     return `${nick(v.home_team)} ML`;
-  if (slot === 'away_ml')     return `${nick(v.away_team)} ML`;
-  if (slot === 'home_spread') return `${nick(v.home_team)} ${spr}`.trim();
-  if (slot === 'away_spread') return `${nick(v.away_team)} ${spr}`.trim();
+  if (slot === 'home_ml')     return `${n.home} ML`;
+  if (slot === 'away_ml')     return `${n.away} ML`;
+  if (slot === 'home_spread') return `${n.home} ${spr}`.trim();
+  if (slot === 'away_spread') return `${n.away} ${spr}`.trim();
   if (slot === 'over')        return 'Over';
   if (slot === 'under')       return 'Under';
   return slot || 'Pick';
 }
 function voteSubOf(v) {
-  const nick = (t) => (t || '').split(' ').pop();
+  const n = voteNicks(v);
   const t = v.start_time ? Date.parse(v.start_time) : tsOf(v.voted_at);
   const d = t ? new Date(t) : null;
   const ds = d ? `${d.getMonth() + 1}/${d.getDate()}` : '';
   const finalWord = v.status === 'post' ? 'Final' : '';
   if (v.home_score != null && v.away_score != null) {
-    return `${nick(v.away_team)} ${v.away_score} - ${v.home_score} ${nick(v.home_team)}${finalWord || ds ? ` · ${[finalWord, ds].filter(Boolean).join(' ')}` : ''}`;
+    return `${n.away} ${v.away_score} - ${v.home_score} ${n.home}${finalWord || ds ? ` · ${[finalWord, ds].filter(Boolean).join(' ')}` : ''}`;
   }
-  return `${nick(v.away_team)} @ ${nick(v.home_team)}${ds ? ' · ' + ds : ''}`;
+  return `${n.away} @ ${n.home}${ds ? ' · ' + ds : ''}`;
 }
 function buildItems(votes, bets, unit) {
   const items = [];

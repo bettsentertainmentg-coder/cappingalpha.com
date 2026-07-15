@@ -51,8 +51,8 @@ async function _renderTopPick() {
     // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
     // than a bare team name. Logged-out visitors get blurred placeholders.
     const betText = viewer ? 'Yankees Win' : (hasPick ? (pickLabel(pick) || pick.team || '—') : '');
-    const away = (hasPick && pick.away_team) ? teamNickname(pick.away_team) : '';
-    const home = (hasPick && pick.home_team) ? teamNickname(pick.home_team) : '';
+    const away = (hasPick && pick.away_team) ? teamNickname(pick.away_team, pick.home_team) : '';
+    const home = (hasPick && pick.home_team) ? teamNickname(pick.home_team, pick.away_team) : '';
     const matchupText = viewer ? 'New York @ Boston' : ((away && home) ? `${away} @ ${home}` : '');
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).
@@ -370,8 +370,14 @@ function _renderSidebarGames(sport) {
     // /api/games only exposes home_team / away_team — take last word as short name
     const awayFull = g.away_team || 'Away';
     const homeFull = g.home_team || 'Home';
-    const away = awayFull.split(' ').pop();
-    const home = homeFull.split(' ').pop();
+    let away = awayFull.split(' ').pop();
+    let home = homeFull.split(' ').pop();
+    // Exact-same tails ("National All-Stars" vs "American All-Stars") — the
+    // lead part of each name is the only part that identifies the team.
+    if (away.toLowerCase() === home.toLowerCase()) {
+      away = awayFull.split(' ').slice(0, -1).join(' ') || away;
+      home = homeFull.split(' ').slice(0, -1).join(' ') || home;
+    }
 
     return `<div class="ca-sidebar-game-row" onclick="window.location.href='/game/${g.espn_game_id}'">
       <span class="ca-sidebar-game-matchup">${away} @ ${home}</span>

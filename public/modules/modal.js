@@ -149,12 +149,26 @@ const TEAM_COLORS = {
 
 let _modalData = null;
 
+// Short side names: last word of each team, except when both sides share the
+// exact same tail ("National All-Stars" vs "American All-Stars") — then the
+// lead part of each name is the only part that identifies the team.
+function shortSides(awayFull, homeFull) {
+  let away = (awayFull || '').trim().split(' ').pop();
+  let home = (homeFull || '').trim().split(' ').pop();
+  if (away && home && away.toLowerCase() === home.toLowerCase()) {
+    away = (awayFull || '').trim().split(' ').slice(0, -1).join(' ') || away;
+    home = (homeFull || '').trim().split(' ').slice(0, -1).join(' ') || home;
+  }
+  return [away, home];
+}
+
 function buildSlots(game) {
+  const [awayN, homeN] = shortSides(game.away_team, game.home_team);
   return [
-    { key: 'home_ml',     label: `${game.home_team?.split(' ').pop() || 'Home'} Win`,     type: 'ml',     team: game.home_team },
-    { key: 'away_ml',     label: `${game.away_team?.split(' ').pop() || 'Away'} Win`,     type: 'ml',     team: game.away_team },
-    { key: 'home_spread', label: `${game.home_team?.split(' ').pop() || 'Home'} Spread`, type: 'spread', team: game.home_team },
-    { key: 'away_spread', label: `${game.away_team?.split(' ').pop() || 'Away'} Spread`, type: 'spread', team: game.away_team },
+    { key: 'home_ml',     label: `${homeN || 'Home'} Win`,    type: 'ml',     team: game.home_team },
+    { key: 'away_ml',     label: `${awayN || 'Away'} Win`,    type: 'ml',     team: game.away_team },
+    { key: 'home_spread', label: `${homeN || 'Home'} Spread`, type: 'spread', team: game.home_team },
+    { key: 'away_spread', label: `${awayN || 'Away'} Spread`, type: 'spread', team: game.away_team },
     { key: 'over',        label: `Over ${game.over_under || ''}`,                        type: 'over',   team: null },
     { key: 'under',       label: `Under ${game.over_under || ''}`,                       type: 'under',  team: null },
   ];
@@ -225,9 +239,14 @@ export function renderGameModal(data, clickedType, clickedTeam) {
     if (ct === 'over' || ct === 'under') {
       activeSlot = ct;
     } else {
-      const nick     = (clickedTeam || '').split(' ').pop().toLowerCase();
-      const homeNick = (game.home_team || '').split(' ').pop().toLowerCase();
-      const isHome   = nick === homeNick;
+      // Full-name match first — nickname tails can be the exact same word on
+      // both sides (the All-Star squads), which would call every side "home".
+      const ct       = (clickedTeam || '').trim().toLowerCase();
+      const homeFull = (game.home_team || '').trim().toLowerCase();
+      const awayFull = (game.away_team || '').trim().toLowerCase();
+      const nick     = ct.split(' ').pop();
+      const homeNick = homeFull.split(' ').pop();
+      const isHome   = ct === homeFull ? true : ct === awayFull ? false : nick === homeNick;
       if (ct === 'ml')     activeSlot = isHome ? 'home_ml'     : 'away_ml';
       if (ct === 'spread') activeSlot = isHome ? 'home_spread' : 'away_spread';
     }
@@ -421,8 +440,9 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
       const pmType   = pmTypeMap[slotKey];
       const market   = markets[pmType];
       if (market) {
-        const homeNick = game.home_team?.split(' ').pop() || 'Home';
-        const awayNick = game.away_team?.split(' ').pop() || 'Away';
+        const [awayN, homeN] = shortSides(game.away_team, game.home_team);
+        const homeNick = homeN || 'Home';
+        const awayNick = awayN || 'Away';
         const fmtPct = p => p != null ? Math.round(p * 100) + '%' : '—';
         const deltaBadge = (cur, morn) => {
           if (cur == null || morn == null) return '';
@@ -627,8 +647,9 @@ function renderGameData(data) {
 
   // ESPN matchup predictor — win probability per side
   if (stats?.predictor && (stats.predictor.homePct != null || stats.predictor.awayPct != null)) {
-    const awayShort = game.away_team?.split(' ').pop() || 'Away';
-    const homeShort = game.home_team?.split(' ').pop() || 'Home';
+    const [awayS, homeS] = shortSides(game.away_team, game.home_team);
+    const awayShort = awayS || 'Away';
+    const homeShort = homeS || 'Home';
     sections.push(`<div>
       <div class="game-data-heading">ESPN Win Probability</div>
       <div class="game-data-row">${awayShort} <span>${stats.predictor.awayPct != null ? stats.predictor.awayPct + '%' : '—'}</span></div>
@@ -653,8 +674,9 @@ function renderGameData(data) {
       ).join('');
       return `<div class="game-data-row" style="font-weight:600;margin-top:4px;">${label}</div>${rows}`;
     };
-    const awayShort = game.away_team?.split(' ').pop() || 'Away';
-    const homeShort = game.home_team?.split(' ').pop() || 'Home';
+    const [awayS, homeS] = shortSides(game.away_team, game.home_team);
+    const awayShort = awayS || 'Away';
+    const homeShort = homeS || 'Home';
     sections.push(`<div>
       <div class="game-data-heading">Team Leaders</div>
       ${leaderRows(stats.leaders.away, awayShort)}
@@ -681,8 +703,9 @@ function renderGameData(data) {
       ).join('');
       return `<div class="game-data-row" style="font-weight:600;margin-top:4px;">${label}</div>${rows}`;
     };
-    const awayLbl = stats?.injuries?.away?.shortName || game.away_team?.split(' ').pop() || 'Away';
-    const homeLbl = stats?.injuries?.home?.shortName || game.home_team?.split(' ').pop() || 'Home';
+    const [awayS, homeS] = shortSides(game.away_team, game.home_team);
+    const awayLbl = stats?.injuries?.away?.shortName || awayS || 'Away';
+    const homeLbl = stats?.injuries?.home?.shortName || homeS || 'Home';
     sections.push(`<div>
       <div class="game-data-heading">Injuries</div>
       ${injRows(injAway, awayLbl)}
@@ -716,11 +739,12 @@ function renderGameData(data) {
   }
 
   let scoreStr = '';
+  const [awayNm, homeNm] = shortSides(game.away_team, game.home_team);
   if (game.status === 'post') {
     scoreStr = `<div class="gd-score-line gd-final">
-      <div class="gd-team-score">${game.away_team?.split(' ').pop() || '?'}<span>${game.away_score}</span></div>
+      <div class="gd-team-score">${awayNm || '?'}<span>${game.away_score}</span></div>
       <div class="gd-sep">–</div>
-      <div class="gd-team-score">${game.home_team?.split(' ').pop() || '?'}<span>${game.home_score}</span></div>
+      <div class="gd-team-score">${homeNm || '?'}<span>${game.home_score}</span></div>
     </div>
     <div class="gd-badge" style="margin-top:6px;">Final</div>`;
   } else if (game.status === 'in') {
@@ -730,14 +754,14 @@ function renderGameData(data) {
       : '';
     const clock  = (game.game_clock && !isTennis) ? ` · ${game.game_clock}` : '';
     scoreStr = `<div class="gd-score-line gd-live">
-      <div class="gd-team-score">${game.away_team?.split(' ').pop() || '?'}<span>${game.away_score}</span></div>
+      <div class="gd-team-score">${awayNm || '?'}<span>${game.away_score}</span></div>
       <div class="gd-sep">–</div>
-      <div class="gd-team-score">${game.home_team?.split(' ').pop() || '?'}<span>${game.home_score}</span></div>
+      <div class="gd-team-score">${homeNm || '?'}<span>${game.home_score}</span></div>
     </div>
     <div class="gd-badge gd-badge-live" style="margin-top:6px;">LIVE${period ? ' · ' + period : ''}${clock}</div>`;
   } else {
     scoreStr = `<div class="game-data-row" style="font-size:15px;font-weight:600;">${gameTime(game.start_time || '')}</div>
-    <div class="game-data-row" style="margin-top:4px;">${game.away_team?.split(' ').pop() || '?'} @ ${game.home_team?.split(' ').pop() || '?'}</div>`;
+    <div class="game-data-row" style="margin-top:4px;">${awayNm || '?'} @ ${homeNm || '?'}</div>`;
   }
   sections.unshift(`<div>
     <div class="game-data-heading">Score &amp; Outcome</div>

@@ -710,6 +710,17 @@ const CORE_SPORTS = ['MLB', 'NBA', 'NHL', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'ATP', 
 // Mascot-style last-word shortening reads wrong for soccer clubs ("United",
 // "City"), so soccer keeps full names everywhere.
 const FULL_NAME_SPORTS = new Set(['SOCCER']);
+// Mascot (last word) of a team, except when both sides of the game share the
+// exact same tail ("National All-Stars" vs "American All-Stars") — then the
+// lead part of the name is the only part that identifies the team.
+function shortSide(full, other) {
+  const name = (full || '').trim().split(' ').pop();
+  const opp  = (other || '').trim().split(' ').pop();
+  if (name && opp && name.toLowerCase() === opp.toLowerCase()) {
+    return (full || '').trim().split(' ').slice(0, -1).join(' ') || name;
+  }
+  return name;
+}
 function sortSports(arr) {
   return arr.slice().sort((a, b) => {
     const ia = CORE_SPORTS.indexOf(a), ib = CORE_SPORTS.indexOf(b);
@@ -929,14 +940,15 @@ function renderTrackGames() {
     : '';
   // Core team sports read better as the mascot (last word); fighters/soccer clubs need
   // the full name ("Toronto FC", "Jefferson Nascimento").
-  const nameOf = (full, sport) => {
+  const nameOf = (full, other, sport) => {
     const s = (sport || '').toUpperCase();
-    return CORE_SPORTS.includes(s) && !FULL_NAME_SPORTS.has(s) ? (full || '').split(' ').pop() : (full || '');
+    if (!(CORE_SPORTS.includes(s) && !FULL_NAME_SPORTS.has(s))) return full || '';
+    return shortSide(full, other);
   };
   el.innerHTML = note + games.map(g => {
     const cust = isCustomGame(g);
-    const away = nameOf(g.away_team, g.sport);
-    const home = nameOf(g.home_team, g.sport);
+    const away = nameOf(g.away_team, g.home_team, g.sport);
+    const home = nameOf(g.home_team, g.away_team, g.sport);
     const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
     const isEventRow = !away; // races and other single-entry events: just the name
     const status = cust
@@ -1100,8 +1112,8 @@ function renderOddsBoard() {
   const closed = finished || live;
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
-  const awayN = fullNames ? away : away.split(' ').pop();
-  const homeN = fullNames ? home : home.split(' ').pop();
+  const awayN = fullNames ? away : shortSide(away, home);
+  const homeN = fullNames ? home : shortSide(home, away);
 
   const bolt = '';
 
@@ -1340,8 +1352,8 @@ export function openLineConfirm(id, slot, label, caOdds) {
   const isTotal  = slot === 'over' || slot === 'under';
   const hasLine  = isSpread || isTotal;
   const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
-  const awayN = fullNames ? (g.away_team || 'Away') : (g.away_team || 'Away').split(' ').pop();
-  const homeN = fullNames ? (g.home_team || 'Home') : (g.home_team || 'Home').split(' ').pop();
+  const awayN = fullNames ? (g.away_team || 'Away') : shortSide(g.away_team || 'Away', g.home_team || 'Home');
+  const homeN = fullNames ? (g.home_team || 'Home') : shortSide(g.home_team || 'Home', g.away_team || 'Away');
   const sideName = { home_ml: homeN, away_ml: awayN, home_spread: homeN, away_spread: awayN, over: 'Over', under: 'Under' }[slot];
   const caLine = isSpread ? (slot === 'home_spread' ? g.spread_home : g.spread_away)
                : isTotal  ? g.over_under : null;
