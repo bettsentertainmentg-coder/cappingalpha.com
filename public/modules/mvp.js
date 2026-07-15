@@ -78,27 +78,57 @@ function _resolvedPicks(picks) {
   );
 }
 
+// Voided = a tracked pick knocked out because another pick on the same game
+// outscored it (result 'void' or a "not counted" annotation). Excluded from
+// W/L; surfaced as its own count on the Rankings tab bar.
+function _isVoided(p) {
+  return p.result === 'void' || !!(p.annotation && p.annotation.includes('not counted'));
+}
+
+// Windowed like the record bar. The 1D/YD board day anchors on the RESOLVED
+// set (same day the record shows) so a voided-only latest day can't desync
+// the two numbers.
+function _voidedInWindow(picks, resolved, rangeKey) {
+  const voided = (picks || []).filter(_isVoided);
+  if (rangeKey === '1D' || rangeKey === 'YD') {
+    const dates = [...new Set((resolved || []).map(p => p.game_date || '').filter(Boolean))].sort();
+    const day = dates[dates.length - (rangeKey === '1D' ? 1 : 2)];
+    return day ? voided.filter(p => p.game_date === day).length : 0;
+  }
+  return _filterByDays(voided, RANGE_DAYS[rangeKey] ?? Infinity).length;
+}
+
 function _computeRecord(picks) {
   const wins   = picks.filter(p => p.result === 'win').length;
   const losses = picks.filter(p => p.result === 'loss').length;
   const pushes = picks.filter(p => p.result === 'push').length;
   const total  = wins + losses;
   const winRate = total > 0 ? `${Math.round(wins / total * 100)}%` : '0%';
-  return { wins, losses, pushes, winRate };
+  // ROI on money risked (decided bets, flat stakes) — unit size cancels out,
+  // so a 1-unit pass matches the graph's P/L at any unit setting.
+  const profit = picks.reduce((s, p) => s + calcReturn(p, 1), 0);
+  const roi = total > 0 ? +(100 * profit / total).toFixed(1) : null;
+  return { wins, losses, pushes, winRate, roi };
 }
 
-function _recordBarHtml(rec, limited) {
+// `full` = the CA Rankings tab bar only: keeps Pushes and adds the Voided count
+// (tracked picks outscored on their game and not counted). Compact bars
+// (home widget) show Wins / Losses / Win% / ROI.
+function _recordBarHtml(rec, full = false) {
+  const roiStr = rec.roi == null ? '—' : `${rec.roi >= 0 ? '+' : ''}${rec.roi.toFixed(1)}%`;
+  const roiCls = rec.roi == null ? '' : (rec.roi >= 0 ? 'green' : 'red');
   return `
     <div class="record-item"><div class="record-val green">${rec.wins}</div><div class="record-label">Wins</div></div>
     <div class="record-item"><div class="record-val red">${rec.losses}</div><div class="record-label">Losses</div></div>
-    <div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>
+    ${full ? `<div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>` : ''}
     <div class="record-item"><div class="record-val gold">${rec.winRate}</div><div class="record-label">Win%</div></div>
-    ${limited ? '' : `<div class="record-item"><div class="record-val">${rec.pending ?? ''}</div><div class="record-label">Active</div></div>`}
+    <div class="record-item"><div class="record-val ${roiCls}">${roiStr}</div><div class="record-label">ROI</div></div>
+    ${full ? `<div class="record-item" title="Tracked picks that were outscored by another pick on the same game and not counted in the record."><div class="record-val">${rec.voided ?? 0}</div><div class="record-label">Voided</div></div>` : ''}
     <div style="margin-left:auto;font-size:10px;color:var(--muted);align-self:center;text-align:right;line-height:1.6;">$10 flat per pick<br>hypothetical</div>`;
 }
 
 // ── MVP tab rendering ─────────────────────────────────────────────────────────
-export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes: 0, pending: 0, win_rate: '0%' } } = {}, limited = false) {
+export function renderMvpTab({ picks = [] } = {}, limited = false) {
   const container = document.getElementById('mvp-tab-content');
 
   // GOLD ONLY on every Rankings surface. mvp_threshold is the silver line (75
@@ -138,9 +168,9 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
     </div>`;
 
   // Compute initial record for selected range
-  const filteredForBar = _windowedPicks(_resolvedPicks(picks), _currentRange);
-  const barRec = _computeRecord(filteredForBar);
-  if (!limited) barRec.pending = record.pending;
+  const resolvedAll = _resolvedPicks(picks);
+  const barRec = _computeRecord(_windowedPicks(resolvedAll, _currentRange));
+  barRec.voided = _voidedInWindow(picks, resolvedAll, _currentRange);
 
   container.innerHTML = mvpHero + `
     ${upgradePrompt}
@@ -173,7 +203,7 @@ export function renderMvpTab({ picks = [], record = { wins: 0, losses: 0, pushes
       </div>
       ${graphDisclaimer}
       <div class="record-bar" id="record-bar" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:12px;">
-        ${_recordBarHtml(barRec, limited)}
+        ${_recordBarHtml(barRec, true)}
       </div>
     </div>
 
@@ -229,7 +259,7 @@ export function renderMvpRow(p, i, opts = {}) {
   const rank        = i + 1;
   const resultDisplay = opts.useLiveScore ? scoreDisplay(p) : mvpResultDisplay(p);
   const isPush = p.result === 'push';
-  const isVoid = p.result === 'void' || !!(p.annotation && p.annotation.includes('not counted'));
+  const isVoid = _isVoided(p);
   const dimRow = isPush || isVoid;
 
   let pickCol;
@@ -505,11 +535,11 @@ export function setGraphDays(key) {
   if (state.mvpData) {
     drawPlGraph(state.mvpData.picks);
     // Update record bar for this range
-    const filtered = _windowedPicks(_resolvedPicks(state.mvpData.picks), key);
-    const rec = _computeRecord(filtered);
+    const resolvedAll = _resolvedPicks(state.mvpData.picks);
+    const rec = _computeRecord(_windowedPicks(resolvedAll, key));
+    rec.voided = _voidedInWindow(state.mvpData.picks, resolvedAll, key);
     const barEl = document.getElementById('record-bar');
-    const limited = !isPaying();
-    if (barEl) barEl.innerHTML = _recordBarHtml(rec, limited);
+    if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);
   }
 }
 
@@ -557,7 +587,7 @@ export async function loadHomeMvp() {
           <canvas id="home-pl-chart"></canvas>
         </div>
         <div class="record-bar" id="home-record-bar" style="border-top:1px solid rgba(255,255,255,0.06);padding:12px 20px;">
-          ${_recordBarHtml(initRec, true)}
+          ${_recordBarHtml(initRec)}
         </div>
       </div>`;
 
@@ -689,7 +719,7 @@ export function setHomeGraphDays(key) {
     const filtered = _windowedPicks(_resolvedPicks(state.homeMvpPicks), key);
     const rec = _computeRecord(filtered);
     const barEl = document.getElementById('home-record-bar');
-    if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);
+    if (barEl) barEl.innerHTML = _recordBarHtml(rec);
   }
 }
 

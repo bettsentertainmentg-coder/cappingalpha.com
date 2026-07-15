@@ -713,14 +713,16 @@ app.get('/api/mvp/public', (req, res) => {
   const threshold = getSetting('scoring_version', 'v2') === 'v3'
     ? 100
     : parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10);
+  // Voided / not-counted rows ship too (same as the paid endpoint) so the
+  // Rankings tab can show the Voided count and history annotations for everyone.
+  // The record SQL below still excludes them from W/L.
   const picks = db.prepare(`
     SELECT m.*,
            COALESCE(m.home_team, tg.home_team) AS home_team,
            COALESCE(m.away_team, tg.away_team) AS away_team
     FROM mvp_picks m
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
-    WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
-      AND (m.annotation IS NULL OR m.annotation NOT LIKE '%not counted%')
+    WHERE m.result IN ('win', 'loss', 'push', 'void') AND m.score >= ?
     ORDER BY m.saved_at DESC
   `).all(threshold);
 

@@ -100,6 +100,10 @@ async function _renderTopPick() {
       const sign = s.total >= 0 ? 'pos' : 'neg';
       const amt  = (s.total >= 0 ? '+' : '') + '$' + Math.abs(s.total).toFixed(2);
       const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
+      // ROI on money risked (decided bets, flat stakes) — same basis as the graph total.
+      const roi    = best.decided ? 100 * s.total / (betUnit * best.decided) : null;
+      const roiStr = roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%';
+      const roiCls = roi == null ? '' : roi >= 0 ? 'green' : 'red';
       plHtml = `
         <div class="ca-tp-pl-head">
           <span class="ca-tp-pl-title" style="text-transform:none;">Rankings ${best.label} P/L</span>
@@ -110,8 +114,8 @@ async function _renderTopPick() {
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>
-          <div><b>${best.pushes}</b><span>Pushes</span></div>
           <div><b class="gold">${wr}</b><span>Win%</span></div>
+          <div><b class="${roiCls}">${roiStr}</b><span>ROI</span></div>
         </div>`;
     }
 
