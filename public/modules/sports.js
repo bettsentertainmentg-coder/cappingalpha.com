@@ -1,7 +1,7 @@
 // modules/sports.js — Sports tab: filtered picks + schedule + game search
 
 import { state } from './state.js';
-import { gameTime, pickLabel, liveStateHtml } from './utils.js?v=3';
+import { gameTime, pickLabel, liveStateHtml } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 
 // ── All today's games — loaded once when Sports tab opens ─────────────────────

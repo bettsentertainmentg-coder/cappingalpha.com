@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
-import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=3';
+import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=4';
 import { cappingGauge } from './gauge.js';
 
 // Sport → unit suffix for the over/under total line value.

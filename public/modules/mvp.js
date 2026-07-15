@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js?v=3';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
 
