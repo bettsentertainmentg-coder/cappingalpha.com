@@ -640,6 +640,130 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <div id="mvp-count" style="color:#8892a4;font-size:12px;margin-top:6px;"></div>`
     : '<div class="empty">No MVP picks on record.</div>';
 
+  // ── Daily #1 pick: the pick that finished with each board day's highest score ──
+  const dayTopMap = new Map();
+  for (const m of db.prepare(`
+    SELECT id, team, sport, pick_type, spread, game_date, saved_at, score, result,
+           ml_odds, ou_odds, home_team, away_team
+    FROM mvp_picks
+  `).all()) {
+    const day = m.game_date || (m.saved_at || '').slice(0, 10);
+    if (!day) continue;
+    const cur = dayTopMap.get(day);
+    if (!cur || (m.score || 0) > (cur.score || 0)
+        || ((m.score || 0) === (cur.score || 0) && m.id < cur.id)) dayTopMap.set(day, m);
+  }
+  const fmtAmerican = o => {
+    const v = parseFloat(o);
+    return (o == null || isNaN(v)) ? null : (v > 0 ? '+' : '') + Math.round(v);
+  };
+  const dayOnes = [...dayTopMap.entries()].map(([day, m]) => {
+    const pt = (m.pick_type || '').toLowerCase();
+    const odds = pt === 'ml' ? m.ml_odds : (pt === 'over' || pt === 'under') ? m.ou_odds : null;
+    return { ...m, day, pt, odds, units: pickProfit(m.result, odds, m.pick_type, 1) };
+  }).sort((a, b) => (a.day < b.day ? -1 : 1));
+
+  const dailyPickDesc = d => {
+    if (d.pt === 'over' || d.pt === 'under') {
+      const ln = d.spread != null && !isNaN(parseFloat(d.spread)) ? ' ' + Math.abs(parseFloat(d.spread)) : '';
+      return (d.pt === 'over' ? 'Over' : 'Under') + ln;
+    }
+    if (d.pt === 'ml' || !d.pt) return (d.team || '') + ' ML';
+    const v = parseFloat(d.spread);
+    const sp = d.spread != null && !isNaN(v) ? ' ' + (v > 0 ? '+' + v : v) : '';
+    return (d.team || '') + sp;
+  };
+
+  let dailyOneHtml = '';
+  if (dayOnes.length) {
+    const rec = { win: 0, loss: 0, push: 0, void: 0, pending: 0 };
+    let run = 0;
+    const series = dayOnes.map(d => {
+      const r = (d.result || 'pending').toLowerCase();
+      rec[r] = (rec[r] || 0) + 1;
+      run += d.units;
+      return run;
+    });
+    const totalUnits = run;
+    const decisions = rec.win + rec.loss;
+    const graded = decisions + rec.push;
+    const winPct = decisions ? (100 * rec.win / decisions).toFixed(1) : null;
+    const roiPct = graded ? (100 * totalUnits / graded).toFixed(1) : null;
+    const money = totalUnits * betUnit;
+    const upColor = v => v > 0 ? '#16a34a' : v < 0 ? '#ef4444' : '#8892a4';
+    const RES_COLOR = { win: '#16a34a', loss: '#ef4444', push: '#8892a4', void: '#64748b', pending: '#f59e0b' };
+
+    let graphHtml = '';
+    if (series.length >= 2) {
+      const W = 860, H = 190, PL = 12, PR = 12, PT = 14, PB = 24;
+      const lo = Math.min(0, ...series), hi = Math.max(0, ...series);
+      const xAt = i => PL + (W - PL - PR) * (i / (series.length - 1));
+      const yAt = v => hi === lo ? H / 2 : PT + (H - PT - PB) * (1 - (v - lo) / (hi - lo));
+      const path = series.map((v, i) => (i ? 'L' : 'M') + xAt(i).toFixed(1) + ',' + yAt(v).toFixed(1)).join(' ');
+      const dots = dayOnes.map((d, i) => {
+        const r = (d.result || 'pending').toLowerCase();
+        const oddsStr = fmtAmerican(d.odds);
+        const tip = `${d.day} · ${dailyPickDesc(d)}${oddsStr ? ' (' + oddsStr + ')' : ''} · ${r.toUpperCase()}${r === 'win' || r === 'loss' ? ` · ${d.units >= 0 ? '+' : ''}${d.units.toFixed(2)}u` : ''}`;
+        return `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(series[i]).toFixed(1)}" r="3.5" fill="${RES_COLOR[r] || '#8892a4'}" stroke="#0e1118" stroke-width="1" style="cursor:pointer;" onclick="openMvp(${d.id})"><title>${escHtml(tip)}</title></circle>`;
+      }).join('');
+      const zeroY = yAt(0).toFixed(1);
+      graphHtml = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;background:#0e1118;border:1px solid #1e2330;border-radius:8px;display:block;margin-bottom:12px;">
+        <line x1="0" y1="${zeroY}" x2="${W}" y2="${zeroY}" stroke="#3b4560" stroke-dasharray="3,3" stroke-width="1"/>
+        <path d="${path}" fill="none" stroke="${upColor(totalUnits)}" stroke-width="2"/>
+        ${dots}
+        <text x="${PL}" y="${H - 8}" font-size="10" fill="#8892a4">${dayOnes[0].day}</text>
+        <text x="${W - PR}" y="${H - 8}" font-size="10" fill="#8892a4" text-anchor="end">${dayOnes[dayOnes.length - 1].day}</text>
+      </svg>`;
+    }
+
+    const stickyTh = 'style="position:sticky;top:0;z-index:1;"';
+    const stickyThRight = 'style="position:sticky;top:0;z-index:1;text-align:right;"';
+    const dailyRows = dayOnes.map((d, i) => {
+      const r = (d.result || 'pending').toLowerCase();
+      const matchup = (d.away_team && d.home_team) ? `${d.away_team} @ ${d.home_team}` : (d.team || '—');
+      const oddsStr = fmtAmerican(d.odds);
+      const unitsCell = (r === 'win' || r === 'loss')
+        ? `<span style="color:${upColor(d.units)};font-weight:600;">${d.units >= 0 ? '+' : ''}${d.units.toFixed(2)}</span>`
+        : '<span style="color:#8892a4;">—</span>';
+      return `<tr class="mvp-row" style="cursor:pointer;" onclick="openMvp(${d.id})">
+        <td style="color:#8892a4;font-size:12px;white-space:nowrap;">${d.day}</td>
+        <td>${escHtml(matchup)}</td>
+        <td style="font-weight:600;">${escHtml(dailyPickDesc(d))}</td>
+        <td>${escHtml(d.sport || '—')}</td>
+        <td>${d.score != null ? Math.round(d.score) : '—'}</td>
+        <td style="color:#8892a4;">${oddsStr ?? '—'}</td>
+        <td>${resultBadge(d.result)}</td>
+        <td style="text-align:right;">${unitsCell}</td>
+        <td style="text-align:right;color:${upColor(series[i])};">${series[i] >= 0 ? '+' : ''}${series[i].toFixed(2)}</td>
+      </tr>`;
+    }).reverse().join('');
+
+    dailyOneHtml = `
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:16px 20px;margin-bottom:20px;">
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
+          <h2 style="margin:0;text-transform:none;color:#e2e8f0;">Daily #1 Pick</h2>
+          <span style="font-size:12px;color:#8892a4;">One per day: whichever pick finished with the day's highest score. Flat 1u each; missing juice settles at -110 (-115 totals).</span>
+        </div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:14px;">
+          <span style="color:#8892a4;">${dayOnes.length} days</span>
+          <span><span style="color:#16a34a;font-weight:700;">${rec.win}W</span> - <span style="color:#ef4444;font-weight:700;">${rec.loss}L</span>${rec.push ? ` - <span style="color:#8892a4;font-weight:700;">${rec.push}P</span>` : ''}</span>
+          ${winPct != null ? `<span style="color:#e2e8f0;font-weight:600;">${winPct}%</span>` : ''}
+          <span style="color:${upColor(totalUnits)};font-weight:700;">${totalUnits >= 0 ? '+' : ''}${totalUnits.toFixed(2)}u</span>
+          <span style="color:${upColor(money)};font-weight:700;">${money >= 0 ? '+' : '-'}$${Math.abs(money).toFixed(0)} <span style="color:#8892a4;font-weight:400;font-size:12px;">($${betUnit}/u)</span></span>
+          ${roiPct != null ? `<span style="color:${upColor(totalUnits)};font-size:12px;">ROI ${roiPct}%</span>` : ''}
+          ${rec.void ? `<span style="color:#64748b;font-size:12px;">${rec.void} void</span>` : ''}
+          ${rec.pending ? `<span style="color:#f59e0b;font-size:12px;">${rec.pending} pending</span>` : ''}
+        </div>
+        ${graphHtml}
+        <div style="max-height:380px;overflow-y:auto;border:1px solid #252c3b;border-radius:8px;">
+          <table style="margin:0;border:none;">
+            <thead><tr><th ${stickyTh}>Date</th><th ${stickyTh}>Matchup</th><th ${stickyTh}>Pick</th><th ${stickyTh}>Sport</th><th ${stickyTh}>Score</th><th ${stickyTh}>Odds</th><th ${stickyTh}>Result</th><th ${stickyThRight}>Units</th><th ${stickyThRight}>Running</th></tr></thead>
+            <tbody>${dailyRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
   // ── AI Usage panel ───────────────────────────────────────────────────────────
   // The SDK's usage.input_tokens does NOT include tool schema tokens that Anthropic
   // charges for. Observed ratio: Anthropic bills ~2.5x the SDK-reported cost.
@@ -1424,6 +1548,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <span id="bet-unit-status" style="font-size:12px;color:#8892a4;"></span>
         <span style="margin-left:auto;font-size:11px;color:#3b4560;">Sets the hypothetical bet size shown on the #1 pick card and used for all MVP P/L math.</span>
       </div>
+      ${dailyOneHtml}
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;background:#171b24;border:1px solid #252c3b;border-radius:8px;padding:14px 16px;">
         <div><label style="display:block;font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Date</label>
           <input type="date" id="f-date" oninput="applyFilters()" style="background:#0f1117;border:1px solid #252c3b;color:#e2e8f0;padding:6px 10px;border-radius:6px;font-size:13px;width:150px;" /></div>
