@@ -261,16 +261,32 @@ function buildPickBySlot(picks) {
   return m;
 }
 
-function teamNick(name) {
-  if (!name) return '?';
+const TEAM_NICK_TWO_WORD = new Set(['san diego','san francisco','san antonio','san jose','los angeles',
+  'new york','new orleans','new england','oklahoma city','kansas city','golden state',
+  'las vegas','tampa bay','green bay','salt lake','fort worth','st louis','st. louis']);
+
+function plainNick(name) {
   const words = name.trim().split(' ');
   if (words.length <= 1) return name;
   const twoWord = (words[0] + ' ' + words[1]).toLowerCase();
-  const TWO_WORD = new Set(['san diego','san francisco','san antonio','san jose','los angeles',
-    'new york','new orleans','new england','oklahoma city','kansas city','golden state',
-    'las vegas','tampa bay','green bay','salt lake','fort worth','st louis','st. louis']);
-  if (TWO_WORD.has(twoWord) && words.length > 2) return words.slice(2).join(' ');
+  if (TEAM_NICK_TWO_WORD.has(twoWord) && words.length > 2) return words.slice(2).join(' ');
   return words.slice(1).join(' ');
+}
+
+function teamNick(name) {
+  if (!name) return '?';
+  const nick = plainNick(name);
+  // Both sides of this game can carry the exact same nickname ("National
+  // All-Stars" vs "American All-Stars") — the tail identifies nothing there,
+  // so the lead part of the name is the identity instead: "National" / "American".
+  const g = _data && _data.game;
+  const other = g && name.trim() === (g.home_team || '').trim() ? g.away_team
+              : g && name.trim() === (g.away_team || '').trim() ? g.home_team : null;
+  if (other && nick.toLowerCase() === plainNick(other).toLowerCase()) {
+    const lead = name.trim().slice(0, name.trim().length - nick.length).trim();
+    if (lead) return lead;
+  }
+  return nick;
 }
 
 function resolveInitialSlot() {
