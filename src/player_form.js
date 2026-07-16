@@ -294,15 +294,20 @@ const PRIMARY_DESC = {
 
 function gamesAgo(i) { return i === 0 ? 'last game' : `${i + 1} games ago`; }
 
+// Women's leagues — form notes read "her", every other tracked league reads "his".
+const WOMENS_SPORTS = new Set(['WNBA', 'WTA']);
+
 // Build a short, plain explanation for the Form reading — the real drivers,
 // no formula. It varies the window (3/5/7/10) to whichever best shows the trend
-// (so it's not always "last 7"), compares to his own norm + a typical regular,
+// (so it's not always "last 7"), compares to their own norm + a typical regular,
 // and calls out a standout recent game (homers for MLB, a big game otherwise).
 // EVEN stays light; hot/cold/sharp/wild get the fuller read. `vals` are the
 // recent-first primary-stat values; `played` the matching recent-first games.
 function formReasons(sport, ctx, bucket, vals, baseline, primaryName, lf, played) {
   if (!bucket || bucket === 'na' || baseline == null || !vals || !vals.length) return [];
   const label = PRIMARY_DESC[primaryName] || (primaryName || 'production').toLowerCase();
+  const her = WOMENS_SPORTS.has(String(sport || '').toUpperCase());
+  const pos = her ? 'her' : 'his', Pos = her ? 'Her' : 'His';
   const b = +baseline.toFixed(1);
   const up = bucket === 'hot' || bucket === 'warm';
   const down = bucket === 'cold' || bucket === 'cool';
@@ -328,9 +333,9 @@ function formReasons(sport, ctx, bucket, vals, baseline, primaryName, lf, played
 
   const reasons = [];
   if (bucket === 'neutral') {
-    reasons.push(`Steady — about ${r} ${label} a game over his last ${win}.`);
+    reasons.push(`Steady, about ${r} ${label} a game over ${pos} last ${win}.`);
   } else {
-    reasons.push(`His last ${win} games (${r} ${label} a game) are ${strong ? 'well' : 'a bit'} ${up ? 'above' : 'below'} his season norm (${b}).`);
+    reasons.push(`${Pos} last ${win} games (${r} ${label} a game) are ${strong ? 'well' : 'a bit'} ${up ? 'above' : 'below'} ${pos} season norm (${b}).`);
     if (lf) {
       if (r > lf.mean * 1.05)      reasons.push(`Ahead of a typical hitter (~${lf.mean}).`);
       else if (r < lf.mean * 0.95) reasons.push(`Behind a typical hitter (~${lf.mean}).`);
@@ -382,7 +387,7 @@ function computeHotCold(gamelog, sport, ctx = {}, beforeDate = null) {
   // Recent form = exponentially weighted mean (newest games count more), no hard
   // window edge. Half-life = short/2 games → decay 0.82 for MLB hitters, i.e. the
   // 7th-most-recent game ≈ 30% the weight of the latest. Baseline stays a flat,
-  // stable long average (his true normal). Tunable via the half-life divisor.
+  // stable long average (their true normal). Tunable via the half-life divisor.
   const decay      = Math.pow(0.5, 1 / Math.max(1, cfg.short / 2));
   const rMean      = ewma(vals.slice(0, cfg.short * 3), decay);
   const shortCount = Math.min(vals.length, cfg.short);

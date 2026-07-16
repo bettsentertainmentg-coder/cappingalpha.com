@@ -16,7 +16,7 @@ keep the tone humble and dim low-sample reads.
 
 ## Form (Hot / Cold dial)
 
-Compares a player's **recent** production to a **baseline**, in units of his own
+Compares a player's **recent** production to a **baseline**, in units of their own
 standard deviation (a z-score), then maps to HOT / EVEN / COLD.
 
 **Metric per sport** (`primaryStat`):
@@ -35,13 +35,13 @@ standard deviation (a z-score), then maps to HOT / EVEN / COLD.
 counts fully and each older game fades by `decay = 0.5^(1 / (short/2))` — a half-life
 of `short/2` games. For MLB hitters (short 7) that's decay ≈ 0.82, so the 7th-most-
 recent game carries ≈ 30% the weight of the latest. No hard window cliff. The
-**baseline stays a flat long average** (his true normal, equal-weighted).
+**baseline stays a flat long average** (their true normal, equal-weighted).
 
 **Score:** `z = (ewmaRecent − baselineMean) / baselineSD`, clamped ±3. Thin recent
 samples are shrunk toward 0.
 
 **League blend (MLB hitters only):** raw self-vs-self misses that a slugger producing
-well above league is "hot" even if it's normal for him. So:
+well above league is "hot" even if it's normal for that hitter. So:
 `z = 0.70 × selfZ + 0.30 × leagueZ`, where `leagueZ = (recentMean − 1.85) / 1.5`
 (1.85 TB+ ≈ a typical regular's per-game value). Self stays the heavier factor.
 
