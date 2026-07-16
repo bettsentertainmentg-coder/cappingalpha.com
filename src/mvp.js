@@ -57,7 +57,7 @@ function setMvpResult(id, result) {
   if (!valid.includes(result)) {
     throw new Error(`Invalid result "${result}" — must be one of: ${valid.join(', ')}`);
   }
-  db.prepare(`UPDATE mvp_picks SET result = ? WHERE id = ?`).run(result, id);
+  db.prepare(`UPDATE mvp_picks SET result = ?, resolved_at = COALESCE(resolved_at, datetime('now')) WHERE id = ?`).run(result, id);
 }
 
 // Resolve conflicting MVP picks for the same game, per betting DIMENSION.
@@ -329,7 +329,7 @@ function resolveConflictingMvpPicks() {
 
   if (!games.length) return 0;
 
-  const voidStmt = db.prepare(`UPDATE mvp_picks SET result = 'void', annotation = ? WHERE id = ?`);
+  const voidStmt = db.prepare(`UPDATE mvp_picks SET result = 'void', annotation = ?, resolved_at = COALESCE(resolved_at, datetime('now')) WHERE id = ?`);
   let resolved = 0;
   const _void = (note, p) => { voidStmt.run(note, p.id); p.result = 'void'; resolved++; };
 

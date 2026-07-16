@@ -1400,6 +1400,25 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN leak_started_at TEXT`); } catch (_) 
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_window_sec INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
+// When each tracked pick was GRADED (≈ game end). The single-day CA P/L graphs
+// plot realization moments — every pick from one game lands on one point when
+// that game finalizes — so mvp_picks needs the same resolved_at pick_history
+// has. Stamped by every result writer; backfilled from pick_history below
+// (idempotent, only fills decided rows still missing a stamp).
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN resolved_at TEXT`); } catch (_) {}
+try {
+  db.exec(`
+    UPDATE mvp_picks SET resolved_at = (
+      SELECT ph.resolved_at FROM pick_history ph
+      WHERE ph.espn_game_id = mvp_picks.espn_game_id
+        AND ph.team = mvp_picks.team
+        AND COALESCE(LOWER(ph.pick_type), '') = COALESCE(LOWER(mvp_picks.pick_type), '')
+        AND ph.resolved_at IS NOT NULL
+      ORDER BY ph.resolved_at ASC LIMIT 1
+    )
+    WHERE resolved_at IS NULL AND result IN ('win', 'loss', 'push', 'void')
+  `);
+} catch (_) {}
 // Persist the v3 total on the permanent archive: score_breakdown (the dual-log
 // home) is wiped daily, so pick_history carries the calibration series forever.
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN v3_total REAL`); } catch (_) {}

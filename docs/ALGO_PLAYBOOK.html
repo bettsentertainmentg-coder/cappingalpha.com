@@ -136,7 +136,7 @@
   <div class="kicker">Owner's Playbook · Algorithm v4, the Wilson engine</div>
   <h1>How a pick earns its number</h1>
   <p class="dek">A pick's score is the credibility of the people standing behind it: 10 for an unknown name, up past 100 when ranked winners lead the way. This is the complete story of where that number comes from, in plain betting language.</p>
-  <div class="meta">Current as of July 14, 2026 · reflects the Covers tracking expansion (consensus pick leaders join the contest players, roughly the top 300 members by units), plus the Wilson percentile rework (capper rank drives every point, the flat base and flat sport bonus are gone, sources no longer score, full influence reserved for the top 1 percent of the ranking), the break-even gate and the hard zero (a win rate of 49 percent or below contributes nothing at all), the money gate (a ledger clearly below breakeven at flat stakes pins a capper to the flat 10 until it recovers), instant grading (every backer's record and the rankings update the moment games go final), the CA line lock at T-60 (the official line locks 1 hour before start, the bet-placed moment; the old reach-gold lock is retired), the pregame flip (until a game actually begins, the tracked bet follows whichever side leads, swapping at the locked line), a spelled-out answer to when a bet is tracked (chapter 7), and the true-start freeze (a tracked score follows the board until the game actually goes live, so listed start times that run late, tennis especially, cannot freeze or void a bet early)</div>
+  <div class="meta">Current as of July 16, 2026 · reflects the real conviction curve (chapter 6: the chunked reveal is retired; backer and fade points show at their true timestamps with netted best-backer steps, and only the four bonus components surface at seeded random moments, at least 3 hours before start), plus the Covers tracking expansion (consensus pick leaders join the contest players, roughly the top 300 members by units), plus the Wilson percentile rework (capper rank drives every point, the flat base and flat sport bonus are gone, sources no longer score, full influence reserved for the top 1 percent of the ranking), the break-even gate and the hard zero (a win rate of 49 percent or below contributes nothing at all), the money gate (a ledger clearly below breakeven at flat stakes pins a capper to the flat 10 until it recovers), instant grading (every backer's record and the rankings update the moment games go final), the CA line lock at T-60 (the official line locks 1 hour before start, the bet-placed moment; the old reach-gold lock is retired), the pregame flip (until a game actually begins, the tracked bet follows whichever side leads, swapping at the locked line), a spelled-out answer to when a bet is tracked (chapter 7), and the true-start freeze (a tracked score follows the board until the game actually goes live, so listed start times that run late, tennis especially, cannot freeze or void a bet early)</div>
 </header>
 
 <section id="big-picture">
@@ -277,15 +277,15 @@
 
 <section id="reveal">
   <div class="chap"><span class="num">06</span><h2>The reveal</h2></div>
-  <p>The true score updates internally the instant anything changes. What members <i>see</i> is deliberately different: any jump bigger than 25 points reveals in <b>2 to 5 random-sized chunks at random times</b>. A pick worth 85 might appear at 60, sit for a few minutes, jump 9, then 12, then land its last 4. The chunk schedule is generated per pick, so no two picks climb the same way, and the big number and the conviction curve on the detail page replay the exact same steps. One story, two views.</p>
-  <h3>The clock matters</h3>
+  <p>Since July 16 the conviction curve is <b>real</b>. Every point lands on the public score at the moment it actually happened: a backer's points step the curve at the exact time their pick came in, and fade points tally the instant the opposite side draws fade-list action. The old chunked climb (show 25, sit, jump 9, then 12) is retired; what members watch IS the conviction building, not a dramatization of it.</p>
+  <h3>What still stays hidden</h3>
+  <p>Two layers of protection remain, and they are enough:</p>
   <ul class="timeline" style="list-style:none">
-    <li><span class="t">3+ hours out</span><span>Leisurely reveal, 5 to 30 minutes. There is time to be dramatic.</span></li>
-    <li><span class="t">1 to 3 hours</span><span>Fast reveal, 90 seconds to 5 minutes. The window to act is shrinking.</span></li>
-    <li><span class="t">Under 1 hour</span><span>Instant. Members always get the full number with a real window to place the bet.</span></li>
+    <li><span class="t">Bonus timing</span><span>The four formula-shaped components (sport rank bonus, market signals, side lean, sport bonus) each surface at one random moment per pick, always at least 3 hours before game start. A +6 market step at 11:23am cannot be matched to the line move that earned it. The moments are seeded per pick, so the board, the popup, and the curve always agree, and a moment never changes once dealt. A pick born inside the final 3 hours trickles them out within about 20 minutes of arriving, still finishing before start.</span></li>
+    <li><span class="t">Backer netting</span><span>When a stronger backer overtakes, the old best backer folds into the stack at half value, so the curve shows one combined step. A 50-point capper opens the pick at +50; a 90-point capper landing later shows as +65 (their 90, plus the 50 halved to 25, minus the 50 already showing). Nobody can read a single capper's worth off a join.</span></li>
   </ul>
-  <p>Every reveal finishes at least 3 minutes before first pitch, tip, or kick. And the reveal only ever climbs. Nothing shown ever goes down.</p>
-  <p><b>Why it exists:</b> a score that jumps 40 points the instant a top capper posts is a free relay service for anyone screenshotting the board. The climb keeps the edge inside the product while still getting members the full picture in time to use it.</p>
+  <p>The public number is simply the true score minus any bonus moments still ahead, so it always reaches the full true score before first pitch, tip, or kick.</p>
+  <p><b>Why it changed:</b> the synthetic climb hid the real story and could drift from how the points actually accrued. The real replay is honest about timing where honesty is safe (who backed it, and when), and random only where the timing itself would leak the formula (the bonus components).</p>
 </section>
 
 <section id="tiers">
@@ -374,8 +374,8 @@
     <dt>Fade</dt><dd>Betting against someone. A fade-active capper's picks add points to the opposite side of whatever they back.</dd>
     <dt>Slot</dt><dd>One of six bettable sides per game the board pre-creates: home ML, away ML, home spread, away spread, over, under. Picks attach to slots.</dd>
     <dt>Mention</dt><dd>One capper backing one slot, from any source. A slot's score recomputes on every new mention.</dd>
-    <dt>Leak rule / reveal</dt><dd>The chunked climb from chapter 6. The public number rises in random steps and finishes before game start; the true score stays internal until revealed.</dd>
-    <dt>Conviction curve</dt><dd>The score-over-time chart on a pick's detail page. Replays the exact reveal steps the big number walked.</dd>
+    <dt>Reveal (formerly the leak rule)</dt><dd>Chapter 6. Backer and fade points show in real time; the four bonus components each surface at one seeded random moment, at least 3 hours before start. The public number is the true score minus moments still ahead. The old chunked climb is retired.</dd>
+    <dt>Conviction curve</dt><dd>The score-over-time chart on a pick's detail page. A real replay: every step sits at the actual timestamp its points arrived (bonus components at their reveal moments), and it always ends on the exact number the board shows.</dd>
     <dt>Steam</dt><dd>The betting line moving toward a side since morning, usually meaning real money arrived on it.</dd>
     <dt>Contrarian</dt><dd>Backing the side most public tickets are against. Historically the public loses slightly more than it wins.</dd>
     <dt>Notional</dt><dd>The dollar size of a Polymarket trade. Each wallet's bet size versus their own usual is logged today, worth zero points until tested.</dd>

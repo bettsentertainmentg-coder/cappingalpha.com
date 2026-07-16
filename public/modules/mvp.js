@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname } from './utils.js?v=4';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
 
@@ -332,6 +332,73 @@ export function mvpResultDisplay(p) {
   return `<span style="font-size:0.75em;color:#8892a4;margin-left:8px;">Pending</span>`;
 }
 
+// ── Single-day series: realization moments ────────────────────────────────────
+// 1D/YD plot by GAME END — the moment the game finalized and the picks were
+// graded. Every pick from one game realizes on ONE point (they cash together
+// when it ends), points ordered by resolved_at. This grouping is THE single-day
+// P/L rule for every CA P/L graph on the site (Rankings tab, home widget, the
+// sidebar #1 card) so they all tell the same story. Rows graded before
+// resolved_at existed fall back to saved_at ordering with a generic label.
+function _resolvedTs(p) {
+  const parse = (s) => { if (!s) return NaN; const str = String(s); return Date.parse(str.includes('T') ? str : str.replace(' ', 'T') + 'Z'); };
+  const t = parse(p.resolved_at);
+  return Number.isNaN(t) ? parse(p.saved_at) : t;
+}
+
+export function gameEndGroups(dayPicks, unit, calc = calcReturn) {
+  const groups = new Map();
+  for (const p of dayPicks) {
+    const key = p.espn_game_id || `${p.game_date || ''}|${p.team || ''}|${p.pick_type || ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+  const arr = [...groups.values()].map(picks => {
+    const stamps = picks.map(_resolvedTs).filter(t => !Number.isNaN(t));
+    return {
+      picks,
+      ts: stamps.length ? Math.min(...stamps) : NaN,
+      hasEnd: picks.some(p => p.resolved_at),
+      gamePL: +picks.reduce((s, p) => s + calc(p, unit), 0).toFixed(2),
+    };
+  }).sort((a, b) => ((Number.isNaN(a.ts) ? 0 : a.ts) - (Number.isNaN(b.ts) ? 0 : b.ts)));
+  let cum = 0;
+  for (const g of arr) { cum = +(cum + g.gamePL).toFixed(2); g.cumPL = cum; }
+  return arr;
+}
+
+function _gameEndLabel(g, i) {
+  return (g.hasEnd && !Number.isNaN(g.ts)) ? gameTime(g.ts) : `Game ${i + 1}`;
+}
+
+// Shared tooltip callbacks for the single-day (per-game) chart.
+function _gameEndTooltip(unit) {
+  return {
+    title: (items, data) => {
+      const d = data[items[0].dataIndex];
+      const wins   = d.picks.filter(p => p.result === 'win').length;
+      const losses = d.picks.filter(p => p.result === 'loss').length;
+      const head = matchupLabel(d.picks[0]) || pickLabel(d.picks[0]);
+      return `${head}  ·  ${wins}W ${losses}L`;
+    },
+    afterTitle: (items, data) => {
+      const d = data[items[0].dataIndex];
+      const when = (d.hasEnd && !Number.isNaN(d.ts)) ? `Final ${gameTime(d.ts)}  ·  ` : '';
+      return `${when}Game P/L: ${d.gamePL >= 0 ? '+' : ''}$${d.gamePL.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`;
+    },
+    afterBody: (items, data) => {
+      const d = data[items[0].dataIndex];
+      return d.picks.map(p => {
+        const r   = (p.result || '').toLowerCase();
+        const ret = calcReturn(p, unit);
+        const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
+        const pt   = (p.pick_type || '').toLowerCase();
+        const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+        return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
+      });
+    },
+  };
+}
+
 // ── P/L calculation ───────────────────────────────────────────────────────────
 function calcReturn(pick, unit) {
   const r = (pick.result || '').toLowerCase();
@@ -369,18 +436,15 @@ export function drawPlGraph(picks) {
 
   const days = RANGE_DAYS[_currentRange] ?? Infinity;
 
-  // ── 1D / YD: per-pick display for a single board day (starts at $0) ───────
+  // ── 1D / YD: realization display for a single board day (starts at $0) ────
+  // One point per GAME, plotted at the moment the game ended and its picks
+  // graded — several picks on one game all cash on that single point.
   if (days === 1) {
     // Same window as the record bar — a board day by game_date, never "the
     // game_date of the most recently saved row" (a late-graded pick from
     // yesterday can be the newest save).
     const todayPicks = _windowedPicks(resolved, _currentRange);
-    let cum = 0;
-    const displayData = todayPicks.map(p => {
-      const ret = calcReturn(p, unit);
-      cum = +(cum + ret).toFixed(2);
-      return { pick: p, ret, cumPL: cum };
-    });
+    const displayData = gameEndGroups(todayPicks, unit);
 
     const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
     _updatePlLabel(plLabel, windowPL);
@@ -389,15 +453,11 @@ export function drawPlGraph(picks) {
 
     const lineColor = windowPL >= 0 ? '#4ade80' : '#f87171';
     _drawChart('pl-chart', mvpChart, (c) => { mvpChart = c; }, {
-      labels:    displayData.map((_, i) => `Pick ${i + 1}`),
+      labels:    displayData.map(_gameEndLabel),
       values:    displayData.map(d => d.cumPL),
       lineColor,
       unit,
-      tooltip: {
-        title:      (items, data) => { const d = data[items[0].dataIndex]; const r = (d.pick.result || '').toLowerCase(); return `${r === 'win' ? '✓' : r === 'loss' ? '✗' : '~'} ${pickLabel(d.pick)}`; },
-        afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `${d.ret >= 0 ? '+' : ''}$${d.ret.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`; },
-        afterBody:  null,
-      },
+      tooltip:   _gameEndTooltip(unit),
       displayData,
     });
     return;
@@ -630,22 +690,19 @@ function drawHomeGraph(picks) {
   }
 
   if (days === 1) {
+    // Same realization rule as the Rankings tab: one point per game at its end.
     const todayPicks = _windowedPicks(resolved, '1D');
-    let cum = 0;
-    const displayData = todayPicks.map(p => {
-      const ret = calcReturn(p, unit); cum = +(cum + ret).toFixed(2);
-      return { pick: p, ret, cumPL: cum };
-    });
+    const displayData = gameEndGroups(todayPicks, unit);
     const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
     _updateHomePlLabel(plLabel, windowPL);
     const titleEl = document.getElementById('home-pl-title');
     if (titleEl) titleEl.textContent = "TODAY'S P/L";
     _drawChart('home-pl-chart', homeChart, (c) => { homeChart = c; }, {
-      labels: displayData.map((_, i) => `Pick ${i + 1}`),
+      labels: displayData.map(_gameEndLabel),
       values: displayData.map(d => d.cumPL),
       lineColor: windowPL >= 0 ? '#4ade80' : '#f87171',
       unit,
-      tooltip: { title: (items, data) => { const d = data[items[0].dataIndex]; const r = (d.pick.result||'').toLowerCase(); return `${r==='win'?'✓':r==='loss'?'✗':'~'} ${pickLabel(d.pick)}`; }, afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `${d.ret>=0?'+':''}$${d.ret.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`; }, afterBody: null },
+      tooltip: _gameEndTooltip(unit),
       displayData,
     });
     return;

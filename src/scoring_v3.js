@@ -14,8 +14,17 @@
 // (settings v3_scale/v3_scale_anchor sit dormant). A pick whose capper can't
 // be tracked gets a flat UNRANKED_PTS. Points are still never subtracted.
 //
-// The leak rule (chunked display reveal) is unchanged and only ENGAGES when
-// scoring_version === 'v3'.
+// THE REVEAL PLAN (Jack 2026-07-16, replaces the chunked leak ramp): the public
+// display score and the conviction curve are now 100% REAL on timing — backer
+// points, fade points, and the conflict offset all surface at the exact moment
+// they actually happened (mention timestamps, net deltas). The ONLY obfuscation
+// left is on the four formula-shaped components (in-sport rank bonus, market
+// signals, side lean, sport bonus): each surfaces at its own seeded-random
+// moment, always at least REVEAL_LEAD_MS before game start, so its timing can
+// never be correlated with the market event that produced it. Best-backer
+// arrivals self-obfuscate: the curve shows the NET step (new best + old best
+// halved into the stack), so no one can read a single capper's worth off a join.
+// Only engages when scoring_version === 'v3'.
 
 const db = require('./db');
 const ratingsLib = require('./capper_ratings');
@@ -25,8 +34,6 @@ const STACK_MIN_DECISIONS = 12; // graded decisions required to chip in on anoth
 const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const NO_VENUE_SPORTS = new Set(['ATP', 'WTA', 'GOLF']);
-const LEAK_STEP = 25;          // jumps larger than this ramp in
-const LEAK_MIN_MIN = 20, LEAK_MAX_MIN = 50;
 
 // ── Small odds helpers ─────────────────────────────────────────────────────────
 function impliedProb(american) {
@@ -98,19 +105,21 @@ function oppositeSlot(pick) {
 // zero evidence about NBA, so fade points scale by their graded volume in the
 // pick's sport (n/(n+10)). Breaking-Bank-style: full-ish fade in his 31-pick
 // MLB, essentially nothing in his 2-pick NBA.
-function fadePointsInto(pick, sport) {
-  const opp = oppositeSlot(pick);
-  if (!opp) return { pts: 0, from: [] };
+//
+// Split in two so the conviction-curve replay can run the SAME math over a
+// partial capper list: fadeFromCappers is the pure aggregation (ordered capper
+// names from the SOURCE slot + that slot's pick_type), fadePointsInto is the
+// full-slot wrapper computeV3 uses.
+function fadeFromCappers(cappers, sourcePickType, sport) {
   const seen = new Set();
   let pts = 0; const from = [];
-  for (const m of mentionsFor(opp.id)) {
-    const name = m.capper_name;
+  for (const name of cappers || []) {
     if (!name || seen.has(name)) continue;
     seen.add(name);
     const o = overallRow(name);
     if (!o || o.fade !== 'active') continue;
     const s = sportRow(name, sport);
-    const t = typeRow(name, sport, opp.pick_type);
+    const t = typeRow(name, sport, sourcePickType);
     const worst = Math.min(s?.blend ?? 0, t?.blend ?? 0, o.blend ?? 0);
     if (worst >= 0) continue; // sport/type being faded must itself be negative
     const raw = Math.max(3, Math.min(8, Math.round(-100 * worst)));
@@ -120,6 +129,12 @@ function fadePointsInto(pick, sport) {
     pts += scaled; from.push({ capper: name, pts: scaled, sport_picks: sportN });
   }
   return { pts: Math.min(FADE_CAP, pts), from };
+}
+
+function fadePointsInto(pick, sport) {
+  const opp = oppositeSlot(pick);
+  if (!opp) return { pts: 0, from: [] };
+  return fadeFromCappers(mentionsFor(opp.id).map(m => m.capper_name), opp.pick_type, sport);
 }
 
 // ── Market signals (all free cached data; small caps, full values logged) ─────
@@ -205,6 +220,66 @@ function marketSignals(pick, game) {
   return out;
 }
 
+// ── Backer aggregation (shared by computeV3 AND the conviction-curve replay) ──
+// Every distinct backer through the Wilson ladder, best first. Source entities
+// never advocate — an anonymous pick (no attributed capper at all) is worth the
+// flat UNRANKED_PTS, exactly like an untracked name.
+//
+// Stack (Jack 2026-07-09, refined live): each ADDITIONAL backer chips in half
+// of THEIR OWN WORTH (their capped solo ladder points), tapering by PAIRS
+// WITHIN THEIR BAND — a band's 1st-2nd joiners add 1/2, its 3rd-4th add 1/4,
+// and so on. CHIP-IN FLOOR: a backer needs 12+ graded decisions before they
+// can boost someone else's pick at all (their own picks score regardless) —
+// without it, piles of thin 5-1 wallets minted 200-point crowd golds.
+// Unranked, bottom-band, and fade backers never stack.
+function backerAggregate(cappers) {
+  const backers = (cappers || []).filter(Boolean).map(backerLadder).sort((a, b) => b.pts - a.pts);
+  const best = backers[0] ?? null;
+  const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
+
+  let consensus = 0;
+  const joinLog = [];
+  const bandSeen = {};
+  for (const b of backers.slice(1)) {
+    if (b.fade || b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
+    if (b.decisions < STACK_MIN_DECISIONS) {
+      joinLog.push({ name: b.name, pts: b.pts, applied: 0, floored: true });
+      continue;
+    }
+    const k = bandSeen[b.band] || 0;
+    const add = b.pts / Math.pow(2, Math.floor(k / 2) + 1);
+    bandSeen[b.band] = k + 1;
+    consensus += add;
+    joinLog.push({ name: b.name, pts: b.pts, applied: +add.toFixed(1) });
+  }
+  return { backers, best, advocate, resume: advocate.pts, consensus: Math.round(consensus), joiners: joinLog };
+}
+
+// Conflict offset (shared): if THIS slot has a fade-active mention (it generated
+// fade onto the opposite) AND a positive-resume capper is also here, this side
+// gets min(generated fade, that capper's join points) back. Never subtracts.
+function conflictOffset(pick, sport, backers, ownCappers) {
+  const ownFadeActive = backers.some(b => b.fade === 'active');
+  if (!ownFadeActive) return 0;
+  const proven = backers.find(b => !b.fade && b.pts > 0 && b.decisions >= STACK_MIN_DECISIONS);
+  if (!proven) return 0;
+  const opp = oppositeSlot(pick);
+  // what this slot's fade-active capper sent to the opposite side
+  const sentPts = opp ? fadeFromCappers(ownCappers, pick.pick_type, sport).pts : 0;
+  return Math.round(Math.min(sentPts, proven.pts / 2));
+}
+
+// One replayed moment of a pick's backer-side score: best backer + stack +
+// fade-in + conflict offset, given the cappers seen SO FAR on each side. The
+// conviction curve steps through mentions with this, so the curve's math is
+// computeV3's math by construction — same helpers, never a fork.
+function replaySubtotal(pick, sport, ownCappers, oppCappers, oppPickType) {
+  const agg = backerAggregate(ownCappers);
+  const fadeIn = fadeFromCappers(oppCappers, oppPickType, sport);
+  const offset = conflictOffset(pick, sport, agg.backers, ownCappers);
+  return { pts: agg.resume + agg.consensus + fadeIn.pts + offset, agg, fadeIn, offset };
+}
+
 // ── The main compute ──────────────────────────────────────────────────────────
 function computeV3(pickId) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
@@ -224,37 +299,7 @@ function computeV3(pickId) {
   if (!mentions.length && pick.capper_name) cappers.push(pick.capper_name);
   if (!channels.length && pick.channel) channels.push(pick.channel);
 
-  // Every distinct backer through the Wilson ladder, best first. Source
-  // entities never advocate — an anonymous pick (no attributed capper at all)
-  // is worth the flat UNRANKED_PTS, exactly like an untracked name.
-  const backers = cappers.map(backerLadder).sort((a, b) => b.pts - a.pts);
-  const best = backers[0] ?? null;
-  const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
-  const resumePts = advocate.pts;
-
-  // Stack (Jack 2026-07-09, refined live): each ADDITIONAL backer chips in half
-  // of THEIR OWN WORTH (their capped solo ladder points), tapering by PAIRS
-  // WITHIN THEIR BAND — a band's 1st-2nd joiners add 1/2, its 3rd-4th add 1/4,
-  // and so on. CHIP-IN FLOOR: a backer needs 12+ graded decisions before they
-  // can boost someone else's pick at all (their own picks score regardless) —
-  // without it, piles of thin 5-1 wallets minted 200-point crowd golds.
-  // Unranked, bottom-band, and fade backers never stack.
-  let consensus = 0;
-  const joinLog = [];
-  const bandSeen = {};
-  for (const b of backers.slice(1)) {
-    if (b.fade || b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
-    if (b.decisions < STACK_MIN_DECISIONS) {
-      joinLog.push({ name: b.name, pts: b.pts, applied: 0, floored: true });
-      continue;
-    }
-    const k = bandSeen[b.band] || 0;
-    const add = b.pts / Math.pow(2, Math.floor(k / 2) + 1);
-    bandSeen[b.band] = k + 1;
-    consensus += add;
-    joinLog.push({ name: b.name, pts: b.pts, applied: +add.toFixed(1) });
-  }
-  consensus = Math.round(consensus);
+  const { backers, best, advocate, resume: resumePts, consensus, joiners: joinLog } = backerAggregate(cappers);
 
   // In-sport bonus: the best backer's standing inside THIS sport's Wilson pool
   // (+20 for the sport's #1 or top 5%, +10 for top 25%). No volume cap.
@@ -284,21 +329,9 @@ function computeV3(pickId) {
   const sportBonus = 0;
 
   // Fade points INTO this slot (opposite side fade-active activity) + conflict
-  // offset: if THIS slot has a fade-active mention (it generated fade onto the
-  // opposite) AND a positive-resume capper is also here, this side gets
-  // min(generated fade, that capper's join points) back. Nothing ever subtracts.
+  // offset (see conflictOffset above). Nothing ever subtracts.
   const fadeIn = fadePointsInto(pick, sport);
-  let offset = 0;
-  const ownFadeActive = backers.some(b => b.fade === 'active');
-  if (ownFadeActive) {
-    const proven = backers.find(b => !b.fade && b.pts > 0 && b.decisions >= STACK_MIN_DECISIONS);
-    if (proven) {
-      // what this slot's fade-active capper sent to the opposite side
-      const opp = oppositeSlot(pick);
-      const sentPts = opp ? fadePointsInto(opp, sport).pts : 0;
-      offset = Math.round(Math.min(sentPts, proven.pts / 2));
-    }
-  }
+  const offset = conflictOffset(pick, sport, backers, cappers);
 
   // Totals gold gate (tough but not hard): the best backer's totals blend must
   // be non-negative, or the pick clears gold on non-capper strength anyway.
@@ -349,64 +382,38 @@ function computeAndLogV3(pickId) {
     db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(scored.total, pickId);
   } catch (_) {}
   if (db.getSetting('scoring_version', 'v2') === 'v3') {
-    try { applyLeak(pickId, scored.total); } catch (_) {}
+    // The chunked leak ramp is RETIRED (Jack 2026-07-16): display_score now just
+    // mirrors the true total and the leak_* columns stay NULL. What the public
+    // sees is computed at read time by effectiveDisplayScore (true total minus
+    // the bonus components whose reveal moment hasn't arrived yet).
+    try {
+      db.prepare(`UPDATE picks SET display_score = ?, leak_target = NULL, leak_started_at = NULL, leak_window_sec = NULL WHERE id = ?`)
+        .run(scored.total, pickId);
+    } catch (_) {}
   }
   return scored;
 }
 
-// ── Leak rule (Jack): >25-point jumps never display at once ───────────────────
-// True score updates instantly (internal); the DISPLAY score reveals the gap in
-// RANDOM CHUNKS at random times (Jack 2026-07-08: "show 25, then 5, then 10"),
-// not a smooth line. Window scales with urgency: >3h to start = leisurely 5-30
-// min, 1-3h = very fast (90s-5min), <1h = instant — members always get a real
-// window to act on the pick. Only engaged when scoring_version === 'v3'.
-const LEAK_URGENT_MIN = 60;    // <1h to start: reveal instantly
-const LEAK_FAST_MIN   = 180;   // 1-3h: fast window
-const LEAK_FAST_SEC   = [90, 300];
-const LEAK_SLOW_SEC   = [300, 1800]; // >3h: 5-30 min
+// ── The reveal plan: WHEN each scoring component surfaces publicly ────────────
+// Backer/fade/offset points show the moment they happen (the conviction curve
+// replays the real mentions). The four formula-shaped components each get ONE
+// deterministic seeded-random reveal moment per pick:
+//   normal case: uniform inside [first mention, game start - 3h]
+//   pick born inside that 3h window: a short trickle within ~20 min of birth
+//     (still finishing at least 3 min before start when a start time exists)
+//   no start time on file: same short trickle after birth
+// Seeded by (pick id, component), so every request — the picks list, the game
+// popup, the conviction curve — replays identical moments without storing a
+// schedule, and the moment never moves for the life of the pick.
+const REVEAL_LEAD_MS = 3 * 60 * 60 * 1000;   // bonuses fully visible 3h before start
+const REVEAL_SOFT_MS = 20 * 60 * 1000;       // late-born picks: reveal within ~20 min
+const REVEAL_COMPONENTS = [
+  { key: 'sport_pct',   salt: 0x9E3779B1, label: 'Sport rank', pts: bd => Math.round(bd?.sport_pct?.pts ?? 0) },
+  { key: 'market',      salt: 0x7F4A7C15, label: 'Market',     pts: bd => Math.round(bd?.market?.pts ?? 0) },
+  { key: 'lean',        salt: 0x94D049BB, label: 'Side lean',  pts: bd => Math.round(bd?.lean?.pts ?? 0) },
+  { key: 'sport_bonus', salt: 0xBF58476D, label: 'Sport',      pts: bd => Math.round(bd?.sport_bonus ?? 0) },
+];
 
-function applyLeak(pickId, trueTotal) {
-  const p = db.prepare(`SELECT id, espn_game_id, display_score, leak_target, leak_started_at, leak_window_sec FROM picks WHERE id = ?`).get(pickId);
-  if (!p) return;
-  const now = Date.now();
-  const current = effectiveDisplayScore(p, now);
-  if (trueTotal <= current + LEAK_STEP) {
-    // Small step: show immediately, clear any running leak
-    db.prepare(`UPDATE picks SET display_score = ?, leak_target = NULL, leak_started_at = NULL, leak_window_sec = NULL WHERE id = ?`)
-      .run(trueTotal, pickId);
-    return;
-  }
-  // Big jump: start (or retarget) a chunked reveal from current + LEAK_STEP.
-  // Window by time-to-start (finish 3 min early in every case).
-  let lo = LEAK_SLOW_SEC[0], hi = LEAK_SLOW_SEC[1];
-  const game = p.espn_game_id ? db.prepare(`SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(p.espn_game_id) : null;
-  if (game?.start_time) {
-    const iso = game.start_time.includes('T') ? game.start_time : game.start_time.replace(' ', 'T') + 'Z';
-    const startMs = new Date(iso).getTime();
-    const untilStartSec = Math.floor((startMs - now) / 1000) - 180;
-    if (Number.isFinite(untilStartSec)) {
-      if (untilStartSec <= LEAK_URGENT_MIN * 60) {
-        // Inside an hour: full value must be visible NOW — the pick window is short
-        db.prepare(`UPDATE picks SET display_score = ?, leak_target = NULL, leak_started_at = NULL, leak_window_sec = NULL WHERE id = ?`)
-          .run(trueTotal, pickId);
-        return;
-      }
-      if (untilStartSec <= LEAK_FAST_MIN * 60) { lo = LEAK_FAST_SEC[0]; hi = LEAK_FAST_SEC[1]; }
-      hi = Math.min(hi, untilStartSec);
-      lo = Math.min(lo, hi);
-    }
-  }
-  const windowSec = Math.round(lo + Math.random() * (hi - lo));
-  db.prepare(`
-    UPDATE picks SET display_score = ?, leak_target = ?, leak_started_at = datetime('now'), leak_window_sec = ? WHERE id = ?
-  `).run(Math.min(trueTotal, current + LEAK_STEP), trueTotal, windowSec, pickId);
-}
-
-// ── The chunk schedule: ONE deterministic reveal path per ramp ────────────────
-// Seeded by (pick id, ramp start), so every request — the picks list, the game
-// popup, the conviction curve — replays the identical steps without storing a
-// schedule. Chunks are random sizes (each <= LEAK_STEP) at random times inside
-// the window, monotone, and always finish the full gap by the window end.
 function mulberry32(seed) {
   let a = seed >>> 0;
   return () => {
@@ -417,62 +424,101 @@ function mulberry32(seed) {
   };
 }
 
-// Returns [{frac, cum}] — at window fraction >= frac, cumulative revealed points
-// (above the ramp's shown base) are cum. Last entry always covers the full gap.
-function leakSchedule(pickRow) {
-  const gap = (pickRow.leak_target ?? 0) - (pickRow.display_score ?? 0);
-  if (gap <= 0) return [];
-  const startedMs = new Date(String(pickRow.leak_started_at || '').replace(' ', 'T') + 'Z').getTime();
-  const seed = ((pickRow.id * 2654435761) ^ (Number.isFinite(startedMs) ? Math.floor(startedMs / 1000) : 0)) >>> 0;
-  const rnd = mulberry32(seed);
-  const k = Math.max(2, Math.min(5, Math.ceil(gap / 15)));
-  // Sizes: jittered shares, each capped at LEAK_STEP
-  let sizes = Array.from({ length: k }, () => 0.6 + rnd() * 0.9);
-  const sum = sizes.reduce((a, b) => a + b, 0);
-  sizes = sizes.map(s => Math.min(LEAK_STEP, Math.round((s / sum) * gap)));
-  // Times: stratified jitter — one chunk per window slice so reveals SPREAD
-  // across the ramp instead of bunching, still random within each slice.
-  const fracs = Array.from({ length: k }, (_, i) => {
-    const span = 0.86 / k;
-    return 0.10 + span * i + rnd() * span;
-  });
-  fracs[k - 1] = Math.max(fracs[k - 1], 0.80 + rnd() * 0.18);
-  fracs.sort((a, b) => a - b);
-  const out = [];
-  let cum = 0;
-  for (let i = 0; i < k; i++) { cum += sizes[i]; out.push({ frac: Math.min(1, fracs[i]), cum }); }
-  out[k - 1].cum = gap; // rounding guard: the last chunk always completes the gap
+function parseDbMs(s) {
+  if (!s) return null;
+  const str = String(s);
+  const iso = str.includes('T') ? str : str.replace(' ', 'T') + 'Z';
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// Everything the reveal math needs about a pick, fetched by id (all O(1)
+// indexed lookups). Tolerates missing rows at every step.
+const _stmts = {};
+function _ctxStmt(key, sql) {
+  if (!_stmts[key]) { try { _stmts[key] = db.prepare(sql); } catch (_) { return null; } }
+  return _stmts[key];
+}
+function revealContext(pickId) {
+  if (!pickId) return null;
+  const out = { firstMentionMs: null, startMs: null, v3_total: null, bd: null };
+  try {
+    const m = _ctxStmt('firstMention', `SELECT MIN(message_timestamp) AS ts FROM raw_messages WHERE pick_id = ?`).get(pickId);
+    out.firstMentionMs = parseDbMs(m?.ts);
+  } catch (_) {}
+  try {
+    const p = _ctxStmt('pick', `SELECT espn_game_id, parsed_at FROM picks WHERE id = ?`).get(pickId);
+    if (out.firstMentionMs == null) out.firstMentionMs = parseDbMs(p?.parsed_at);
+    if (p?.espn_game_id) {
+      const g = _ctxStmt('game', `SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(p.espn_game_id);
+      out.startMs = parseDbMs(g?.start_time);
+    }
+  } catch (_) {}
+  try {
+    const sb = _ctxStmt('breakdown', `SELECT v3_total, v3_json FROM score_breakdown WHERE pick_id = ?`).get(pickId);
+    out.v3_total = sb?.v3_total ?? null;
+    if (sb?.v3_json) { try { out.bd = JSON.parse(sb.v3_json); } catch (_) {} }
+  } catch (_) {}
   return out;
 }
 
-// Read-side: the score any public surface should show right now.
+// The deterministic reveal moments for a pick's bonus components. Only
+// components currently worth points appear (values come from the live
+// breakdown, so a component that changes value redraws at the same moment).
+function bonusRevealEvents(pickId, ctx = null) {
+  const c = ctx || revealContext(pickId);
+  if (!c || !c.bd) return [];
+  const born = c.firstMentionMs ?? Date.now();
+  const hardEnd = c.startMs != null ? c.startMs - REVEAL_LEAD_MS : null;
+  const out = [];
+  for (const comp of REVEAL_COMPONENTS) {
+    const pts = comp.pts(c.bd);
+    if (!pts || pts <= 0) continue;
+    const rnd = mulberry32(((pickId * 2654435761) ^ comp.salt) >>> 0);
+    let ts;
+    if (hardEnd != null && hardEnd > born) {
+      ts = born + rnd() * (hardEnd - born);
+    } else {
+      // Born inside the 3h window (or no start time): short trickle after birth,
+      // never past 3 min before a known start.
+      let soft = born + rnd() * REVEAL_SOFT_MS;
+      if (c.startMs != null) soft = Math.min(soft, c.startMs - 3 * 60 * 1000);
+      ts = Math.max(born, soft);
+    }
+    out.push({ key: comp.key, label: comp.label, pts, ts: Math.round(ts) });
+  }
+  return out;
+}
+
+// Read-side: the score any public surface should show right now — the true v3
+// total minus every bonus component whose reveal moment is still ahead. Backer,
+// fade, and offset points are always fully included (they surface in real time).
 function effectiveDisplayScore(pickRow, nowMs = Date.now()) {
-  const base = pickRow.display_score ?? pickRow.score ?? 0;
-  if (pickRow.leak_target == null || !pickRow.leak_started_at || !pickRow.leak_window_sec) return base;
-  const startedMs = new Date(pickRow.leak_started_at.replace(' ', 'T') + 'Z').getTime();
-  if (!Number.isFinite(startedMs)) return base;
-  const frac = Math.max(0, Math.min(1, (nowMs - startedMs) / (pickRow.leak_window_sec * 1000)));
-  if (frac >= 1) return Math.round(pickRow.leak_target);
-  let revealed = 0;
-  for (const step of leakSchedule(pickRow)) { if (frac >= step.frac) revealed = step.cum; }
-  return Math.round(base + revealed);
+  const ctx = revealContext(pickRow?.id);
+  const trueTotal = Math.round(
+    pickRow?.v3_total ?? ctx?.v3_total ?? pickRow?.leak_target ?? pickRow?.display_score ?? pickRow?.score ?? 0
+  );
+  if (!ctx || !ctx.bd) return trueTotal;
+  let pending = 0;
+  for (const ev of bonusRevealEvents(pickRow.id, ctx)) if (ev.ts > nowMs) pending += ev.pts;
+  return Math.max(0, trueTotal - pending);
 }
 
 // The single, canonical "score to show right now" for a pick under v3. EVERY
 // public surface (the picks list, the game-detail popup, the standalone detail
 // page, the conviction curve) must run its rows through THIS so they all agree.
-// A pick mid-leak-ramp uses the interpolated display; otherwise the settled
-// display_score, falling back to the logged v3_total, then the raw column. The
-// true v3 total is never returned here unless the leak has finished. Expects a
-// row carrying display_score/leak_* (from picks) and v3_total (join to
-// score_breakdown); tolerates any missing.
+// The true v3 total ships only once every reveal moment has passed (always
+// before game start). Expects a row carrying at least the pick id; v3_total
+// (join to score_breakdown) is used when present, fetched otherwise.
 function v3DisplayScore(p) {
-  return p.leak_target != null
-    ? effectiveDisplayScore(p)
-    : Math.round(p.display_score ?? p.v3_total ?? p.score ?? 0);
+  return effectiveDisplayScore(p);
 }
 
-module.exports = { computeV3, computeAndLogV3, applyLeak, effectiveDisplayScore, v3DisplayScore, leakSchedule };
+module.exports = {
+  computeV3, computeAndLogV3, effectiveDisplayScore, v3DisplayScore,
+  backerAggregate, replaySubtotal, fadeFromCappers, oppositeSlot,
+  bonusRevealEvents, revealContext, parseDbMs,
+};
 
 // CLI: node src/scoring_v3.js — v2 vs v3 on today's board, top of each
 if (require.main === module) {

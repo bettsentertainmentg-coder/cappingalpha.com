@@ -3,11 +3,18 @@
 // curve" on the game detail page.
 //
 // TWO ERAS, keyed off the scoring_version setting:
-//  - v3 (live): the curve is the v3 aggregation stepping up over time — base,
-//    advocate resume, consensus, market, sport bonus, fade — and it ENDS on the
-//    exact leak-aware display score the picks list shows, so the curve and the
-//    big number never disagree. The true v3 total is never revealed: a pick mid
-//    leak-ramp is scaled down to its display score.
+//  - v3 (live, Jack 2026-07-16): the curve is 100% REAL on timing. Every backer
+//    mention steps the score at its actual message timestamp with the actual net
+//    delta (a new best backer shows the netted step: their points plus the old
+//    best halved into the stack, minus what was already showing). Fade points
+//    from the opposite slot land at the opposing mention's real timestamp. The
+//    only synthetic placement: the four formula-shaped components (sport rank,
+//    market, side lean, sport bonus) surface at their seeded reveal moments from
+//    scoring_v3.bonusRevealEvents — random, at least 3h before game start — so
+//    their timing can't be correlated with the market events that produced them.
+//    The curve ENDS on the exact display score the picks list shows (both are
+//    the same reveal-aware function), so the curve and the big number never
+//    disagree, and future reveal moments never draw early.
 //  - v2 (legacy): the old channel-points replay (kept so nothing breaks if a
 //    deploy ever runs on v2).
 
@@ -24,128 +31,119 @@ function parseDbTs(s) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-// ── v3: replay the real aggregation, end on the display score ──────────────────
+// ── v3: replay the REAL accumulation, end on the display score ────────────────
 function buildV3Timeline(pick) {
-  const { v3DisplayScore } = require('./scoring_v3');
-  const sb = db.prepare(`SELECT v3_total, v3_json FROM score_breakdown WHERE pick_id = ?`).get(pick.id) || {};
-  const displayScore = v3DisplayScore({ ...pick, v3_total: sb.v3_total });
+  const {
+    v3DisplayScore, replaySubtotal, oppositeSlot, bonusRevealEvents, revealContext,
+  } = require('./scoring_v3');
+
+  const ctx = revealContext(pick.id);
+  const displayScore = v3DisplayScore(pick);
   if (!displayScore || displayScore <= 0) return [];
+  const bd = ctx?.bd ?? null;
+  const nowMs = Date.now();
 
-  const mentions = db.prepare(`
-    SELECT message_timestamp FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
-  `).all(pick.id);
-  const firstMs = parseDbTs(mentions[0]?.message_timestamp) ?? parseDbTs(pick.parsed_at) ?? Date.now();
-
-  // Window end = 3 min before game start (leak rule finishes there), else +30 min
-  // — CLAMPED TO NOW. The two synthetic branches below spread their points
-  // across this window; without the clamp a pick fetched at 8pm for a 10pm
-  // game drew its final step at 9:57pm, a point in the future the header
-  // already contradicted (real ramp events have real timestamps and clip
-  // future chunks themselves).
   const game = pick.espn_game_id
-    ? db.prepare(`SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
+    ? db.prepare(`SELECT sport, start_time FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
     : null;
-  const startMs = parseDbTs(game?.start_time);
-  let endMs = (startMs && startMs > firstMs) ? startMs - 3 * 60 * 1000 : firstMs + 30 * 60 * 1000;
-  endMs = Math.max(firstMs + 60 * 1000, Math.min(endMs, Date.now()));
-  const span = Math.max(60 * 1000, endMs - firstMs);
+  const sport = pick.sport || game?.sport || 'Unknown';
 
-  let bd = null;
-  try { bd = sb.v3_json ? JSON.parse(sb.v3_json) : null; } catch (_) {}
+  // Real events: this slot's mentions and the opposite slot's (fade sources),
+  // each at its true message timestamp.
+  const mentionStmt = db.prepare(`
+    SELECT capper_name, message_timestamp FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
+  `);
+  const own = mentionStmt.all(pick.id);
+  const opp = oppositeSlot(pick);
+  const oppMentions = opp ? mentionStmt.all(opp.id) : [];
 
-  // Ordered, positive-only component steps in the order the score is built.
-  // Wilson era: the best backer's ladder points open the curve (base is 0 and
-  // omitted); pre-rescore rows may still carry a positive base and keep it.
-  const base = bd?.base ?? 0;
-  const steps = [];
-  if (base > 0) steps.push({ label: 'Base', pts: base });
-  if (bd) {
-    if (bd.resume > 0)          steps.push({ label: bd.advocate ? `Backer · ${bd.advocate}` : 'Backer', pts: bd.resume });
-    if (bd.consensus > 0)       steps.push({ label: 'Backer stack', pts: bd.consensus });
-    if ((bd.sport_pct?.pts ?? 0) > 0) steps.push({ label: 'Sport rank', pts: bd.sport_pct.pts });
-    if ((bd.market?.pts ?? 0) > 0) steps.push({ label: 'Market', pts: bd.market.pts });
-    if ((bd.lean?.pts ?? 0) > 0)   steps.push({ label: 'Side lean', pts: bd.lean.pts });
-    if ((bd.sport_bonus ?? 0) > 0) steps.push({ label: 'Sport', pts: bd.sport_bonus });
-    if ((bd.fade_in?.pts ?? 0) > 0) steps.push({ label: 'Fade', pts: bd.fade_in.pts });
-    if ((bd.conflict_offset ?? 0) > 0) steps.push({ label: 'Offset', pts: bd.conflict_offset });
-  }
-  const trueTotal = steps.reduce((s, e) => s + e.pts, 0);
-  const opening = steps[0]?.pts ?? 0; // the pre-ramp level: Base (legacy) or the best backer
+  const firstMs = parseDbTs(own[0]?.message_timestamp) ?? parseDbTs(pick.parsed_at) ?? nowMs;
 
-  // THE SAME REVEAL PATH THE BIG NUMBER WALKED (Jack 2026-07-08): when the pick
-  // has ramp state, replay the seeded chunk schedule — identical times and sizes
-  // to what effectiveDisplayScore showed members — so the curve and the number
-  // are one story. Each chunk is labeled by the component whose cumulative range
-  // covers it (Resume, Consensus, ...), keeping the paid annotations meaningful.
-  // This runs BEFORE the degenerate guard: early in a ramp the display sits at or
-  // below the true base, and that is exactly when the replay matters most.
-  const rampStartMs = parseDbTs(pick.leak_started_at);
-  if (pick.leak_target != null && rampStartMs && pick.leak_window_sec) {
-    const { leakSchedule } = require('./scoring_v3');
-    const shownBase = pick.display_score ?? 0;
-    const sched = leakSchedule(pick);
-    if (sched.length) {
-      // Component boundaries in cumulative-points space (above the true base),
-      // scaled onto the ramp's gap so labels track the chunk that reveals them.
-      const gap = pick.leak_target - shownBase;
-      const compScale = gap / Math.max(1, trueTotal - opening);
-      let cumComp = 0;
-      const bounds = steps.slice(1).map(st => {
-        cumComp += st.pts;
-        return { upto: cumComp * compScale, label: st.label };
-      });
-      const labelFor = (cum) => (bounds.find(b => cum <= b.upto + 0.5) || bounds[bounds.length - 1] || { label: 'Aggregate' }).label;
-      const events = [{ ts: new Date(Math.min(firstMs, rampStartMs)).toISOString(), delta: shownBase, label: `+${shownBase}`, step: 'Base', score: shownBase }];
-      const nowMs = Date.now();
-      let prev = 0;
-      for (const step of sched) {
-        const ts = rampStartMs + Math.round(step.frac * pick.leak_window_sec * 1000);
-        if (ts > nowMs) break; // future chunks stay hidden — the curve never front-runs the number
-        const delta = step.cum - prev;
-        prev = step.cum;
-        events.push({ ts: new Date(ts).toISOString(), delta, label: `+${delta}`, step: labelFor(step.cum), score: shownBase + step.cum });
-      }
-      // Land exactly on today's display score (mid-ramp: partial; done: full).
-      const last = events[events.length - 1];
-      if (last.score !== displayScore) {
-        const d = displayScore - last.score;
-        if (events.length > 1) { last.delta += d; last.score = displayScore; last.label = `+${last.delta}`; }
-        else events.push({ ts: new Date(nowMs).toISOString(), delta: d, label: `+${d}`, step: 'Aggregate', score: displayScore });
-      }
-      return events;
-    }
-  }
-
-  // No breakdown yet, or a degenerate scale (nothing above the opening step):
-  // a clean two-point rise so the chart still draws.
-  if (!bd || trueTotal <= opening || steps.length < 2) {
-    const lo = Math.max(0, Math.min(opening || displayScore, Math.round(displayScore * 0.6)));
+  // Degenerate fallback: no breakdown logged yet — a clean two-point rise so the
+  // chart still draws something honest-shaped.
+  if (!bd || !own.length) {
+    const startMs = parseDbTs(game?.start_time);
+    let endMs = (startMs && startMs > firstMs) ? startMs - 3 * 60 * 1000 : firstMs + 30 * 60 * 1000;
+    endMs = Math.max(firstMs + 60 * 1000, Math.min(endMs, nowMs));
+    const lo = Math.max(0, Math.round(displayScore * 0.6));
     return [
-      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, step: steps[0]?.label ?? 'Backer', score: lo },
-      { ts: new Date(firstMs + span).toISOString(), delta: displayScore - lo, label: `+${displayScore - lo}`, step: 'Aggregate', score: displayScore },
+      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, step: 'Backer', score: lo },
+      { ts: new Date(endMs).toISOString(), delta: displayScore - lo, label: `+${displayScore - lo}`, step: 'Aggregate', score: displayScore },
     ];
   }
 
-  // No ramp state (small-step picks): the component steps spread over the window.
-  // Everything scales proportionally onto the display score, opening step first.
-  const scale = displayScore / Math.max(1, trueTotal);
-  const n = steps.length;
+  // Merge the three event streams in time order. At equal timestamps: own
+  // mentions first (the pick must exist before anything else can land on it),
+  // then opposite-slot fades, then bonus reveals.
+  const KIND_ORDER = { own: 0, opp: 1, bonus: 2 };
+  const stream = [];
+  for (const m of own) {
+    const ms = parseDbTs(m.message_timestamp) ?? firstMs;
+    stream.push({ ms, kind: 'own', capper: m.capper_name || null });
+  }
+  for (const m of oppMentions) {
+    const ms = parseDbTs(m.message_timestamp);
+    if (ms == null) continue;
+    stream.push({ ms, kind: 'opp', capper: m.capper_name || null });
+  }
+  for (const ev of bonusRevealEvents(pick.id, ctx)) {
+    if (ev.ts > nowMs) continue; // future reveal moments never draw early
+    stream.push({ ms: ev.ts, kind: 'bonus', label: ev.label, pts: ev.pts });
+  }
+  stream.sort((a, b) => (a.ms - b.ms) || (KIND_ORDER[a.kind] - KIND_ORDER[b.kind]));
+
+  // Replay. The curve opens at the first own mention; opposite-slot activity
+  // before that folds into the opening level. Every step's running score is the
+  // real aggregation over the cappers seen so far (same helpers as computeV3)
+  // plus the bonus components revealed so far.
+  const ownSeen = [], oppSeen = [];
+  let started = false;
+  let bonusCum = 0;
+  let prevScore = 0;
   const events = [];
-  let cumTrue = 0, prevDisp = 0;
-  steps.forEach((st, i) => {
-    cumTrue += st.pts;
-    const dispCum = Math.round(cumTrue * scale);
-    const delta = dispCum - prevDisp;
-    prevDisp = dispCum;
-    const ts = i === 0 ? firstMs : firstMs + Math.round(span * (i / Math.max(1, n - 1)));
-    events.push({ ts: new Date(ts).toISOString(), delta, label: `+${delta}`, step: st.label, score: dispCum });
-  });
-  // Land the last point exactly on the display score (rounding guard).
+  for (const ev of stream) {
+    let opened = false;
+    let step = 'Backer';
+    if (ev.kind === 'own') {
+      if (ev.capper && !ownSeen.includes(ev.capper)) ownSeen.push(ev.capper);
+      opened = !started;
+      started = true;
+      step = ev.capper ? `Backer · ${ev.capper}` : 'Backer';
+    } else if (ev.kind === 'opp') {
+      if (!ev.capper || oppSeen.includes(ev.capper)) continue;
+      oppSeen.push(ev.capper);
+      if (!started) continue; // pre-birth fade folds into the opening step
+      step = 'Fade';
+    } else {
+      bonusCum += ev.pts;
+      if (!started) continue; // reveal moments never precede the first mention
+      step = ev.label;
+    }
+    const score = Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
+    const delta = score - prevScore;
+    if (delta === 0 && !opened) continue;
+    events.push({
+      ts: new Date(ev.ms).toISOString(),
+      delta,
+      label: `${delta >= 0 ? '+' : ''}${delta}`,
+      step,
+      score,
+    });
+    prevScore = score;
+  }
+
+  if (!events.length) {
+    return [{ ts: new Date(firstMs).toISOString(), delta: displayScore, label: `+${displayScore}`, step: 'Backer', score: displayScore }];
+  }
+
+  // Land exactly on the display score the picks list shows right now. Any drift
+  // (a nightly ratings re-rank since the last recalc) settles into the final
+  // step so the curve and the big number stay one story.
   const last = events[events.length - 1];
   if (last.score !== displayScore) {
     last.delta += (displayScore - last.score);
     last.score = displayScore;
-    last.label = `+${last.delta}`;
+    last.label = `${last.delta >= 0 ? '+' : ''}${last.delta}`;
   }
   return events;
 }

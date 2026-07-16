@@ -3,10 +3,12 @@
 Status: SUPERSEDED BY v4 (below) for everything about base points, capper resumes,
 consensus, source-entity advocacy, and the earned-scale ratchet. The v3 sections
 are kept as the historical record and because market signals, side lean, sport
-bonus, fade routing mechanics, the leak rule, tier lines, and the grading pipeline
-all carry forward unchanged. CLAUDE.md carries the operational summary; this doc
-is the source of truth for the algorithm.
-Owner: Jack. Last updated: 2026-07-09.
+bonus, fade routing mechanics, tier lines, and the grading pipeline all carry
+forward unchanged. The v3 LEAK RULE (chunked display ramp) was RETIRED 2026-07-16
+in favor of the reveal plan (see the v4 "Score display" section). CLAUDE.md
+carries the operational summary; this doc is the source of truth for the
+algorithm.
+Owner: Jack. Last updated: 2026-07-16.
 
 ---
 
@@ -82,8 +84,42 @@ DEAD: the flat base (45), the resume formula (mult/trust/vol_k), resume-stacking
 consensus, source-entity advocacy (`@src:*` rows remain in capper_ratings for the
 ops feed, band 'entity', never scored), and the earned-scale ratchet (settings
 v3_scale / v3_scale_anchor dormant). Points are still never subtracted. Gold
-100+ (with the totals gate), silver 75-99, archive, and the leak reveal are
-unchanged; scoring_version stays 'v3' as the plumbing flag.
+100+ (with the totals gate), silver 75-99, and the archive are unchanged;
+scoring_version stays 'v3' as the plumbing flag. Score DISPLAY runs the reveal
+plan since 2026-07-16 (next section); the chunked leak ramp is retired.
+
+## Score display (2026-07-16): the reveal plan — the conviction curve is real
+
+Jack's call: the conviction curve is 100% accurate on how and when points add up.
+The curve (and the board number, which is the same function) now REPLAYS reality:
+
+- BACKER POINTS land at the real mention timestamp with the real NET delta. A
+  best-backer flip self-obfuscates via the stack math: mid backer (50) opens at
+  +50; when a top-1% backer (90) lands, the mid halves into the stack (25) and
+  the curve steps +65 to 115 — nobody can read a single capper's worth off a
+  join. Repeat mentions from the same capper move nothing.
+- FADE POINTS tally immediately, at the opposite slot's real mention timestamp.
+  The conflict offset rides the same replay (it is backer-driven).
+- THE ONLY SYNTHETIC PLACEMENT: the four formula-shaped components — in-sport
+  rank bonus, market signals, side lean, sport bonus — each surface at ONE
+  seeded-random moment per pick, uniform inside [first mention, start - 3h], so
+  their timing can never be correlated with the market event that produced them.
+  A pick born inside that 3h window trickles them out within ~20 min of birth
+  (never past start - 3 min); no start time on file = same short trickle.
+- Deterministic: moments are seeded by (pick id, component), so the picks list,
+  the popup, and the curve replay identical times without storing a schedule,
+  and a moment never moves for the life of the pick.
+- Read side: effectiveDisplayScore = true total minus components whose moment is
+  still ahead. Always converges to the true total before game start. The curve
+  is built by pick_timeline.js walking the real mention streams through the SAME
+  aggregation helpers computeV3 uses (backerAggregate / fadeFromCappers /
+  conflictOffset via replaySubtotal), so curve math can never fork from scoring.
+- Plumbing: picks.display_score now just mirrors the true total; leak_target /
+  leak_started_at / leak_window_sec stay NULL (columns kept for rollback).
+  pick_privacy still strips all of it — pending reveal points never ship.
+- RETIRED: the >25-point chunk ramp, leakSchedule(), and the urgency windows
+  (v3 spec section "Score display: the leak rule" + Amendment 2026-07-08 "LEAK
+  RULE v2" are historical).
 
 ## Fade rules (v4)
 
@@ -404,7 +440,11 @@ once, only where scoring_version='v3' (prod migrates on flip day). All threshold
 consumers (public MVP page, /results, admin dashboards, capper profiles, drift
 monitor) are scale-aware.
 
-### Score display: the leak rule (conviction curve)
+### Score display: the leak rule (conviction curve) — RETIRED 2026-07-16
+
+(Superseded by the v4 "reveal plan" section above: the curve now replays real
+mention timing and only the four bonus components get randomized moments. Kept
+as the historical record of the 2026-07-07 rule.)
 
 Jack's rule (2026-07-07): if aggregation adds MORE than 25 points to a pick at once,
 the public display must NEVER jump all at once. It leaks in over a randomized 20 to

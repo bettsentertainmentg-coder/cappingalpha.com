@@ -328,15 +328,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
     try { bd = p.v3_json ? JSON.parse(p.v3_json) : null; } catch (_) {}
     const v3score = p.v3_total != null ? Math.round(p.v3_total) : null;
     const shownScore = v3Now ? (v3score != null ? v3score : (p.score ?? '—')) : (p.score ?? '—');
-    // Reconcile with the public board: while the leak ramp runs, members see a
-    // lower climbing number. Show it next to the true score so admin and the
-    // live site never LOOK out of sync (they converge when the ramp finishes).
+    // Reconcile with the public board: while any bonus component is still ahead
+    // of its seeded reveal moment, members see a lower number. Show it next to
+    // the true score so admin and the live site never LOOK out of sync (they
+    // converge when the last reveal fires, always before game start).
     let publicNote = '';
-    if (v3Now && p.leak_target != null) {
+    if (v3Now && v3score != null) {
       try {
         const disp = require('./scoring_v3').effectiveDisplayScore(p);
-        if (disp !== (v3score ?? disp)) {
-          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="The conviction curve is still climbing on the public board. Members currently see this lower number; it reaches the true score before game start.">public ${disp}↗</div>`;
+        if (disp < v3score) {
+          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="Part of this score has not surfaced publicly yet. Members currently see this lower number; the remaining points land at their scheduled reveal moments before game start.">public ${disp}↗</div>`;
         }
       } catch (_) {}
     }
@@ -3846,8 +3847,8 @@ router.post('/mvp-result/:id', requireAuth, express.json(), (req, res) => {
   const { result } = req.body;
   const valid = ['win', 'loss', 'push', 'pending', 'void'];
   if (!valid.includes(result)) return res.json({ ok: false, error: 'Invalid result' });
-  db.prepare(`UPDATE mvp_picks SET result = ?, annotation = NULL WHERE id = ?`)
-    .run(result, req.params.id);
+  db.prepare(`UPDATE mvp_picks SET result = ?, annotation = NULL, resolved_at = CASE WHEN ? = 'pending' THEN NULL ELSE COALESCE(resolved_at, datetime('now')) END WHERE id = ?`)
+    .run(result, result, req.params.id);
   res.json({ ok: true });
 });
 
@@ -4415,7 +4416,13 @@ router.post('/patch-mvp', adminLoginRateLimit, express.json(), (req, res) => {
   // game_date: re-file a row under its game's true board day (tennis stamps can
   // be a day stale — see storage.saveMvpPick).
   if (game_date   !== undefined) { sets.push('game_date = ?');   vals.push(game_date); }
-  if (result      !== undefined) { sets.push('result = ?');      vals.push(result); }
+  if (result      !== undefined) {
+    sets.push('result = ?'); vals.push(result);
+    // Keep the realization stamp coherent with the result: back to pending
+    // clears it, a decided result stamps it once.
+    if (result === 'pending') sets.push('resolved_at = NULL');
+    else sets.push(`resolved_at = COALESCE(resolved_at, datetime('now'))`);
+  }
   if (home_score  !== undefined) { sets.push('home_score = ?');  vals.push(home_score); }
   if (away_score  !== undefined) { sets.push('away_score = ?');  vals.push(away_score); }
   if (ml_odds     !== undefined) { sets.push('ml_odds = ?');     vals.push(ml_odds); }

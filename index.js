@@ -595,8 +595,10 @@ app.get('/api/picks', (req, res) => {
   `;
   const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
 
-  // v3 scale: the shown/ranked score is the leak-aware DISPLAY score (the
-  // conviction curve). True v3 totals stay internal (stripped by pick_privacy).
+  // v3 scale: the shown/ranked score is the REVEAL-AWARE display score (true
+  // total minus bonus components whose seeded reveal moment is still ahead —
+  // the same value the conviction curve ends on). True v3 totals stay internal
+  // (stripped by pick_privacy).
   // Same helper feeds /api/game/:id so the list and the detail popup never
   // disagree on a pick's number.
   if (getSetting('scoring_version', 'v2') === 'v3') {
@@ -1494,10 +1496,10 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
   `).all(espn_game_id);
 
-  // v3 scale: show the SAME leak-aware display score the picks list shows, so the
-  // popup never disagrees with the board (was showing the raw un-rescaled v2
+  // v3 scale: show the SAME reveal-aware display score the picks list shows, so
+  // the popup never disagrees with the board (was showing the raw un-rescaled v2
   // column — Djokovic 61 on the list vs 45 here). True v3 totals never leave the
-  // server (pick_privacy strips v3_total/display_score/leak_target below).
+  // server (pick_privacy strips v3_total/display_score below).
   const v3Live = getSetting('scoring_version', 'v2') === 'v3';
   if (v3Live) {
     const { v3DisplayScore } = require('./src/scoring_v3');

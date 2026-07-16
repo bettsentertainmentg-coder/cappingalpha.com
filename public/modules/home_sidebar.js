@@ -256,7 +256,28 @@ function _series(picks, unit) {
 
   let cum = 0; const labels = [], values = [];
   if (dates.length < 2) {
-    sorted.forEach((p, i) => { cum += _tpReturn(p, unit); labels.push('P' + (i + 1)); values.push(+cum.toFixed(2)); });
+    // Single-day realization rule (same as the mvp.js CA P/L graphs): one point
+    // per GAME at the moment it graded (resolved_at), every pick on that game
+    // cashing together. Rows without a stamp keep saved_at order.
+    const parseTs = (s) => { if (!s) return NaN; const str = String(s); return Date.parse(str.includes('T') ? str : str.replace(' ', 'T') + 'Z'); };
+    const endTs = (p) => { const t = parseTs(p.resolved_at); return Number.isNaN(t) ? parseTs(p.saved_at) : t; };
+    const byGame = new Map();
+    for (const p of sorted) {
+      const key = p.espn_game_id || `${p.game_date || ''}|${p.team || ''}|${p.pick_type || ''}`;
+      if (!byGame.has(key)) byGame.set(key, []);
+      byGame.get(key).push(p);
+    }
+    const groups = [...byGame.values()].map(picks => {
+      const stamps = picks.map(endTs).filter(t => !Number.isNaN(t));
+      return { picks, ts: stamps.length ? Math.min(...stamps) : 0 };
+    }).sort((a, b) => a.ts - b.ts);
+    groups.forEach((g, i) => {
+      cum += g.picks.reduce((s, p) => s + _tpReturn(p, unit), 0);
+      labels.push(g.ts && g.picks.some(p => p.resolved_at)
+        ? new Date(g.ts).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit', hour12: true })
+        : 'G' + (i + 1));
+      values.push(+cum.toFixed(2));
+    });
   } else {
     for (const d of dates) {
       cum += byDate[d].reduce((s, p) => s + _tpReturn(p, unit), 0);

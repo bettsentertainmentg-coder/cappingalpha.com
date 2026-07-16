@@ -723,7 +723,7 @@ async function resolveResults() {
 
     if (mvp) {
       // Never overwrite score — the original MVP score is what qualified it
-      db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+      db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
         .run(result, pick.home_score, pick.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     }
 
@@ -744,7 +744,7 @@ async function resolveResults() {
   for (const mvp of directMvps) {
     const result = evaluatePick(mvp, mvp);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
       .run(result, mvp.home_score, mvp.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     resolved++;
   }
@@ -761,7 +761,7 @@ async function resolveResults() {
     if (!gameData) continue;
     const result = evaluatePick(mvp, gameData);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, annotation = COALESCE(annotation, ?) WHERE id = ?`)
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
       .run(result, gameData.home_score, gameData.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
     resolved++;
   }
@@ -799,7 +799,7 @@ async function resolveResults() {
     try {
       db.prepare(`
         UPDATE mvp_picks
-        SET result = ?, home_score = ?, away_score = ?
+        SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now'))
         WHERE espn_game_id = ? AND team = ? AND pick_type IS ? AND result = 'pending'
       `).run(
         result,
