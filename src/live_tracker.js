@@ -148,7 +148,20 @@ function savePulseMag(key, m) { _ema.set(key, { m, ts: Date.now() }); }
 function pushPulseHistory(key, mag, period) {
   let a = _hist.get(key);
   if (!a) { a = []; _hist.set(key, a); }
-  const p = (period == null) ? null : (parseInt(period, 10) || null);
+  let p = (period == null) ? null : (parseInt(period, 10) || null);
+  // Periods never run backward in a real game, so when a fresh sample reads LOWER
+  // than the trailing samples one side is a feed glitch (ESPN's tennis scoreboard
+  // can flash a phantom set). A short trailing run was the glitch — restamp it to
+  // the new truth; a long run means THIS sample is the glitch — clamp it up. Keeps
+  // the series monotone so the chart's period axis can never fold back on itself.
+  if (p != null && a.length) {
+    let run = 0;
+    for (let i = a.length - 1; i >= 0 && a[i].p != null && a[i].p > p; i--) run++;
+    if (run > 0) {
+      if (run <= 3) for (let i = a.length - run; i < a.length; i++) a[i].p = p;
+      else p = a[a.length - 1].p;
+    }
+  }
   a.push({ v: Math.round(mag * 1000) / 1000, p });
   if (a.length > HIST_MAX) a.shift();
 }

@@ -347,6 +347,12 @@ function valuePulseSvg(history, color, live = true, dims = null) {
   const allHaveP = pers.length === n && pers.every(p => p != null);
   let x, xaxis = '';
   if (allHaveP) {
+    // Samples arrive in time order and periods only move forward in a real game;
+    // a stray glitched stamp (a set-2 read flashed mid set 1) would fold the
+    // x-axis back on itself. Sweep a running min right-to-left (the newest
+    // sample is the trusted truth) so the sequence is monotone before it
+    // positions anything.
+    for (let i = n - 2; i >= 0; i--) if (pers[i] > pers[i + 1]) pers[i] = pers[i + 1];
     const innings = [...new Set(pers)].sort((a, b) => a - b);
     const byInn = new Map(innings.map(p => [p, []]));
     pers.forEach((p, i) => byInn.get(p).push(i));

@@ -28,6 +28,9 @@
 //   below lock     -> value fading (fast) / creeping back / little value left
 // Near zero -> fairly priced. Constants tunable on localhost.
 
+const SETTLE_GP   = 0.10;  // the resting baseline fades IN over the first ~10% of the game:
+                           // at the start the bet could still be placed at ~its locked price,
+                           // so value is even by definition and the pulse opens at ~0
 const EMA_ALPHA   = 0.6;   // light smoothing — stays reactive per play
 const EMA_FAST    = 0.85;  // catch-up smoothing when the target jumps hard
 const EMA_JUMP    = 25;    // |target - prev| beyond this switches to EMA_FAST
@@ -73,23 +76,29 @@ function convScoreOf(caScore, pre, publicPct, mvpThreshold) {
 //  pickWP_now    live win prob for the picked side (0..1)
 //  pickWP_pre    locked pre-game win prob for the picked side (0..1; falls back to now)
 //  caScore       pick's CA score on the DISPLAY scale (primary conviction driver; 0 = no pick)
-//  gameProgress  0..1 fraction of regulation elapsed (kept for callers; not damped now)
+//  gameProgress  0..1 fraction of regulation elapsed (ramps the resting baseline in over
+//                the opening stretch; the swing itself is never progress-damped).
+//                null/omitted = unknown progress -> the baseline is NOT suppressed
 //  prevMagnitude previous signed value (for EMA + trend); null on first sample
 //  mvpThreshold  CA MVP threshold on the same scale as caScore (v2: 50, v3: 100)
 //  trailing      is the pick's side BEHIND on the scoreboard? (gates the "comeback" wording)
 //  publicPct     share of public tickets on the pick at game start (0..1; optional)
-function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress = 0, prevMagnitude = null, mvpThreshold = 50, trailing = false, publicPct = null } = {}) {
+function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress = null, prevMagnitude = null, mvpThreshold = 50, trailing = false, publicPct = null } = {}) {
   const now  = clamp(Number(pickWP_now) || 0, 0, 1);
   const preN = Number(pickWP_pre);
   const pre  = clamp((preN == null || isNaN(preN)) ? now : preN, 0, 1);
 
   // 1) Conviction: one blended score drives both the resting baseline and the
   //    swing multiplier. The baseline fades out as the pick dies so a hopeless
-  //    favorite does not keep showing resting value.
+  //    favorite does not keep showing resting value — and fades IN over the
+  //    opening stretch (SETTLE_GP) so the pulse starts the game at ~0 instead
+  //    of jumping straight to the resting conviction read.
   const convScore = convScoreOf(caScore, pre, publicPct, mvpThreshold);
   const baseline  = BASE_LO + BASE_SPAN * convScore;
   const convMult  = CONV_LO + CONV_SPAN * convScore;
   const viability = clamp((now - DEAD) / Math.max(0.05, VIABLE_FULL - DEAD), 0, 1);
+  const gpN = Number(gameProgress);
+  const settle = (gameProgress == null || !Number.isFinite(gpN)) ? 1 : clamp(gpN / SETTLE_GP, 0, 1);
 
   // 2) Live buy-low swing: how far the pick sits below its locked price (log-odds),
   //    gated by how alive it still is; a hopeless spot pulls it negative. The gate
@@ -98,7 +107,7 @@ function computeValuePulse({ pickWP_now, pickWP_pre, caScore = 0, gameProgress =
   const alive = clamp((now - ALIVE_LO) / (ALIVE_HI - ALIVE_LO), 0, 1);
   const swing = dz * alive - (1 - alive) * HOPELESS;
 
-  const target = clamp(baseline * viability + swing * SWING_SCALE * convMult, -100, 100);
+  const target = clamp(baseline * viability * settle + swing * SWING_SCALE * convMult, -100, 100);
 
   const prevN = Number(prevMagnitude);
   const prev = (prevMagnitude == null || isNaN(prevN)) ? target : clamp(prevN, -100, 100);
