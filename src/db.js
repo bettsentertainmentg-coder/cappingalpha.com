@@ -1590,6 +1590,42 @@ try {
   console.warn('[db] v3 Phase-1 backfill failed:', err.message);
 }
 
+// One-time line-display snap (2026-07-16, settings-flag guarded). Tracked rows'
+// display `spread` never followed the CA line lock: mvp_picks/pick_history kept
+// their save-time line while captured_*/live_* held the locked line grading
+// actually used. Worst symptom (Jul 15 Valkyries@Fever): Over 165.5 and Under
+// 169.5 both tracked on one game — the stale 169.5 read as a legit middle to
+// the conflict resolver. Snap display to the row's own locked stamp; results
+// untouched (every drifted row's result was verified correct against the
+// captured line). mvp_picks is unbounded (captured_* was the era-official line
+// under lock-on-gold too); pick_history is bounded to the T-60 era because
+// older live_* stamps on never-locked games were cross-time captures, not the
+// graded line. The 5-min conflict resolver then retro-voids the Jul 15 beaten
+// under on its own once the pair's lines agree.
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'line_display_snap_v1'`).get();
+  if (!done) {
+    db.exec(`
+      UPDATE mvp_picks SET spread = captured_total
+        WHERE LOWER(pick_type) IN ('over','under') AND captured_total IS NOT NULL
+          AND spread IS NOT captured_total;
+      UPDATE mvp_picks SET spread = captured_spread
+        WHERE LOWER(pick_type) = 'spread' AND captured_spread IS NOT NULL
+          AND spread IS NOT captured_spread;
+      UPDATE pick_history SET spread = live_total
+        WHERE LOWER(pick_type) IN ('over','under') AND live_total IS NOT NULL
+          AND spread IS NOT live_total AND game_date >= '2026-07-14';
+      UPDATE pick_history SET spread = live_spread
+        WHERE LOWER(pick_type) = 'spread' AND live_spread IS NOT NULL
+          AND spread IS NOT live_spread AND game_date >= '2026-07-14';
+    `);
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('line_display_snap_v1', datetime('now'))`).run();
+    console.log('[db] line display snap complete: tracked rows now show the locked line');
+  }
+} catch (err) {
+  console.warn('[db] line display snap failed:', err.message);
+}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

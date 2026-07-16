@@ -67,7 +67,12 @@ function evaluatePick(pick, game) {
   }
 
   if (type === 'spread') {
-    const line = snapshot?.original_spread ?? pick.spread;
+    // Line priority: the game's locked snapshot, then the line the lock stamped
+    // onto this row (captured_* on picks/mvp_picks, live_* on pick_history —
+    // survives the daily wipe of line_snapshots), then the display line.
+    // capper_history rows have none of the stamps and correctly grade against
+    // their own quoted line.
+    const line = snapshot?.original_spread ?? pick.captured_spread ?? pick.live_spread ?? pick.spread;
     if (line == null) return 'pending';
     let spreadMargin;
     if (isTennis) {
@@ -98,7 +103,9 @@ function evaluatePick(pick, game) {
   }
 
   if (type === 'over' || type === 'under') {
-    const ou = snapshot?.original_ou ?? pick.spread;
+    // Same priority as spreads: locked snapshot, then the row's own locked
+    // stamp, then the display line (see spread comment above).
+    const ou = snapshot?.original_ou ?? pick.captured_total ?? pick.live_total ?? pick.spread;
     if (ou == null) return 'pending';
     // Tennis O/U = total games in match, not sets
     const total = isTennis

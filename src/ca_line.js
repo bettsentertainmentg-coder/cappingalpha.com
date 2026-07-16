@@ -101,8 +101,22 @@ const _updPick = db.prepare(`
     captured_ml=?, captured_spread=?, captured_total=?, captured_ou_odds=?, line_captured_at=datetime('now')
   WHERE id=?
 `);
-const _updMvp = db.prepare(`UPDATE mvp_picks SET ml_odds=?, ou_odds=?, captured_spread=?, captured_total=?, line_captured_at=datetime('now') WHERE id=?`);
-const _updPh  = db.prepare(`UPDATE pick_history SET live_ml=?, live_spread=?, live_total=?, live_ou_odds=?, line_captured_at=datetime('now') WHERE id=?`);
+// `spread` is the DISPLAY + fallback grading line on both tables — it must snap
+// to the locked value too, or a row tracked before T-60 keeps its save-time line
+// forever. That drift is what let Over 165.5 + Under 169.5 ride the same game on
+// Jul 15: the conflict resolver read the stale 169.5 as a legit middle. ML rows
+// pass null (their spread column holds save-time odds; ml_odds is canonical).
+const _updMvp = db.prepare(`UPDATE mvp_picks SET ml_odds=?, ou_odds=?, captured_spread=?, captured_total=?, spread=COALESCE(?, spread), line_captured_at=datetime('now') WHERE id=?`);
+const _updPh  = db.prepare(`UPDATE pick_history SET live_ml=?, live_spread=?, live_total=?, live_ou_odds=?, spread=COALESCE(?, spread), line_captured_at=datetime('now') WHERE id=?`);
+
+// The locked display line for a tracked row: side handicap for spreads, the
+// total for over/under, null otherwise (COALESCE keeps the stored value).
+function trackedDisplayLine(pick_type, s) {
+  const t = (pick_type || '').toLowerCase();
+  if (t === 'spread') return s.spread;
+  if (t === 'over' || t === 'under') return s.total;
+  return null;
+}
 
 // Snapshot + lock ONE game's official line. Idempotent via ca_line_locked. Atomic.
 const _lockGame = db.transaction((game) => {
@@ -122,11 +136,11 @@ const _lockGame = db.transaction((game) => {
   }
   for (const m of db.prepare(`SELECT id, team, pick_type FROM mvp_picks WHERE espn_game_id=?`).all(game.espn_game_id)) {
     const s = sideLine(g2, m.team, m.pick_type);
-    _updMvp.run(s.ml, s.ou_odds, s.spread, s.total, m.id);
+    _updMvp.run(s.ml, s.ou_odds, s.spread, s.total, trackedDisplayLine(m.pick_type, s), m.id);
   }
   for (const ph of db.prepare(`SELECT id, team, pick_type FROM pick_history WHERE espn_game_id=? AND result='pending'`).all(game.espn_game_id)) {
     const s = sideLine(g2, ph.team, ph.pick_type);
-    _updPh.run(s.ml, s.spread, s.total, s.ou_odds, ph.id);
+    _updPh.run(s.ml, s.spread, s.total, s.ou_odds, trackedDisplayLine(ph.pick_type, s), ph.id);
   }
 });
 

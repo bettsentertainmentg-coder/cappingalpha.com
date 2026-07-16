@@ -826,14 +826,17 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
       game?.home_score ?? null, game?.away_score ?? null, pick.parsed_at ?? null,
       cap?.ml ?? null, cap?.spread ?? null, cap?.total ?? null, cap?.ou_odds ?? null, cap?.at ?? null, scale
     );
-    // Refresh mutable fields — score/mention_count/messages change on each new mention
+    // Refresh mutable fields — score/mention_count/messages change on each new
+    // mention. spread too: the board line moves until the T-60 lock, and an
+    // archive row frozen at its 50-cross line drifts from what the rankings
+    // show (and from what grading uses once the game is wiped).
     db.prepare(`
       UPDATE pick_history
-      SET score = ?, mention_count = ?, messages_json = ?,
+      SET score = ?, mention_count = ?, messages_json = ?, spread = COALESCE(?, spread),
           channel_points = ?, sport_bonus = ?, home_bonus = ?
       WHERE pick_id = ?
     `).run(
-      pick.score, pick.mention_count ?? 1, JSON.stringify(msgs),
+      pick.score, pick.mention_count ?? 1, JSON.stringify(msgs), pick.spread ?? null,
       bd.channel_points ?? null, bd.sport_bonus ?? null, bd.home_bonus ?? null,
       pick.id
     );

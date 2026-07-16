@@ -148,19 +148,20 @@ function resolveConflictingMvpPicks() {
   try {
     if (db.getSetting('scoring_version', 'v2') === 'v3') {
       const pendingRows = db.prepare(`
-        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score FROM mvp_picks m
+        SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score, m.spread FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
       `).all();
       const curStmt = db.prepare(`
-        SELECT sb.v3_total, sb.v3_json FROM picks p
+        SELECT sb.v3_total, sb.v3_json, p.spread AS board_spread FROM picks p
         JOIN score_breakdown sb ON sb.pick_id = p.id
         WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
       `);
       const delStmt  = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
       const syncStmt = db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`);
-      let demoted = 0, synced = 0;
+      const lineStmt = db.prepare(`UPDATE mvp_picks SET spread = ? WHERE id = ?`);
+      let demoted = 0, synced = 0, linesSynced = 0;
       for (const m of pendingRows) {
         const cur = curStmt.get(m.espn_game_id, m.team || '', m.pick_type || '');
         if (!cur) continue; // board pick gone — leave the tracked row alone
@@ -185,9 +186,35 @@ function resolveConflictingMvpPicks() {
           syncStmt.run(cur.v3_total, m.id);
           synced++;
         }
+        // Line sync: the tracked row's display line must mirror the board's —
+        // it drifts the same way the score did (stamped once at gold-cross,
+        // never refreshed; the T-60 lock used to skip it too). Drifted lines
+        // are worse than cosmetic: the conflict/flip passes below compare
+        // spreads, and a stale total reads as a legit middle — Jul 15 tracked
+        // Over 165.5 AND Under 169.5 on one game exactly this way. Board
+        // picks.spread is canonical (seeded 5am, market-refreshed, locked at
+        // T-60), one convention on both tables: side handicap for spreads,
+        // total line for over/under, odds for ML.
+        if (cur.board_spread != null && cur.board_spread !== m.spread) {
+          lineStmt.run(cur.board_spread, m.id);
+          linesSynced++;
+        }
       }
       if (demoted) console.log(`[mvp] pregame demotion sweep removed ${demoted} no-longer-gold row(s)`);
       if (synced)  console.log(`[mvp] pregame score sync refreshed ${synced} tracked row(s)`);
+      if (linesSynced) console.log(`[mvp] pregame line sync refreshed ${linesSynced} tracked row(s)`);
+
+      // pick_history rows drift identically (spread stamped at the 50-cross) —
+      // keep the pregame archive rows on the board line too, so the public
+      // 50+ archive always shows the same number the rankings do.
+      try {
+        db.prepare(`
+          UPDATE pick_history
+          SET spread = COALESCE((SELECT p.spread FROM picks p WHERE p.id = pick_history.pick_id), spread)
+          WHERE result = 'pending' AND pick_id IS NOT NULL
+            AND espn_game_id IN (SELECT espn_game_id FROM today_games WHERE status = 'pre')
+        `).run();
+      } catch (_) {}
 
       // ── Promotion sweep: the mirror image ─────────────────────────────────
       // A pick can cross gold through a board-wide rescore (nightly re-rank,
