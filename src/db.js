@@ -1590,6 +1590,29 @@ try {
   console.warn('[db] v3 Phase-1 backfill failed:', err.message);
 }
 
+// Grading self-audit flags (src/audit.js): one row per detected rule violation,
+// upserted while it reproduces, marked resolved when it stops. detail_json is a
+// full snapshot of the offending row AT DETECTION TIME — the daily wipe
+// destroys board rows, so this is the autopsy record. Never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS audit_flags (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind         TEXT NOT NULL,
+      ref_table    TEXT NOT NULL,
+      ref_id       TEXT NOT NULL,
+      espn_game_id TEXT,
+      summary      TEXT,
+      detail_json  TEXT,
+      first_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen    TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved     INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(kind, ref_table, ref_id)
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_audit_flags_open ON audit_flags (resolved, last_seen)`); } catch (_) {}
+
 // One-time line-display snap (2026-07-16, settings-flag guarded). Tracked rows'
 // display `spread` never followed the CA line lock: mvp_picks/pick_history kept
 // their save-time line while captured_*/live_* held the locked line grading

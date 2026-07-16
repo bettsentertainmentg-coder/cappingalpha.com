@@ -4872,6 +4872,22 @@ router.get('/api/closing-lines.json', requireAuth, (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── GET /admin/api/audit.json — grading rule violations (src/audit.js) ───────
+// Session OR header auth (header so it can be checked remotely/from the ops
+// console). ?all=1 includes resolved flags. Flags carry a full row snapshot
+// taken at detection time, so a violation can be autopsied after the wipe.
+router.get('/api/audit.json', (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  const headerOk = pw && process.env.ADMIN_PASSWORD && safeEqual(pw, process.env.ADMIN_PASSWORD);
+  if (!req.session?.admin && !headerOk) return res.status(401).send('Unauthorized');
+  try {
+    const { runGradingAudit, getAuditFlags } = require('./audit');
+    const openNow = runGradingAudit(); // fresh pass on demand — cheap
+    const flags = getAuditFlags({ includeResolved: req.query.all === '1' });
+    res.json({ openNow, flags, generatedAt: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── POST /admin/ingest-heartbeat — Mac service check-ins (HMAC) ───────────────
 // Body: { service: 'odds-engine', meta: { interval_min, cycle stats... } }
 router.post('/ingest-heartbeat', (req, res) => {

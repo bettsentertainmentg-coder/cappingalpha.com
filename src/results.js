@@ -910,6 +910,14 @@ async function resolveResults() {
       console.warn('[results] post-grade ratings recompute failed:', err.message);
     }
   }
+
+  // Grading self-audit — every pass, not only when something resolved: it also
+  // watches line drift, dimension dupes, and stale-pending rows graded earlier.
+  // Flag-only; violations persist in audit_flags with a full row snapshot
+  // (lazy require: audit.js requires results.js back for evaluatePick).
+  try { require('./audit').runGradingAudit(); }
+  catch (err) { console.warn('[audit] pass failed:', err.message); }
+
   return resolved;
 }
 
