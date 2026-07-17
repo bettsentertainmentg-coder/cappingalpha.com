@@ -593,7 +593,7 @@ app.get('/api/picks', (req, res) => {
     GROUP BY p.id
     ORDER BY p.score DESC, p.id ASC
   `;
-  const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
+  let picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
 
   // v3 scale: the shown/ranked score is the REVEAL-AWARE display score (true
   // total minus bonus components whose seeded reveal moment is still ahead —
@@ -606,6 +606,13 @@ app.get('/api/picks', (req, res) => {
     for (const p of picks) p.score = v3DisplayScore(p);
     picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
+
+  // 0-point rows never make the public ranking — filtered on the same display
+  // value the board sorts by, so a pick joins the list the moment its shown
+  // score turns positive. Zeros sort last, so dropping them never renumbers the
+  // ranks of visible picks (popup globalRank stays consistent). Admin Today's
+  // Picks is intentionally a superset and still shows them.
+  picks = picks.filter(p => (p.score || 0) > 0);
 
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
@@ -675,6 +682,8 @@ app.get('/api/picks/top', (req, res) => {
     for (const p of onBoard) p.score = v3DisplayScore(p);
     onBoard.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
+  // Same 0-point rule as /api/picks: a 0-point pick can never be the #1.
+  onBoard = onBoard.filter(p => (p.score || 0) > 0);
   const pick = onBoard[0] || null;
   res.json(pick ? publicPick(pick, { paid: auth.isPaid(req) }) : pick);
 });
