@@ -566,6 +566,22 @@ function isOnBoard(startTime, boardDate) {
   return !!startTime && cycleDateForInstant(startTime) === boardDate;
 }
 
+// An ML pick we never captured a price for has no P/L truth, so saveMvpPick
+// (storage.js) refuses to track it into mvp_picks. Keep that same pick off every
+// public surface too — a pick we can't price shouldn't rank, headline, or archive
+// publicly. A graded loss with no line showing on the board while it's absent from
+// the P/L record is exactly the mismatch this closes. Keys on the pick's OWN
+// captured line (original_ml = locked/snapshot price, captured_ml = archive-time
+// lock), NOT the live today_games line — a match that finished unpriced stays
+// hidden even if a book posts odds afterward (it was never trackable when it
+// mattered). ML only: spreads/totals settle at standard juice, matching the mvp
+// track gate exactly. Self-heals — the moment a price is captured, the pick shows.
+function mlPickUnpriced(p) {
+  return (p.pick_type || '').toLowerCase() === 'ml'
+      && p.original_ml == null
+      && p.captured_ml == null;
+}
+
 app.get('/api/picks', (req, res) => {
   // Active slate = picks whose game is on TODAY'S BOARD (rolls at the ~5am wipe).
   // The prune keeps finished games (and their picks) until the cycle clear + grace
@@ -593,7 +609,9 @@ app.get('/api/picks', (req, res) => {
     GROUP BY p.id
     ORDER BY p.score DESC, p.id ASC
   `;
-  const picks = db.prepare(PICKS_QUERY).all().filter(p => isOnBoard(p.start_time, boardDate));
+  const picks = db.prepare(PICKS_QUERY).all()
+    .filter(p => isOnBoard(p.start_time, boardDate))
+    .filter(p => !mlPickUnpriced(p)); // hide ML picks we never captured a price for
 
   // v3 scale: the shown/ranked score is the REVEAL-AWARE display score (true
   // total minus bonus components whose seeded reveal moment is still ahead —
@@ -669,7 +687,9 @@ app.get('/api/picks/top', (req, res) => {
     GROUP BY p.id
     ORDER BY p.score DESC, p.id ASC
   `).all();
-  let onBoard = rows.filter(p => isOnBoard(p.start_time, boardDate));
+  let onBoard = rows
+    .filter(p => isOnBoard(p.start_time, boardDate))
+    .filter(p => !mlPickUnpriced(p)); // an unpriced ML pick can never be the headline #1
   if (getSetting('scoring_version', 'v2') === 'v3') {
     const { v3DisplayScore } = require('./src/scoring_v3');
     for (const p of onBoard) p.score = v3DisplayScore(p);
@@ -765,7 +785,8 @@ app.get('/api/pick-history', (req, res) => {
                     pick_type, spread, ml_odds, ou_odds, is_home_team,
                     ${scoreCol} AS score, mention_count, result, home_score, away_score,
                     first_seen_at, resolved_at, archived_at
-             FROM pick_history WHERE 1=1`;
+             FROM pick_history WHERE 1=1
+             AND NOT (LOWER(pick_type) = 'ml' AND ml_odds IS NULL)`;
   const params = [];
   if (sport) {
     // "Tennis" is a virtual filter that blends both tours (ATP + WTA).
@@ -955,12 +976,13 @@ app.get('/api/games/top', (req, res) => {
   const { v3DisplayScore } = require('./src/scoring_v3');
   const globalTopRows = db.prepare(`
     SELECT p.id, p.espn_game_id, p.score, p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+           p.pick_type, p.original_ml, p.captured_ml,
            sb.v3_total AS v3_total
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     WHERE p.mention_count > 0
-  `).all();
+  `).all().filter(r => !mlPickUnpriced(r)); // unpriced ML can't be the free #1 unlock
   if (v3Live) for (const r of globalTopRows) r.score = v3DisplayScore(r);
   globalTopRows.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   const globalTopGameId = globalTopRows.length ? globalTopRows[0].espn_game_id : null;
@@ -971,6 +993,7 @@ app.get('/api/games/top', (req, res) => {
   // tile with another's caliber (same one-score rule as globalTopRows above).
   const gamePicksStmt = db.prepare(`
     SELECT p.id, p.score, p.team, p.pick_type, p.spread,
+           p.original_ml, p.captured_ml,
            p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
            sb.v3_total AS v3_total
     FROM picks p
@@ -984,6 +1007,7 @@ app.get('/api/games/top', (req, res) => {
   const pickCountStmt = db.prepare(`
     SELECT COUNT(*) AS c FROM picks
     WHERE espn_game_id = ? AND mention_count > 0 AND score > 0
+      AND NOT (LOWER(pick_type) = 'ml' AND original_ml IS NULL AND captured_ml IS NULL)
   `);
 
   // Paywall: the corner CA score is paid content. Free/logged-out users only get
@@ -993,7 +1017,7 @@ app.get('/api/games/top', (req, res) => {
   const paid = auth.isPaid(req);
 
   const out = top.map(g => {
-    const gamePicks = gamePicksStmt.all(g.espn_game_id);
+    const gamePicks = gamePicksStmt.all(g.espn_game_id).filter(p => !mlPickUnpriced(p));
     let tp = gamePicks[0] || null;
     if (v3Live && gamePicks.length) {
       // Rank on the leak-aware display score, then take the max — never the
@@ -1494,7 +1518,7 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     SELECT p.*, sb.v3_total AS v3_total
     FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
-  `).all(espn_game_id);
+  `).all(espn_game_id).filter(p => !mlPickUnpriced(p)); // hide picks we never priced
 
   // v3 scale: show the SAME reveal-aware display score the picks list shows, so
   // the popup never disagrees with the board (was showing the raw un-rescaled v2
@@ -1535,11 +1559,12 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // to the raw-score order it always used.
   const allRanked = db.prepare(
     `SELECT p.id, p.score, p.display_score, p.leak_target, p.leak_started_at, p.leak_window_sec,
+            p.pick_type, p.original_ml, p.captured_ml,
             sb.v3_total AS v3_total
      FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
      LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
      WHERE p.mention_count > 0`
-  ).all();
+  ).all().filter(r => !mlPickUnpriced(r)); // global rank must match /api/picks
   if (v3Live) {
     const { v3DisplayScore } = require('./src/scoring_v3');
     for (const r of allRanked) r.score = v3DisplayScore(r);
