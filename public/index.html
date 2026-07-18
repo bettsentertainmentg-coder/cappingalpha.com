@@ -1063,6 +1063,8 @@
        16px inputs, contained scrolls, atomic chips, min-width:0 on text flex.
        ══════════════════════════════════════════════════════════════════════ */
     #panel-socials .container { max-width: 760px; }
+    /* Rankings tab runs a touch wider so the P/L graph + sport-card rail get more room. */
+    #panel-mvp .container { max-width: 1240px; }
     /* Sub-nav: Feed | Friends | Board. Section identity rail (Sky-tinted). */
     .soc-subnav { display: flex; gap: 6px; margin: 0 0 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px; position: sticky; top: 60px; z-index: 20; }
     .soc-sn { flex: 1; min-width: 0; white-space: nowrap; background: none; border: none; color: var(--muted); font-family: inherit; font-size: 14.5px; font-weight: 800; padding: 10px 8px; border-radius: 999px; cursor: pointer; transition: all .14s; position: relative; }
@@ -2868,7 +2870,9 @@
     /* Playing-card shape: FIXED portrait size for every sport no matter how many
        picks it holds; only the pick list inside scrolls. The card is a 3D flip
        container — front = today's open picks, back = the graded list. */
-    .ca-sport-card { flex:0 0 272px; height:408px; scroll-snap-align:start; }
+    /* Cards grow to fill the rail width (≈ the graph width) when few, and shrink
+       to a comfortable min + horizontal-scroll once there are enough to overflow. */
+    .ca-sport-card { flex:1 1 320px; min-width:320px; max-width:620px; height:452px; scroll-snap-align:start; }
     .ca-card-face { width:100%; height:100%; background:var(--surface); border:1px solid var(--border); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
     .ca-card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
     .ca-card-meta { text-align:right; min-width:0; }
@@ -2920,6 +2924,19 @@
     .ca-flip-btn:hover { filter:brightness(1.07); }
     /* See Live: lighter blue with the flashing dot. */
     .ca-live-btn { background:linear-gradient(135deg,#7dd3fc,#38bdf8); color:#08263a; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+    /* Current Rankings: neutral "return to the upcoming board" button. */
+    .ca-return-btn { background:var(--surface2); color:var(--text); border:1px solid var(--border); display:inline-flex; align-items:center; justify-content:center; }
+    .ca-return-btn:hover { filter:none; border-color:var(--accent); }
+    .ca-card-flip-slot:empty { display:none; }
+    /* Shared interactive P/L chart tooltip (tab + home + profile popups). Rows
+       colored by result; 3rd fades with a "+N more" expand when >3 picks. */
+    #ca-cht-tip { position:absolute; z-index:10000; min-width:170px; max-width:290px; background:#1e2330; border:1px solid #252c3b; border-radius:10px; padding:10px 12px; box-shadow:0 8px 24px rgba(0,0,0,0.45); opacity:0; pointer-events:none; transition:opacity .1s ease; }
+    #ca-cht-tip .ca-tip-title { font-weight:800; color:#e2e8f0; font-size:12.5px; white-space:nowrap; }
+    #ca-cht-tip .ca-tip-sub { color:#8892a4; font-size:11px; margin-top:2px; white-space:nowrap; }
+    #ca-cht-tip .ca-tip-rows { margin-top:6px; display:flex; flex-direction:column; gap:3px; max-height:230px; overflow-y:auto; }
+    #ca-cht-tip .ca-tip-row { font-size:11.5px; font-weight:600; white-space:nowrap; }
+    #ca-cht-tip .ca-tip-more { margin-top:7px; font-size:11px; font-weight:800; color:#7dd3fc; cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+    #ca-cht-tip .ca-tip-more:hover { filter:brightness(1.15); }
     .ca-profile-btn { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:inherit; font-weight:800; font-size:12.5px; padding:9px 12px; border-radius:999px; cursor:pointer; transition:all .14s; }
     .ca-profile-btn:hover { border-color:var(--gold); color:var(--gold-ink); }
     /* Phone: cards go nearly full-screen and the rail snaps hard, so a swipe
@@ -3749,6 +3766,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=101"></script>
+  <script type="module" src="app.js?v=108"></script>
 </body>
 </html>

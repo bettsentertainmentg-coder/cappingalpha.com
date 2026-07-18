@@ -145,14 +145,45 @@ function _addDays(s, n) {
 }
 
 function _mpWindowPoints() {
-  if (_mpRange === 'ALL') return _chartPts;
-  const today = currentBoardDate();
-  let pts;
-  if (_mpRange === '1D') pts = _chartPts.filter(p => p.d === today);
-  else if (_mpRange === 'YD') { const yd = _addDays(today, -1); pts = _chartPts.filter(p => p.d === yd); }
-  else { const cut = _addDays(today, -(MP_RANGE_DAYS[_mpRange] || 0)); pts = _chartPts.filter(p => p.d && p.d >= cut); }
+  let pts = _chartPts;
+  // Sport scope: the recent-picks sport filter (incl. ATP vs WTA) also scopes the
+  // chart, so switching sport/tour redraws the graph for that sport.
+  if (_sportFilter && _sportFilter !== 'all') {
+    pts = pts.filter(p => (p.sport || '').toUpperCase() === _sportFilter);
+  }
+  // Date window.
+  if (_mpRange !== 'ALL') {
+    const today = currentBoardDate();
+    if (_mpRange === '1D') pts = pts.filter(p => p.d === today);
+    else if (_mpRange === 'YD') { const yd = _addDays(today, -1); pts = pts.filter(p => p.d === yd); }
+    else { const cut = _addDays(today, -(MP_RANGE_DAYS[_mpRange] || 0)); pts = pts.filter(p => p.d && p.d >= cut); }
+  }
+  // Cumulative always recomputed from $0 over the filtered set.
   let cum = 0;
   return pts.map((p, idx) => { cum = +(cum + p.ret).toFixed(2); return { ...p, cum, i: idx + 1 }; });
+}
+
+// Record/win%/ROI for the CURRENT house timeframe, computed from the windowed
+// chart points (each carries result + per-unit ret). Fixes the bug where these
+// stayed all-time when the timeframe dropdown changed.
+function _mpWindowStats() {
+  let w = 0, l = 0, p = 0, u = 0;
+  for (const pt of _mpWindowPoints()) {
+    if (pt.result === 'win') w++; else if (pt.result === 'loss') l++; else if (pt.result === 'push') p++;
+    u += pt.ret || 0;
+  }
+  const dec = w + l;
+  return { wins: w, losses: l, pushes: p, win_pct: dec ? +(100 * w / dec).toFixed(1) : null, roi: dec ? +(100 * u / dec).toFixed(1) : null };
+}
+
+// The 4 stat cells for the house profile header (Wins/Losses/Win%/ROI), same
+// colors as the #1 ranked pick record bar. Shared by render + timeframe change.
+function houseStatsInner(s) {
+  return `
+    <div class="mp-hstat"><b style="color:var(--green);">${s.wins}</b><span>Wins</span></div>
+    <div class="mp-hstat"><b style="color:var(--red);">${s.losses}</b><span>Losses</span></div>
+    <div class="mp-hstat"><b style="color:var(--gold-ink);">${s.win_pct == null ? '—' : Math.round(s.win_pct) + '%'}</b><span>Win%</span></div>
+    <div class="mp-hstat"><b style="color:${(s.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'};">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</b><span>ROI</span></div>`;
 }
 
 const MP_DD_CHEV = `<i class="fa-solid fa-chevron-down" style="font-size:9px;margin-left:4px;"></i>`;
@@ -190,6 +221,10 @@ export function mpPickRange(key) {
   }
   const title = document.getElementById('mp-pl-title');
   if (title) title.textContent = `${MP_RANGE_LABEL[key]} P/L`;
+  // BUG FIX: recompute the record/win%/ROI for the chosen window (they used to
+  // stay stuck on all-time when the timeframe changed).
+  const hs = document.querySelector('.mp-hstats');
+  if (hs) hs.innerHTML = houseStatsInner(_mpWindowStats());
   drawChart(_mpWindowPoints(), true);
 }
 
@@ -216,6 +251,7 @@ export function closeMemberModal(event) {
 }
 
 function destroyChart() {
+  if (window.caResetTip) window.caResetTip(); // clear any tooltip pinned to this chart
   if (_chart) { _chart.destroy(); _chart = null; }
 }
 
@@ -339,11 +375,7 @@ function renderMemberProfile(data) {
 
       <div class="mp-section-label" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <span id="mp-pl-title" style="flex-shrink:0;">${isHouse ? MP_RANGE_LABEL[_mpRange] : winLabel} P/L</span>
-        ${isHouse ? `<div class="mp-hstats">
-          <div class="mp-hstat"><b style="color:var(--green);">${stats.wins}</b><span>Wins</span></div>
-          <div class="mp-hstat"><b style="color:var(--red);">${stats.losses}</b><span>Losses</span></div>
-          <div class="mp-hstat"><b style="color:var(--gold-ink);">${stats.win_pct == null ? '—' : Math.round(stats.win_pct) + '%'}</b><span>Win%</span></div>
-          <div class="mp-hstat"><b style="color:${(stats.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'};">${stats.roi == null ? '—' : (stats.roi >= 0 ? '+' : '') + stats.roi.toFixed(1) + '%'}</b><span>ROI</span></div>
+        ${isHouse ? `<div class="mp-hstats">${houseStatsInner(_mpWindowStats())}
         </div>` : ''}
         ${isHouse ? mpRangeDdHtml() : ''}
       </div>
@@ -556,35 +588,41 @@ function drawChart(points, isHouse) {
         backgroundColor: color + '18',
         borderWidth: 2,
         pointRadius: points.length > 35 ? 0 : 4,
-        pointHoverRadius: 6,
         fill: true,
         tension: 0.3,
+        pointHoverRadius: 7, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2, pointHoverBackgroundColor: color,
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      onClick: (e, els) => window.caChartClick && window.caChartClick(e, els, _chart),
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e2330', borderColor: '#252c3b', borderWidth: 1,
-          titleColor: '#e2e8f0', bodyColor: '#8892a4', padding: 12,
-          callbacks: {
-            title: items => labels[items[0].dataIndex],
-            label: item => {
-              const p = points[item.dataIndex];
-              const ret = +(p.ret * unit).toFixed(2);
-              return [`Total: ${money(item.raw, 2)}`, `This pick: ${money(ret, 2)} (${p.result})`];
-            },
-          },
-        },
+        // Shared interactive HTML tooltip (result-colored rows, hover highlight,
+        // click to pin). Each profile point is a single pick.
+        tooltip: window.caChartTip ? { enabled: false, external: window.caChartTip } : { enabled: true },
       },
       scales: {
         x: { display: !!isHouse, ticks: { color: '#8892a4', font: { size: 11 }, maxTicksLimit: 12 }, grid: { color: '#252c3b' } },
         y: { ticks: { color: '#8892a4', callback: v => money(v) }, grid: { color: '#252c3b' } },
       },
     },
+  });
+  // Build one tip row per point (a profile point = one pick), tagged with result.
+  _chart.$caTip = points.map((p, i) => {
+    const ret = +(p.ret * unit).toFixed(2);
+    let text;
+    if (isHouse && p.pick_type) {
+      const pt = (p.pick_type || '').toLowerCase();
+      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNick(p.team)} ${typePickLabel(p)}` : typePickLabel(p);
+      const matchup = p.home_team && p.away_team ? `  (${teamNick(p.away_team, p.home_team)} @ ${teamNick(p.home_team, p.away_team)})` : '';
+      text = `${lbl}${matchup}  ·  ${money(ret, 2)}`;
+    } else {
+      text = `This pick  ·  ${money(ret, 2)}`;
+    }
+    return { title: labels[i], sub: `Total: ${money(vals[i], 2)}`, items: [{ text, result: p.result }] };
   });
   if (window.caAttachCrosshair) window.caAttachCrosshair(_chart);
 }
@@ -627,6 +665,12 @@ export function filterMemberPicks(sport) {
   document.querySelectorAll('#mp-sport-filter .mp-sport-pill').forEach(p =>
     p.classList.toggle('active', p.dataset.sport === sport));
   renderPicksList();
+  // House (CA) profiles: the sport pill also re-scopes the chart + record stats.
+  if (_houseSport != null) {
+    const hs = document.querySelector('.mp-hstats');
+    if (hs) hs.innerHTML = houseStatsInner(_mpWindowStats());
+    drawChart(_mpWindowPoints(), true);
+  }
 }
 
 // Close on Escape, matching the game modal behavior.

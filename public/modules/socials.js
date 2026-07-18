@@ -11,7 +11,7 @@
 
 import { state } from './state.js';
 import { avatarFor, fmtOdds, fmtSpread, teamNickname } from './utils.js?v=4';
-import { loadLeaderboard } from './leaderboard.js?v=13';
+import { loadLeaderboard } from './leaderboard.js?v=15';
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -291,8 +291,8 @@ function houseCard(it) {
   const n = (it.house && it.house.pick_count) || 0;
   return `<div class="soc-fcard house" data-key="${it.key}">
     <div class="soc-fhead">
-      <div style="flex-shrink:0;">${avatarFor('CA', 36)}</div>
-      <div class="who"><div class="un">CappingAlpha <span class="soc-chip official">Official</span></div>
+      <div style="flex-shrink:0;cursor:pointer;" onclick="openSportProfile('all')" title="View CappingAlpha's all-time profile">${avatarFor('CA', 36)}</div>
+      <div class="who"><div class="un" style="cursor:pointer;" onclick="openSportProfile('all')">CappingAlpha <span class="soc-chip official">Official</span></div>
         <div class="rec">today's board is live</div></div>
       <div class="time">${timeAgo(it.created_at)}</div>
     </div>
