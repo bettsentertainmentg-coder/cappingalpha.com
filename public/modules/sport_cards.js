@@ -187,24 +187,44 @@ function bodyInner(card, view) {
   return rows.length ? rows.map(rowHtml).join('') : emptyMsgHtml(card, view);
 }
 
-// Just the swappable button(s) — NOT the History button (that stays static so it
-// never flickers or moves on a view change).
-function flipSlotInner(card, view) {
+// Two persistent buttons sit above the History button: Live and Graded. Clicking
+// one navigates to that view AND that same button smoothly recolors + renames to
+// "Rankings (N)" (N = picks currently being ranked = upcoming) as the return to
+// the ranking board. The other button keeps its Live/Graded label. On the today
+// (rankings) view neither is active. Buttons never move or resize — only their
+// color (via a background-color transition) and text change.
+function _flipBtnLabel(card, type, view) {
   const b = viewBuckets(card);
-  if (view !== 'today') {
-    // In live/graded view the control becomes a "Current Rankings" return button
-    // that takes you back to the upcoming board (the main page). Full width.
-    return `<button class="ca-flip-btn ca-return-btn" onclick="setCardView('${card.key}','today')"><i class="fa-solid fa-arrow-left" style="font-size:10px;"></i>&nbsp;Current Rankings</button>`;
+  if (view === type) return `Rankings (${b.upcoming.length})`;
+  if (type === 'live') return `<span class="ca-live-dot ca-live-dot--flash"></span>Live (${b.live.length})`;
+  return `Graded (${b.graded.length})`;
+}
+function flipBtnHtml(card, type, view) {
+  const active = view === type;
+  const target = active ? 'today' : type;
+  return `<button class="ca-flip-btn ca-fb-${type}${active ? ' active' : ''}" data-type="${type}" onclick="setCardView('${card.key}','${target}')">${_flipBtnLabel(card, type, view)}</button>`;
+}
+function flipSlotInner(card, view) {
+  return `<div class="ca-flip-row">${flipBtnHtml(card, 'live', view)}${flipBtnHtml(card, 'graded', view)}</div>`;
+}
+// Update the two buttons IN PLACE (same DOM nodes) so the color change animates
+// via CSS transition instead of a hard swap.
+function _applyFlipBtn(btn, card, type, view) {
+  const active = view === type;
+  btn.classList.toggle('active', active);
+  btn.setAttribute('onclick', `setCardView('${card.key}','${active ? 'today' : type}')`);
+  btn.innerHTML = _flipBtnLabel(card, type, view);
+}
+function updateFlipSlot(el, card, view) {
+  const liveBtn = el.querySelector('.ca-flip-btn[data-type="live"]');
+  const gradedBtn = el.querySelector('.ca-flip-btn[data-type="graded"]');
+  if (liveBtn && gradedBtn) {
+    _applyFlipBtn(liveBtn, card, 'live', view);
+    _applyFlipBtn(gradedBtn, card, 'graded', view);
+  } else {
+    const slot = el.querySelector('.ca-card-flip-slot');
+    if (slot) slot.innerHTML = flipSlotInner(card, view);
   }
-  // Today view: See Live (when live games exist) + See Graded (when anything
-  // graded), each with a count. One alone = full width.
-  const liveBtn = b.live.length
-    ? `<button class="ca-flip-btn ca-live-btn" onclick="setCardView('${card.key}','live')"><span class="ca-live-dot ca-live-dot--flash"></span>See Live (${b.live.length})</button>`
-    : '';
-  const gradedBtn = b.graded.length
-    ? `<button class="ca-flip-btn" onclick="setCardView('${card.key}','graded')">See graded (${b.graded.length})</button>`
-    : '';
-  return (liveBtn || gradedBtn) ? `<div class="ca-flip-row">${liveBtn}${gradedBtn}</div>` : '';
 }
 
 function cardHtml(card) {
@@ -237,16 +257,15 @@ export function setCardView(key, view) {
   if ((_view.get(key) || 'today') === view && !interrupting) return;
 
   const body = el.querySelector('.ca-card-body');
-  const slot = el.querySelector('.ca-card-flip-slot'); // only THIS button area swaps
   const metaEl = el.querySelector('.ca-card-meta');
   if (!body) return;
 
   _view.set(key, view);
   _userChoice.add(key); // the user is now driving this card
 
-  // The button just changes text in place — no fade, no flicker, and the History
-  // button (a static sibling) is never touched.
-  if (slot) slot.innerHTML = flipSlotInner(card, view);
+  // Update the two buttons IN PLACE so the clicked one smoothly recolors +
+  // renames to "Rankings (N)"; the History button (static sibling) is untouched.
+  updateFlipSlot(el, card, view);
 
   // Rapid re-tap: cancel the in-flight waterfall and snap straight to the new
   // view (no animation) so half-finished rows can't mix into the result.
@@ -324,7 +343,7 @@ export function setCardView(key, view) {
     // matches the data (no leftover inline flip styles). The flip slot was set
     // at the start; the History button is never touched.
     if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
-    if (slot) slot.innerHTML = flipSlotInner(card, view);
+    updateFlipSlot(el, card, view);
     body.innerHTML = bodyInner(card, view);
     body.style.minHeight = '';
     _animating.delete(key);
