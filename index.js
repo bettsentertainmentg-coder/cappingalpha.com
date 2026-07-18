@@ -75,8 +75,9 @@ const { computeValuePulse } = require('./src/live_value');
 const { impliedLineForGame } = require('./src/implied_lines');
 const { snapshotStartedMvpGames, getSnapshot } = require('./src/mvp_snapshot');
 const push = require('./src/push');
+const social = require('./src/social');
 push.init(); // free web push (VAPID keys auto-generate into settings on first boot)
-const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards } = require('./src/leaderboard');
+const { getLeaderboard, getMemberProfile, getFriendsList, followCounts, finalizeLeaderboardAwards, getCaSportProfile, getCaSportSummary } = require('./src/leaderboard');
 const { seedDummyAccounts, runDummyVotes, runDummyComments } = require('./src/dummy_accounts');
 
 // ── Active hours: 5am–1am ET ──────────────────────────────────────────────────
@@ -226,12 +227,19 @@ if (MIRROR_URL) {
   // Endpoints that depend on local session (login state) or that don't exist on
   // prod yet (new features in development) stay local. The proxy never forwards
   // cookies, so anything session-scoped MUST be here or it returns logged-out data.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my'];
+  // /api/mvp is session-scoped (requirePaid): mirrored to prod it ALWAYS 403s (no
+  // cookie), which rendered the Rankings tab locked for a locally-paid login. It
+  // serves from the local DB (mvp_picks is real — the server backup pulls it down).
+  // /api/social + /api/members are LOCAL (new endpoints an older prod 404s), and
+  // /api/leaderboard + /api/member join them so the whole Socials world reads ONE
+  // local dataset — a prod board over local follows/feeds would split numbers the
+  // same way the /api/friends + /api/mvp skips already guard against.
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
   app.use((req, res, next) => {
-    // /results is mirrored too: it renders the same tracked record the (mirrored)
-    // CA Rankings tab shows, so serving it from the local DB would print a
-    // different record than every /api-fed surface next to it.
-    if (req.method !== 'GET' || (!req.path.startsWith('/api/') && req.path !== '/results')) return next();
+    // /results stays LOCAL for the same reason /api/mvp does: it renders the same
+    // tracked record the (now-local) CA Rankings tab shows, so the two surfaces
+    // must read the same mvp_picks or their records drift apart.
+    if (req.method !== 'GET' || !req.path.startsWith('/api/')) return next();
     if (MIRROR_SKIP.some(p => req.path === p || req.path.startsWith(p + '/'))) return next();
     // Games + game detail are served LOCALLY: the local board now carries data
     // prod doesn't have yet (odds-engine books, soccer, engine events), and the
@@ -396,6 +404,20 @@ app.get('/og/game/:id.png', (req, res) => {
       return res.send(png);
     }
   } catch (e) { console.warn('[og] route error:', e.message); }
+  res.redirect(302, '/ca-logo.png');
+});
+
+// Member share-a-win card: a member's most recent settled win (public members
+// only; only wins render). Falls back to the logo otherwise.
+app.get('/og/member-win/:userId.png', (req, res) => {
+  try {
+    const png = require('./src/og_card').renderMemberWinPng(parseInt(req.params.userId, 10));
+    if (png) {
+      res.type('png');
+      res.set('Cache-Control', 'public, max-age=600');
+      return res.send(png);
+    }
+  } catch (e) { console.warn('[og member] route error:', e.message); }
   res.redirect(302, '/ca-logo.png');
 });
 
@@ -1148,7 +1170,10 @@ app.get('/api/leaderboard', (req, res) => {
   const window = (req.query.window || 'week').toLowerCase();
   const meId   = req.session?.user?.id ?? null;
   try {
-    res.json(getLeaderboard(window, meId));
+    res.json(getLeaderboard(window, meId, {
+      scope: (req.query.scope || 'all').toLowerCase(),
+      sport: req.query.sport || null,
+    }));
   } catch (err) {
     console.error('[leaderboard]', err.message);
     res.status(500).json({ error: 'Failed to load leaderboard' });
@@ -1178,7 +1203,17 @@ app.post('/api/follow/:userId', (req, res) => {
   if (target === me) return res.status(400).json({ error: 'You cannot follow yourself' });
   const exists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(target);
   if (!exists) return res.status(404).json({ error: 'Member not found' });
-  db.prepare(`INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`).run(me, target);
+  const ins = db.prepare(`INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)`).run(me, target);
+  if (ins.changes > 0) {
+    const who = db.prepare(`SELECT username FROM users WHERE id = ?`).get(me);
+    // sendOnce dedupes on (user, topic, key): a follow/unfollow/refollow loop
+    // cannot spam the target.
+    push.sendOnce(target, 'social_follow', `fol:${me}`, {
+      title: 'New follower',
+      body: `@${(who && who.username) || 'A member'} just followed you.`,
+      url: '/#socials',
+    }).catch(() => {});
+  }
   res.json({ ok: true, is_following: true, ...followCounts(target) });
 });
 
@@ -1202,10 +1237,126 @@ app.get('/api/member/:userId', (req, res) => {
     const profile = getMemberProfile(userId, meId, window);
     if (!profile) return res.status(404).json({ error: 'Member not found' });
     if (profile.error === 'private') return res.status(403).json({ error: 'This member is private' });
+    // Socials extras: profit calendar + the true-history ledger (real stakes per
+    // the two-ledger rule) + current streak. Same privacy gate as the profile.
+    try {
+      const extras = social.getMemberExtras(userId, meId);
+      if (!extras.error) profile.social = extras;
+    } catch (_) {}
     res.json(profile);
   } catch (err) {
     console.error('[member]', err.message);
     res.status(500).json({ error: 'Failed to load member' });
+  }
+});
+
+// ── Socials layer (src/social.js) ─────────────────────────────────────────────
+// Feed, boosts, comments, member search, suggested members, blocks + reports.
+// Everything is session-gated and derived per caller; nothing here exposes CA
+// pick details (the house card is a paywall-safe tease).
+app.get('/api/social/feed', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  try {
+    res.json(social.getFeed(req.session.user.id, { cursor: req.query.cursor || null }));
+  } catch (err) {
+    console.error('[social feed]', err.message);
+    res.status(500).json({ error: 'Failed to load feed' });
+  }
+});
+
+app.get('/api/social/suggested', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  try {
+    res.json(social.getSuggested(req.session.user.id));
+  } catch (err) {
+    console.error('[social suggested]', err.message);
+    res.status(500).json({ error: 'Failed to load suggestions' });
+  }
+});
+
+app.get('/api/members/search', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  try {
+    res.json(social.searchMembers(req.session.user.id, req.query.q || ''));
+  } catch (err) {
+    console.error('[member search]', err.message);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+app.post('/api/social/react', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const out = social.boost(req.session.user.id, String(req.body?.key || ''));
+  if (out.error) return res.status(404).json(out);
+  res.json(out);
+});
+app.delete('/api/social/react', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  res.json(social.unboost(req.session.user.id, String(req.body?.key || req.query.key || '')));
+});
+
+app.get('/api/social/comments', (req, res) => {
+  const meId = req.session?.user?.id ?? null;
+  res.json(social.listComments(meId, String(req.query.key || '')));
+});
+app.post('/api/social/comments', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const out = social.addComment(req.session.user.id, String(req.body?.key || ''), req.body?.body);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+});
+app.delete('/api/social/comments/:id', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const out = social.deleteComment(req.session.user.id, parseInt(req.params.id, 10));
+  if (out.error) return res.status(403).json(out);
+  res.json(out);
+});
+
+app.post('/api/social/report', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const out = social.report(req.session.user.id, {
+    subject_key: req.body?.subject_key || null,
+    subject_user: Number.isInteger(parseInt(req.body?.subject_user, 10)) ? parseInt(req.body.subject_user, 10) : null,
+    reason: req.body?.reason || '',
+  });
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+});
+
+app.post('/api/social/block/:userId', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  const out = social.block(req.session.user.id, parseInt(req.params.userId, 10), req.body?.kind);
+  if (out.error) return res.status(400).json(out);
+  res.json(out);
+});
+app.delete('/api/social/block/:userId', (req, res) => {
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  res.json(social.unblock(req.session.user.id, parseInt(req.params.userId, 10)));
+});
+
+// GET /api/ca-profile/summary — CappingAlpha's all-time record per display sport
+// (ATP+WTA folded into Tennis) + combined. Public: same numbers as the house rows
+// on the leaderboard. Powers the sport-card headers on the CA Rankings tab.
+app.get('/api/ca-profile/summary', (req, res) => {
+  try {
+    res.json(getCaSportSummary());
+  } catch (err) {
+    console.error('[ca-profile summary]', err.message);
+    res.status(500).json({ error: 'Failed to load CA summary' });
+  }
+});
+
+// GET /api/ca-profile/:sport?window=week|month|all — the CappingAlpha sport
+// profile popup (member-profile shape). :sport is a display sport ('MLB',
+// 'Tennis', 'Soccer', ...) or 'all' for the combined record. Resolved history is
+// public (same data as /api/mvp/public); pending picks ride along for paid only.
+app.get('/api/ca-profile/:sport', (req, res) => {
+  const window = (req.query.window || 'all').toLowerCase();
+  try {
+    res.json(getCaSportProfile(req.params.sport, window, auth.isPaid(req)));
+  } catch (err) {
+    console.error('[ca-profile]', err.message);
+    res.status(500).json({ error: 'Failed to load CA profile' });
   }
 });
 
@@ -1217,7 +1368,7 @@ app.get('/api/account', (req, res) => {
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
   const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
   const unitSize = prefs && prefs.unit_size != null ? prefs.unit_size : 20;
@@ -1269,13 +1420,13 @@ app.get('/api/account', (req, res) => {
     const code = auth.ensureReferralCode(userId);
     if (code) {
       const redemptions = db.prepare(`SELECT COUNT(*) AS n FROM referral_redemptions WHERE referrer_id = ?`).get(userId).n;
-      referral = { code, redemptions, days_earned: Math.min(redemptions, 30) };
+      referral = { code, redemptions, days_earned: Math.min(redemptions * 3, 30) };
     }
   } catch (_) {}
 
   res.json({
     user, favoriteSports, isPublic, unitSize, startingBankroll, defaultOdds, myBooks,
-    notifyPrefs, isPaid: auth.isPaid(req), avatarUrl, votes, referral,
+    notifyPrefs, hideStakes: !!(prefs && prefs.hide_stakes), isPaid: auth.isPaid(req), avatarUrl, votes, referral,
   });
 });
 
@@ -1385,7 +1536,7 @@ app.delete('/api/push/subscribe', (req, res) => {
 app.put('/api/account/preferences', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
   const userId = req.session.user.id;
-  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs } = req.body || {};
+  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
   const ODDS_SOURCES = ['consensus', 'draftkings', 'fanduel', 'kalshi', 'polymarket'];
@@ -1399,7 +1550,7 @@ app.put('/api/account/preferences', (req, res) => {
                      'prizepicks', 'underdog', 'fliff', 'other'];
 
   // Read the current row so a partial update preserves the untouched fields.
-  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs FROM user_preferences WHERE user_id = ?`).get(userId);
+  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes FROM user_preferences WHERE user_id = ?`).get(userId);
 
   const sports = favorite_sports !== undefined
     ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
@@ -1408,6 +1559,12 @@ app.put('/api/account/preferences', (req, res) => {
   const pub = is_public !== undefined
     ? (is_public ? 1 : 0)
     : (cur ? (cur.is_public == null ? 1 : cur.is_public) : 1);
+
+  // Two-ledger privacy valve: hide dollar figures on the member's public true
+  // history (units always show; the owner always sees their own numbers).
+  const hideStakes = hide_stakes !== undefined
+    ? (hide_stakes ? 1 : 0)
+    : (cur && cur.hide_stakes != null ? cur.hide_stakes : 0);
 
   // Clamp numeric inputs to sane ranges; fall back to the stored value (then default).
   const clampNum = (v, def, min, max) => {
@@ -1447,8 +1604,8 @@ app.put('/api/account/preferences', (req, res) => {
     : (cur ? (() => { try { return JSON.parse(cur.notify_prefs || '{}'); } catch (_) { return {}; } })() : {});
 
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       favorite_sports   = excluded.favorite_sports,
       is_public         = excluded.is_public,
@@ -1457,10 +1614,11 @@ app.put('/api/account/preferences', (req, res) => {
       default_odds      = excluded.default_odds,
       my_books          = excluded.my_books,
       notify_prefs      = excluded.notify_prefs,
+      hide_stakes       = excluded.hide_stakes,
       updated_at        = datetime('now')
-  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds, JSON.stringify(books), JSON.stringify(notify));
+  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds, JSON.stringify(books), JSON.stringify(notify), hideStakes);
 
-  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds, myBooks: books, notifyPrefs: notify });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds, myBooks: books, notifyPrefs: notify, hideStakes: !!hideStakes });
 });
 
 // POST /api/account/avatar — upload a profile photo as a base64 data URL.
@@ -2257,6 +2415,12 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   const userStake = Number.isFinite(rawStake) && rawStake > 0 ? rawStake : null;
   const userOdds  = Number.isFinite(rawOdds)  && rawOdds !== 0 ? rawOdds  : null;
 
+  // Member-tail attribution (Socials): which member's feed card routed this vote
+  // here. Powers the card's tail count + the "your pick got tailed" push.
+  const rawTail = parseInt(req.body.tail_of, 10);
+  const tailOf = Number.isInteger(rawTail) && rawTail !== userId && social.canViewMember(userId, rawTail)
+    ? rawTail : null;
+
   try {
     db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
       .run(userId, espn_game_id, paired);
@@ -2273,12 +2437,12 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
                    : null;
     db.prepare(`
       INSERT OR IGNORE INTO game_votes
-        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds, spread, user_stake, user_odds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, espn_game_id, pick_slot, home_team, away_team, sport, ml_home, ml_away, ou_over_odds, ou_under_odds, spread, user_stake, user_odds, tail_of_user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(userId, espn_game_id, slot,
            game.home_team, game.away_team, game.sport,
            game.ml_home, game.ml_away, game.ou_over_odds, game.ou_under_odds, voteLine,
-           userStake, userOdds);
+           userStake, userOdds, tailOf);
     // Tail attribution: if this side matches a scanned capper pick for the game,
     // record which pick was tailed (highest-scored match). Zero-friction: every
     // verified track of a capper's side is captured as a tail.
@@ -2294,6 +2458,14 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
     }
     db.prepare(`UPDATE game_votes SET tailed_pick_id = ? WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
       .run(tailed, userId, espn_game_id, slot);
+    if (tailOf) {
+      const who = db.prepare(`SELECT username FROM users WHERE id = ?`).get(userId);
+      push.sendOnce(tailOf, 'social_tail', `tail:${userId}:${espn_game_id}:${slot}`, {
+        title: 'Your pick got tailed',
+        body: `@${(who && who.username) || 'A member'} tailed your ${game.away_team} vs ${game.home_team} pick.`,
+        url: '/#socials',
+      }).catch(() => {});
+    }
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

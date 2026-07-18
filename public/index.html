@@ -113,6 +113,15 @@
       --gold-ink:  #FFD700;   /* gold as TEXT; equals --gold in dark so text remaps are a no-op here */
       --green:     #22c55e;
       --red:       #ef4444;
+      /* Socials "twist" accent — Sky. Used ONLY inside the Socials tab (sub-nav,
+         Tail/Fade, Boost, avatar rings, streak flames, section eyebrows). Gold
+         stays official/awards, green/red stay results, brand blue keeps Follow +
+         the wordmark. --soc-ink is the readable text color ON a --soc fill. */
+      --soc:       #38bdf8;
+      --soc-ink:   #08243a;
+      --soc-soft:  rgba(56,189,248,0.14);
+      --soc-line:  rgba(56,189,248,0.42);
+      --soc-glow:  rgba(56,189,248,0.34);
       /* Translucent overlays tuned per theme so cards/hairlines/shadows read on
          either background. Dark theme: light overlays on a dark base. */
       --overlay-1:    rgba(255,255,255,0.04);
@@ -138,6 +147,13 @@
       --gold-ink:  #8B6914;   /* dark bronze for gold TEXT on white — clears WCAG AA (5.09:1) */
       --green:     #15803d;   /* darkened so small stat text clears WCAG AA (4.5:1) on white */
       --red:       #d12525;
+      /* Sky darkened for white grounds: reads as a link/accent on white and takes
+         white ink on its fill. Same role as the dark-theme --soc. */
+      --soc:       #0284c7;
+      --soc-ink:   #ffffff;
+      --soc-soft:  rgba(2,132,199,0.10);
+      --soc-line:  rgba(2,132,199,0.38);
+      --soc-glow:  rgba(2,132,199,0.22);
       --overlay-1:    rgba(15,23,42,0.03);
       --overlay-2:    rgba(15,23,42,0.06);
       --shadow-soft:  rgba(16,24,40,0.10);
@@ -1038,6 +1054,168 @@
     .empty { text-align: center; padding: 56px 24px; color: var(--muted); }
     .empty-icon { font-size: 36px; margin-bottom: 12px; }
     .empty h3 { font-size: 17px; margin-bottom: 6px; color: var(--text); }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       Socials tab — the "Clubhouse" direction (Jack's pick, 2026-07-17).
+       CA base tokens + the Sky twist (--soc). Vocabulary: Streak Rail, Bet
+       Block, Verb Row, Boost, plus the shared Chip Rail / Follow Pill / Podium
+       / Bottom Sheet already in the vocabulary. All app-ready invariants hold:
+       16px inputs, contained scrolls, atomic chips, min-width:0 on text flex.
+       ══════════════════════════════════════════════════════════════════════ */
+    #panel-socials .container { max-width: 760px; }
+    /* Sub-nav: Feed | Friends | Board. Section identity rail (Sky-tinted). */
+    .soc-subnav { display: flex; gap: 6px; margin: 0 0 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px; position: sticky; top: 60px; z-index: 20; }
+    .soc-sn { flex: 1; min-width: 0; white-space: nowrap; background: none; border: none; color: var(--muted); font-family: inherit; font-size: 14.5px; font-weight: 800; padding: 10px 8px; border-radius: 999px; cursor: pointer; transition: all .14s; position: relative; }
+    .soc-sn:hover { color: var(--text); }
+    .soc-sn.active { color: var(--soc-ink); background: var(--soc); box-shadow: 0 2px 12px var(--soc-glow); }
+    .soc-sn .soc-bub { position: absolute; top: 3px; right: 10px; min-width: 16px; height: 16px; border-radius: 999px; background: var(--red); color: #fff; font-size: 9px; font-weight: 800; line-height: 16px; padding: 0 4px; }
+    @media (max-width: 480px) { .soc-sn { font-size: 13px; padding: 9px 6px; } .soc-subnav { top: 56px; } }
+
+    /* Section eyebrow (Sky). Structural label, not decoration. */
+    .soc-eyebrow { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; color: var(--soc); margin: 20px 4px 9px; display: flex; align-items: center; gap: 9px; }
+    .soc-eyebrow:first-child { margin-top: 4px; }
+    .soc-eyebrow .rule { flex: 1; height: 1px; background: var(--border); }
+    .soc-eyebrow .more { color: var(--muted); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 11.5px; cursor: pointer; background: none; border: none; font-family: inherit; }
+    .soc-eyebrow .more:hover { color: var(--soc); }
+
+    /* Streak Rail (Card Rail variant): who's hot in your circle. */
+    .soc-streaks { display: flex; gap: 14px; overflow-x: auto; padding: 4px 4px 10px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .soc-streaks::-webkit-scrollbar { display: none; }
+    .soc-streak { display: flex; flex-direction: column; align-items: center; gap: 5px; flex-shrink: 0; width: 64px; cursor: pointer; background: none; border: none; font-family: inherit; padding: 0; }
+    .soc-streak .ring { padding: 3px; border-radius: 50%; background: linear-gradient(135deg, var(--soc), transparent 70%); position: relative; }
+    .soc-streak.hot .ring { background: linear-gradient(135deg, var(--gold), var(--soc)); box-shadow: 0 0 14px var(--soc-glow); }
+    .soc-streak .ring > * { box-shadow: 0 0 0 2px var(--bg); }
+    .soc-streak .flame { position: absolute; bottom: -3px; right: -3px; font-size: 13px; box-shadow: none !important; filter: drop-shadow(0 1px 2px rgba(0,0,0,.6)); }
+    .soc-streak .nm { font-size: 10px; font-weight: 700; color: var(--muted); max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .soc-streak .w { font-size: 10px; font-weight: 800; color: var(--soc); }
+    .soc-streak.me .w { color: var(--muted); }
+
+    /* Feed card + variants. */
+    .soc-fcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 13px 14px 11px; margin-bottom: 10px; position: relative; min-width: 0; transition: transform .13s, box-shadow .13s; }
+    .soc-fcard:hover { transform: translateY(-1px); box-shadow: 0 8px 22px var(--shadow-soft); }
+    .soc-fcard.win { border-color: rgba(34,197,94,0.45); background: linear-gradient(180deg, rgba(34,197,94,0.07), var(--surface) 55%); }
+    .soc-fcard.loss { border-color: rgba(239,68,68,0.35); }
+    .soc-fcard.award { border-color: rgba(255,215,0,0.5); background: linear-gradient(180deg, rgba(255,215,0,0.08), var(--surface) 60%); }
+    .soc-fcard.house { border-color: rgba(255,215,0,0.5); }
+    .soc-fhead { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .soc-fhead .who { min-width: 0; flex: 1; cursor: pointer; }
+    .soc-fhead .un { font-weight: 800; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-fhead .rec { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .soc-fhead .rec b { color: var(--text); font-weight: 700; }
+    .soc-fhead .time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+    .soc-fhead .soc-kebab { background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 2px 4px; flex-shrink: 0; line-height: 1; }
+    .soc-fhead .soc-kebab:hover { color: var(--text); }
+
+    /* Bet Block: the embedded slip sub-card. Inner radius = card radius − padding. */
+    .soc-betblock { margin-top: 10px; border: 1px solid var(--border); background: var(--surface2); border-radius: 10px; padding: 9px 11px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .soc-betblock .pick { min-width: 0; flex: 1; }
+    .soc-betblock .l1 { font-weight: 800; font-size: 15px; letter-spacing: -0.1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-betblock .l1 .odds { color: var(--muted); font-weight: 700; font-size: 13px; margin-left: 6px; }
+    .soc-betblock .l2 { font-size: 11px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-betblock .rt { text-align: right; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+    .soc-why { font-size: 13px; color: var(--text); margin: 9px 2px 0; line-height: 1.45; overflow-wrap: anywhere; }
+    .soc-proof { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .soc-proof b { color: var(--soc); font-weight: 800; }
+    .soc-result-big { font-size: 16px; font-weight: 800; letter-spacing: -0.2px; }
+
+    /* Verb Row: Tail / Fade / Boost / comment. */
+    .soc-verbs { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .soc-tail { flex: 1; background: var(--soc); border: 1px solid var(--soc); color: var(--soc-ink); font-family: inherit; font-weight: 800; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; cursor: pointer; transition: filter .13s; white-space: nowrap; }
+    .soc-tail:hover { filter: brightness(1.08); }
+    .soc-tail.done { background: transparent; color: var(--soc); }
+    .soc-fade { flex: 1; background: transparent; border: 1px solid var(--soc-line); color: var(--soc); font-family: inherit; font-weight: 800; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; cursor: pointer; transition: background .13s; white-space: nowrap; }
+    .soc-fade:hover { background: var(--soc-soft); }
+    .soc-locked { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); font-weight: 800; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; cursor: default; white-space: nowrap; text-align: center; }
+    .soc-react { display: inline-flex; align-items: center; gap: 5px; background: none; border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 800; padding: 7px 11px; border-radius: 9px; cursor: pointer; transition: all .13s; flex-shrink: 0; }
+    .soc-react:hover { border-color: var(--soc-line); color: var(--text); }
+    .soc-react.on { border-color: var(--soc-line); background: var(--soc-soft); color: var(--soc); }
+
+    /* Comments. */
+    .soc-comments { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 9px; display: flex; flex-direction: column; gap: 8px; }
+    .soc-cmt { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; }
+    .soc-cmt .txt { color: var(--text); min-width: 0; flex: 1; overflow-wrap: anywhere; } .soc-cmt .txt b { font-weight: 800; margin-right: 5px; }
+    .soc-cmt .txt .t { color: var(--muted); font-size: 10.5px; margin-left: 6px; }
+    .soc-cmt .cx { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 12px; flex-shrink: 0; padding: 0 2px; }
+    .soc-cbox { display: flex; gap: 8px; align-items: center; }
+    .soc-cbox input { flex: 1; min-width: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; color: var(--text); font-size: 16px; padding: 8px 14px; font-family: inherit; outline: none; }
+    .soc-cbox input:focus { border-color: var(--soc-line); }
+
+    /* Chips (atomic — never wrap or shrink). */
+    .soc-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+    .soc-chip.verified { color: var(--green); border: 1px solid rgba(34,197,94,0.4); background: rgba(34,197,94,0.08); }
+    .soc-chip.unverified { color: var(--muted); border: 1px solid var(--border); background: var(--surface2); }
+    .soc-chip.mutual { color: #1a1205; background: linear-gradient(135deg,#FFD700,#f0b400); }
+    .soc-chip.official { color: #1a1205; background: linear-gradient(135deg,#FFD700,#f0b400); text-transform: uppercase; letter-spacing: .04em; }
+    .soc-chip.live { color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); background: rgba(56,189,248,0.08); }
+    .soc-chip.live .dot { width: 5px; height: 5px; border-radius: 50%; background: #38bdf8; animation: pulse 1.4s infinite; }
+    .soc-chip.sport { color: var(--muted); border: 1px solid var(--border); background: var(--surface2); text-transform: uppercase; letter-spacing: .03em; }
+    .soc-u-pos { color: var(--green); font-weight: 800; } .soc-u-neg { color: var(--red); font-weight: 800; } .soc-u-push { color: var(--muted); font-weight: 800; }
+
+    /* Friends tab. */
+    .soc-search { display: flex; align-items: center; gap: 9px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 10px 15px; margin: 0 0 4px; }
+    .soc-search i { color: var(--muted); flex-shrink: 0; font-size: 14px; }
+    .soc-search input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font-size: 16px; font-family: inherit; }
+    .soc-search input::placeholder { color: var(--muted); }
+    .soc-hrail { display: flex; gap: 9px; overflow-x: auto; padding: 2px 2px 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .soc-hrail::-webkit-scrollbar { display: none; }
+    .soc-scard { flex: 0 0 130px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 10px 10px; text-align: center; min-width: 0; transition: transform .13s, box-shadow .13s; }
+    .soc-scard:hover { transform: translateY(-2px); box-shadow: 0 8px 20px var(--shadow-soft); }
+    .soc-scard .nm { font-weight: 800; font-size: 12px; margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+    .soc-scard .st { font-size: 10.5px; color: var(--muted); margin-top: 2px; } .soc-scard .st b { font-weight: 800; }
+    .soc-follow { margin-top: 8px; background: none; border: 1px solid var(--accent); color: var(--accent); border-radius: 999px; padding: 4px 14px; font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; }
+    .soc-follow:hover { background: rgba(59,130,246,0.12); }
+    .soc-follow.following { border-color: var(--border); color: var(--muted); }
+    .soc-follow.following:hover { border-color: var(--red); color: var(--red); }
+    .soc-frow { display: flex; align-items: center; gap: 11px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px; min-width: 0; cursor: pointer; transition: background .12s; }
+    .soc-frow:hover { background: var(--surface2); }
+    .soc-frow .mid { flex: 1; min-width: 0; }
+    .soc-frow .nm { font-weight: 800; font-size: 13.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .soc-frow .nm span.h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-frow .st { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .soc-frow .rt { text-align: right; flex-shrink: 0; }
+    .soc-frow .rt .s { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+    .soc-invite { border: 1px solid var(--soc-line); background: linear-gradient(135deg, var(--soc-soft), var(--surface) 70%); border-radius: 14px; padding: 15px; margin-top: 10px; }
+    .soc-invite h4 { margin: 0 0 4px; font-size: 14.5px; }
+    .soc-invite p { margin: 0 0 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .soc-invite .row { display: flex; gap: 8px; }
+    .soc-invite .code { flex: 1; min-width: 0; background: var(--surface2); border: 1px dashed var(--soc-line); border-radius: 9px; padding: 9px 12px; font-weight: 800; letter-spacing: .06em; font-size: 13px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
+    .soc-invite .go { background: linear-gradient(135deg,#FFD700,#f0b400); border: none; color: #1a1205; font-family: inherit; font-weight: 800; font-size: 12px; padding: 9px 16px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+
+    /* Board sub-tab: scope + sport filters above the existing leaderboard. */
+    .soc-scopes { display: flex; gap: 6px; margin: 0 0 10px; }
+    .soc-scope { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 12.5px; font-weight: 800; padding: 9px 8px; border-radius: 999px; cursor: pointer; transition: all .13s; white-space: nowrap; min-width: 0; }
+    .soc-scope.active { background: var(--soc); border-color: var(--soc); color: var(--soc-ink); }
+    .soc-sportrail { display: flex; gap: 6px; overflow-x: auto; padding: 0 2px 12px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .soc-sportrail::-webkit-scrollbar { display: none; }
+    .soc-sp { flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 800; padding: 6px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+    .soc-sp.active { background: var(--surface2); color: var(--text); border-color: var(--soc-line); }
+    .soc-cutline { display: flex; align-items: center; gap: 9px; margin: 4px 2px 12px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--green); }
+    .soc-cutline::before, .soc-cutline::after { content: ""; flex: 1; border-top: 1.5px dashed rgba(34,197,94,0.4); }
+
+    /* Profit calendar + true-history ledger (member profile popup, task 6). */
+    .soc-pcal .cap { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 6px; }
+    .soc-pcal .grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; }
+    .soc-pcal .d { aspect-ratio: 1; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); }
+    .soc-pcal .d.w { background: rgba(34,197,94,0.32); border-color: rgba(34,197,94,0.5); }
+    .soc-pcal .d.w2 { background: rgba(34,197,94,0.6); border-color: rgba(34,197,94,0.7); }
+    .soc-pcal .d.l { background: rgba(239,68,68,0.30); border-color: rgba(239,68,68,0.45); }
+    .soc-pcal .d.today { outline: 2px solid var(--soc); outline-offset: 1px; }
+    .soc-lseg { display: flex; gap: 5px; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 4px; margin: 14px 0 10px; }
+    .soc-lseg button { flex: 1; background: none; border: none; color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 800; padding: 8px 6px; border-radius: 999px; cursor: pointer; }
+    .soc-lseg button.active { background: var(--soc); color: var(--soc-ink); }
+    .soc-hrow { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--overlay-1); min-width: 0; }
+    .soc-hrow .mid { flex: 1; min-width: 0; }
+    .soc-hrow .p { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-hrow .s { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+    .soc-hrow .rt { text-align: right; flex-shrink: 0; }
+    .soc-hrow .rt .stk { font-size: 10px; color: var(--muted); margin-top: 1px; }
+    .soc-priv { display: flex; align-items: center; gap: 10px; margin-top: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+    .soc-knob { width: 34px; height: 19px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); position: relative; flex-shrink: 0; margin-left: auto; cursor: pointer; }
+    .soc-knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+    .soc-knob.on { background: var(--soc-soft); border-color: var(--soc-line); }
+    .soc-knob.on::after { transform: translateX(15px); background: var(--soc); }
+
+    .soc-pane { display: none; } .soc-pane.active { display: block; }
 
     /* ── Leaderboard ── */
     /* Controls bar: the window switcher is centered on the page (left + right
@@ -2640,6 +2818,118 @@
       .uc-row { grid-template-columns: 1fr 70px 90px; }
     }
 
+    /* ── CA Rankings: chart filters + "Today's CA Scores" sport-card rail ── */
+    .pl-filter-row { display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap; }
+    @media (max-width: 768px) {
+      /* Phone: the graph filters read as one centered, evenly wrapped row. */
+      .pl-filter-row { justify-content:center; gap:8px; }
+      .graph-header { flex-wrap:wrap; }
+    }
+    .pl-filter-select { background:var(--surface2); border:1px solid var(--border); color:var(--text); font-family:inherit; font-size:13px; font-weight:700; padding:7px 10px; border-radius:8px; cursor:pointer; }
+    .pl-score-range { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; }
+    .pl-score-lbl { font-size:10px; text-transform:uppercase; letter-spacing:.04em; }
+    /* Score min/max pickers: compact dropdowns showing ~5 options at a time,
+       smooth-scrolling list with the same light-blue thumb as the rail. */
+    .ca-dd { position:relative; }
+    .ca-dd-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text); font-family:inherit; font-size:13px; font-weight:700; padding:7px 10px; border-radius:8px; cursor:pointer; min-width:64px; }
+    .ca-dd-btn:hover { border-color:var(--accent); }
+    .ca-dd-list { display:none; position:absolute; top:calc(100% + 4px); right:0; min-width:84px; max-height:172px; overflow-y:auto; background:var(--surface2); border:1px solid var(--border); border-radius:10px; z-index:60; box-shadow:0 8px 24px var(--shadow-soft); scroll-behavior:smooth; overscroll-behavior:contain; scrollbar-color:#7dd3fc transparent; scrollbar-width:thin; }
+    .ca-dd.open .ca-dd-list { display:block; }
+    .ca-dd-list::-webkit-scrollbar { width:9px; }
+    .ca-dd-list::-webkit-scrollbar-track { background:transparent; }
+    .ca-dd-list::-webkit-scrollbar-thumb { background:#7dd3fc; border-radius:5px; border:3px solid transparent; background-clip:padding-box; }
+    .ca-dd-list:hover::-webkit-scrollbar-thumb { border-width:1.5px; }
+    .ca-dd-opt { padding:8px 14px; font-size:13px; font-weight:700; cursor:pointer; text-align:center; white-space:nowrap; }
+    .ca-dd-opt:hover { background:var(--overlay-2); }
+    .ca-dd-opt.active { color:var(--gold-ink); }
+    /* History popup: the record sits centered between the P/L label and the
+       timeframe dropdown, evenly spaced compact stats. */
+    /* flex-basis 230px: on a narrow phone popup the stats drop to their own
+       full-width row (still centered) instead of crushing the title and button. */
+    .mp-hstats { flex:1 1 230px; display:flex; justify-content:space-evenly; align-items:center; gap:10px; min-width:0; text-transform:none; letter-spacing:normal; }
+    .mp-hstat { text-align:center; }
+    .mp-hstat b { display:block; font-size:15px; font-weight:800; color:var(--text); line-height:1.2; white-space:nowrap; }
+    .mp-hstat span { display:block; font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-top:1px; }
+    .ca-history-toggle { border:1px solid var(--border); background:var(--surface); color:var(--text); font-family:inherit; font-weight:700; font-size:12.5px; padding:8px 16px; border-radius:999px; cursor:pointer; display:inline-flex; align-items:center; gap:7px; transition:background .12s; }
+    .ca-history-toggle:hover { background:var(--surface2); }
+    /* The two board toggles below the P/L graph, centered; wrap on phones. */
+    .mvp-toggle-row { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin:12px 0 20px; }
+
+    /* Rail scrollbar: light-blue thumb inside a FIXED 14px gutter — on hover the
+       thumb's transparent border shrinks so it grows visually without moving the
+       page layout (the gutter height never changes). */
+    .ca-rail { display:flex; gap:14px; overflow-x:auto; padding:2px 2px 16px; margin-bottom:14px; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; scrollbar-color:#7dd3fc transparent; cursor:grab; }
+    .ca-rail.ca-dragging { cursor:grabbing; scroll-snap-type:none; }
+    .ca-rail.ca-rail-center { justify-content:center; }
+    .ca-rail::-webkit-scrollbar { height:14px; }
+    .ca-rail::-webkit-scrollbar-track { background:transparent; }
+    .ca-rail::-webkit-scrollbar-thumb { background:#7dd3fc; border-radius:7px; border:5px solid transparent; background-clip:padding-box; }
+    .ca-rail:hover::-webkit-scrollbar-thumb { border-width:2px; }
+    /* Playing-card shape: FIXED portrait size for every sport no matter how many
+       picks it holds; only the pick list inside scrolls. The card is a 3D flip
+       container — front = today's open picks, back = the graded list. */
+    .ca-sport-card { flex:0 0 272px; height:408px; scroll-snap-align:start; }
+    .ca-card-face { width:100%; height:100%; background:var(--surface); border:1px solid var(--border); border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+    .ca-card-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 14px; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .ca-card-meta { text-align:right; min-width:0; }
+    .ca-card-tally { font-weight:800; font-size:13px; white-space:nowrap; }
+    /* Graded face header: the day's record / win% / ROI, labeled. */
+    .ca-card-stats { display:flex; gap:12px; align-items:flex-start; }
+    .ca-card-stat { text-align:center; }
+    .ca-card-stat b { display:block; font-size:13px; font-weight:800; line-height:1.2; white-space:nowrap; }
+    .ca-card-stat span { display:block; font-size:9px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-top:1px; }
+    .ca-card-empty { padding:22px 10px; color:var(--muted); font-size:12.5px; text-align:center; }
+    .ca-live-dot { width:7px; height:7px; border-radius:50%; background:linear-gradient(135deg,#4ade80,#38bdf8); display:inline-block; animation:pulse 1s infinite; flex-shrink:0; }
+    /* Flashing blue dot for the See Live control + live back-face header. */
+    .ca-live-dot--flash { background:#0ea5e9; box-shadow:0 0 0 0 rgba(14,165,233,0.6); animation:caLiveFlash 1.1s ease-in-out infinite; }
+    @keyframes caLiveFlash { 0%,100% { opacity:1; box-shadow:0 0 0 0 rgba(14,165,233,0.55); } 50% { opacity:0.35; box-shadow:0 0 0 4px rgba(14,165,233,0); } }
+    .ca-card-live-head { display:inline-flex; align-items:center; gap:6px; font-weight:800; font-size:13px; color:#38bdf8; white-space:nowrap; }
+    /* Pick list: wheel-scrolls when hovered without dragging the page along
+       (overscroll contain); same light-blue grow-on-hover thumb as the rail. */
+    .ca-card-body { overflow-y:auto; overscroll-behavior:contain; flex:1; padding:4px 8px; scrollbar-color:#7dd3fc transparent; scrollbar-width:thin; perspective:900px; }
+    .ca-card-body::-webkit-scrollbar { width:11px; }
+    .ca-card-body::-webkit-scrollbar-track { background:transparent; }
+    .ca-card-body::-webkit-scrollbar-thumb { background:#7dd3fc; border-radius:6px; border:4px solid transparent; background-clip:padding-box; }
+    .ca-card-body:hover::-webkit-scrollbar-thumb { border-width:1.5px; }
+    /* Every pick is a hard-cornered rectangular tile, identical box for open,
+       live, and graded rows (variants only recolor the wash + border). */
+    .ca-rail-row { display:flex; align-items:center; gap:10px; padding:9px 10px; margin:5px 2px; min-height:46px; background:var(--overlay-1); border:1px solid var(--border); border-radius:0; cursor:pointer; transition:background .12s; transform-origin:center top; backface-visibility:hidden; }
+    .ca-rail-row:hover { background:var(--overlay-2); }
+    .ca-rail-row.live { background:rgba(56,189,248,0.06); border-color:rgba(56,189,248,0.28); }
+    /* Graded rows tint by outcome (light wash, not a solid fill). The score ring
+       color is set inline per row (JS) for every state; see .ca-rail-score. */
+    .ca-rail-row.graded-win  { background:rgba(74,222,128,0.10); border-color:rgba(74,222,128,0.22); }
+    .ca-rail-row.graded-loss { background:rgba(248,113,113,0.10); border-color:rgba(248,113,113,0.22); }
+    .ca-rail-row.graded-push { background:rgba(148,163,184,0.10); border-color:rgba(148,163,184,0.25); }
+    .ca-rail-void-note { font-size:10.5px; color:var(--muted); font-style:italic; margin-top:2px; white-space:normal; line-height:1.35; }
+    .ca-push-chip { font-size:10px; font-weight:700; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:0 5px; color:var(--muted); margin-left:6px; vertical-align:middle; }
+    .ca-rail-opp { font-size:10px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:92px; margin-left:auto; }
+    .ca-rail-opp-under { font-size:10.5px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* Every score sits in a ring (front + graded). Shape here; ring color inline. */
+    .ca-rail-score { font-weight:800; font-size:13px; width:38px; height:38px; min-width:38px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; position:relative; border:2px solid var(--border); }
+    .ca-rail-fire { font-size:9px; position:absolute; top:-5px; right:-4px; }
+    .ca-rail-main { flex:1; min-width:0; }
+    .ca-rail-label { font-weight:700; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ca-rail-status { flex-shrink:0; font-size:12px; text-align:right; }
+    .ca-rail-status > span { margin-left:0 !important; }
+    .ca-card-foot { padding:10px 12px; border-top:1px solid var(--border); flex-shrink:0; display:flex; flex-direction:column; gap:7px; }
+    /* See Live + See Graded share one row, each half width (one alone = full). */
+    .ca-flip-row { display:flex; gap:7px; }
+    .ca-flip-row .ca-flip-btn { flex:1 1 0; min-width:0; }
+    .ca-flip-btn { width:100%; border:none; background:linear-gradient(135deg,#FFD700,#f0b400); color:#1a1205; font-family:inherit; font-weight:800; font-size:12px; padding:8px 10px; border-radius:999px; cursor:pointer; transition:filter .14s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ca-flip-btn:hover { filter:brightness(1.07); }
+    /* See Live: lighter blue with the flashing dot. */
+    .ca-live-btn { background:linear-gradient(135deg,#7dd3fc,#38bdf8); color:#08263a; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+    .ca-profile-btn { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:inherit; font-weight:800; font-size:12.5px; padding:9px 12px; border-radius:999px; cursor:pointer; transition:all .14s; }
+    .ca-profile-btn:hover { border-color:var(--gold); color:var(--gold-ink); }
+    /* Phone: cards go nearly full-screen and the rail snaps hard, so a swipe
+       moves one sport at a time (app-style), with the next card peeking. */
+    @media (max-width: 768px) {
+      .ca-rail { scroll-snap-type:x mandatory; gap:12px; padding-bottom:20px; scroll-padding-left:16px; }
+      .ca-sport-card { flex:0 0 86vw; height:70vh; max-height:600px; min-height:400px; scroll-snap-align:center; }
+      .ca-rail.ca-rail-center { justify-content:flex-start; }
+    }
+
     /* ── App-ready mobile polish (keep in sync with game-detail.css) ──
        1. Text-entry controls never render under 16px on phones: iOS Safari
           auto-zooms the whole page when a smaller input takes focus, and the
@@ -2683,7 +2973,7 @@
           </div>
         </div>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
-        <button class="tab-btn" data-tab="leaderboard" onclick="switchTab('leaderboard')">Leaderboard</button>
+        <button class="tab-btn" data-tab="socials" onclick="switchTab('socials')">Socials</button>
         <div class="nav-about-wrap" id="nav-about-wrap">
           <button class="tab-btn" data-tab="about" id="nav-about-btn" onclick="toggleAboutMenu(event)" aria-haspopup="true" aria-expanded="false">About<span class="tab-caret">&#9662;</span></button>
           <div class="about-dropdown hidden" id="about-dropdown" role="menu">
@@ -3103,17 +3393,48 @@
   </div>
 
   <!-- ── Tab 5: Leaderboard ── -->
-  <div id="panel-leaderboard" class="tab-panel">
-    <div class="hero" style="padding-bottom:16px;">
-      <h1>Leaderboard</h1>
-      <p>Members ranked by the units they've won on the picks they voted on. Beat CappingAlpha to climb.</p>
-    </div>
+  <!-- ── Socials (Clubhouse): Feed | Friends | Board ── -->
+  <div id="panel-socials" class="tab-panel">
     <div class="container">
-      <div id="lb-window-switch"></div>
-      <div id="lb-top-week"></div>
-      <div id="lb-me-banner"></div>
-      <div id="lb-content">
-        <div class="spinner-wrap"><div class="spinner"></div></div>
+      <div class="soc-subnav" role="tablist">
+        <button class="soc-sn active" data-soc-pane="feed"    role="tab" onclick="socialsPane('feed')">Feed</button>
+        <button class="soc-sn"        data-soc-pane="friends" role="tab" onclick="socialsPane('friends')">Friends</button>
+        <button class="soc-sn"        data-soc-pane="board"   role="tab" onclick="socialsPane('board')">Leaderboard</button>
+      </div>
+
+      <!-- Feed -->
+      <div id="soc-pane-feed" class="soc-pane active">
+        <div id="soc-streak-rail"></div>
+        <div id="soc-feed">
+          <div class="spinner-wrap"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <!-- Friends -->
+      <div id="soc-pane-friends" class="soc-pane">
+        <div class="soc-search">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input id="soc-search-input" type="text" placeholder="Search members" autocomplete="off" />
+        </div>
+        <div id="soc-search-results"></div>
+        <div id="soc-suggested"></div>
+        <div id="soc-friends-list"></div>
+        <div id="soc-invite"></div>
+      </div>
+
+      <!-- Board (the leaderboard, folded in) -->
+      <div id="soc-pane-board" class="soc-pane">
+        <div class="soc-scopes">
+          <button class="soc-scope active" data-scope="all"     onclick="socialsBoardScope('all')">Everyone</button>
+          <button class="soc-scope"        data-scope="friends" onclick="socialsBoardScope('friends')">Friends</button>
+        </div>
+        <div id="soc-sportrail" class="soc-sportrail"></div>
+        <div id="lb-window-switch"></div>
+        <div id="lb-top-week"></div>
+        <div id="lb-me-banner"></div>
+        <div id="lb-content">
+          <div class="spinner-wrap"><div class="spinner"></div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -3356,8 +3677,8 @@
       <a class="ca-drawer-sub-item" href="/soccer">Soccer</a>
       <a class="ca-drawer-sub-item" href="/mma">UFC / MMA</a>
     </div>
-    <a class="ca-drawer-nav-item" onclick="switchTab('leaderboard');closeDrawer();">
-      Leaderboard <span class="ca-drawer-nav-chevron">›</span>
+    <a class="ca-drawer-nav-item" onclick="switchTab('socials');closeDrawer();">
+      Socials <span class="ca-drawer-nav-chevron">›</span>
     </a>
     <div class="ca-drawer-account-toggle" onclick="toggleDrawerAbout()">
       <span>About</span>
@@ -3421,13 +3742,13 @@
   <nav class="ca-tabbar" id="ca-tabbar" aria-label="Primary">
     <button class="ca-tabbar-item active" data-tabbar="home"     onclick="switchTab('home')"><i class="fa-solid fa-house"></i><span>Home</span></button>
     <button class="ca-tabbar-item"        data-tabbar="mvp"      onclick="switchTab('mvp')"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></button>
-    <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="openSportsPicker()"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="socials"  onclick="switchTab('socials')"><i class="fa-solid fa-user-group"></i><span>Socials</span></button>
     <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></button>
   </nav>
 
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=79"></script>
+  <script type="module" src="app.js?v=101"></script>
 </body>
 </html>

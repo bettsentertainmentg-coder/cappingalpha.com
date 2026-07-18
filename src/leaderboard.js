@@ -48,14 +48,30 @@ function houseWindowClause(window) {
 }
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
-function gradedRows(window) {
+// Optional sport scope for the Socials board filter. 'Tennis' is one button on
+// the site but two sports in the data, same convention as the CA sport cards.
+const BOARD_SPORTS = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'SOCCER', 'TENNIS', 'ATP', 'WTA'];
+function sportScope(sport) {
+  if (!sport) return null;
+  const s = String(sport).toUpperCase();
+  if (!BOARD_SPORTS.includes(s)) return null;
+  return s === 'TENNIS' ? ['ATP', 'WTA'] : [s];
+}
+function sportClause(list) {
+  if (!list) return { sql: '', params: [] };
+  return { sql: `AND UPPER(COALESCE(gv.sport,'')) IN (${list.map(() => '?').join(',')})`, params: list };
+}
+
+function gradedRows(window, sport) {
+  const sc = sportClause(sportScope(sport));
   return db.prepare(`
     SELECT gv.user_id, gv.pick_slot, gv.result,
            gv.ml_home, gv.ml_away, gv.ou_over_odds, gv.ou_under_odds
     FROM game_votes gv
     WHERE gv.result IN ('win','loss','push')
       ${votesWindowClause(window)}
-  `).all();
+      ${sc.sql}
+  `).all(...sc.params);
 }
 
 function gradedRowsBetween(startIso, endIso) {
@@ -172,47 +188,89 @@ const SORT = (a, b) =>
   b.total_votes - a.total_votes ||
   ((a.user_id ?? 1e9) - (b.user_id ?? 1e9));
 
-// Full qualifying population for a window: members ≥ MIN_RESOLVED_VOTES plus the
-// always-present house row, ranked together by units.
-function rankAll(window) {
-  const byUser = aggregate(gradedRows(window));
+// Full qualifying population for a window, ranked together by units. Options:
+//   sport      — scope every record to one sport (Socials board filter)
+//   friendsSet — the friends board: show EVERY followed member (+ self) with NO
+//                minimum (a member with zero graded picks rides a 0-0 / 0u row),
+//                and ONLY the one combined CappingAlpha house row (Jack, 2026-07-17:
+//                everyone effectively follows the main house; the per-sport CA bots
+//                are dropped here). The public board keeps the min-votes gate + the
+//                full house set.
+function rankAll(window, opts = {}) {
+  const byUser = aggregate(gradedRows(window, opts.sport));
   const userMeta = db.prepare(`
     SELECT u.id AS user_id, u.username, COALESCE(up.is_public, 1) AS is_public
     FROM users u LEFT JOIN user_preferences up ON up.user_id = u.id
   `).all();
   const metaById = new Map(userMeta.map(m => [m.user_id, m]));
 
+  const mkMember = (uid, agg) => ({
+    user_id: uid,
+    username: (metaById.get(uid) || {}).username || `user${uid}`,
+    is_public: (metaById.get(uid) || {}).is_public == null ? 1 : (metaById.get(uid) || {}).is_public,
+    is_house: 0,
+    ...statify(agg),
+  });
+
   const members = [];
-  for (const [uid, agg] of byUser.entries()) {
-    if (agg.wins + agg.losses < minVotes(window)) continue;
-    const meta = metaById.get(uid) || {};
-    members.push({
-      user_id: uid,
-      username: meta.username || `user${uid}`,
-      is_public: meta.is_public == null ? 1 : meta.is_public,
-      is_house: 0,
-      ...statify(agg),
-    });
+  if (opts.friendsSet) {
+    // Every followed member (+ self), no minimum — build from the follow set so a
+    // friend with no graded picks still appears.
+    const zero = { wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 };
+    for (const uid of opts.friendsSet) {
+      if (uid == null || !metaById.has(uid)) continue;
+      members.push(mkMember(uid, byUser.get(uid) || zero));
+    }
+  } else {
+    for (const [uid, agg] of byUser.entries()) {
+      if (agg.wins + agg.losses < minVotes(window)) continue;
+      members.push(mkMember(uid, agg));
+    }
   }
 
-  const ranked = [...members, ...houseEntries(window)].sort(SORT);
+  // House rows: friends board = the combined main CappingAlpha only; a sport-scoped
+  // public board = that sport's CA bots; the plain public board = the full set.
+  const sportList = sportScope(opts.sport);
+  let house;
+  if (opts.friendsSet) house = houseEntries(window).filter(e => !e.sport);
+  else if (sportList)  house = houseEntries(window).filter(e => e.sport && sportList.includes(String(e.sport).toUpperCase()));
+  else                 house = houseEntries(window);
+
+  const ranked = [...members, ...house].sort(SORT);
   ranked.forEach((u, i) => { u.rank = i + 1; });
   return ranked;
 }
 
 // Public board for a window + the caller's own row (even if private/unqualified).
-function getLeaderboard(window, meId) {
+// opts: { scope: 'all' | 'friends', sport: string|null } (Socials board filters).
+function getLeaderboard(window, meId, opts = {}) {
   const w = ['week', 'month', 'all'].includes(window) ? window : 'week';
-  const ranked = rankAll(w);
+  const scope = opts.scope === 'friends' && meId != null ? 'friends' : 'all';
+  // Friends board membership: yourself + the members you follow, but a PRIVATE
+  // member only counts as a friend when you both follow each other (mutual). A
+  // private member you follow one-way stays hidden — same rule the feed and the
+  // profile popup enforce, so their picks show to their friends and nobody else.
+  let friendsSet = null;
+  if (scope === 'friends') {
+    const myFollowers = new Set(db.prepare(`SELECT follower_id FROM follows WHERE followee_id = ?`).all(meId).map(r => r.follower_id));
+    friendsSet = new Set([meId]);
+    for (const fid of followeeIds(meId)) {
+      if (userIsPublic(fid) || myFollowers.has(fid)) friendsSet.add(fid);
+    }
+  }
+  const ranked = rankAll(w, { sport: opts.sport, friendsSet });
 
   // Who the caller already follows — lets the board render inline Follow buttons.
   const followed = meId != null ? new Set(followeeIds(meId)) : new Set();
 
   // Public board: house + public members, plus the caller's OWN row even when it's
   // private. Other people's private rows stay hidden; the caller-only inclusion is
-  // safe because this is filtered per-request against meId.
+  // safe because this is filtered per-request against meId. Friends scope keeps
+  // private FOLLOWEES visible to this caller (the friends directory precedent:
+  // a member you follow stays visible to you after going private).
   const rows = ranked
-    .filter(u => u.is_house || u.is_public === 1 || (meId != null && u.user_id === meId))
+    .filter(u => u.is_house || u.is_public === 1 || (meId != null && u.user_id === meId)
+              || (friendsSet != null && u.user_id != null && friendsSet.has(u.user_id)))
     .map(u => ({
       rank: u.rank, user_id: u.user_id, username: u.username,
       is_house: u.is_house ? 1 : 0, sport: u.sport || null,
@@ -230,7 +288,7 @@ function getLeaderboard(window, meId) {
     if (mine) {
       me = { ...mine, is_me: true, qualified: true, is_public: isPublic };
     } else {
-      const agg = aggregate(gradedRows(w)).get(meId);
+      const agg = aggregate(gradedRows(w, opts.sport)).get(meId);
       const s = agg ? statify(agg) : { wins: 0, losses: 0, pushes: 0, total_votes: 0, win_pct: null, units: 0, roi: null };
       me = {
         rank: null, qualified: false, is_me: true, is_public: isPublic,
@@ -242,7 +300,11 @@ function getLeaderboard(window, meId) {
   }
 
   const topOfWeek = w === 'week' ? (rows.find(r => !r.is_house) || null) : null;
-  return { window: w, scope: 'all', rows, me, topOfWeek, min_votes: minVotes(w) };
+  return {
+    window: w, scope, sport: sportScope(opts.sport) ? opts.sport : null,
+    rows, me, topOfWeek,
+    min_votes: scope === 'friends' ? 0 : minVotes(w),
+  };
 }
 
 // ── Follows (one-way, Twitter style) ──────────────────────────────────────────
@@ -427,6 +489,132 @@ function getMemberProfile(userId, meId, window) {
   };
 }
 
+// ── CappingAlpha sport profiles ───────────────────────────────────────────────
+// Popup data for a "CappingAlpha {SPORT}" bot — same payload shape as a member
+// profile so the frontend renders both through one layout. sport 'all' = the
+// combined house record. Tennis is one card on the site but two sports in
+// mvp_picks, so it expands to both tours.
+const CA_SPORT_ALIASES = { TENNIS: ['ATP', 'WTA'] };
+
+function caSportList(sport) {
+  if (!sport || String(sport).toLowerCase() === 'all') return null;
+  return CA_SPORT_ALIASES[String(sport).toUpperCase()] || [sport];
+}
+
+function mvpOdds(p) {
+  const type = (p.pick_type || '').toLowerCase();
+  return (type === 'ml') ? (p.ml_odds || -115)
+       : (type === 'over' || type === 'under') ? (p.ou_odds || -115)
+       : -115;
+}
+
+// Tracked picks for a sport set within a window, oldest → newest. Same population
+// rule as houseAgg (voids + "not counted" excluded) so the profile's record always
+// matches the CappingAlpha rows on the board.
+function caProfileRows(window, sports) {
+  const clause = sports ? `AND sport IN (${sports.map(() => '?').join(',')})` : '';
+  return db.prepare(`
+    SELECT id, team, sport, pick_type, spread, game_date, espn_game_id,
+           score, result, home_score, away_score, ml_odds, ou_odds,
+           home_team, away_team, saved_at, resolved_at
+    FROM mvp_picks
+    WHERE score >= ? AND (result IS NULL OR result != 'void')
+      AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      ${clause}
+      ${houseWindowClause(window)}
+    ORDER BY COALESCE(resolved_at, saved_at) ASC, id ASC
+  `).all(houseThreshold(), ...(sports || []));
+}
+
+// All-time record per display sport (ATP+WTA folded into Tennis) + combined.
+// Powers the sport-card header on the CA Rankings tab in one request.
+function getCaSportSummary() {
+  const rows = caProfileRows('all', null);
+  const blank = () => ({ wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 });
+  const all = blank();
+  const bySport = new Map();
+  for (const p of rows) {
+    const r = (p.result || '').toLowerCase();
+    if (r !== 'win' && r !== 'loss' && r !== 'push') continue;
+    const key = (p.sport === 'ATP' || p.sport === 'WTA') ? 'Tennis' : (p.sport || 'Other');
+    if (!bySport.has(key)) bySport.set(key, blank());
+    for (const agg of [all, bySport.get(key)]) {
+      if (r === 'win') { agg.wins++; agg.risked++; }
+      else if (r === 'loss') { agg.losses++; agg.risked++; }
+      else agg.pushes++;
+      agg.units += settledProfit(r, mvpOdds(p), 1);
+    }
+  }
+  const sports = {};
+  for (const [key, agg] of bySport.entries()) sports[key] = statify(agg);
+  return { all: statify(all), sports };
+}
+
+// Full profile payload for the popup. Mirrors getMemberProfile's shape; pending
+// (ungraded) picks ride along only for paid callers — today's board is paid.
+function getCaSportProfile(sport, window, includePending) {
+  const w = ['week', 'month', 'all'].includes(window) ? window : 'all';
+  const sports = caSportList(sport);
+  const rows = caProfileRows(w, sports);
+
+  const agg = { wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 };
+  const chart = [];
+  const picks = [];
+  let cum = 0, i = 0;
+  for (const p of rows) {
+    const r = (p.result || '').toLowerCase();
+    const graded = r === 'win' || r === 'loss' || r === 'push';
+    const ret = graded ? +settledProfit(r, mvpOdds(p), 1).toFixed(2) : 0;
+    if (graded) {
+      if (r === 'win') { agg.wins++; agg.risked++; }
+      else if (r === 'loss') { agg.losses++; agg.risked++; }
+      else agg.pushes++;
+      agg.units += ret;
+      cum = +(cum + ret).toFixed(2);
+      chart.push({ i: ++i, cum, ret, result: r, d: p.game_date }); // d: x-axis date label
+    }
+    if (graded || includePending) {
+      picks.push({
+        sport: p.sport, team: p.team, pick_type: p.pick_type, spread: p.spread,
+        home_team: p.home_team, away_team: p.away_team,
+        espn_game_id: p.espn_game_id, game_date: p.game_date,
+        result: graded ? r : 'pending', units: ret,
+        home_score: p.home_score, away_score: p.away_score,
+        score: graded ? p.score : null,
+      });
+    }
+  }
+
+  const firstParams = sports ? [houseThreshold(), ...sports] : [houseThreshold()];
+  const first = db.prepare(`
+    SELECT MIN(game_date) AS d FROM mvp_picks
+    WHERE score >= ? ${sports ? `AND sport IN (${sports.map(() => '?').join(',')})` : ''}
+  `).get(...firstParams);
+
+  return {
+    house: true,
+    sport: sports ? sport : null,
+    user: {
+      id: null,
+      username: sports ? `${HOUSE_NAME} ${sport}` : HOUSE_NAME,
+      avatar_url: null,
+      created_at: first && first.d ? first.d : null,
+      is_me: false, is_public: 1, is_following: 0, follows_me: 0,
+      followers: null, following: null, is_house: 1,
+    },
+    window: w,
+    stats: statify(agg),
+    chart,
+    clv: { n: 0 },
+    badges: {
+      gold:   { total: 0, week: 0, month: 0 },
+      silver: { total: 0, week: 0, month: 0 },
+      bronze: { total: 0, week: 0, month: 0 },
+    },
+    recentPicks: picks.reverse().slice(0, 80), // newest first
+  };
+}
+
 // ── Achievement awards (self-healing finalize) ────────────────────────────────
 function pad2(n) { return String(n).padStart(2, '0'); }
 
@@ -535,4 +723,9 @@ module.exports = {
   getFriendsList,
   followCounts,
   finalizeLeaderboardAwards,
+  getCaSportProfile,
+  getCaSportSummary,
+  // Shared record math for the Socials layer (src/social.js) — one implementation
+  // of the units/record aggregation so feed chips can never drift from the board.
+  gradedRows, aggregate, statify, voteOdds, voteReturn, userIsPublic,
 };

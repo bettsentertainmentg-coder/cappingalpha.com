@@ -232,15 +232,16 @@ router.post('/redeem-code', express.json(), (req, res) => {
   res.json({ success: true });
 });
 
-// ── Referral loop (give-a-day / get-a-day) ────────────────────────────────────
+// ── Referral loop (give-3-days / get-3-days) ──────────────────────────────────
 // Every account can hold a referral code (generated lazily via
-// ensureReferralCode). A friend redeems it through the same redeem-code flow:
-// the redeemer gets 1 day, the referrer gets 1 day back. Guards: no self-
-// redeem, one referral redemption per account ever, and a lifetime cap on
-// days a referrer can earn (keeps a farm of throwaway accounts from minting
-// unlimited access).
-const REFERRAL_GRANT_DAYS   = 1;
-const REFERRAL_EARN_CAP     = 30;   // max days a referrer can earn, lifetime
+// ensureReferralCode). When a friend confirms a new account with the code, BOTH
+// sides get 3 free days (Jack, 2026-07-17). Guards keep it safe: no self-redeem,
+// one referral redemption per referred account ever (referral_redemptions has a
+// UNIQUE referred_id), and a lifetime cap on the DAYS a referrer can earn (a farm
+// of throwaway accounts can't mint unlimited access). The referred side always
+// gets its 3 days; only the referrer's reward is capped.
+const REFERRAL_GRANT_DAYS   = 3;
+const REFERRAL_EARN_CAP     = 30;   // max DAYS a referrer can earn, lifetime (~10 referrals)
 
 function grantAccessDays(userId, days) {
   const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -266,11 +267,13 @@ function redeemReferral(req, res, referrer) {
 
   const newTier = grantAccessDays(userId, REFERRAL_GRANT_DAYS);
 
-  // Credit the referrer their day back, up to the lifetime cap.
+  // Credit the referrer their 3 days back, up to the lifetime DAYS cap. `earned`
+  // counts this redemption, so earned*grant is the referrer's total-after-this;
+  // grant only while that stays within the cap.
   const earned = db.prepare(`SELECT COUNT(*) AS n FROM referral_redemptions WHERE referrer_id = ?`).get(referrer.id).n;
-  if (earned <= REFERRAL_EARN_CAP) grantAccessDays(referrer.id, REFERRAL_GRANT_DAYS);
+  if (earned * REFERRAL_GRANT_DAYS <= REFERRAL_EARN_CAP) grantAccessDays(referrer.id, REFERRAL_GRANT_DAYS);
 
-  console.log(`[auth] Referral code of user ${referrer.id} redeemed by user ${userId} (referral #${earned})`);
+  console.log(`[auth] Referral code of user ${referrer.id} redeemed by user ${userId} (referral #${earned}, +${REFERRAL_GRANT_DAYS}d each)`);
   req.session.user.tier = newTier;
   res.json({ success: true, referral: true });
 }
@@ -629,6 +632,10 @@ function isAuthed(req) {
 // ── Middleware: require paid tier ─────────────────────────────────────────────
 function requirePaid(req, res, next) {
   if (!isPaid(req)) {
+    // A 403 on a paid endpoint is always worth a trace: it's either an expired
+    // grant (expected) or a session/cookie problem (a paying user locked out).
+    const u = req?.session?.user;
+    console.warn(`[paywall] 403 ${req.path} — ${u ? `user ${u.id} (${u.email || 'no email'}) tier ${u.tier}` : 'no session'}`);
     return res.status(403).json({ error: 'Paid subscription required.' });
   }
   next();

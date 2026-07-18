@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=4';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=46';
+import { loadUserBets, setBetsData } from './track.js?v=48';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 
@@ -1766,6 +1766,24 @@ function renderSettings(data) {
         </div>
 
         <div class="card account-reveal" style="margin-bottom:20px;">
+          <div class="card-header"><span class="card-title">Profile Privacy</span></div>
+          <div style="padding:16px 20px 18px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:14px;">${lbPublic ? 'Public profile' : 'Private profile'}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${lbPublic
+                  ? 'Anyone can see your rank, record, and picks. You appear on the public leaderboard.'
+                  : 'Only your friends (members you both follow) can see your picks and history. You\'re hidden from everyone else and off the public leaderboard.'}</div>
+              </div>
+              <button class="sport-pill-save" onclick="toggleAccountPrivacy(${lbPublic ? 'false' : 'true'})">
+                ${lbPublic ? 'Make private' : 'Go public'}
+              </button>
+            </div>
+            <span class="sport-pill-saved" id="lb-privacy-saved" style="display:none;margin-top:8px;">Saved!</span>
+          </div>
+        </div>
+
+        <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Appearance</span></div>
           <div style="padding:16px 20px 18px;">
             <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Choose how CappingAlpha looks. Dark is the default.</div>
@@ -1849,11 +1867,11 @@ function renderSettings(data) {
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Refer a Friend</span></div>
           <div style="padding:14px 20px 18px;">
-            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Give a day, get a day. When a friend redeems your code, you both get a free day of full access.</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Give 3 days, get 3 days. When a friend joins with your code, you both get 3 free days of full access.</div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" readonly value="${referral.code}" id="referral-code-input"
                      style="flex:1;font-size:14px;font-weight:700;letter-spacing:.08em;text-align:center;" onclick="this.select()" />
-              <button class="btn btn-ghost" style="font-size:13px;padding:8px 12px;" onclick="copyReferral(this)">Copy link</button>
+              <button class="btn btn-ghost" style="font-size:13px;padding:8px 12px;white-space:nowrap;" onclick="copyReferral(this)">Copy invite</button>
             </div>
             <div style="font-size:12px;color:var(--muted);margin-top:8px;">${referral.redemptions > 0
               ? `${referral.redemptions} friend${referral.redemptions === 1 ? '' : 's'} joined with your code. ${referral.days_earned} day${referral.days_earned === 1 ? '' : 's'} earned.`
@@ -1877,24 +1895,6 @@ function renderSettings(data) {
                  ${favPicksHtml}
                </div>`
             : ''}
-        </div>
-
-        <div class="card account-reveal" style="margin-bottom:20px;">
-          <div class="card-header"><span class="card-title">Leaderboard</span></div>
-          <div style="padding:16px 20px 18px;">
-            <div style="display:flex;align-items:center;gap:12px;">
-              <div style="flex:1;">
-                <div style="font-weight:600;font-size:14px;">${lbPublic ? 'Public profile' : 'Private profile'}</div>
-                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${lbPublic
-                  ? 'Other members can see your rank, record, and picks on the leaderboard.'
-                  : 'You\'re hidden from other members. You can still see your own rank.'}</div>
-              </div>
-              <button class="sport-pill-save" onclick="toggleAccountPrivacy(${lbPublic ? 'false' : 'true'})">
-                ${lbPublic ? 'Make private' : 'Go public'}
-              </button>
-            </div>
-            <span class="sport-pill-saved" id="lb-privacy-saved" style="display:none;margin-top:8px;">Saved!</span>
-          </div>
         </div>
 
         <div class="card account-reveal">
@@ -1947,7 +1947,7 @@ export function showLeaderboardInfo() {
           <p style="font-size:14px;line-height:1.55;margin:0 0 10px;">The leaderboard ranks members by their <b>verified</b> picks.</p>
           <p style="font-size:14px;line-height:1.55;color:var(--muted);margin:0 0 10px;">Every verified pick counts as <b style="color:var(--text);">one unit at the CappingAlpha line</b>, the same number for everyone, so it is a fair, side-by-side comparison no matter your stake or which book you use. Your record and units there track you against every other member.</p>
           <p style="font-size:13px;line-height:1.5;color:var(--muted);margin:0 0 14px;">Custom bets (your own odds, or off-platform bets) are personal only and never touch the leaderboard.</p>
-          <button class="track-submit" onclick="${close}; window.switchTab && window.switchTab('leaderboard');">View leaderboard</button>
+          <button class="track-submit" onclick="${close}; window.viewLeaderboard && window.viewLeaderboard();">View leaderboard</button>
         </div>
       </div>
     </div>`;
@@ -2095,13 +2095,17 @@ function toggleSetupMore() {
 function copyReferral(btn) {
   const input = document.getElementById('referral-code-input');
   if (!input) return;
-  const link = `${location.origin}/?ref=${encodeURIComponent(input.value)}`;
+  // A ready-to-send invite: custom message + the ref link that drops the friend
+  // on the signup form with the code applied (prod domain so it works anywhere).
+  const url = `https://cappingalpha.com/?ref=${encodeURIComponent(input.value)}`;
+  const message = `I'm using CappingAlpha for ranked sports betting picks. Sign up with my code and we both get 3 free days of full access. Create your account here and the code applies automatically: ${url}`;
+  if (navigator.share) { navigator.share({ title: 'CappingAlpha', text: message }).catch(() => {}); return; }
   const done = () => {
     const old = btn.textContent;
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = old; }, 1500);
   };
-  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(link).then(done).catch(() => { input.select(); });
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(message).then(done).catch(() => { input.select(); });
   else input.select();
 }
 

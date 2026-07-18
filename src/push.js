@@ -82,6 +82,8 @@ const TOPICS = {
   top_pick:   { paid: false, label: "Today's #1 pick",     desc: 'Once a day when the top-ranked pick is up.' },
   steam:      { paid: true,  label: 'Line steam',          desc: 'A sharp line move on a game carrying a CA pick.' },
   swing:      { paid: true,  label: 'Live swings',         desc: 'Lead changes in games where you have action.' },
+  social_follow: { paid: false, label: 'New followers',    desc: 'When a member starts following you.' },
+  social_tail:   { paid: false, label: 'Tails on your picks', desc: 'When a member tails one of your picks.' },
 };
 
 // Delivery-channel preference keys stored alongside topics in notify_prefs.

@@ -426,10 +426,13 @@ export async function shareBet(id) {
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
   if (!blob) { showToast('Could not make the card.', 'err'); return; }
   const file = new File([blob], 'cappingalpha-win.png', { type: 'image/png' });
-  const text = `${sel} cashed. ${oddsStr} on CappingAlpha.`;
+  // Custom message + a link to the CappingAlpha main page so anyone who sees the
+  // share can come check it out (prod domain works from any environment).
+  const site = 'https://cappingalpha.com';
+  const text = `I just cashed ${sel} on CappingAlpha. Come see the ranked picks and track your own bets: ${site}`;
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], text });
+      await navigator.share({ files: [file], text, url: site });
       return;
     }
   } catch (_) { /* user canceled or share failed -> fall through to download */ }
@@ -458,6 +461,7 @@ export async function saveBetEdit(id) {
 // ── Track-Bet sheet ───────────────────────────────────────────────────────────
 export function openTrackSheet() {
   if (!state.currentUser) { window.openLogin && window.openLogin(); return; }
+  _tailOf = null; // generic entry — not a tail
   let host = document.getElementById('track-sheet-host');
   if (!host) {
     host = document.createElement('div');
@@ -481,6 +485,7 @@ export function openTrackSheet() {
 
 export function closeTrackSheet() {
   stopBoardPoll();
+  _tailOf = null; // clear any Socials tail attribution when the sheet closes
   const ov = document.getElementById('track-overlay');
   if (!ov) return;
   ov.classList.remove('open');
@@ -1021,7 +1026,10 @@ function startBoardPoll(id) {
 // detail page: tapping a vote button lands here with that page's game + slot,
 // so the user goes from "I like this side" to a filled-in betslip in one tap.
 // Works logged-out too: the 401 path in confirmTrackBet raises the login modal.
-export async function openTrackForSlot(id, slot) {
+export async function openTrackForSlot(id, slot, tailOf = null) {
+  // Socials tail: a member's feed card routes here. The attribution rides into
+  // the eventual verified vote (server records the tail + pings the author).
+  _tailOf = Number.isInteger(tailOf) ? tailOf : null;
   let host = document.getElementById('track-sheet-host');
   if (!host) { host = document.createElement('div'); host.id = 'track-sheet-host'; document.body.appendChild(host); }
   host.innerHTML = `
@@ -1214,6 +1222,9 @@ export async function trackLine(id, slot, label) {
 // odds) and the risk is left at 1 unit. Move any of those out — or make it a free bet —
 // and it becomes a personal custom bet (still auto-graded off the game).
 let _confirm = null;
+// Socials tail attribution for the next verified track (cleared on close + on any
+// non-tail sheet entry so it never leaks onto an unrelated bet).
+let _tailOf = null;
 
 const VERIFY_TOL = 0.09; // 9% outside the book range still counts (Jack's rule)
 
@@ -1608,7 +1619,7 @@ export async function confirmTrackBet() {
     if (verified) {
       // Leaderboard counts this as 1 unit at the CA line; stake + odds ride along ONLY to
       // scale the user's private tracking P/L (the server keeps the leaderboard flat 1u).
-      const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot, stake, odds }) });
+      const res = await fetch(`/api/game/${_confirm.id}/vote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slot: _confirm.slot, stake, odds, tail_of: _tailOf }) });
       if (res.status === 401) { window.openLogin && window.openLogin(); return; }
       if (res.status === 409) { showToast('That game has started — verified tracking is closed.', 'err'); return; }
       if (!res.ok) { showToast('Could not track that. Try again.', 'err'); return; }

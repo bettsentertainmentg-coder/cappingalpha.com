@@ -349,12 +349,23 @@ function unlockHtml() {
       <div class="unlock-pillar-desc">${d}</div>
     </div>`).join('');
 
+  // Referral landing: a friend who arrived from a ?ref= share link sees their
+  // code is applied right on the signup card (it redeems automatically after they
+  // sign up). Sky-tinted so it reads as a friendly perk, not an error.
+  let refBanner = '';
+  try {
+    const refCode = (localStorage.getItem('ca_ref') || '').replace(/[^A-Za-z0-9]/g, '');
+    if (refCode) refBanner = `<div style="margin:0 0 14px;padding:11px 14px;border:1px solid var(--soc-line,rgba(56,189,248,0.42));background:var(--soc-soft,rgba(56,189,248,0.12));border-radius:10px;font-size:13px;color:var(--text);line-height:1.5;">
+      A friend's code <b style="letter-spacing:.06em;">${refCode}</b> is applied. Create your account and you both get <b>3 free days</b> of full access.</div>`;
+  } catch (_) {}
+
   // Action-style account block, only for logged-out visitors.
   const accountSection = (viewer && !paying) ? `
     <section class="unlock-account" id="unlock-account">
       <div class="unlock-account-card">
         <h2 class="unlock-account-h">Create your account</h2>
         <p class="unlock-account-sub">Free gets you the number one pick. Make an account in seconds, then unlock all picks whenever you want.</p>
+        ${refBanner}
         <div class="unlock-social">
           <button class="unlock-social-btn" onclick="window.__unlockSoc('Google')"><span class="us-g">G</span> Continue with Google</button>
         </div>

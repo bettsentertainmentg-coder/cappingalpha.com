@@ -117,6 +117,22 @@ Game Tile (`.ca-tg-tile`), #1 Pick Card (`.ca-top-pick-card` with live/won/lost 
 | Follow Pill | Outline accent button, "Following" muted state |
 | Tier Badge | free/paid chip |
 
+### Socials tab (Clubhouse direction, 2026-07-17)
+The Leaderboard tab became **Socials** (Feed / Friends / Board sub-tabs). It introduces the **Sky twist accent** (`--soc` / `--soc-ink`, defined in index.html both themes) used ONLY inside Socials surfaces (sub-nav active pill, Tail/Fade/Boost, avatar rings, streak flames, section eyebrows). Gold stays official/awards, green/red stay results, brand blue keeps Follow + the wordmark. New named components:
+| Name | What it is | Where |
+|---|---|---|
+| Sub-nav Pills | Feed / Friends / Board segmented pills, sticky under the top bar | `.soc-subnav` / `.soc-sn` |
+| Streak Rail | Card Rail of hot members (avatar ring + flame + Wn), "you" pinned first | `.soc-streaks` / `.soc-streak` |
+| Feed Card | The logged activity as a post (vote / bet / award / house variants) | `.soc-fcard` (`.win`/`.loss`/`.award`/`.house`) |
+| Bet Block | Embedded slip sub-card inside a feed card (inner radius = card − padding) | `.soc-betblock` |
+| Verb Row | Tail / Fade / Boost / comment action row on a feed card | `.soc-verbs` |
+| Boost | The one-tap ⚡ reaction with a count (the Socials "kudos") | `.soc-react` |
+| Section Eyebrow | Sky uppercase label + hairline rule + optional "more" link | `.soc-eyebrow` |
+| Scope Pills | Everyone / Friends board filter | `.soc-scopes` / `.soc-scope` |
+| Board Cutline | Green dashed "Top 10 earn a medal" divider (Duolingo tension) | `.soc-cutline` |
+| Profit Calendar | Month grid tinted green/red by each day's net units (member profile) | `.soc-pcal` |
+| Ledger Segments | Verified picks / True history toggle (the two-ledger rule) | `.soc-lseg` / `.soc-hrow` |
+
 ### Animation vocabulary
 | Name | Effect | Duration/easing | Used by |
 |---|---|---|---|

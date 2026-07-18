@@ -165,4 +165,104 @@ function renderOgPng(espnGameId) {
   return png;
 }
 
-module.exports = { renderOgPng, available };
+// ── Member share-a-win card ───────────────────────────────────────────────────
+// A shareable 1200x630 for a member's most recent settled WIN (username, the
+// pick, the units, their record). Public members only (a private member's card
+// falls back to the logo), and only wins are ever rendered — never a loss.
+const { settledProfit } = require('./odds_math');
+
+function voteWinLabel(v) {
+  const slot = v.pick_slot;
+  const homeNick = v.home_team || 'Home';
+  const awayNick = v.away_team || 'Away';
+  if (slot === 'home_ml') return `${homeNick} ML`;
+  if (slot === 'away_ml') return `${awayNick} ML`;
+  if (slot === 'home_spread') return `${homeNick} ${fmtSigned(v.spread) ?? ''}`.trim();
+  if (slot === 'away_spread') return `${awayNick} ${fmtSigned(v.spread) ?? ''}`.trim();
+  if (slot === 'over') return `Over ${v.spread ?? ''}`.trim();
+  if (slot === 'under') return `Under ${v.spread ?? ''}`.trim();
+  return slot || '';
+}
+function voteWinOdds(v) {
+  if (v.pick_slot === 'home_ml') return v.ml_home;
+  if (v.pick_slot === 'away_ml') return v.ml_away;
+  if (v.pick_slot === 'over') return v.ou_over_odds || -115;
+  if (v.pick_slot === 'under') return v.ou_under_odds || -115;
+  return -110;
+}
+
+function buildMemberWinSvg(u, v, rec) {
+  const units = +settledProfit('win', voteWinOdds(v) || -110, 1).toFixed(2);
+  const label = voteWinLabel(v);
+  const matchup = (v.away_team && v.home_team) ? `${v.away_team} @ ${v.home_team}` : (v.sport || '');
+  const sport = (v.sport || '').toUpperCase();
+  const recTxt = rec ? `${rec.w}-${rec.l}${rec.p ? '-' + rec.p : ''} record` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0d1119"/>
+  <rect width="1200" height="6" fill="#d4af37"/>
+  <text x="70" y="96" font-family="DejaVu Sans" font-size="34" font-weight="bold" fill="#e8edf4">CAPPING<tspan fill="#d4af37">ALPHA</tspan></text>
+  ${sport ? `<rect x="1010" y="60" width="120" height="46" rx="8" fill="#1a2230"/><text x="1070" y="92" text-anchor="middle" font-family="DejaVu Sans" font-size="26" font-weight="bold" fill="#9aa4b2">${esc(sport)}</text>` : ''}
+  <text x="600" y="210" text-anchor="middle" font-family="DejaVu Sans" font-size="30" fill="#38bdf8" font-weight="bold">@${esc(u.username)}</text>
+  <text x="600" y="316" text-anchor="middle" font-family="DejaVu Sans" font-size="96" font-weight="bold" fill="#4ade80">WINNER</text>
+  <text x="600" y="388" text-anchor="middle" font-family="DejaVu Sans" font-size="52" font-weight="bold" fill="#4ade80">+${units}u</text>
+  <rect x="0" y="470" width="1200" height="160" fill="#10151f"/>
+  <rect x="0" y="470" width="1200" height="2" fill="#d4af37"/>
+  <text x="70" y="540" font-family="DejaVu Sans" font-size="40" font-weight="bold" fill="#e8edf4">${esc(label)}</text>
+  <text x="70" y="586" font-family="DejaVu Sans" font-size="28" fill="#6b7684">${esc(matchup)}</text>
+  ${recTxt ? `<text x="1130" y="566" text-anchor="end" font-family="DejaVu Sans" font-size="30" fill="#9aa4b2">${esc(recTxt)}</text>` : ''}
+</svg>`;
+}
+
+const _memberCache = new Map();
+function renderMemberWinPng(userId) {
+  if (!available()) return null;
+  const key = `m${userId}`;
+  const hit = _memberCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.png;
+
+  let u = null;
+  try {
+    u = db.prepare(`
+      SELECT u.id, u.username, COALESCE(up.is_public, 1) AS is_public
+      FROM users u LEFT JOIN user_preferences up ON up.user_id = u.id
+      WHERE u.id = ?
+    `).get(userId);
+  } catch (_) {}
+  if (!u || u.is_public !== 1) return null; // public members only
+
+  let v = null;
+  try {
+    v = db.prepare(`
+      SELECT gv.pick_slot, gv.spread, gv.ml_home, gv.ml_away, gv.ou_over_odds, gv.ou_under_odds,
+             COALESCE(gv.sport, tg.sport) AS sport,
+             COALESCE(gv.home_team, tg.home_team) AS home_team,
+             COALESCE(gv.away_team, tg.away_team) AS away_team
+      FROM game_votes gv LEFT JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
+      WHERE gv.user_id = ? AND gv.result = 'win'
+      ORDER BY COALESCE(gv.graded_at, gv.voted_at) DESC, gv.id DESC LIMIT 1
+    `).get(userId);
+  } catch (_) {}
+  if (!v) return null;
+
+  let rec = null;
+  try {
+    const r = db.prepare(`
+      SELECT SUM(result='win') w, SUM(result='loss') l, SUM(result='push') p
+      FROM game_votes WHERE user_id = ? AND result IN ('win','loss','push')
+    `).get(userId);
+    if (r) rec = { w: r.w || 0, l: r.l || 0, p: r.p || 0 };
+  } catch (_) {}
+
+  let png = null;
+  try {
+    const svg = buildMemberWinSvg(u, v, rec);
+    const rr = new Resvg(svg, { font: { fontFiles: FONT_FILES, loadSystemFonts: false, defaultFontFamily: 'DejaVu Sans' } });
+    png = rr.render().asPng();
+  } catch (e) { console.warn('[og member]', e.message); return null; }
+
+  _memberCache.set(key, { png, exp: Date.now() + 600_000 });
+  if (_memberCache.size > 60) _memberCache.delete(_memberCache.keys().next().value);
+  return png;
+}
+
+module.exports = { renderOgPng, renderMemberWinPng, available };
