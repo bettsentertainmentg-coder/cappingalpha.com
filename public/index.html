@@ -2917,16 +2917,19 @@
     .ca-rail-status { flex-shrink:0; font-size:12px; text-align:right; }
     .ca-rail-status > span { margin-left:0 !important; }
     .ca-card-foot { padding:10px 12px; border-top:1px solid var(--border); flex-shrink:0; display:flex; flex-direction:column; gap:7px; }
-    /* See Live + See Graded share one row, each half width (one alone = full). */
+    /* Live + Graded always share one row, each half width. Clicking one recolors
+       it (smooth background-color transition — solid color under a constant sheen,
+       since CSS can't tween two gradients) and renames it to "Rankings (N)". Same
+       size/position throughout; only color + text change. */
     .ca-flip-row { display:flex; gap:7px; }
     .ca-flip-row .ca-flip-btn { flex:1 1 0; min-width:0; }
-    .ca-flip-btn { width:100%; border:none; background:linear-gradient(135deg,#FFD700,#f0b400); color:#1a1205; font-family:inherit; font-weight:800; font-size:12px; padding:8px 10px; border-radius:999px; cursor:pointer; transition:filter .14s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ca-flip-btn { width:100%; border:none; font-family:inherit; font-weight:800; font-size:12px; padding:8px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+      background-image:linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0) 62%);
+      transition:background-color .4s ease, color .35s ease, filter .14s ease; }
     .ca-flip-btn:hover { filter:brightness(1.07); }
-    /* See Live: lighter blue with the flashing dot. */
-    .ca-live-btn { background:linear-gradient(135deg,#7dd3fc,#38bdf8); color:#08263a; display:inline-flex; align-items:center; justify-content:center; gap:6px; }
-    /* Current Rankings: neutral "return to the upcoming board" button. */
-    .ca-return-btn { background:var(--surface2); color:var(--text); border:1px solid var(--border); display:inline-flex; align-items:center; justify-content:center; }
-    .ca-return-btn:hover { filter:none; border-color:var(--accent); }
+    .ca-fb-live    { background-color:#38bdf8; color:#08263a; }
+    .ca-fb-graded  { background-color:#f0b400; color:#1a1205; }
+    .ca-flip-btn.active { background-color:#8b5cf6; color:#111; }  /* Rankings (N) — the active/return state (black text) */
     .ca-card-flip-slot:empty { display:none; }
     /* Shared interactive P/L chart tooltip (tab + home + profile popups). Rows
        colored by result; 3rd fades with a "+N more" expand when >3 picks. */
@@ -3766,6 +3769,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=108"></script>
+  <script type="module" src="app.js?v=110"></script>
 </body>
 </html>
