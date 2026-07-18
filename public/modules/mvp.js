@@ -5,7 +5,7 @@ import { isPaying } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=17';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=18';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -75,15 +75,23 @@ export async function loadMvp() {
   }
 }
 
+// Dev-only unlock: on localhost the CA Rankings tab renders its FULL layout even
+// logged out, so the tab can be reviewed unlocked on the local host. Gated to
+// localhost/127.0.0.1, so prod stays paywalled exactly as before.
+function _devUnlock() {
+  try { return location.hostname === 'localhost' || location.hostname === '127.0.0.1'; }
+  catch (_) { return false; }
+}
+
 export async function loadMvpPublic() {
   try {
     const res = await fetch('/api/mvp/public');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.mvpData = await res.json();
     state.mvpLoadedAt = Date.now();
-    // Mock mode (?mockrail=1, local design review): render the FULL layout even
-    // logged out — the rail is fake picks and the chart data here is public.
-    renderMvpTab(state.mvpData, !railMockActive());
+    // Full layout when: ?mockrail=1 (mock design review) OR on localhost (dev
+    // unlock). Both render the unlocked view with public data; prod stays limited.
+    renderMvpTab(state.mvpData, !(railMockActive() || _devUnlock()));
   } catch (err) {
     console.error('[MVP public] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
@@ -533,6 +541,16 @@ function _gameEndLabel(g, i) {
 }
 
 // Shared tooltip callbacks for the single-day (per-game) chart.
+// One tooltip pick-row: label + P/L, tagged with result so the HTML tooltip can
+// color it (win green, loss red, push/void grey — same font, colored).
+function _tipItem(p, unit) {
+  const r = (p.result || '').toLowerCase();
+  const ret = calcReturn(p, unit);
+  const pt = (p.pick_type || '').toLowerCase();
+  const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  return { text: `${label}  ·  ${ret >= 0 ? '+' : ''}$${ret.toFixed(2)}`, result: r };
+}
+
 function _gameEndTooltip(unit) {
   return {
     title: (items, data) => {
@@ -547,17 +565,7 @@ function _gameEndTooltip(unit) {
       const when = (d.hasEnd && !Number.isNaN(d.ts)) ? `Final ${gameTime(d.ts)}  ·  ` : '';
       return `${when}Game P/L: ${d.gamePL >= 0 ? '+' : ''}$${d.gamePL.toFixed(2)}  ·  Running: $${d.cumPL.toFixed(2)}`;
     },
-    afterBody: (items, data) => {
-      const d = data[items[0].dataIndex];
-      return d.picks.map(p => {
-        const r   = (p.result || '').toLowerCase();
-        const ret = calcReturn(p, unit);
-        const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
-        const pt   = (p.pick_type || '').toLowerCase();
-        const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
-        return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
-      });
-    },
+    itemsAt: (d) => d.picks.map(p => _tipItem(p, unit)),
   };
 }
 
@@ -676,17 +684,7 @@ export function drawPlGraph(picks) {
     tooltip: {
       title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p => p.result === 'win').length; const losses = d.picks.filter(p => p.result === 'loss').length; return `${items[0].label}  ·  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day P/L: ${d.dayPL >= 0 ? '+' : ''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
-      afterBody:  useDetailedTooltip ? (items, data) => {
-        const d = data[items[0].dataIndex];
-        return d.picks.map(p => {
-          const r   = (p.result || '').toLowerCase();
-          const ret = calcReturn(p, unit);
-          const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
-          const pt   = (p.pick_type || '').toLowerCase();
-          const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
-          return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
-        });
-      } : null,
+      itemsAt: (d) => d.picks.map(p => _tipItem(p, unit)),
     },
     displayData,
   });
@@ -745,8 +743,120 @@ function attachCrosshair(chart) {
 }
 Object.assign(window, { caCrosshair, caAttachCrosshair: attachCrosshair });
 
+// ── Shared interactive HTML tooltip for every P/L chart ───────────────────────
+// Canvas tooltips can't fade a row, color rows individually, cap+expand, or be
+// clicked — so all P/L charts (tab, home, profile popups) use this one HTML
+// tooltip. A chart sets chart.$caTip[dataIndex] = { title, sub, items:[{text,
+// result}] }. Shows up to 3 rows; a 4th+ fades the 3rd and adds a "+N more"
+// arrow. Hover previews; clicking a point (or "+N more") pins it open + expanded.
+let _caTipEl = null, _caTipPin = null, _caTipHover = false;
+
+function _caTipDom() {
+  if (_caTipEl) return _caTipEl;
+  const el = document.createElement('div');
+  el.id = 'ca-cht-tip';
+  el.addEventListener('mouseenter', () => { _caTipHover = true; });
+  el.addEventListener('mouseleave', () => { _caTipHover = false; if (!_caTipPin) _hideCaTip(); });
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.ca-tip-more') && _caTipPin) _renderCaTip(_caTipPin.chart, _caTipPin.index, true);
+  });
+  document.body.appendChild(el);
+  _caTipEl = el;
+  return el;
+}
+// Hidden = fully OUT of layout (display:none + parked off-page). A position:
+// absolute tooltip left sitting at a wide offset silently extends the page's
+// scroll width, which shifted/off-centered the whole page and could scroll the
+// sport-card rail out of view.
+function _hideCaTip() {
+  if (!_caTipEl) return;
+  _caTipEl.style.opacity = '0';
+  _caTipEl.style.pointerEvents = 'none';
+  _caTipEl.style.display = 'none';
+  _caTipEl.style.left = '-9999px';
+  _caTipEl.style.top = '-9999px';
+}
+// Reset on every chart (re)draw so a pin/hover referencing a now-destroyed chart
+// can't wedge the tooltip or throw. Shared with the profile popup via window.
+function caResetTip() { _caTipPin = null; _caTipHover = false; _hideCaTip(); }
+
+function _renderCaTip(chart, index, expanded) {
+  const el = _caTipDom();
+  try {
+    const d = chart && chart.$caTip && chart.$caTip[index];
+    const canvas = chart && chart.canvas;
+    const meta = canvas && chart.getDatasetMeta(0) && chart.getDatasetMeta(0).data[index];
+    if (!d || !canvas || !meta) { _hideCaTip(); return; }
+    const RES = { win: 'var(--green)', loss: 'var(--red)', push: 'var(--muted)', void: 'var(--muted)' };
+    const items = d.items || [];
+    const showAll = expanded || items.length <= 3;
+    const shown = showAll ? items : items.slice(0, 3);
+    const rows = shown.map((it, i) => {
+      const fade = (!showAll && i === 2) ? 'opacity:.4;' : '';
+      const col = RES[(it.result || '').toLowerCase()] || 'var(--text)';
+      return `<div class="ca-tip-row" style="color:${col};${fade}">${it.text}</div>`;
+    }).join('');
+    const more = (!showAll && items.length > 3)
+      ? `<div class="ca-tip-more">+${items.length - 3} more <i class="fa-solid fa-chevron-down" style="font-size:9px;"></i></div>` : '';
+    el.innerHTML = `<div class="ca-tip-title">${d.title || ''}</div>`
+      + (d.sub ? `<div class="ca-tip-sub">${d.sub}</div>` : '')
+      + (rows ? `<div class="ca-tip-rows">${rows}</div>` : '') + more;
+    el.style.display = 'block';
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'auto';
+    const box = canvas.getBoundingClientRect();
+    const px = box.left + window.scrollX + meta.x;
+    const py = box.top + window.scrollY + meta.y;
+    el.style.left = (px + 14) + 'px';
+    el.style.top = (py - 10) + 'px';
+    const r = el.getBoundingClientRect();
+    // Keep fully within the viewport horizontally so it never extends the page.
+    if (r.right > window.innerWidth - 8) el.style.left = Math.max(window.scrollX + 8, px - r.width - 14) + 'px';
+    if (r.bottom > window.innerHeight - 8) el.style.top = Math.max(window.scrollY + 8, py - r.height - 10) + 'px';
+  } catch (_) { _hideCaTip(); }
+}
+
+// Chart.js external tooltip: preview on hover (3-cap) unless a click has pinned it.
+function caChartTip(context) {
+  const { chart, tooltip } = context;
+  if (_caTipPin) return;
+  if (!tooltip || tooltip.opacity === 0) {
+    setTimeout(() => { if (!_caTipHover && !_caTipPin) _hideCaTip(); }, 80);
+    return;
+  }
+  const dp = tooltip.dataPoints && tooltip.dataPoints[0];
+  if (!dp) return;
+  _renderCaTip(chart, dp.dataIndex, false);
+}
+
+// Click a point → pin open + expanded. Outside click unpins.
+function caChartClick(evt, els, chart) {
+  if (els && els.length) { _caTipPin = { chart, index: els[0].index }; _renderCaTip(chart, els[0].index, true); }
+  else if (_caTipPin) { _caTipPin = null; _hideCaTip(); }
+}
+document.addEventListener('click', (e) => {
+  if (_caTipPin && !e.target.closest('#ca-cht-tip') && e.target.tagName !== 'CANVAS') { _caTipPin = null; _hideCaTip(); }
+});
+
+// Build the per-point tip data ({title, sub, items}) from a chart's displayData
+// + its tooltip spec ({title, afterTitle, itemsAt}). Shared by tab + home + popup.
+function buildCaTip(displayData, tooltip, labels) {
+  tooltip = tooltip || {};
+  return (displayData || []).map((d, i) => {
+    const synth = [{ dataIndex: i, label: labels ? labels[i] : '' }];
+    return {
+      title: tooltip.title ? tooltip.title(synth, displayData) : (labels ? labels[i] : ''),
+      sub: tooltip.afterTitle ? tooltip.afterTitle(synth, displayData) : '',
+      items: tooltip.itemsAt ? tooltip.itemsAt(d) : [],
+    };
+  });
+}
+
+Object.assign(window, { caChartTip, caChartClick, buildCaTip, caResetTip });
+
 // ── Shared chart renderer ─────────────────────────────────────────────────────
 function _drawChart(canvasId, existingChart, setChart, { labels, values, lineColor, unit, tooltip, displayData }) {
+  caResetTip(); // drop any tooltip pinned to the chart we're about to destroy
   if (existingChart) { existingChart.destroy(); }
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
@@ -763,26 +873,19 @@ function _drawChart(canvasId, existingChart, setChart, { labels, values, lineCol
         data: values,
         borderColor: lineColor,
         backgroundColor: lineColor + '18',
-        borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, fill: true, tension: 0.3,
+        borderWidth: 2, pointRadius: 4, fill: true, tension: 0.3,
+        // Clear highlight on the hovered bubble (bigger + white ring).
+        pointHoverRadius: 7, pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+        pointHoverBackgroundColor: lineColor,
       }],
     },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      onClick: (e, els) => caChartClick(e, els, chart),
       plugins: {
         legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1e2330', borderColor: '#252c3b', borderWidth: 1,
-          titleColor: '#e2e8f0', bodyColor: '#8892a4', padding: 12,
-          callbacks: {
-            title:      items => tooltip.title      ? tooltip.title(items, displayData)      : items[0].label,
-            afterTitle: items => tooltip.afterTitle ? tooltip.afterTitle(items, displayData) : undefined,
-            label:      ()    => null,
-            afterBody:  tooltip.afterBody
-              ? items => tooltip.afterBody(items, displayData)
-              : undefined,
-          },
-        },
+        tooltip: { enabled: false, external: caChartTip },
       },
       scales: {
         x: { ticks: { color: '#8892a4', font: { size: 11 }, maxTicksLimit: 12 }, grid: { color: '#252c3b' } },
@@ -790,6 +893,7 @@ function _drawChart(canvasId, existingChart, setChart, { labels, values, lineCol
       },
     },
   });
+  chart.$caTip = buildCaTip(displayData, tooltip, labels);
   attachCrosshair(chart);
   setChart(chart);
 }
@@ -955,17 +1059,7 @@ function drawHomeGraph(picks) {
     tooltip: {
       title:      (items, data) => { const d = data[items[0].dataIndex]; const wins = d.picks.filter(p=>p.result==='win').length; const losses = d.picks.filter(p=>p.result==='loss').length; return `${items[0].label}  ·  ${wins}W ${losses}L`; },
       afterTitle: (items, data) => { const d = data[items[0].dataIndex]; return `Day: ${d.dayPL>=0?'+':''}$${d.dayPL.toFixed(2)}  ·  Total: $${d.cumPL.toFixed(2)}`; },
-      afterBody: (items, data) => {
-        const d = data[items[0].dataIndex];
-        return d.picks.map(p => {
-          const r    = (p.result || '').toLowerCase();
-          const ret  = calcReturn(p, unit);
-          const icon = r === 'win' ? '✓' : r === 'loss' ? '✗' : '~';
-          const pt   = (p.pick_type || '').toLowerCase();
-          const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
-          return `  ${icon} ${label}  ·  ${r === 'win' ? '+' : ''}$${ret.toFixed(2)}`;
-        });
-      },
+      itemsAt: (d) => d.picks.map(p => _tipItem(p, unit)),
     },
     displayData,
   });

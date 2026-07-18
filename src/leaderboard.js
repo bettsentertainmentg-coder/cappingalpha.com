@@ -571,7 +571,13 @@ function getCaSportProfile(sport, window, includePending) {
       else agg.pushes++;
       agg.units += ret;
       cum = +(cum + ret).toFixed(2);
-      chart.push({ i: ++i, cum, ret, result: r, d: p.game_date }); // d: x-axis date label
+      // Carry the pick fields so the chart tooltip can name the actual pick
+      // taken on that date (not a generic "This pick"). d = x-axis date label.
+      chart.push({
+        i: ++i, cum, ret, result: r, d: p.game_date, sport: p.sport,
+        team: p.team, pick_type: p.pick_type, spread: p.spread,
+        home_team: p.home_team, away_team: p.away_team,
+      });
     }
     if (graded || includePending) {
       picks.push({

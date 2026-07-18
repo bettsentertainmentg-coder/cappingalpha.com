@@ -171,7 +171,7 @@ function headMetaInner(card, view) {
   const b = viewBuckets(card);
   if (view === 'live') return `<div class="ca-card-live-head"><span class="ca-live-dot ca-live-dot--flash"></span>${b.live.length} live now</div>`;
   if (view === 'graded') return dayStatsHtml(b.graded);
-  return `<div class="ca-card-tally">${card.list.length} pick${card.list.length === 1 ? '' : 's'} today</div>`;
+  return `<div class="ca-card-tally">${card.list.length} Edge scores ranked</div>`;
 }
 
 function emptyMsgHtml(card, view) {
@@ -187,10 +187,14 @@ function bodyInner(card, view) {
   return rows.length ? rows.map(rowHtml).join('') : emptyMsgHtml(card, view);
 }
 
-function footInner(card, view) {
+// Just the swappable button(s) — NOT the History button (that stays static so it
+// never flickers or moves on a view change).
+function flipSlotInner(card, view) {
   const b = viewBuckets(card);
   if (view !== 'today') {
-    return `<button class="ca-flip-btn" onclick="setCardView('${card.key}','today')">&#8249; Back to today</button>${profileBtnHtml(card.key)}`;
+    // In live/graded view the control becomes a "Current Rankings" return button
+    // that takes you back to the upcoming board (the main page). Full width.
+    return `<button class="ca-flip-btn ca-return-btn" onclick="setCardView('${card.key}','today')"><i class="fa-solid fa-arrow-left" style="font-size:10px;"></i>&nbsp;Current Rankings</button>`;
   }
   // Today view: See Live (when live games exist) + See Graded (when anything
   // graded), each with a count. One alone = full width.
@@ -200,19 +204,23 @@ function footInner(card, view) {
   const gradedBtn = b.graded.length
     ? `<button class="ca-flip-btn" onclick="setCardView('${card.key}','graded')">See graded (${b.graded.length})</button>`
     : '';
-  const flipRow = (liveBtn || gradedBtn) ? `<div class="ca-flip-row">${liveBtn}${gradedBtn}</div>` : '';
-  return `${flipRow}${profileBtnHtml(card.key)}`;
+  return (liveBtn || gradedBtn) ? `<div class="ca-flip-row">${liveBtn}${gradedBtn}</div>` : '';
 }
 
 function cardHtml(card) {
   const key = card.key;
   const view = _view.get(key) || 'today';
   const chipSport = key === 'Tennis' ? (card.list[0]?.sport || 'ATP') : key;
+  // Footer: a swappable flip-slot (See Live/See Graded/Current Rankings) ABOVE a
+  // static History button. Only the flip-slot changes on a view switch.
   return `<div class="ca-sport-card" data-sport="${key}">
     <div class="ca-card-face">
       <div class="ca-card-head">${sportBadge(chipSport)}<div class="ca-card-meta">${headMetaInner(card, view)}</div></div>
       <div class="ca-card-body">${bodyInner(card, view)}</div>
-      <div class="ca-card-foot">${footInner(card, view)}</div>
+      <div class="ca-card-foot">
+        <div class="ca-card-flip-slot">${flipSlotInner(card, view)}</div>
+        ${profileBtnHtml(key)}
+      </div>
     </div>
   </div>`;
 }
@@ -229,12 +237,16 @@ export function setCardView(key, view) {
   if ((_view.get(key) || 'today') === view && !interrupting) return;
 
   const body = el.querySelector('.ca-card-body');
-  const foot = el.querySelector('.ca-card-foot');
+  const slot = el.querySelector('.ca-card-flip-slot'); // only THIS button area swaps
   const metaEl = el.querySelector('.ca-card-meta');
   if (!body) return;
 
   _view.set(key, view);
   _userChoice.add(key); // the user is now driving this card
+
+  // The button just changes text in place — no fade, no flicker, and the History
+  // button (a static sibling) is never touched.
+  if (slot) slot.innerHTML = flipSlotInner(card, view);
 
   // Rapid re-tap: cancel the in-flight waterfall and snap straight to the new
   // view (no animation) so half-finished rows can't mix into the result.
@@ -244,7 +256,6 @@ export function setCardView(key, view) {
     if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
     body.innerHTML = bodyInner(card, view);
     body.style.minHeight = '';
-    if (foot) { foot.innerHTML = footInner(card, view); foot.style.opacity = '1'; }
     _animating.delete(key);
     if (!_animating.size && _pendingRender) { _pendingRender = false; renderSportRail(); }
     return;
@@ -255,7 +266,6 @@ export function setCardView(key, view) {
   _timers.set(key, timers);
 
   const STAGGER = 45, HALF = 130;
-  if (foot) { foot.style.transition = 'opacity .16s ease'; foot.style.opacity = '0'; }
   if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
 
   const oldRows = [...body.children];
@@ -310,27 +320,27 @@ export function setCardView(key, view) {
   }
 
   timers.push(setTimeout(() => {
-    // Rebuild the whole face cleanly from state — guarantees the settled view
-    // exactly matches the data, with no leftover inline flip styles anywhere.
+    // Rebuild the meta + body cleanly from state so the settled view exactly
+    // matches the data (no leftover inline flip styles). The flip slot was set
+    // at the start; the History button is never touched.
     if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
+    if (slot) slot.innerHTML = flipSlotInner(card, view);
     body.innerHTML = bodyInner(card, view);
     body.style.minHeight = '';
-    if (foot) { foot.innerHTML = footInner(card, view); foot.style.opacity = '1'; }
     _animating.delete(key);
     _timers.delete(key);
     if (!_animating.size && _pendingRender) { _pendingRender = false; renderSportRail(); }
   }, lastEnd + 60));
 }
 
-// Data-driven default view: a card with nothing upcoming/live (all graded) opens
-// on its graded list; otherwise it opens on today. Recomputed every render until
-// the user taps a button (then they own the card for the session).
+// Data-driven default view (until the user taps a button and owns the card):
+// show upcoming if any; else if games are live show LIVE; else show final
+// (graded). Recomputed every render.
 function applyAutoView(cards) {
   for (const card of cards) {
     if (_userChoice.has(card.key)) continue;
     const b = viewBuckets(card);
-    const allDone = b.upcoming.length === 0 && b.live.length === 0 && b.graded.length > 0;
-    _view.set(card.key, allDone ? 'graded' : 'today');
+    _view.set(card.key, b.upcoming.length ? 'today' : b.live.length ? 'live' : b.graded.length ? 'graded' : 'today');
   }
 }
 
