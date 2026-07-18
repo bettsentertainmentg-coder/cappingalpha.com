@@ -260,7 +260,7 @@ async function resolveVotes() {
     // Who to notify: capture the users on this slot before the UPDATE flips it.
     const holders = db.prepare(`SELECT user_id FROM game_votes WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .all(v.espn_game_id, v.pick_slot);
-    const upd = db.prepare(`UPDATE game_votes SET result = ?, closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+    const upd = db.prepare(`UPDATE game_votes SET result = ?, graded_at = COALESCE(graded_at, datetime('now')), closing_odds = COALESCE(?, closing_odds), closing_line = COALESCE(?, closing_line) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .run(result, closing.odds, closing.line, v.espn_game_id, v.pick_slot);
     if (upd.changes > 0) {
       const payload = votePushPayload(v.pick_slot, result, v.g_home, v.g_away);
@@ -299,7 +299,7 @@ async function resolveVotes() {
     if (result === 'pending') continue;
     const holders = db.prepare(`SELECT user_id FROM game_votes WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .all(v.espn_game_id, v.pick_slot);
-    const upd = db.prepare(`UPDATE game_votes SET result = ? WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
+    const upd = db.prepare(`UPDATE game_votes SET result = ?, graded_at = COALESCE(graded_at, datetime('now')) WHERE espn_game_id = ? AND pick_slot = ? AND result = 'pending'`)
       .run(result, v.espn_game_id, v.pick_slot);
     if (upd.changes > 0) {
       const payload = votePushPayload(v.pick_slot, result, v.g_home, v.g_away);
@@ -700,7 +700,7 @@ async function resolveResults() {
                : pick.pick_type === 'under'                       ? 'under'
                : null;
     if (slot) {
-      db.prepare(`UPDATE game_votes SET result = ?, score = ? WHERE espn_game_id = ? AND pick_slot = ?`)
+      db.prepare(`UPDATE game_votes SET result = ?, score = ?, graded_at = COALESCE(graded_at, datetime('now')) WHERE espn_game_id = ? AND pick_slot = ?`)
         .run(result, pick.score ?? null, pick.espn_game_id, slot);
     }
 

@@ -39,14 +39,30 @@ function privacyLock(r) {
   if (!(r.is_me && r.is_public === 0)) return '';
   return ` <i class="fa-solid fa-lock" style="color:var(--muted);font-size:10px;" title="Hidden from the public leaderboard. Only you can see your spot here."></i>`;
 }
-// Click target for a row: house → MVP tab, member → profile popup (scoped to the
-// window being viewed so the popup shows that window's record + chart).
+// Click target for a row: combined house → MVP tab, house sport bot → the CA
+// sport profile popup, member → profile popup (both scoped to the window being
+// viewed so the popup shows that window's record + chart).
 function rowClick(r, window) {
-  return r.is_house ? `switchTab('mvp')` : `openMemberModal(${r.user_id}, '${window}')`;
+  if (r.is_house) {
+    return r.sport ? `openSportProfile('${r.sport}', '${window}')` : `switchTab('mvp')`;
+  }
+  return `openMemberModal(${r.user_id}, '${window}')`;
 }
 
-export async function loadLeaderboard(window) {
+// Socials board filters (folded into the Socials tab). Persist across window
+// switches so Friends/MLB stays selected when you tap Month.
+let _scope = 'all';   // 'all' | 'friends'
+let _sport = null;    // null = all sports
+
+export function setBoardScope(scope) { _scope = scope === 'friends' ? 'friends' : 'all'; }
+export function setBoardSport(sport) { _sport = sport || null; }
+export function getBoardScope() { return _scope; }
+export function getBoardSport() { return _sport; }
+
+export async function loadLeaderboard(window, opts) {
   if (window) state.leaderboardWindow = window;
+  if (opts && opts.scope !== undefined) _scope = opts.scope === 'friends' ? 'friends' : 'all';
+  if (opts && opts.sport  !== undefined) _sport = opts.sport || null;
   state.leaderboardView = 'board';
   const win = state.leaderboardWindow;
   const content = document.getElementById('lb-content');
@@ -57,7 +73,9 @@ export async function loadLeaderboard(window) {
   const hasBoard = content && content.querySelector('.lb-stat-grid, .empty');
   if (content && !hasBoard) content.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
   try {
-    const res = await fetch(`/api/leaderboard?window=${encodeURIComponent(win)}`);
+    const qs = `window=${encodeURIComponent(win)}&scope=${encodeURIComponent(_scope)}`
+             + (_sport ? `&sport=${encodeURIComponent(_sport)}` : '');
+    const res = await fetch(`/api/leaderboard?${qs}`);
     if (!res.ok) throw new Error('load failed');
     const data = await res.json();
     renderLeaderboard(data);
@@ -83,14 +101,13 @@ function renderControls(activeWin) {
   const windows = `<div class="lb-windows">` + WINDOWS.map(([key, label]) =>
     `<button class="lb-win-btn${key === activeWin ? ' active' : ''}" onclick="switchLbWindow('${key}')">${label}</button>`
   ).join('') + `</div>`;
-  const friendsBtn = state.currentUser
-    ? `<button onclick="showFriends()" style="border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:inherit;font-weight:800;font-size:13.5px;padding:11px 20px;border-radius:999px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;"><i class="fa-solid fa-user-group" style="font-size:12px;color:var(--accent);"></i>Friends</button>`
-    : '';
-  // 3-column grid: privacy toggle (left) | centered windows | Friends button (right).
+  // Privacy moved to Settings (Jack, 2026-07-17) and Friends is its own Socials
+  // sub-tab, so both side cells are now empty — they just keep the window switcher
+  // centered in the 3-column grid.
   el.innerHTML = `<div class="lb-controls">
-    ${privacyCell()}
+    <div class="lb-privacy-cell"></div>
     ${windows}
-    <div class="lb-friends-cell">${friendsBtn}</div>
+    <div class="lb-friends-cell"></div>
   </div>`;
 }
 
@@ -318,7 +335,7 @@ function table(rows, minVotes, window) {
     const member = r.is_house
       ? `<div class="lb-member"><div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#1a2030,#3b82f6);display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:12px;flex-shrink:0;">CA</div><span class="lb-member-name">${r.username}</span>${r.sport ? ' ' + sportBadge(r.sport) : ''} <span class="lb-house-badge">Official</span></div>`
       : `<div class="lb-member">${avatarFor(r.username, 30)} <span class="lb-member-name">@${r.username}</span>${r.is_me ? ' <span style="color:var(--gold);font-size:11px;">(you)</span>' : ''}${privacyLock(r)}</div>`;
-    return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? "View the CA Rankings" : 'View profile'}">
+    return `<tr class="${cls}" onclick="${rowClick(r, window)}" title="${r.is_house ? (r.sport ? `View the CA ${r.sport} profile` : 'View the CA Rankings') : 'View profile'}">
       <td class="lb-left lb-rank${r.rank === 1 ? ' lb-r1' : ''}">${r.rank}${rankMedal(r.rank)}</td>
       <td class="lb-left">${member}</td>
       <td>${record(r)}</td>

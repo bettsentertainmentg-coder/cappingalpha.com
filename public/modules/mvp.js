@@ -2,9 +2,10 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime } from './utils.js?v=4';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=17';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -16,10 +17,53 @@ const RANGE_DAYS = { '1D': 1, 'YD': 1, '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3
 let _currentRange     = 'ALL';
 let _homeRange        = 'ALL';
 
+// ── Rankings-tab filters (chart + record bar + sport-card rail) ───────────────
+// Score range starts at the gold line (100) and can be widened/narrowed in both
+// directions; the sport dropdown scopes everything to one display sport.
+let _plSport  = 'ALL';
+let _scoreMin = null;   // lazy-initialized to the gold line on first render
+let _scoreMax = null;   // null = no upper bound
+
+function _goldLine() {
+  return state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100;
+}
+
+function _passesFilters(p) {
+  const s = p.score || 0;
+  if (s < (_scoreMin ?? 0)) return false;
+  if (_scoreMax != null && s > _scoreMax) return false;
+  if (_plSport !== 'ALL' && displaySport(p.sport) !== _plSport) return false;
+  return true;
+}
+
+// The board day, human-readable — the small grey text next to the rail title.
+function _railDate() {
+  const d = new Date(currentBoardDate() + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+// ── Custom dropdowns (timeframe / sport / score min / score max) ──────────────
+const RANGE_OPTIONS = [['1D', 'Today'], ['YD', 'Yesterday'], ['5D', '5 Days'], ['7D', '7 Days'], ['21D', '21 Days'], ['1M', '1 Month'], ['3M', '3 Months'], ['ALL', 'All-Time']];
+const RANGE_LABEL = Object.fromEntries(RANGE_OPTIONS);
+
+function _ddHtml(id, which, btnLabel, optsHtml) {
+  return `<div class="ca-dd" id="${id}">
+    <button class="ca-dd-btn" id="${id}-btn" onclick="toggleScoreDd(event, '${which}')">${btnLabel}</button>
+    <div class="ca-dd-list">${optsHtml}</div>
+  </div>`;
+}
+function _ddOpt(which, val, label, active) {
+  return `<div class="ca-dd-opt${active ? ' active' : ''}" data-val="${val}" onclick="pickDd('${which}', '${val}')">${label}</div>`;
+}
+
 // ── MVP tab loading ───────────────────────────────────────────────────────────
 export async function loadMvp() {
   try {
     const res = await fetch('/api/mvp');
+    // 403 = the server says this session isn't paid (e.g. an expired code grant
+    // while the client still holds a non-free tier). Show the public view
+    // instead of an error page — same tab a free member gets.
+    if (res.status === 403) return loadMvpPublic();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.mvpData = await res.json();
     state.mvpLoadedAt = Date.now();
@@ -37,7 +81,9 @@ export async function loadMvpPublic() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.mvpData = await res.json();
     state.mvpLoadedAt = Date.now();
-    renderMvpTab(state.mvpData, true);
+    // Mock mode (?mockrail=1, local design review): render the FULL layout even
+    // logged out — the rail is fake picks and the chart data here is public.
+    renderMvpTab(state.mvpData, !railMockActive());
   } catch (err) {
     console.error('[MVP public] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
@@ -131,27 +177,21 @@ function _recordBarHtml(rec, full = false) {
 export function renderMvpTab({ picks = [] } = {}, limited = false) {
   const container = document.getElementById('mvp-tab-content');
 
-  // GOLD ONLY on every Rankings surface. mvp_threshold is the silver line (75
-  // under v3) and silvers must never appear here — the tracked tier is 100+.
-  const goldLine = state.CONFIG?.mvp_display_threshold || 100;
+  // GOLD ONLY on the tracked history surface. mvp_threshold is the silver line
+  // (75 under v3) and silvers must never appear there — the tracked tier is 100+.
+  const goldLine = _goldLine();
+  if (_scoreMin == null) _scoreMin = goldLine; // filter default: gold and up
 
   const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance. CappingAlpha never wagers on any game.</p>`;
 
-  // Both sections render stable wrappers ALWAYS (live hidden when empty) so
-  // refreshMvpToday() can repopulate them on every picksUpdated — the tab used
-  // to snapshot allPicks once per session and could freeze on "No picks yet".
-  const liveTodaySections = limited ? '' : `
-    <div id="mvp-live-section" style="display:none;">
-      <div class="mvp-section-title">Live Games</div>
-      <div class="card" style="margin-bottom:24px;">
-        <div id="mvp-live-body"></div>
-      </div>
+  // "Today's CA Scores": one card per sport, horizontally scrollable, rebuilt on
+  // every picksUpdated so the rail stays live all day.
+  const railSection = limited ? '' : `
+    <div class="mvp-section-title" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+      <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Scores</span>
+      <span id="ca-rail-note" style="font-size:11px;color:var(--muted);font-weight:600;">${_railDate()}</span>
     </div>
-    <div class="mvp-section-title">Today's Top Picks</div>
-    <p style="color:var(--muted);font-size:12px;margin:-4px 0 10px;">Every pick that rated ${goldLine} or over today. Upcoming, live, and finished, each one tracked.</p>
-    <div class="card" style="margin-bottom:24px;">
-      <div id="mvp-today-body"></div>
-    </div>`;
+    <div id="ca-sport-rail" class="ca-rail"></div>`;
 
   const upgradePrompt = limited ? `
     <div class="inline-paywall-card" style="margin-bottom:28px;">
@@ -164,33 +204,53 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
     <div class="mvp-tab-hero">
       <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</div>
       <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
-      <p class="mvp-tab-desc">Picks that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
+      <p class="mvp-tab-desc">Picks that scored ${goldLine}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
     </div>`;
 
-  // Compute initial record for selected range
-  const resolvedAll = _resolvedPicks(picks);
+  // Sport dropdown options: every display sport present in the archive or on
+  // today's board (Tennis folds ATP+WTA).
+  const sportSet = new Set();
+  let maxScore = 120;
+  for (const p of [...(picks || []), ...(state.allPicks || [])]) {
+    const d = displaySport(p.sport);
+    if (d && d !== '—') sportSet.add(d);
+    if ((p.score || 0) > maxScore) maxScore = p.score;
+  }
+  const sportOptions = ['ALL', ...[...sportSet].sort()].map(s =>
+    _ddOpt('sport', s, s === 'ALL' ? 'All Sports' : s, s === _plSport)).join('');
+
+  // Timeframe dropdown (replaces the old 1D/YD/…/ALL button row).
+  const rangeOptions = RANGE_OPTIONS.map(([k, l]) => _ddOpt('range', k, l, k === _currentRange)).join('');
+
+  // Score min/max pickers: 50 → the top score in the data, steps of 10.
+  const maxTick = Math.ceil(maxScore / 10) * 10;
+  let minOpts = '', maxOpts = _ddOpt('max', null, 'No cap', _scoreMax == null);
+  for (let v = 50; v <= maxTick; v += 10) {
+    minOpts += _ddOpt('min', v, v, v === _scoreMin);
+    maxOpts += _ddOpt('max', v, v, v === _scoreMax);
+  }
+
+  // Compute initial record for selected range + filters
+  const resolvedAll = _resolvedPicks(picks).filter(_passesFilters);
   const barRec = _computeRecord(_windowedPicks(resolvedAll, _currentRange));
-  barRec.voided = _voidedInWindow(picks, resolvedAll, _currentRange);
+  barRec.voided = _voidedInWindow(picks.filter(_passesFilters), resolvedAll, _currentRange);
 
   container.innerHTML = mvpHero + `
     ${upgradePrompt}
-    ${liveTodaySections}
+    ${railSection}
     <div class="graph-card">
       <div class="graph-header">
         <div>
           <div class="graph-title" id="pl-label-title">ALL-TIME P/L</div>
           <div id="pl-total" class="graph-pl-label" style="margin-top:4px;">—</div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <div class="graph-range-row">
-            <button class="graph-range-btn mvp-range-btn" data-key="1D"  onclick="setGraphDays('1D')">1D</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="YD"  onclick="setGraphDays('YD')">YDAY</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="5D"  onclick="setGraphDays('5D')">5D</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="7D"  onclick="setGraphDays('7D')">7D</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="21D" onclick="setGraphDays('21D')">21D</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="1M"  onclick="setGraphDays('1M')">1M</button>
-            <button class="graph-range-btn mvp-range-btn" data-key="3M"  onclick="setGraphDays('3M')">3M</button>
-            <button class="graph-range-btn mvp-range-btn active" data-key="ALL" onclick="setGraphDays('ALL')">ALL</button>
+        <div class="pl-filter-row">
+          ${_ddHtml('pl-range-dd', 'range', RANGE_LABEL[_currentRange] || 'All-Time', rangeOptions)}
+          ${_ddHtml('pl-sport-dd', 'sport', _plSport === 'ALL' ? 'All Sports' : _plSport, sportOptions)}
+          <div class="pl-score-range" title="Score range: 50 up to the top score, steps of 10.">
+            ${_ddHtml('pl-min-dd', 'min', _scoreMin, minOpts)}
+            <span>–</span>
+            ${_ddHtml('pl-max-dd', 'max', _scoreMax ?? 'Max', maxOpts)}
           </div>
           <div class="unit-input-row">
             <label for="unit-size">Unit: $</label>
@@ -206,14 +266,28 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
         ${_recordBarHtml(barRec, true)}
       </div>
     </div>
-
-    <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <span style="display:inline-flex;align-items:center;gap:6px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">History</span>
-      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ pts.</span>
+    <div class="mvp-toggle-row">
+      <button class="ca-history-toggle" onclick="toggleTodayRankings()">Today's Complete Rankings <i class="fa-solid fa-chevron-down" id="mvp-today-chev" style="font-size:10px;transition:transform .15s;"></i></button>
+      <button class="ca-history-toggle" onclick="toggleMvpHistory()">View Full History <i class="fa-solid fa-chevron-down" id="mvp-history-chev" style="font-size:10px;transition:transform .15s;"></i></button>
     </div>
-    <div class="mvp-history-wrap">
-      <div class="card" style="border:none;border-radius:0;">
-        <div id="mvp-history-body"></div>
+
+    <div id="mvp-today-rankings-section" style="display:none;">
+      <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Today's Complete Rankings</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">Every ranked pick on today's board.</span>
+      </div>
+      <div class="card"><div id="mvp-today-rankings-body"><div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div></div></div>
+    </div>
+
+    <div id="mvp-history-section" style="display:none;">
+      <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">History</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${goldLine}+ pts.</span>
+      </div>
+      <div class="mvp-history-wrap">
+        <div class="card" style="border:none;border-radius:0;">
+          <div id="mvp-history-body"></div>
+        </div>
       </div>
     </div>`;
 
@@ -225,34 +299,122 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
   drawPlGraph(picks);
 }
 
-// ── Live + Today's Top Picks sections, rebuilt from the CURRENT board ─────────
-// Runs at render time AND on every picksUpdated, so the sections populate as
-// soon as the board loads and stay fresh all day (scores climb, games go live
-// and final) instead of freezing on whatever allPicks held at first render.
-export function refreshMvpToday() {
-  const todayBody = document.getElementById('mvp-today-body');
-  if (!todayBody) return; // Rankings tab not rendered (or limited view)
-  const goldLine = state.CONFIG?.mvp_display_threshold || 100;
+// Expand/collapse the full tracked-history table ("View Full History" under the
+// P/L card — the day-to-day surface is the chart + sport-card rail).
+export function toggleMvpHistory() {
+  const sec = document.getElementById('mvp-history-section');
+  const chev = document.getElementById('mvp-history-chev');
+  if (!sec) return;
+  const open = sec.style.display !== 'none';
+  sec.style.display = open ? 'none' : '';
+  if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
+  if (!open) requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
 
-  const liveMvpPicks = state.allPicks.filter(p => p.game_status === 'in' && (p.score || 0) >= goldLine);
-  const liveWrap = document.getElementById('mvp-live-section');
-  if (liveWrap) {
-    liveWrap.style.display = liveMvpPicks.length ? '' : 'none';
-    if (liveMvpPicks.length) renderMvpRows(liveMvpPicks, 'mvp-live-body', { useLiveScore: true });
+// Expand/collapse the full today's-board ranking (same ranked list as the home
+// page, via renderPicks). Re-renders on open and stays fresh on picksUpdated.
+export function toggleTodayRankings() {
+  const sec = document.getElementById('mvp-today-rankings-section');
+  const chev = document.getElementById('mvp-today-chev');
+  if (!sec) return;
+  const open = sec.style.display !== 'none';
+  sec.style.display = open ? 'none' : '';
+  if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
+  if (!open) {
+    renderPicks(state.allPicks, 'mvp-today-rankings-body');
+    requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   }
+}
+// Keep the open ranking list live as scores climb / games go final.
+document.addEventListener('picksUpdated', () => {
+  const sec = document.getElementById('mvp-today-rankings-section');
+  if (sec && sec.style.display !== 'none') renderPicks(state.allPicks, 'mvp-today-rankings-body');
+});
 
-  // Ties break by pick id (ascending) so the #1 MVP star lands on the same pick
-  // the board and the home "#1 Pick" card show — all three sort score desc, id asc.
-  const todayMvps = state.allPicks
-    .filter(p => (p.score || 0) >= goldLine)
-    .sort((a, b) => (b.score || 0) - (a.score || 0) || ((a.id || 0) - (b.id || 0)));
-  if (todayMvps.length === 0) {
-    todayBody.innerHTML = `<div class="empty" style="padding:24px;"><p>No ${goldLine}+ picks today yet.</p></div>`;
-  } else {
-    renderMvpRows(todayMvps, 'mvp-today-body', { useLiveScore: true, showStar: true });
+// ── "Today's CA Scores" sport-card rail, rebuilt from the CURRENT board ───────
+// Runs at render time AND on every picksUpdated, so the rail populates as soon
+// as the board loads and stays fresh all day (scores climb, games go live and
+// final) instead of freezing on whatever allPicks held at first render.
+export function refreshMvpToday() {
+  const rail = document.getElementById('ca-sport-rail');
+  if (!rail) return; // Rankings tab not rendered (or limited view)
+  renderSportRail({ min: _scoreMin ?? _goldLine(), max: _scoreMax, sport: _plSport });
+  const note = document.getElementById('ca-rail-note');
+  if (note) {
+    note.textContent = _railDate()
+      + (railMockActive() ? ' · MOCK SLATE (?mockrail=1)' : railUsedFallback() ? " · today's tracked picks" : '');
   }
 }
 document.addEventListener('picksUpdated', refreshMvpToday);
+
+// ── Filter setters (sport dropdown + score range) ─────────────────────────────
+// One shared pass: chart, record bar, and the sport-card rail all move together.
+function _refreshFiltered() {
+  if (state.mvpData) {
+    drawPlGraph(state.mvpData.picks);
+    const resolvedAll = _resolvedPicks(state.mvpData.picks).filter(_passesFilters);
+    const rec = _computeRecord(_windowedPicks(resolvedAll, _currentRange));
+    rec.voided = _voidedInWindow(state.mvpData.picks.filter(_passesFilters), resolvedAll, _currentRange);
+    const barEl = document.getElementById('record-bar');
+    if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);
+  }
+  refreshMvpToday();
+}
+
+export function setPlSport(v) {
+  _plSport = v || 'ALL';
+  _refreshFiltered();
+}
+
+// Score min/max dropdowns. Only one list open at a time; any outside click closes.
+export function toggleScoreDd(event, which) {
+  if (event) event.stopPropagation();
+  const target = document.getElementById(`pl-${which}-dd`);
+  document.querySelectorAll('.ca-dd.open').forEach(dd => { if (dd !== target) dd.classList.remove('open'); });
+  if (target) {
+    target.classList.toggle('open');
+    // Center the selected value in the list without scrollIntoView — that can
+    // scroll the whole page along with the list.
+    const list = target.querySelector('.ca-dd-list');
+    const active = target.querySelector('.ca-dd-opt.active');
+    if (target.classList.contains('open') && list && active) {
+      list.scrollTop = Math.max(0, active.offsetTop - list.clientHeight / 2 + active.offsetHeight / 2);
+    }
+  }
+}
+document.addEventListener('click', () => document.querySelectorAll('.ca-dd.open').forEach(dd => dd.classList.remove('open')));
+
+// One handler for every graph dropdown: timeframe, sport, score min, score max.
+export function pickDd(which, val) {
+  document.querySelectorAll('.ca-dd.open').forEach(dd => dd.classList.remove('open'));
+  if (which === 'range') {
+    setGraphDays(val);
+  } else if (which === 'sport') {
+    _plSport = val || 'ALL';
+    _refreshFiltered();
+  } else {
+    const num = val === 'null' ? null : parseFloat(val);
+    if (which === 'min') _scoreMin = num ?? 50;
+    else _scoreMax = num; // null = no cap
+    _refreshFiltered();
+  }
+  _syncDdUi();
+}
+
+// Button labels + active marks for all four dropdowns, from current state.
+function _syncDdUi() {
+  const setBtn = (id, label) => { const b = document.getElementById(id); if (b) b.textContent = label; };
+  setBtn('pl-range-dd-btn', RANGE_LABEL[_currentRange] || 'All-Time');
+  setBtn('pl-sport-dd-btn', _plSport === 'ALL' ? 'All Sports' : _plSport);
+  setBtn('pl-min-dd-btn', _scoreMin);
+  setBtn('pl-max-dd-btn', _scoreMax ?? 'Max');
+  const mark = (ddId, val) => document.querySelectorAll(`#${ddId} .ca-dd-opt`).forEach(o =>
+    o.classList.toggle('active', o.dataset.val === String(val)));
+  mark('pl-range-dd', _currentRange);
+  mark('pl-sport-dd', _plSport);
+  mark('pl-min-dd', _scoreMin);
+  mark('pl-max-dd', _scoreMax);
+}
 
 // ── MVP row rendering ─────────────────────────────────────────────────────────
 export function renderMvpRow(p, i, opts = {}) {
@@ -424,7 +586,7 @@ export function drawPlGraph(picks) {
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
-      && (p.score || 0) >= (state.CONFIG?.mvp_display_threshold || 100)
+      && _passesFilters(p)
       && !(p.annotation && p.annotation.includes('not counted')))
     .sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
 
@@ -536,6 +698,53 @@ function _updatePlLabel(el, dollarPL) {
   el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
 }
 
+// ── Crosshair (ThinkOrSwim style) ─────────────────────────────────────────────
+// Press or touch a chart and drag: a full-height light-blue line follows the
+// pointer and PARKS on the point where you let go, tooltip pinned to it. The
+// next press moves it. Shared with the History popup via window.caCrosshair.
+const caCrosshair = {
+  id: 'caCrosshair',
+  afterDatasetsDraw(chart) {
+    const idx = chart.$caParkIdx;
+    if (idx == null) return;
+    const pt = chart.getDatasetMeta(0)?.data?.[idx];
+    if (!pt) return;
+    const { ctx, chartArea } = chart;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(125,211,252,0.85)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(pt.x, chartArea.top);
+    ctx.lineTo(pt.x, chartArea.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+function attachCrosshair(chart) {
+  const canvas = chart.canvas;
+  canvas.style.touchAction = 'none'; // dragging the chart drives the line, not the page
+  let dragging = false;
+  const setIdx = (evt) => {
+    const els = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
+    if (!els.length) return;
+    const idx = els[0].index;
+    chart.$caParkIdx = idx;
+    const active = [{ datasetIndex: 0, index: idx }];
+    chart.setActiveElements(active);
+    chart.tooltip.setActiveElements(active, { x: els[0].element.x, y: els[0].element.y });
+    chart.update('none');
+  };
+  canvas.addEventListener('pointerdown', (e) => { dragging = true; setIdx(e); });
+  canvas.addEventListener('pointermove', (e) => { if (dragging) setIdx(e); });
+  const end = () => { dragging = false; };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('pointerleave', end);
+}
+Object.assign(window, { caCrosshair, caAttachCrosshair: attachCrosshair });
+
 // ── Shared chart renderer ─────────────────────────────────────────────────────
 function _drawChart(canvasId, existingChart, setChart, { labels, values, lineColor, unit, tooltip, displayData }) {
   if (existingChart) { existingChart.destroy(); }
@@ -546,6 +755,7 @@ function _drawChart(canvasId, existingChart, setChart, { labels, values, lineCol
 
   const chart = new Chart(ctx, {
     type: 'line',
+    plugins: [caCrosshair],
     data: {
       labels,
       datasets: [{
@@ -580,6 +790,7 @@ function _drawChart(canvasId, existingChart, setChart, { labels, values, lineCol
       },
     },
   });
+  attachCrosshair(chart);
   setChart(chart);
 }
 
@@ -588,16 +799,15 @@ export function setGraphDays(key) {
   _currentRange    = key;
   state.graphDays  = RANGE_DAYS[key] ?? Infinity;
 
-  document.querySelectorAll('.mvp-range-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.key === key);
-  });
+  const btn = document.getElementById('pl-range-dd-btn');
+  if (btn) btn.textContent = RANGE_LABEL[key] || 'All-Time';
 
   if (state.mvpData) {
     drawPlGraph(state.mvpData.picks);
-    // Update record bar for this range
-    const resolvedAll = _resolvedPicks(state.mvpData.picks);
+    // Update record bar for this range (same sport/score filters as the chart)
+    const resolvedAll = _resolvedPicks(state.mvpData.picks).filter(_passesFilters);
     const rec = _computeRecord(_windowedPicks(resolvedAll, key));
-    rec.voided = _voidedInWindow(state.mvpData.picks, resolvedAll, key);
+    rec.voided = _voidedInWindow(state.mvpData.picks.filter(_passesFilters), resolvedAll, key);
     const barEl = document.getElementById('record-bar');
     if (barEl) barEl.innerHTML = _recordBarHtml(rec, true);
   }
@@ -787,4 +997,5 @@ export function redrawHomeGraph() {
 Object.assign(window, {
   setGraphDays, redrawGraph,
   setHomeGraphDays, redrawHomeGraph,
+  setPlSport, pickDd, toggleScoreDd, toggleMvpHistory, toggleTodayRankings,
 });

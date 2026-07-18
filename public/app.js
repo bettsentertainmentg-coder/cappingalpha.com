@@ -4,15 +4,16 @@ import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=4';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=10';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=28';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
-import { loadLeaderboard } from './modules/leaderboard.js?v=10';
-import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=55';
-import './modules/track.js?v=46';
+import { loadLeaderboard } from './modules/leaderboard.js?v=13';
+import { loadSocials } from './modules/socials.js?v=3';
+import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=58';
+import './modules/track.js?v=48';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=6';
-import './modules/member_profile.js?v=7';
+import './modules/member_profile.js?v=17';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=6';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
@@ -50,6 +51,9 @@ export function switchTab(tabName) {
   // "My Account" split into "My Tracking" + "Settings". Keep old #account links /
   // callers working by routing them to the tracking view.
   if (tabName === 'account') tabName = 'tracking';
+  // The Leaderboard tab became the Socials tab (board folded in as a sub-tab).
+  // Old #leaderboard hashes + in-app "View leaderboard" links land on Socials.
+  if (tabName === 'leaderboard') tabName = 'socials';
 
   // Analytics: this SPA never changes the URL on a tab switch, so PostHog's
   // automatic pageview can't see which tab people land on. Emit it explicitly.
@@ -80,9 +84,9 @@ export function switchTab(tabName) {
     state.esportsLoaded = true;
     renderEsports();
   }
-  if (tabName === 'leaderboard' && !state.leaderboardLoaded) {
-    state.leaderboardLoaded = true;
-    loadLeaderboard(state.leaderboardWindow);
+  if (tabName === 'socials') {
+    if (state.currentUser) loadSocials();
+    else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
   }
   if (tabName === 'unlock') renderUnlock();
   // My Tracking + Settings are auth-gated. If auth is still resolving (a /#tracking
@@ -359,6 +363,16 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
   if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
   if (document.getElementById('panel-profile')?.classList.contains('active')) switchTab('profile');
+
+  // Referral link (?ref=CODE): a friend arriving from a share link lands right on
+  // the signup form, with the "code applied, 3 free days" banner (unlock.js). The
+  // code was stashed in localStorage above and is redeemed automatically the moment
+  // they finish signing up (auth.doSignup). Logged-out visitors only.
+  try {
+    if (!state.currentUser && localStorage.getItem('ca_ref') && window.openSignup) {
+      window.openSignup();
+    }
+  } catch (_) {}
 
   // Handle Stripe redirect back to site
   const params = new URLSearchParams(location.search);

@@ -585,6 +585,33 @@ router.get('/dashboard', requireAuth, (req, res) => {
     ? `<table><thead><tr><th>Code</th><th>Duration</th><th>Name</th><th>Uses</th><th>Redeemed By</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody>${codeRows}</tbody></table>`
     : '<div class="empty">No codes generated yet.</div>';
 
+  // ── Referral signups (give-3-days / get-3-days) ───────────────────────────────
+  // Friends who joined with a member's personal referral code — tracked separately
+  // from promo access codes. Both sides get 3 free days.
+  const referralStats = db.prepare(`SELECT COUNT(*) AS total, COUNT(DISTINCT referrer_id) AS referrers FROM referral_redemptions`).get();
+  const referralRows = db.prepare(`
+    SELECT rr.redeemed_at, rr.referrer_id, rr.referred_id,
+           ru.username AS referrer_username, ru.email AS referrer_email, ru.referral_code AS referrer_code,
+           du.username AS referred_username, du.email AS referred_email,
+           du.subscription_tier AS referred_tier, du.subscription_expires AS referred_expires
+    FROM referral_redemptions rr
+    LEFT JOIN users ru ON ru.id = rr.referrer_id
+    LEFT JOIN users du ON du.id = rr.referred_id
+    ORDER BY rr.redeemed_at DESC LIMIT 500
+  `).all();
+  const referralTableHtml = referralRows.length
+    ? `<table><thead><tr><th>When</th><th>New member</th><th>Invited by</th><th>Code</th><th>Days each</th><th>New member access</th></tr></thead><tbody>${
+        referralRows.map(r => `<tr>
+          <td style="color:#8892a4;font-size:12px;">${r.redeemed_at ? r.redeemed_at.slice(0, 16).replace('T', ' ') : '—'}</td>
+          <td style="font-size:12px;color:#c8d3e0;font-weight:600;">${escHtml(r.referred_username || r.referred_email || ('user' + r.referred_id))}</td>
+          <td style="font-size:12px;">${escHtml(r.referrer_username || r.referrer_email || ('user' + r.referrer_id))}</td>
+          <td style="font-family:monospace;letter-spacing:1px;font-size:12px;color:#93c5fd;">${escHtml(r.referrer_code || '—')}</td>
+          <td style="font-size:12px;color:#16a34a;font-weight:600;">+3d</td>
+          <td style="font-size:12px;color:#8892a4;">${escHtml(r.referred_tier || 'free')}${r.referred_expires ? ' · until ' + String(r.referred_expires).slice(0, 10) : ''}</td>
+        </tr>`).join('')
+      }</tbody></table>`
+    : '<div class="empty">No referral signups yet.</div>';
+
   // ── MVP panel ─────────────────────────────────────────────────────────────────
   const mvps = db.prepare(`
     SELECT m.*,
@@ -1465,6 +1492,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       <h2>All Codes (${codes.length})</h2>
       ${codesTableHtml}
+
+      <h2 style="margin-top:28px;">Referral Signups (${referralStats.total})</h2>
+      <p style="color:#8892a4;font-size:13px;margin:0 0 12px;max-width:560px;">Friends who joined with a member's personal referral code (give-3-days / get-3-days). Both sides get 3 free days. ${referralStats.referrers} member${referralStats.referrers === 1 ? '' : 's'} referred at least one friend.</p>
+      ${referralTableHtml}
     </div>
 
     <!-- USERS PANEL -->
@@ -4044,6 +4075,32 @@ router.get('/api/code-users/:id', requireAuth, (req, res) => {
     ORDER BY r.redeemed_at ASC
   `).all(code.id);
   res.json({ ok: true, code: code.code, maxUses: code.max_uses == null ? 1 : code.max_uses, users });
+});
+
+// ── GET /admin/api/social-reports.json — the Socials moderation queue ──────────
+// Open (unresolved) content/member reports with the reporter, the subject, and
+// the comment body when the report targets one. Read-only queue for now.
+router.get('/api/social-reports.json', requireAuth, (_req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT r.id, r.subject_key, r.subject_user, r.reason, r.created_at, r.resolved,
+             ru.username AS reporter, su.username AS subject_username
+      FROM social_reports r
+      LEFT JOIN users ru ON ru.id = r.reporter_id
+      LEFT JOIN users su ON su.id = r.subject_user
+      WHERE r.resolved = 0
+      ORDER BY r.created_at DESC LIMIT 200
+    `).all();
+    for (const row of rows) {
+      const m = /^comment:(\d+)$/.exec(row.subject_key || '');
+      if (m) {
+        const c = db.prepare(`SELECT body, deleted FROM social_comments WHERE id = ?`).get(m[1]);
+        row.comment_body = c ? c.body : null;
+        row.comment_deleted = c ? !!c.deleted : null;
+      }
+    }
+    res.json({ ok: true, reports: rows });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── GET /admin/api/users — JSON for AJAX search ───────────────────────────────

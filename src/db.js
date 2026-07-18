@@ -386,6 +386,12 @@ try { db.exec(`ALTER TABLE game_votes ADD COLUMN user_odds REAL`);      } catch 
 // Tail attribution (Phase 5): the scanned pick this vote tracked, when the voted
 // side matches a capper's pick for the game. Powers tailers count + tail slippage.
 try { db.exec(`ALTER TABLE game_votes ADD COLUMN tailed_pick_id INTEGER`); } catch (_) {}
+// Socials: member-tail attribution (whose feed card this vote came from) and the
+// grade timestamp (feed ordering: a settled pick bubbles up at grade time, and
+// streaks/profit-calendar bucket by when the result landed, not when voted).
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN tail_of_user_id INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE game_votes ADD COLUMN graded_at TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE user_bets ADD COLUMN tail_of_user_id INTEGER`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_game_votes_tailed ON game_votes (tailed_pick_id) WHERE tailed_pick_id IS NOT NULL`); } catch (_) {}
 
 // prev_ columns for book_lines line-movement tracking
@@ -476,6 +482,9 @@ try { db.exec(`ALTER TABLE user_preferences ADD COLUMN my_books TEXT NOT NULL DE
 // Notification preference center: JSON of topic -> boolean (absent = on).
 // Topics + paid gating live in src/push.js TOPICS; enforced in sendToUserTopic.
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN notify_prefs TEXT NOT NULL DEFAULT '{}'`); } catch (_) {}
+// Socials two-ledger rule: rankings always count verified picks at a flat 1 unit;
+// the profile's TRUE history shows real stakes unless the member hides amounts.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN hide_stakes INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
 
 // ── user_bets (Phase B) — free-entry + game-linked personal bet tracking ──────
 // The MANUAL counterpart to game_votes. A bet may be game-linked (espn_game_id set
@@ -802,6 +811,72 @@ try {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows (follower_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_follows_followee ON follows (followee_id)`);
+} catch (_) {}
+
+// ── Socials tab (feed layer) ──────────────────────────────────────────────────
+// The feed itself is DERIVED at read time from game_votes / user_bets /
+// leaderboard_awards (all wipe-surviving), so there is no feed-event table.
+// These tables hold only what users add ON TOP of the derived items. Feed items
+// are addressed by subject_key: 'vote:<id>' | 'bet:<id>' | 'award:<id>' |
+// 'house:<YYYY-MM-DD>'. Never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_reactions (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL,
+      subject_key TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, subject_key),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_social_reactions_subject ON social_reactions (subject_key)`);
+} catch (_) {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_comments (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      subject_key TEXT    NOT NULL,
+      user_id     INTEGER NOT NULL,
+      body        TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      deleted     INTEGER NOT NULL DEFAULT 0,
+      deleted_by  TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_social_comments_subject ON social_comments (subject_key, created_at)`);
+} catch (_) {}
+// kind 'block' = hard two-way wall (content hidden both directions, follows cut
+// both ways on creation). kind 'mute' = one-way hide (I stop seeing them; they
+// never know). UI ships block first; mute is backend-ready.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_blocks (
+      blocker_id INTEGER NOT NULL,
+      blocked_id INTEGER NOT NULL,
+      kind       TEXT    NOT NULL DEFAULT 'block',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(blocker_id, blocked_id),
+      FOREIGN KEY (blocker_id) REFERENCES users(id),
+      FOREIGN KEY (blocked_id) REFERENCES users(id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_social_blocks_blocked ON social_blocks (blocked_id)`);
+} catch (_) {}
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_reports (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      reporter_id  INTEGER NOT NULL,
+      subject_key  TEXT,
+      subject_user INTEGER,
+      reason       TEXT,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      resolved     INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (reporter_id) REFERENCES users(id)
+    )
+  `);
 } catch (_) {}
 
 try {
