@@ -173,6 +173,7 @@ const _TP_RANGES = [
   { key: '1D',  days: 1,        label: '1-Day' },
   { key: '5D',  days: 5,        label: '5-Day' },
   { key: '7D',  days: 7,        label: '7-Day' },
+  { key: '10D', days: 10,       label: '10-Day' },
   { key: '21D', days: 21,       label: '21-Day' },
   { key: '1M',  days: 30,       label: '1-Month' },
   { key: '3M',  days: 90,       label: '3-Month' },

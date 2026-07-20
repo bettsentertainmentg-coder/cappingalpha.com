@@ -13,7 +13,7 @@ let homeChart = null;
 // ── Range key → day count ─────────────────────────────────────────────────────
 // 'YD' is yesterday: the board day before the latest one, same per-pick
 // rendering as 1D (both map to 1 so drawPlGraph takes the per-pick branch).
-const RANGE_DAYS = { '1D': 1, 'YD': 1, '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3M': 90, 'ALL': Infinity };
+const RANGE_DAYS = { '1D': 1, 'YD': 1, '5D': 5, '7D': 7, '10D': 10, '21D': 21, '1M': 30, '3M': 90, 'ALL': Infinity };
 let _currentRange     = 'ALL';
 let _homeRange        = 'ALL';
 
@@ -43,7 +43,9 @@ function _railDate() {
 }
 
 // ── Custom dropdowns (timeframe / sport / score min / score max) ──────────────
-const RANGE_OPTIONS = [['1D', 'Today'], ['YD', 'Yesterday'], ['5D', '5 Days'], ['7D', '7 Days'], ['21D', '21 Days'], ['1M', '1 Month'], ['3M', '3 Months'], ['ALL', 'All-Time']];
+// Shortest window first: the list always opens on Today / Yesterday, then walks
+// out to All-Time, so every timeframe control on the site reads the same way.
+const RANGE_OPTIONS = [['1D', 'Today'], ['YD', 'Yesterday'], ['5D', '5 Day'], ['7D', '7 Day'], ['10D', '10 Day'], ['21D', '21 Day'], ['1M', '1 Month'], ['3M', '3 Month'], ['ALL', 'All-Time']];
 const RANGE_LABEL = Object.fromEntries(RANGE_OPTIONS);
 
 function _ddHtml(id, which, btnLabel, optsHtml) {
@@ -382,11 +384,16 @@ export function toggleScoreDd(event, which) {
   if (target) {
     target.classList.toggle('open');
     // Center the selected value in the list without scrollIntoView — that can
-    // scroll the whole page along with the list.
+    // scroll the whole page along with the list. The timeframe list is the
+    // exception: it always opens at the top so Today / Yesterday are the first
+    // things you see. Centering there meant the default All-Time (last option)
+    // opened the list scrolled to the bottom, hiding every short window.
     const list = target.querySelector('.ca-dd-list');
     const active = target.querySelector('.ca-dd-opt.active');
-    if (target.classList.contains('open') && list && active) {
-      list.scrollTop = Math.max(0, active.offsetTop - list.clientHeight / 2 + active.offsetHeight / 2);
+    if (target.classList.contains('open') && list) {
+      list.scrollTop = (which === 'range' || !active)
+        ? 0
+        : Math.max(0, active.offsetTop - list.clientHeight / 2 + active.offsetHeight / 2);
     }
   }
 }
@@ -950,9 +957,8 @@ export async function loadHomeMvp() {
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
             <div class="graph-range-row">
-              <button class="graph-range-btn home-range-btn" data-key="1M"  onclick="setHomeGraphDays('1M')">1M</button>
-              <button class="graph-range-btn home-range-btn" data-key="3M"  onclick="setHomeGraphDays('3M')">3M</button>
-              <button class="graph-range-btn home-range-btn active" data-key="ALL" onclick="setHomeGraphDays('ALL')">ALL</button>
+              ${RANGE_OPTIONS.map(([k]) =>
+                `<button class="graph-range-btn home-range-btn${k === _homeRange ? ' active' : ''}" data-key="${k}" onclick="setHomeGraphDays('${k}')">${k}</button>`).join('')}
             </div>
             <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ pt picks tracked, win/loss logged for every one.</div>
           </div>
@@ -1005,12 +1011,14 @@ function drawHomeGraph(picks) {
 
   if (days === 1) {
     // Same realization rule as the Rankings tab: one point per game at its end.
-    const todayPicks = _windowedPicks(resolved, '1D');
+    // 1D and YD both land here (both map to 1 day) — pass the live key so YD
+    // anchors on yesterday's board day instead of today's.
+    const todayPicks = _windowedPicks(resolved, _homeRange);
     const displayData = gameEndGroups(todayPicks, unit);
     const windowPL = +(todayPicks.reduce((s, p) => s + calcReturn(p, unit), 0)).toFixed(2);
     _updateHomePlLabel(plLabel, windowPL);
     const titleEl = document.getElementById('home-pl-title');
-    if (titleEl) titleEl.textContent = "TODAY'S P/L";
+    if (titleEl) titleEl.textContent = _homeRange === 'YD' ? "YESTERDAY'S P/L" : "TODAY'S P/L";
     _drawChart('home-pl-chart', homeChart, (c) => { homeChart = c; }, {
       labels: displayData.map(_gameEndLabel),
       values: displayData.map(d => d.cumPL),

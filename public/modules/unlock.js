@@ -180,7 +180,8 @@ function cell(v) {
 // ── Tracked-record P/L (mirrors the #1 pick card's math) ───────────────────────
 const _RANGES = [
   { days: 1, label: '1-Day' }, { days: 5, label: '5-Day' }, { days: 7, label: '7-Day' },
-  { days: 21, label: '21-Day' }, { days: 30, label: '1-Month' }, { days: 90, label: '3-Month' },
+  { days: 10, label: '10-Day' }, { days: 21, label: '21-Day' }, { days: 30, label: '1-Month' },
+  { days: 90, label: '3-Month' },
   { days: Infinity, label: 'All-Time' },
 ];
 const _MIN = 5;
