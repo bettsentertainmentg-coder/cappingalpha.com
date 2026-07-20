@@ -110,7 +110,7 @@ async function _renderTopPick() {
           <span class="graph-pl-label ${sign}">${amt}</span>
         </div>
         <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
-        <div class="ca-tp-betsize">Based on flat $${betUnit} bet size&nbsp;·&nbsp;<span class="ca-tp-track-note">Tracking 100+ points</span></div>
+        <div class="ca-tp-betsize">Based on flat $${betUnit} bet size&nbsp;·&nbsp;<span class="ca-tp-track-note">Tracking top-tier CA picks</span></div>
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>

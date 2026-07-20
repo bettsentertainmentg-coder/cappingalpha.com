@@ -960,7 +960,7 @@ export async function loadHomeMvp() {
               ${RANGE_OPTIONS.map(([k]) =>
                 `<button class="graph-range-btn home-range-btn${k === _homeRange ? ' active' : ''}" data-key="${k}" onclick="setHomeGraphDays('${k}')">${k}</button>`).join('')}
             </div>
-            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">${state.CONFIG?.mvp_display_threshold || state.CONFIG?.mvp_threshold || 100}+ pt picks tracked, win/loss logged for every one.</div>
+            <div style="font-size:11px;color:var(--muted);text-align:right;line-height:1.5;max-width:160px;">Top-tier CA picks tracked, win/loss logged for every one.</div>
           </div>
         </div>
         <div class="graph-canvas-wrap" style="height:150px;">

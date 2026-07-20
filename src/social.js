@@ -393,7 +393,11 @@ function unboost(meId, key) {
 
 // ── Comments ──────────────────────────────────────────────────────────────────
 function listComments(meId, key) {
-  if (!KEY_RE.test(key)) return { comments: [] };
+  if (!KEY_RE.test(key) || !subjectExists(key)) return { comments: [] };
+  // Same visibility gate the writers use, so a private member's comment thread is
+  // never readable around the route (defense in depth for the /api route guard).
+  const owner = subjectOwner(key);
+  if (owner != null && !canViewMember(meId, owner)) return { comments: [] };
   const hidden = meId != null ? hiddenAuthorSet(meId) : new Set();
   const rows = db.prepare(`
     SELECT c.id, c.user_id, c.body, c.created_at, u.username, u.avatar_path

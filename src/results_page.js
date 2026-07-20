@@ -193,10 +193,10 @@ ${rows}
 
     <a class="cta" href="/">See today's board</a>
 
-    <p class="disclaimer">CappingAlpha never wagers on any game. All performance data shown is for informational purposes only and reflects picks our model rated highest (50+ points). Past results are not indicative of future outcomes. Anything can happen in a sporting event. Must be 18 or older. If gambling stops being fun, call 1-800-GAMBLER.</p>
+    <p class="disclaimer">CappingAlpha never wagers on any game. All performance data shown is for informational and entertainment purposes only and reflects the picks our proprietary scoring engine rated in its highest-conviction tier. Past results are not indicative of future outcomes. Anything can happen in a sporting event. Must be 18 or older. If gambling stops being fun, call 1-800-GAMBLER.</p>
 
     <div class="footer-links">
-      <a href="/">Home</a> &nbsp;·&nbsp; <a href="/faq">FAQ</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a>
+      <a href="/">Home</a> &nbsp;·&nbsp; <a href="/faq">FAQ</a> &nbsp;·&nbsp; <a href="/terms">Terms</a> &nbsp;·&nbsp; <a href="/privacy">Privacy</a> &nbsp;·&nbsp; <a href="/responsible-gambling">Responsible Gambling</a>
     </div>
   </div>
 </body>

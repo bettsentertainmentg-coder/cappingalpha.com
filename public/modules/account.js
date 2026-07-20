@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=4';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=48';
+import { loadUserBets, setBetsData } from './track.js?v=49';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 
@@ -1769,6 +1769,7 @@ function renderSettings(data) {
               <span class="account-info-val">${memberSince}</span>
             </div>
             <button class="btn btn-danger" onclick="doLogout()" style="width:100%;margin-top:14px;padding:9px;">Log Out</button>
+            <button class="btn" onclick="deleteAccount()" style="width:100%;margin-top:8px;padding:9px;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:13px;">Delete account</button>
           </div>
           <div style="padding:0 20px 16px;border-top:1px solid var(--border);margin-top:4px;">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-top:12px;margin-bottom:4px;">Change Username</div>
@@ -2121,8 +2122,25 @@ function copyReferral(btn) {
   else input.select();
 }
 
+// In-app account deletion (Apple 5.1.1(v) / Google). Two confirms, then the
+// authenticated DELETE; the server purges every row and cancels any subscription.
+async function deleteAccount() {
+  if (!confirm('Delete your account? This permanently removes your profile, tracked bets, votes, comments, and follows, and cancels any active subscription. This cannot be undone.')) return;
+  if (!confirm('Are you sure? This is permanent.')) return;
+  try {
+    const res = await fetch('/auth/account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'DELETE' }),
+    });
+    if (res.ok) { alert('Your account has been deleted.'); location.href = '/'; return; }
+    const d = await res.json().catch(() => ({}));
+    alert(d.error || 'Could not delete the account. Please contact support@cappingalpha.com.');
+  } catch (_) { alert('Network error. Please try again.'); }
+}
+
 Object.assign(window, {
-  deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
+  deleteVote, deleteAccount, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,

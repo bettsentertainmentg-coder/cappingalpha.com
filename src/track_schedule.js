@@ -110,6 +110,8 @@ async function fetchFeedDate(feed, yyyymmdd) {
       : (res.data?.events || []).flatMap(ev => eventToGames(ev, feed.sport));
   } catch (_) { games = []; }
   _cache.set(key, { ts: Date.now(), games });
+  // Bound the cache so a wide date sweep can't grow it without limit.
+  if (_cache.size > 3000) { const oldest = _cache.keys().next().value; if (oldest !== undefined) _cache.delete(oldest); }
   return games;
 }
 
@@ -120,6 +122,13 @@ async function fetchFeedDate(feed, yyyymmdd) {
 router.get('/schedule', async (req, res) => {
   const raw = String(req.query.date || '').replace(/[^0-9]/g, '');
   if (!/^\d{8}$/.test(raw)) return res.status(400).json({ error: 'Provide ?date=YYYYMMDD.' });
+  // Clamp to a sane logging window so an arbitrary date (e.g. 99999999) can't
+  // drive the per-date ESPN fan-out. Past ~13 months for back-logging, ~30 days ahead.
+  const asMs = Date.parse(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T00:00:00Z`);
+  const now = Date.now();
+  if (Number.isNaN(asMs) || asMs < now - 400 * 864e5 || asMs > now + 30 * 864e5) {
+    return res.status(400).json({ error: 'Date is out of range.' });
+  }
   try {
     const per = await Promise.all(SPORT_FEEDS.map(f => fetchFeedDate(f, raw)));
     const seen = new Set();

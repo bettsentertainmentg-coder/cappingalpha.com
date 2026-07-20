@@ -1036,6 +1036,12 @@ try { db.exec(`ALTER TABLE users ADD COLUMN username_changed_at TEXT`); } catch 
 try { db.exec(`ALTER TABLE users ADD COLUMN tos_accepted_at TEXT`); } catch (_) {}
 // Google sign-in: links a users row to a Google account (payload.sub).
 try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT`); } catch (_) {}
+// In-app account deletion (Apple 5.1.1(v) / Google Play). Tombstone: the row is
+// anonymized and stamped so login is blocked and the first-time-trial guard
+// (stripe_customer_id) survives, while every child row is hard-purged.
+try { db.exec(`ALTER TABLE users ADD COLUMN deleted_at TEXT`); } catch (_) {}
+// Birth year captured at signup for the 18+ age gate (App Review requirement).
+try { db.exec(`ALTER TABLE users ADD COLUMN birth_year INTEGER`); } catch (_) {}
 
 try {
   db.exec(`

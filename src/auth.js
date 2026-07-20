@@ -2,6 +2,8 @@
 const express = require('express');
 const bcrypt  = require('bcrypt');
 const crypto  = require('crypto');
+const fs      = require('fs');
+const path    = require('path');
 const db      = require('./db');
 
 const router     = express.Router();
@@ -12,16 +14,41 @@ function userPayload(row) {
   return { id: row.id, email: row.email, tier: row.subscription_tier, username: row.username || null };
 }
 
+// Regenerate the session id on every privilege change (login/signup/Google), so a
+// pre-planted session cookie cannot be replayed as the authenticated user
+// (session fixation). Stamp the user onto the fresh session and persist it first.
+function establishSession(req, res, user) {
+  const payload = userPayload(user);
+  req.session.regenerate((err) => {
+    req.session.user = payload;
+    if (err) return res.json({ success: true, user: payload });
+    req.session.save(() => res.json({ success: true, user: payload }));
+  });
+}
+
 // ── POST /auth/signup ─────────────────────────────────────────────────────────
 router.post('/signup', express.json(), async (req, res) => {
   const { email, password, username, tos_agreed, public_leaderboard } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password required.' });
+  // Validate the email server-side: bounds the length and blocks angle brackets /
+  // quotes so it can never carry markup into the admin Users panel (stored XSS).
+  if (typeof email !== 'string' || email.length > 254 || !/^[^\s@<>"']+@[^\s@<>"']+\.[a-zA-Z]{2,}$/.test(email)) {
+    return res.status(400).json({ error: 'Please enter a valid email address.' });
+  }
+  if (typeof password !== 'string' || password.length > 200) return res.status(400).json({ error: 'Password is too long.' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
   if (!username) return res.status(400).json({ error: 'Username is required.' });
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
     return res.status(400).json({ error: 'Username must be 3–20 characters: letters, numbers, and underscores only.' });
   }
   if (!tos_agreed) return res.status(400).json({ error: 'You must agree to the Terms of Service.' });
+  // 18+ age gate (App Review requirement): enforced, not just represented.
+  const birthYear = parseInt(req.body?.birth_year, 10);
+  const nowYear = new Date().getFullYear();
+  if (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > nowYear) {
+    return res.status(400).json({ error: 'A valid year of birth is required.' });
+  }
+  if (nowYear - birthYear < 18) return res.status(403).json({ error: 'You must be 18 or older to use CappingAlpha.' });
 
   const existingEmail = db.prepare(`SELECT id FROM users WHERE LOWER(email) = LOWER(?)`).get(email);
   if (existingEmail) return res.status(409).json({ error: 'An account with that email already exists.' });
@@ -31,9 +58,9 @@ router.post('/signup', express.json(), async (req, res) => {
 
   const hash = await bcrypt.hash(password, SALT_ROUNDS);
   const result = db.prepare(`
-    INSERT INTO users (email, password_hash, subscription_tier, username, tos_accepted_at)
-    VALUES (?, ?, 'free', ?, datetime('now'))
-  `).run(email.toLowerCase().trim(), hash, username.trim());
+    INSERT INTO users (email, password_hash, subscription_tier, username, tos_accepted_at, birth_year)
+    VALUES (?, ?, 'free', ?, datetime('now'), ?)
+  `).run(email.toLowerCase().trim(), hash, username.trim(), birthYear);
 
   // Leaderboard visibility chosen at signup (default public when omitted).
   const isPublic = public_leaderboard === false ? 0 : 1;
@@ -43,8 +70,7 @@ router.post('/signup', express.json(), async (req, res) => {
   } catch (_) {}
 
   const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(result.lastInsertRowid);
-  req.session.user = userPayload(user);
-  res.json({ success: true, user: userPayload(user) });
+  establishSession(req, res, user);
 });
 
 // ── POST /auth/login ──────────────────────────────────────────────────────────
@@ -52,17 +78,16 @@ router.post('/login', express.json(), async (req, res) => {
   const { email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email or username and password required.' });
 
-  // Accept email OR username
+  // Accept email OR username. Deleted (tombstoned) rows can never log in.
   const user = db.prepare(`
-    SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)
+    SELECT * FROM users WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND deleted_at IS NULL
   `).get(email, email);
   if (!user) return res.status(401).json({ error: 'Invalid email/username or password.' });
 
   const match = await bcrypt.compare(password, user.password_hash);
   if (!match) return res.status(401).json({ error: 'Invalid email/username or password.' });
 
-  req.session.user = userPayload(user);
-  res.json({ success: true, user: userPayload(user) });
+  establishSession(req, res, user);
 });
 
 // ── POST /auth/google — "Continue with Google" (GIS token model) ──────────────
@@ -109,22 +134,41 @@ router.post('/google', express.json(), async (req, res) => {
     return res.status(403).json({ error: 'Your Google email is not verified.' });
   }
 
-  // 1) known google_id  2) same email (link it)  3) brand-new account
-  let user = db.prepare(`SELECT * FROM users WHERE google_id = ?`).get(googleId);
+  // 1) known google_id  2) same email (link it)  3) brand-new account.
+  // Tombstoned rows are excluded so a re-signin starts a fresh account.
+  let user = db.prepare(`SELECT * FROM users WHERE google_id = ? AND deleted_at IS NULL`).get(googleId);
   if (!user) {
-    const byEmail = db.prepare(`SELECT * FROM users WHERE LOWER(email) = LOWER(?)`).get(email);
+    const byEmail = db.prepare(`SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND deleted_at IS NULL`).get(email);
     if (byEmail) {
-      db.prepare(`UPDATE users SET google_id = ? WHERE id = ?`).run(googleId, byEmail.id);
+      // Pre-hijack defense: signup has no email verification, so this row could be
+      // an attacker who squatted the victim's email with a password before the
+      // victim ever used Google. Google has verified the address belongs to the
+      // person signing in now, so they are the rightful owner. Linking, then
+      // invalidating the existing password + burning any reset tokens, evicts a
+      // squatter (a legitimate password owner can just reset via their email).
+      const deadHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
+      db.prepare(`UPDATE users SET google_id = ?, password_hash = ? WHERE id = ?`).run(googleId, deadHash, byEmail.id);
+      db.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).run(byEmail.id);
       user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(byEmail.id);
+      console.log(`[auth] Linked Google to existing email ${email} (password reset for safety)`);
     }
   }
   if (!user) {
+    // Brand-new account: gate creation on the 18+ / ToS consent the client
+    // collects after OAuth. Existing users (matched above) are never gated.
+    const tosAgreed = req.body?.tos_agreed === true;
+    const birthYear = parseInt(req.body?.birth_year, 10);
+    const nowYear = new Date().getFullYear();
+    const ageOk = Number.isInteger(birthYear) && birthYear >= 1900 && birthYear <= nowYear && (nowYear - birthYear) >= 18;
+    if (!tosAgreed || !ageOk) {
+      return res.status(428).json({ needs_consent: true, error: 'Please confirm you are 18 or older and agree to the Terms.' });
+    }
     const username   = deriveUsername(email);
     const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
     const result = db.prepare(`
-      INSERT INTO users (email, password_hash, subscription_tier, username, google_id, tos_accepted_at)
-      VALUES (?, ?, 'free', ?, ?, datetime('now'))
-    `).run(email, randomHash, username, googleId);
+      INSERT INTO users (email, password_hash, subscription_tier, username, google_id, tos_accepted_at, birth_year)
+      VALUES (?, ?, 'free', ?, ?, datetime('now'), ?)
+    `).run(email, randomHash, username, googleId, birthYear);
     try {
       db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports) VALUES (?, '[]')`)
         .run(result.lastInsertRowid);
@@ -133,12 +177,74 @@ router.post('/google', express.json(), async (req, res) => {
     console.log(`[auth] New Google account: ${email} (@${username})`);
   }
 
-  req.session.user = userPayload(user);
-  res.json({ success: true, user: userPayload(user) });
+  establishSession(req, res, user);
 });
 
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req, res) => {
+  req.session.destroy(() => res.json({ success: true }));
+});
+
+// ── DELETE /auth/account — in-app account deletion (Apple 5.1.1(v) / Google) ────
+// Session-authed with an explicit confirm. Cancels any live subscription, hard
+// purges every child row (SQLite FK enforcement is off, so each table is named),
+// then anonymizes + tombstones the users row. stripe_customer_id is kept so the
+// first-time-trial guard cannot be reset by delete-and-resubscribe.
+router.delete('/account', express.json(), async (req, res) => {
+  const sessionUser = req.session?.user;
+  if (!sessionUser) return res.status(401).json({ error: 'You must be logged in.' });
+  if (req.body?.confirm !== true && req.body?.confirm !== 'DELETE') {
+    return res.status(400).json({ error: 'Deletion must be confirmed.' });
+  }
+  const userId = sessionUser.id;
+  const row = db.prepare(`SELECT stripe_subscription_id, avatar_path FROM users WHERE id = ?`).get(userId);
+  if (!row) { return req.session.destroy(() => res.json({ success: true })); }
+
+  if (row.stripe_subscription_id) {
+    try { await stripe.subscriptions.cancel(row.stripe_subscription_id); }
+    catch (e) { console.warn('[auth] delete-account: stripe cancel failed:', e.message); }
+  }
+
+  const purge = db.transaction(() => {
+    db.prepare(`DELETE FROM user_preferences WHERE user_id = ?`).run(userId);
+    db.prepare(`UPDATE game_votes SET tail_of_user_id = NULL WHERE tail_of_user_id = ?`).run(userId);
+    db.prepare(`UPDATE user_bets  SET tail_of_user_id = NULL WHERE tail_of_user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM game_votes WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM game_messages WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM user_bets WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM bet_legs WHERE user_id = ?`).run(userId);
+    try { db.prepare(`DELETE FROM bankroll_ledger WHERE user_id = ?`).run(userId); } catch (_) {}
+    try { db.prepare(`DELETE FROM dummy_settings WHERE user_id = ?`).run(userId); } catch (_) {}
+    db.prepare(`DELETE FROM push_subscriptions WHERE user_id = ?`).run(userId);
+    try { db.prepare(`DELETE FROM push_log WHERE user_id = ?`).run(userId); } catch (_) {}
+    try { db.prepare(`DELETE FROM leaderboard_awards WHERE user_id = ?`).run(userId); } catch (_) {}
+    db.prepare(`DELETE FROM follows WHERE follower_id = ? OR followee_id = ?`).run(userId, userId);
+    db.prepare(`DELETE FROM social_reactions WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM social_comments WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM social_blocks WHERE blocker_id = ? OR blocked_id = ?`).run(userId, userId);
+    db.prepare(`DELETE FROM social_reports WHERE reporter_id = ?`).run(userId);
+    db.prepare(`DELETE FROM code_redemptions WHERE user_id = ?`).run(userId);
+    db.prepare(`DELETE FROM referral_redemptions WHERE referred_id = ? OR referrer_id = ?`).run(userId, userId);
+    db.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).run(userId);
+    try { db.prepare(`DELETE FROM sessions WHERE json_extract(sess, '$.user.id') = ?`).run(userId); } catch (_) {}
+    db.prepare(`
+      UPDATE users SET
+        email = 'deleted+' || id || '@deleted.invalid',
+        username = NULL, password_hash = '!', avatar_path = NULL,
+        google_id = NULL, referral_code = NULL,
+        subscription_tier = 'free', subscription_expires = NULL,
+        stripe_subscription_id = NULL, is_dummy = 0,
+        deleted_at = datetime('now')
+      WHERE id = ?
+    `).run(userId);
+  });
+  try { purge(); }
+  catch (e) { console.error('[auth] delete-account purge failed:', e.message); return res.status(500).json({ error: 'Could not delete the account. Please contact support.' }); }
+
+  if (row.avatar_path) {
+    try { fs.unlinkSync(path.join(__dirname, '..', 'data', 'avatars', row.avatar_path)); } catch (_) {}
+  }
+  console.log(`[auth] Account ${userId} deleted (in-app).`);
   req.session.destroy(() => res.json({ success: true }));
 });
 
@@ -148,6 +254,7 @@ router.get('/me', (req, res) => {
   // Re-fetch from DB so subscription_expires is fresh
   const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.session.user.id);
   if (!row) return res.json({ user: null });
+  if (row.deleted_at) { return req.session.destroy(() => res.json({ user: null })); }
   // unit_size rides along so the betslip's default stake is right from the first
   // paint, even if the user never opens the Tracking tab that session.
   const prefs = db.prepare(`SELECT unit_size FROM user_preferences WHERE user_id = ?`).get(row.id);
@@ -301,7 +408,24 @@ function ensureReferralCode(userId) {
 }
 
 // ── Stripe ────────────────────────────────────────────────────────────────────
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Pin the API version so an SDK bump can't silently move field shapes again
+// (the dahlia release relocated current_period_end off the Subscription object).
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY, { apiVersion: '2026-03-25.dahlia' });
+
+// dahlia (Stripe API 2025-03+) moved current_period_end off the Subscription
+// object onto each subscription item; read the item first, fall back to the
+// legacy top-level field so this works on any account API version.
+function subscriptionPeriodEnd(sub) {
+  return sub?.items?.data?.[0]?.current_period_end ?? sub?.current_period_end ?? null;
+}
+// The invoice's subscription reference likewise moved under parent.subscription_details.
+function invoiceSubscriptionId(invoice) {
+  const ref = invoice?.parent?.subscription_details?.subscription
+           ?? invoice?.subscription
+           ?? invoice?.lines?.data?.[0]?.parent?.subscription_item_details?.subscription
+           ?? null;
+  return typeof ref === 'string' ? ref : (ref?.id ?? null);
+}
 
 // Never shorten access a user already paid for. A null expiry on a paying tier means
 // lifetime/comp and must never be overwritten with a dated one; otherwise keep the
@@ -403,7 +527,12 @@ async function stripeWebhook(req, res) {
           console.warn(`[stripe] subscription ${session.subscription} for user ${userId} status=${sub.status} — skipping grant`);
           return res.json({ received: true });
         }
-        const newExp  = new Date(sub.current_period_end * 1000).toISOString();
+        const periodEnd = subscriptionPeriodEnd(sub);
+        if (!periodEnd) {
+          console.error(`[stripe] no current_period_end on subscription ${session.subscription} for user ${userId} — grant skipped`);
+          return res.json({ received: true });
+        }
+        const newExp  = new Date(periodEnd * 1000).toISOString();
         const cur     = db.prepare(`SELECT subscription_tier, subscription_expires FROM users WHERE id=?`).get(userId);
         const expires = mergedExpiry(cur?.subscription_tier, cur?.subscription_expires, newExp);
         db.prepare(`
@@ -417,11 +546,14 @@ async function stripeWebhook(req, res) {
     if (type === 'invoice.payment_succeeded') {
       // Subscription renewal — extend expiry
       const invoice = data.object;
-      if (!invoice.subscription) return res.json({ received: true });
-      const user = db.prepare(`SELECT id, subscription_tier, subscription_expires FROM users WHERE stripe_subscription_id=?`).get(invoice.subscription);
+      const subId = invoiceSubscriptionId(invoice);
+      if (!subId) return res.json({ received: true });
+      const user = db.prepare(`SELECT id, subscription_tier, subscription_expires FROM users WHERE stripe_subscription_id=?`).get(subId);
       if (user) {
-        const sub     = await stripe.subscriptions.retrieve(invoice.subscription);
-        const newExp  = new Date(sub.current_period_end * 1000).toISOString();
+        const sub     = await stripe.subscriptions.retrieve(subId);
+        const periodEnd = subscriptionPeriodEnd(sub);
+        if (!periodEnd) return res.json({ received: true });
+        const newExp  = new Date(periodEnd * 1000).toISOString();
         const expires = mergedExpiry(user.subscription_tier, user.subscription_expires, newExp); // never shorten a code-extended expiry
         db.prepare(`UPDATE users SET subscription_tier='paid', subscription_expires=? WHERE id=?`).run(expires, user.id);
         console.log(`[stripe] Subscription renewed for user ${user.id}, expires ${expires}`);
@@ -590,7 +722,10 @@ router.post('/reset-password', express.json(), async (req, res) => {
 
   const hash = await bcrypt.hash(password, SALT_ROUNDS);
   db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, row.user_id);
-  db.prepare(`UPDATE password_reset_tokens SET used = 1 WHERE id = ?`).run(row.id);
+  // Burn every outstanding reset token for this user, not just the one used, and
+  // evict all their active sessions so a reset actually ends a compromise.
+  db.prepare(`UPDATE password_reset_tokens SET used = 1 WHERE user_id = ?`).run(row.user_id);
+  try { db.prepare(`DELETE FROM sessions WHERE json_extract(sess, '$.user.id') = ?`).run(row.user_id); } catch (_) {}
 
   res.json({ success: true });
 });

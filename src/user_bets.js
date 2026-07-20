@@ -160,20 +160,28 @@ function createBet(userId, body = {}) {
   const bet_type = String(body.bet_type || '').toLowerCase();
   if (!BET_TYPES.has(bet_type)) throw httpErr(400, 'Invalid bet type.');
 
+  // Per-user row ceiling: a single free account can otherwise fill the volume the
+  // whole DB lives on. Well above any real bettor's lifetime volume.
+  const rowCount = db.prepare(`SELECT COUNT(*) c FROM user_bets WHERE user_id = ?`).get(userId).c;
+  if (rowCount >= 5000) throw httpErr(429, 'You have reached the tracked-bet limit. Delete some old bets to add more.');
+
   // Parlay with legs (Phase 5 builder). A legless parlay falls through to the
   // single-row manual path below (unchanged: user self-settles it).
   if (bet_type === 'parlay' && Array.isArray(body.legs) && body.legs.length) {
     return createParlay(userId, body);
   }
 
-  const selection = String(body.selection || '').trim();
+  // Cap + strip markup: the field is stored raw and rendered in the owner's list,
+  // and an uncapped 10MB body would bloat the SQLite volume.
+  const selection = String(body.selection || '').replace(/[<>]/g, '').trim().slice(0, 120);
   if (!selection) throw httpErr(400, 'A selection is required.');
 
   const odds = Number(body.odds);
-  if (!Number.isFinite(odds) || odds === 0) throw httpErr(400, 'Enter valid American odds (e.g. -110 or +145).');
+  if (!Number.isFinite(odds) || odds === 0 || Math.abs(odds) > 100000) throw httpErr(400, 'Enter valid American odds (e.g. -110 or +145).');
 
   let stake = Number(body.stake);
   if (!Number.isFinite(stake) || stake < 0) stake = 0;
+  if (stake > 10000000) stake = 10000000;
 
   let side = body.side ? String(body.side).toLowerCase() : null;
   if (bet_type === 'over')  side = 'over';
@@ -186,8 +194,9 @@ function createBet(userId, body = {}) {
   // Sport is rendered into HTML in several places — strip anything that isn't a
   // plain label character so a hand-crafted API call can't store markup.
   let sport = body.sport ? String(body.sport).toUpperCase().replace(/[^A-Z0-9 ]/g, '').slice(0, 20) || null : null;
-  let espn_game_id = body.espn_game_id ? String(body.espn_game_id) : null;
+  let espn_game_id = body.espn_game_id ? String(body.espn_game_id).slice(0, 40) : null;
   let home_team = null, away_team = null, game_date = body.game_date || null;
+  if (game_date && !/^\d{4}-\d{2}-\d{2}/.test(String(game_date))) game_date = null;
 
   // Game-linked: snapshot teams/sport/date from today_games; fill a missing line
   // from the game's slot line so auto-grading has what it needs.
@@ -271,7 +280,7 @@ function updateBet(userId, id, partial = {}) {
   if (partial.odds !== undefined)      { const o = Number(partial.odds);  if (Number.isFinite(o) && o !== 0) fields.odds = o; }
   if (partial.stake !== undefined)     { const s = Number(partial.stake); if (Number.isFinite(s) && s >= 0)  fields.stake = s; }
   if (partial.line !== undefined)      { const l = Number(partial.line);  fields.line = Number.isFinite(l) ? l : null; }
-  if (partial.selection !== undefined) fields.selection = String(partial.selection).trim() || bet.selection;
+  if (partial.selection !== undefined) fields.selection = String(partial.selection).replace(/[<>]/g, '').trim().slice(0, 120) || bet.selection;
   if (partial.book !== undefined)      fields.book  = partial.book  ? String(partial.book).slice(0, 40)   : null;
   if (partial.notes !== undefined)     fields.notes = partial.notes ? String(partial.notes).slice(0, 500) : null;
   if (fields.stake !== undefined)      { const unit = getUnitSize(userId) || 20; fields.units = unit > 0 ? +(fields.stake / unit).toFixed(4) : null; }

@@ -5,6 +5,10 @@ import { isPaying, isAccount, isViewer } from './auth.js';
 import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=4';
 import { cappingGauge } from './gauge.js';
 
+// Escape any value that reaches innerHTML. Golf player/capper names come from
+// scraped third-party text and render in front of every viewer (stored XSS).
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 // Sport → unit suffix for the over/under total line value.
 // Same map used in public/game-detail.js _buildBetTypes().
 const TOTAL_UNIT = {
@@ -486,7 +490,7 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
     : '';
 
   const pmRow = pmLine
-    ? `<div class="line-row"><span class="line-book"><img src="https://polymarket.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">Polymarket</span> <span class="line-val">${pmLine}</span></div>`
+    ? `<div class="line-row"><span class="line-book">Polymarket</span> <span class="line-val">${pmLine}</span></div>`
     : '';
 
   // These odds come from today_games, which is locked at the pregame close (5am/4pm) and
@@ -498,8 +502,8 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   const linesHtml = `
     <div class="pick-info-lines">
       <div class="line-row"><span class="line-book" title="${currentTitle}">${currentLabel}</span> <span class="line-val">${currentLine}</span></div>
-      <div class="line-row"><span class="line-book"><img src="https://www.draftkings.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">DraftKings</span> <span class="line-val">${dkLine}</span></div>
-      <div class="line-row"><span class="line-book"><img src="https://www.fanduel.com/favicon.ico" width="13" height="13" style="vertical-align:middle;border-radius:2px;margin-right:5px;" onerror="this.style.display='none'">FanDuel</span> <span class="line-val">${fdLine}</span></div>
+      <div class="line-row"><span class="line-book">DraftKings</span> <span class="line-val">${dkLine}</span></div>
+      <div class="line-row"><span class="line-book">FanDuel</span> <span class="line-val">${fdLine}</span></div>
       ${extraBookRows}
       ${pmRow}
     </div>${insightChip}`;
@@ -1019,9 +1023,9 @@ async function openGolfModal(tournamentId) {
             ${picks.map((p, i) => `
               <tr>
                 <td class="rank">${i + 1}</td>
-                <td><strong>${p.player_name}</strong>${p.vs_player ? `<br><span style="font-size:11px;color:var(--muted);">vs ${p.vs_player}</span>` : ''}</td>
+                <td><strong>${esc(p.player_name)}</strong>${p.vs_player ? `<br><span style="font-size:11px;color:var(--muted);">vs ${esc(p.vs_player)}</span>` : ''}</td>
                 <td class="pick-cell" style="${p.result === 'win' ? 'color:#4ade80' : p.result === 'loss' ? 'color:#f87171' : ''}">${pickTypeLabel(p.pick_type)}</td>
-                <td style="color:var(--muted);font-size:12px;">${p.capper_name || '—'}</td>
+                <td style="color:var(--muted);font-size:12px;">${esc(p.capper_name || '—')}</td>
                 <td class="score-col">${p.score ?? '—'}</td>
               </tr>`).join('')}
           </tbody>

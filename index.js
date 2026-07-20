@@ -161,11 +161,34 @@ app.disable('x-powered-by'); // don't advertise Express
 // Security headers on every response. No CSP here yet — the single-file index.html
 // uses inline styles/scripts, so a strict CSP needs its own tested pass; these are
 // the high-value, non-breaking headers. HSTS only when we're actually behind HTTPS.
+// Content Security Policy. The single-file frontend uses inline styles + inline
+// event handlers, so script/style keep 'unsafe-inline' (removing it needs a
+// nonce refactor). Everything else is locked to the exact hosts we load: Chart.js
+// (jsDelivr), PostHog, Google Identity, Google Fonts, Font Awesome. object-src
+// 'none' + base-uri/form-action/frame-ancestors 'self' close the high-value gaps
+// that do not depend on inline script.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://us.i.posthog.com https://accounts.google.com https://apis.google.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+  "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+  "img-src 'self' data: https:",
+  "connect-src 'self' https://us.i.posthog.com https://*.posthog.com https://accounts.google.com",
+  "frame-src https://accounts.google.com",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+].join('; ');
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '0'); // modern guidance: disable the legacy auditor
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader('Content-Security-Policy', CSP);
   if (process.env.SESSION_SECURE) {
     res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   }
@@ -198,8 +221,12 @@ app.use('/auth/signup', loginRateLimit);
 // Throttle the other unauthenticated / brute-forceable auth writes.
 app.use('/auth/forgot-password', makeRateLimit({ max: 5,  windowMs: 15 * 60 * 1000, msg: 'Too many reset requests. Try again in 15 minutes.' }));
 app.use('/auth/redeem-code',     makeRateLimit({ max: 10, windowMs: 15 * 60 * 1000, msg: 'Too many code attempts. Try again in 15 minutes.' }));
+app.use('/auth/reset-password',  makeRateLimit({ max: 15, windowMs: 15 * 60 * 1000, msg: 'Too many attempts. Try again in 15 minutes.' }));
 app.use('/admin', admin);
 app.use('/auth', auth);
+// Write-abuse throttles: cap bet creation (DB-fill) and the schedule fan-out.
+app.use('/api/bets',  makeRateLimit({ max: 240, windowMs: 15 * 60 * 1000, msg: 'Slow down and try again shortly.' }));
+app.use('/api/track', makeRateLimit({ max: 60,  windowMs: 60 * 1000,      msg: 'Slow down and try again shortly.' }));
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -303,6 +330,16 @@ app.get('/privacy', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
 
+// Responsible Gambling page (one linkable URL for App Review + regulators)
+app.get('/responsible-gambling', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'responsible-gambling.html'));
+});
+
+// Account-deletion info page (Google Play data-deletion link target)
+app.get('/delete-account', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'delete-account.html'));
+});
+
 // FAQ page (static, carries FAQPage structured data)
 app.get('/faq', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'faq.html'));
@@ -362,6 +399,7 @@ app.get('/sitemap.xml', (req, res) => {
     ...['mlb', 'nba', 'wnba', 'nfl', 'nhl', 'ncaaf', 'cbb', 'tennis', 'golf', 'soccer', 'mma'].map(s => [`/${s}`, 'daily', '0.7']),
     ['/terms',   'monthly', '0.3'],
     ['/privacy', 'monthly', '0.3'],
+    ['/responsible-gambling', 'monthly', '0.4'],
   ];
   const urls = staticUrls.map(([path, freq, pri]) =>
     `  <url><loc>https://cappingalpha.com${path}</loc><changefreq>${freq}</changefreq><priority>${pri}</priority></url>`);
@@ -1121,7 +1159,7 @@ app.get('/api/golf/:tournamentId', (req, res) => {
     `).get(req.params.tournamentId);
     if (!tournament) return res.status(404).json({ error: 'Tournament not found' });
 
-    const picks = db.prepare(`
+    const rows = db.prepare(`
       SELECT id, capper_name, player_name, vs_player, pick_type, spread_value,
              score, mention_count, result, game_date, parsed_at
       FROM golf_picks
@@ -1129,6 +1167,9 @@ app.get('/api/golf/:tournamentId', (req, res) => {
       ORDER BY score DESC
     `).all(req.params.tournamentId);
 
+    // capper_name + score are paid-only, same as the team-sport surfaces.
+    const paid = auth.isPaid(req);
+    const picks = publicPicks(paid ? rows : rows.map(p => ({ ...p, score: null })), { paid });
     res.json({ tournament, picks });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1145,9 +1186,10 @@ app.get('/api/golf/picks/all', (req, res) => {
       WHERE gt.status != 'post' OR gt.status IS NULL
       ORDER BY gp.score DESC
     `).all();
-    // gp.* includes the proprietary `channel` column — strip model columns before
-    // sending (capper_name is kept: the golf modal displays it).
-    res.json(publicPicks(picks, { paid: true }));
+    // gp.* includes the proprietary `channel` column — strip model columns and
+    // gate capper_name + score on the real tier (was hardcoded paid, leaking both).
+    const paid = auth.isPaid(req);
+    res.json(publicPicks(paid ? picks : picks.map(p => ({ ...p, score: null })), { paid }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1296,8 +1338,8 @@ app.delete('/api/social/react', (req, res) => {
 });
 
 app.get('/api/social/comments', (req, res) => {
-  const meId = req.session?.user?.id ?? null;
-  res.json(social.listComments(meId, String(req.query.key || '')));
+  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  res.json(social.listComments(req.session.user.id, String(req.query.key || '')));
 });
 app.post('/api/social/comments', (req, res) => {
   if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
@@ -3273,6 +3315,28 @@ if (!UI_ONLY) cron.schedule('58 4 * * *', async () => {
   try { require('./src/closing_lines').snapshotClosingLines(); } catch (e) { console.error('[cron] closing snapshot:', e.message); }
   console.log('[cron] 4:58am — daily reset (per-game prune + operational tables)');
   await runDailyWipe().catch(err => console.error('[cron] wipe error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// 4:40am ET — nightly SQLite volume backup, just before the wipe so the snapshot
+// carries the full day. better-sqlite3's online backup is safe against the live
+// DB (unlike a raw file copy). Keeps ~14 days on the volume; a Railway volume
+// snapshot / off-box copy is the disaster-recovery layer on top.
+if (!UI_ONLY) cron.schedule('40 4 * * *', async () => {
+  try {
+    const fs = require('fs');
+    const dir = path.join(__dirname, 'data', 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().slice(0, 10);
+    const dest = path.join(dir, `capper-${stamp}.db`);
+    await db.backup(dest);
+    const cutoff = Date.now() - 14 * 864e5;
+    for (const f of fs.readdirSync(dir)) {
+      if (!/^capper-.*\.db$/.test(f)) continue;
+      const p = path.join(dir, f);
+      try { if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p); } catch (_) {}
+    }
+    console.log(`[backup] wrote ${dest}`);
+  } catch (e) { console.error('[backup] failed:', e.message); }
 }, { timezone: 'America/New_York' });
 
 // 5:30am ET — purge raw_messages_archive rows older than 7 days. Runs after the

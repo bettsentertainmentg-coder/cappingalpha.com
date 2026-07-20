@@ -15,6 +15,9 @@
 const MODEL_COLS = [
   'channel', 'channel_weight', 'channel_points',
   'sport_bonus', 'home_bonus',
+  // per-channel mention counters reveal the source taxonomy (storage no longer
+  // writes them, but old rows still carry them through SELECT p.*)
+  'free_plays_mentions', 'community_mentions', 'pod_mentions',
   'raw_message', 'messages_json',
   // v3 internals: the true score + leak state must never ship (leak_target would
   // reveal the real score before the conviction curve finishes ramping).

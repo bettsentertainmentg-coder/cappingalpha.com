@@ -94,48 +94,48 @@ function bookNameHtml(bookKey) {
 // ── Per-sport copy (house style: no em dashes, humble tone) ───────────────────
 const INFO = {
   mlb: {
-    tagline: 'Daily MLB picks, line shopping, and market data through the full season.',
-    body: 'CappingAlpha scans capper picks every day of the MLB season and scores each one against the live board. Schedules and scores come from ESPN, betting lines come from The Odds API and a nightly odds engine, and public betting splits come from ActionNetwork. Moneylines, run lines, and totals are all tracked, and probable pitchers plus weather show up on every game page.',
+    tagline: 'MLB data, market lines, and model rankings through the full season.',
+    body: 'CappingAlpha covers every MLB slate: schedules, live scores, probable pitchers, and weather on outdoor games, alongside moneylines, run lines, and totals from the books we track. Every play is scored and ranked by our proprietary scoring engine, then settled against the final score. Line movement and public betting context show up on each game page.',
   },
   nba: {
-    tagline: 'NBA picks ranked nightly, with line movement and public betting context.',
-    body: 'Every NBA slate gets the full treatment: capper picks are extracted, scored, and ranked, then matched to live ESPN scores. We track moneylines, spreads, and totals across several books, along with DraftKings line movement and prediction market prices from Polymarket and Kalshi. Home teams get a small scoring bonus since home court tends to matter in the NBA.',
+    tagline: 'NBA data and model rankings nightly, with line movement and market context.',
+    body: 'Every NBA slate gets the full treatment: plays are scored and ranked by our proprietary scoring engine, then matched to live scores as the night runs. We track moneylines, spreads, and totals across several books, along with line movement, and prediction-market prices are shown next to the book lines on each game page.',
   },
   wnba: {
-    tagline: 'WNBA coverage with the same pick tracking as the men\'s game.',
-    body: 'WNBA games run through the same pipeline as every other league: picks are scored, ranked, and settled against final scores from ESPN. Lines come from ESPN\'s free DraftKings feed rather than a paid odds service. One scoring quirk: WNBA picks get the home bonus but no sport bonus, so they tend to score slightly lower than NBA picks from the same channel.',
+    tagline: 'WNBA data and rankings, tracked all season.',
+    body: 'WNBA runs through the same proprietary scoring engine as every other league: plays are scored, ranked, and settled against final scores. Coverage includes moneylines, spreads, and totals, with live scores on every game page.',
   },
   nfl: {
-    tagline: 'NFL picks, spreads, and totals tracked from the opening line to kickoff.',
-    body: 'During the season, NFL picks are pulled daily, scored, and ranked against the board. We follow moneylines, spreads, and totals across multiple books, plus public betting percentages and line history so you can see where the market moved. Weather from OpenMeteo shows on outdoor games, which can matter for totals.',
+    tagline: 'NFL data, lines, and rankings from the opening number to kickoff.',
+    body: 'During the season, NFL plays are scored and ranked by our proprietary scoring engine against the day\'s board. We follow moneylines, spreads, and totals across multiple books, plus public betting splits and line history so you can see where the market moved. Weather shows on outdoor games, which can matter for totals.',
   },
   nhl: {
-    tagline: 'NHL picks and puck lines, scored and settled every night.',
-    body: 'NHL coverage runs nightly through the regular season and playoffs. Picks are extracted from tracked cappers, scored on our point system, and settled automatically when ESPN marks the game final. Moneylines, puck lines, and totals are compared across books so the strongest available price is easy to spot.',
+    tagline: 'NHL data, puck lines, and rankings every night.',
+    body: 'NHL coverage runs nightly through the regular season and the playoffs. Plays are scored and ranked by our proprietary scoring engine and settled automatically when the game goes final. Moneylines, puck lines, and totals are compared across books so the strongest available price is easy to spot.',
   },
   ncaaf: {
-    tagline: 'College football picks and lines across the FBS slate.',
-    body: 'College football Saturdays produce big pick volume, and every play gets scored and ranked the same way as the pros. We track moneylines, spreads, and totals, plus public betting splits on the bigger games. Lines can move fast in college markets, so the line history on each game page is worth a look before kickoff.',
+    tagline: 'College football data and rankings across the FBS slate.',
+    body: 'College football Saturdays produce big volume, and every play gets scored and ranked by our proprietary scoring engine the same way as the pros. We track moneylines, spreads, and totals, plus public betting splits on the bigger games. Lines can move fast in college markets, so the line history on each game page is worth a look before kickoff.',
   },
   cbb: {
-    tagline: 'College basketball picks through the regular season and the tournament.',
-    body: 'College hoops picks are extracted daily, matched to the ESPN slate, and scored on the same point system as every other sport. Moneylines, spreads, and totals are tracked across books. With hundreds of teams, market prices can vary more than in pro sports, which makes line shopping especially useful here.',
+    tagline: 'College basketball data and rankings through the season and the tournament.',
+    body: 'College basketball plays are scored daily by our proprietary scoring engine, matched to the day\'s slate, and ranked against the board. Moneylines, spreads, and totals are tracked across books. With hundreds of teams, market prices can vary more than in pro sports, which makes line shopping especially useful here.',
   },
   tennis: {
-    tagline: 'ATP and WTA picks from the biggest tournaments, tracked match by match.',
-    body: 'Tennis coverage includes ATP and WTA events at the top tiers only: Grand Slams, Masters and 1000s, 500s, and the Finals. Picks are matched to players rather than teams, and moneylines and totals are the main markets since spreads are rarely posted. Tennis picks get no home bonus, since home court advantage does not really apply on tour.',
+    tagline: 'ATP and WTA data and rankings from the biggest tournaments.',
+    body: 'Tennis coverage includes ATP and WTA events at the top tiers only: Grand Slams, Masters and 1000s, 500s, and the Finals. Plays are matched to players rather than teams, and moneylines and totals are the main markets since spreads are rarely posted.',
   },
   golf: {
-    tagline: 'Tournament golf picks with live leaderboards each week.',
-    body: 'Golf picks are tracked per player across each week\'s tournaments, including head-to-head and matchup bets. Leaderboards refresh from ESPN throughout every round. There are no home teams in golf, so no home bonus applies; picks are scored on their source and the sport bonus. We do not pull betting lines for golf, so the focus here is the picks and the leaderboard.',
+    tagline: 'Tournament golf data with live leaderboards each week.',
+    body: 'Golf is tracked per player across each week\'s tournaments, including head-to-head and matchup markets. Leaderboards refresh throughout every round. Betting lines are not pulled for golf, so the focus here is the plays and the live leaderboard.',
   },
   soccer: {
-    tagline: 'Soccer picks and three-way lines across the top competitions.',
-    body: 'Soccer coverage spans the major leagues and tournaments on ESPN\'s board, including World Cup matches when they run. A key difference from American sports: soccer moneylines are three-way, so a draw loses both team sides. That makes soccer moneyline records read a bit differently, and it is worth keeping in mind when comparing prices.',
+    tagline: 'Soccer data and three-way lines across the top competitions.',
+    body: 'Soccer coverage spans the major leagues and tournaments on the board, including World Cup matches when they run. A key difference from American sports: soccer moneylines are three-way, so a draw loses both team sides. That makes soccer moneyline records read a bit differently, and it is worth keeping in mind when comparing prices.',
   },
   mma: {
     tagline: 'Fight cards, moneylines, and market prices for UFC, MMA, and boxing.',
-    body: 'Fight coverage combines ESPN\'s UFC schedule with cards relayed by our odds engine, including boxing and non-UFC promotions. Fighter moneylines are the main market, with reference prices from Kalshi\'s prediction markets shown alongside. Like tennis and golf, there is no home team in a fight, so no home bonus applies.',
+    body: 'Fight coverage combines the UFC schedule with cards from other promotions, including boxing. Fighter moneylines are the main market, with reference prices shown alongside. Coverage here is the card, the lines, and market context rather than a full model ranking.',
   },
 };
 
@@ -178,8 +178,11 @@ function engineFightsToday() {
 // MVP picks + all-time record for the page's sports (case-insensitive labels).
 function mvpForSports(sports) {
   const ph = sports.map(() => '?').join(',');
+  // Resolved only: today's still-pending gold picks are paid pre-game content and
+  // must not render to logged-out visitors (mirrors /api/mvp/public + /api/mvp).
   const picks = db.prepare(
     `SELECT * FROM mvp_picks WHERE sport COLLATE NOCASE IN (${ph})
+     AND result IN ('win', 'loss', 'push')
      ORDER BY game_date DESC, saved_at DESC LIMIT 8`
   ).all(...sports);
   const rows = db.prepare(
@@ -638,8 +641,9 @@ ${buildNav(user)}
   ${sections.filter(Boolean).join('\n\n  ')}
 
   <footer class="sp-footer">
-    <div>CappingAlpha never wagers on any game. All scores are hypothetical and for entertainment purposes only.</div>
-    <div><a href="/">Home</a> · <a href="/results">Track Record</a> · <a href="/faq">FAQ</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></div>
+    <div>CappingAlpha is a sports information and data platform, not a sportsbook. All scores are hypothetical and for informational and entertainment purposes only.</div>
+    <div>18+ to use CappingAlpha. Gambling problem? Call 1-800-GAMBLER.</div>
+    <div><a href="/">Home</a> · <a href="/results">Track Record</a> · <a href="/faq">FAQ</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/responsible-gambling">Responsible Gambling</a></div>
   </footer>
 </div>
 

@@ -173,9 +173,9 @@ function renderBetList() {
     return `
       <div class="bet-row" onclick="openBetDetail(${b.id})" style="cursor:pointer;">
         <div class="bet-row-main">
-          <div class="bet-row-sel">${b.selection || '—'} ${b.sport ? sportBadge(b.sport) : ''}${b.free_bet ? '<span class="free-tag"><i class="fa-solid fa-bolt"></i> Free</span>' : ''}</div>
-          <div class="bet-row-sub">${oddsStr}${stake ? ' · ' + stake : ''}${u ? ' · ' + u : ''}${b.book ? ' · ' + b.book : ''}</div>
-          ${b.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;">${b.notes}</div>` : ''}
+          <div class="bet-row-sel">${esc(b.selection) || '—'} ${b.sport ? sportBadge(b.sport) : ''}${b.free_bet ? '<span class="free-tag"><i class="fa-solid fa-bolt"></i> Free</span>' : ''}</div>
+          <div class="bet-row-sub">${oddsStr}${stake ? ' · ' + stake : ''}${u ? ' · ' + u : ''}${b.book ? ' · ' + esc(b.book) : ''}</div>
+          ${b.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:2px;">${esc(b.notes)}</div>` : ''}
           ${settleBtns}
         </div>
         <div class="bet-row-right">
@@ -321,7 +321,7 @@ export function openBetDetail(id) {
         <div class="track-sheet-head"><span>Bet detail</span><button class="track-sheet-x" onclick="closeTrackSheet()" aria-label="Close">✕</button></div>
         <div class="track-form">
           <div class="ob-head" style="margin-bottom:2px;">${esc(b.selection) || '—'} ${b.sport && b.sport !== 'MULTI' ? sportBadge(b.sport) : ''}</div>
-          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${betResultPill(b.result)} · ${b.bet_type === 'parlay' ? 'Parlay' : (b.verified ? 'Verified' : 'Custom')}${b.book ? ' · ' + b.book : ''}</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${betResultPill(b.result)} · ${b.bet_type === 'parlay' ? 'Parlay' : (b.verified ? 'Verified' : 'Custom')}${b.book ? ' · ' + esc(b.book) : ''}</div>
           ${(b.bet_type === 'parlay' && Array.isArray(b.legs) && b.legs.length) ? `<div class="pl-legs" style="margin-bottom:12px;">${b.legs.map(l => `
             <div class="pl-leg"><div class="pl-leg-main"><span class="pl-leg-sel">${esc(l.selection)}</span>${l.sport && l.sport !== 'MULTI' ? sportBadge(l.sport) : ''}</div>
               <div class="pl-leg-side">${betResultPill(l.result)}<span class="pl-leg-odds">${l.odds > 0 ? '+' + l.odds : l.odds}</span></div></div>`).join('')}</div>` : ''}
@@ -345,7 +345,7 @@ export function openBetDetail(id) {
               <div class="bd-row"><span>Result</span><span>${b.result}</span></div>
               <div class="bd-row"><span>P/L</span>${payoutCell(b)}</div>
             </div>
-            ${b.notes ? `<div class="track-form-note" style="font-style:italic;">${b.notes}</div>` : ''}
+            ${b.notes ? `<div class="track-form-note" style="font-style:italic;">${esc(b.notes)}</div>` : ''}
             ${!autoGraded ? `
             <div class="track-form-note" style="margin-top:12px;margin-bottom:6px;">Marked it wrong? Update the result:</div>
             <div class="bet-settle-row">

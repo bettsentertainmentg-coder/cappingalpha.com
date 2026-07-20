@@ -1,7 +1,7 @@
 {
   "name": "CappingAlpha",
   "short_name": "CappingAlpha",
-  "description": "Daily ranked sports betting picks, scored and tracked over time.",
+  "description": "Sports data, model rankings, and market comparison across the day's games.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f1117",

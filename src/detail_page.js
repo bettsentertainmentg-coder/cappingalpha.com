@@ -365,6 +365,7 @@ function buildAuthModals() {
       <div class="form-group"><label>Email</label><input type="email" id="signup-email" autocomplete="email" /></div>
       <div class="form-group"><label>Password</label><input type="password" id="signup-password" autocomplete="new-password" /></div>
       <div class="form-group"><label>Confirm Password</label><input type="password" id="signup-confirm" autocomplete="new-password" /></div>
+      <div class="form-group"><label>Year of birth</label><input type="number" id="signup-birthyear" inputmode="numeric" placeholder="YYYY" min="1900" max="2025" /><small style="color:var(--text-tertiary);font-size:12px;">You must be 18 or older to use CappingAlpha.</small></div>
       <div class="form-group" style="display:flex;align-items:flex-start;gap:10px;">
         <input type="checkbox" id="signup-tos" style="margin-top:3px;flex-shrink:0;" />
         <label for="signup-tos" style="font-size:13px;color:var(--text-tertiary);cursor:pointer;">
@@ -623,7 +624,8 @@ ${buildNav(payload.user)}
 
 <!-- Footer (inside content column) -->
 <footer class="ca-footer">
-  <span class="ca-footer-disclaimer">CappingAlpha never wagers on any game. All scores are hypothetical and for entertainment purposes only.</span>
+  <span class="ca-footer-disclaimer">CappingAlpha is a sports information and data platform, not a sportsbook. All scores are hypothetical and for informational and entertainment purposes only. 18+ to use CappingAlpha. Gambling problem? Call 1-800-GAMBLER.</span>
+  <span class="ca-footer-links"><a href="/">Home</a> · <a href="/faq">FAQ</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/responsible-gambling">Responsible Gambling</a></span>
   <button class="ca-back-top" onclick="window.scrollTo({top:0,behavior:'smooth'})">
     <svg width="11" height="11" viewBox="0 0 11 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 7.5L5.5 4L9 7.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Back to top
@@ -650,7 +652,7 @@ ${buildAuthModals()}
 <script type="module" src="/game-detail.js?v=8"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=46"></script>
+<script type="module" src="/modules/track.js?v=49"></script>
 </body>
 </html>`;
 }

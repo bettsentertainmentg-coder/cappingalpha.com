@@ -1,15 +1,16 @@
 # CappingAlpha
 
-> CappingAlpha is a sports betting intelligence website. It scores and ranks the day's sports plays through a proprietary engine, then publishes the highest-conviction picks. Free users see the number one pick; paid users see the full ranked board (1 to 50). The Seeking Alpha for sports gambling.
+> CappingAlpha is a sports information and data platform. We collect public sports data at scale, run advanced models and calculations over it, and compare the results against sportsbook markets to show where the value and the likelihood sit. The output is a single daily board of the day's highest-conviction plays. Free users see the number one ranked play; paid users see the full ranked board.
 
-We don't condone gambling. But if you're betting anyway, there's no reason to do it without checking CappingAlpha first.
+We are an informational and research service, not a sportsbook. We do not accept wagers and we never tell anyone how to play a game. If you choose to bet, the numbers are here to help you decide.
 
 ## What it does
 
-- Pulls together player data, historical outcomes, public market behavior, live lines, weather, and capper signals for each game.
-- Normalizes everything through a proprietary scoring engine and ranks it into one daily list.
-- Tracks the highest-conviction plays (MVP picks, 50+ points) long term and grades each one win, loss, or push once the game finishes.
-- Covers MLB, NBA, WNBA, NHL, Tennis (ATP and WTA), and Golf.
+- Pulls together player data, historical outcomes, public market behavior, live lines, and weather for each game.
+- Normalizes everything through a proprietary scoring engine and ranks it into one daily board. The exact methodology is proprietary.
+- Compares the ranked output against live sportsbook markets to surface where value and likelihood sit.
+- Tracks the highest-conviction plays long term and grades each one win, loss, or push once the game finishes.
+- Covers MLB, NBA, WNBA, NFL, NCAAF, CBB, NHL, Soccer, Tennis (ATP and WTA), and Golf.
 
 ## Key pages
 
