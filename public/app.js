@@ -2,6 +2,7 @@
 
 import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=4';
+import { isNative, initNative, hideSplash } from './modules/native.js?v=1';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=35';
@@ -31,8 +32,11 @@ try {
 // On localhost the SW is actively removed instead of registered: an early sw.js
 // briefly cached versioned modules in dev, and a stale mid-edit module graph can
 // kill the page. This self-heals any browser that got caught in that window.
+// Inside the Capacitor shell the SW is skipped the same way: Capacitor serves the
+// bundled assets itself, and a SW layered on top double-caches against it.
 if ('serviceWorker' in navigator) {
-  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    || isNative();
   window.addEventListener('load', async () => {
     if (isLocal) {
       try {
@@ -338,6 +342,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // Sync theme-color meta + any toggle UI to the saved choice (attribute is already
   // set pre-paint by the inline script in index.html).
   setTheme(getTheme());
+  initNative(); // no-op on web; splash/status-bar/deep-link wiring in the app shell
 
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
   if (cfg) {
@@ -359,6 +364,10 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
   if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
   if (document.getElementById('panel-profile')?.classList.contains('active')) switchTab('profile');
+
+  // App shell: the shell + auth state are painted, drop the native splash. (A 6s
+  // safety timer in initNative covers any throw above; extra calls no-op.)
+  hideSplash();
 
   // Referral link (?ref=CODE): a friend arriving from a share link lands right on
   // the signup form, with the "code applied, 3 free days" banner (unlock.js). The

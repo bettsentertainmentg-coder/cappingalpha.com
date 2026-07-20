@@ -1,0 +1,22 @@
+{
+  "appId": "com.cappingalpha.app",
+  "appName": "CappingAlpha",
+  "webDir": "public",
+  "ios": {
+    "scheme": "CappingAlpha"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#0f1117",
+      "showSpinner": false
+    },
+    "Keyboard": {
+      "resize": "body"
+    }
+  }
+}
