@@ -9,7 +9,7 @@ import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=15';
 import { loadSocials } from './modules/socials.js?v=5';
-import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=60';
+import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=61';
 import './modules/track.js?v=49';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=7';

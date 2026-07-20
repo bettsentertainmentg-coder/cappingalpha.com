@@ -72,7 +72,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/gauge.css" />
+  <link rel="stylesheet" href="/gauge.css?v=1" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- PostHog analytics -->
   <script>
@@ -1880,7 +1880,7 @@
     .about-pricing-card .price-feature { font-size: 13px; color: var(--muted); line-height: 1.7; }
 
     /* ── Support / contact box ── */
-    .support-box { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 22px; max-width: 640px; margin-top: 20px; }
+    .support-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px; max-width: 640px; margin-top: 20px; }
     .support-row { display: flex; gap: 16px; flex-wrap: wrap; }
     .support-row .support-field { flex: 1; min-width: 180px; }
     .support-field { margin-bottom: 16px; }
@@ -3778,6 +3778,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=112"></script>
+  <script type="module" src="app.js?v=113"></script>
 </body>
 </html>

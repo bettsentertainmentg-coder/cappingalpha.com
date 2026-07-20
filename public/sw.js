@@ -5,7 +5,22 @@
 // every /api|/auth|/admin request always go to the network, so a deploy is never
 // masked by a stale cache. Navigations are network-first with the cached shell
 // as the offline fallback.
-const CACHE = 'ca-shell-v2'; // bump wipes older caches on activation
+const CACHE = 'ca-shell-v3'; // bump wipes older caches on activation
+
+// Hosts that mean "someone is developing right now": localhost, a LAN IP, or one of
+// the HTTPS tunnels used to open the dev server on a phone. Caching on any of these
+// hides edits behind an immutable ?v= entry that a phone cannot easily clear.
+function isDevHost(h) {
+  return h === 'localhost'
+    || h === '127.0.0.1'
+    || h.endsWith('.local')
+    || h.endsWith('.ts.net')            // Tailscale serve/funnel
+    || h.endsWith('.trycloudflare.com') // cloudflared quick tunnel
+    || h.includes('.ngrok')             // ngrok-free.app / ngrok.io
+    || /^10\./.test(h)
+    || /^192\.168\./.test(h)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.add('/')).then(() => self.skipWaiting()));
@@ -24,7 +39,9 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   // Local dev: never cache. The pm2 workflow edits public/ files in place between
   // version bumps, and a cache-first hit would silently serve stale code.
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') return;
+  // Phone previews reach the dev server over a LAN IP or an HTTPS tunnel, so those
+  // hostnames must bypass too or the phone serves stale modules with no way to clear them.
+  if (isDevHost(location.hostname)) return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/') || url.pathname.startsWith('/admin')) return;

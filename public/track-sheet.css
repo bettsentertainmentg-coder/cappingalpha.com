@@ -5,7 +5,13 @@
  * sheet's styling changes there, re-run the extraction or mirror the change
  * here. Vars below are index.html values the detail page does not define.
  */
-:root { --card: #171b24; --overlay-1: rgba(15,17,23,0.6); --overlay-2: rgba(15,17,23,0.82); --shadow-soft: 0 12px 32px rgba(0,0,0,0.45); --grid-line: rgba(255,255,255,0.05); }
+/* These mirror index.html's token SEMANTICS exactly, because the same class names
+ * are styled in both files. --shadow-soft is a COLOR (consumed as the color slot of
+ * a box-shadow, never a whole shadow) and --overlay-1/-2 are subtle surface tints on
+ * top of a dark background, not backdrop scrims. Diverging from that here silently
+ * broke .track-fab / .ca-toast shadows and made .lc-addnote render differently on the
+ * detail page than in the SPA. */
+:root { --card: #171b24; --overlay-1: rgba(255,255,255,0.04); --overlay-2: rgba(255,255,255,0.07); --shadow-soft: rgba(0,0,0,0.45); --grid-line: rgba(255,255,255,0.05); }
 /* ── My Tracking — stat strip (Action-Network-style) ── */
     .track-stats {
       display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;

@@ -1436,7 +1436,7 @@ function renderTracking(data) {
 
   // Second-screen dashboard link: shows whenever the user has pending action.
   const liveNowBar = pend > 0 ? `
-    <a href="/mylive" class="account-reveal" style="display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid #2f7d4f;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-decoration:none;color:inherit;">
+    <a href="/mylive" class="account-reveal" style="display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid #2f7d4f;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-decoration:none;color:inherit;">
       <span style="width:9px;height:9px;border-radius:50%;background:#4ade80;flex:none;"></span>
       <span style="flex:1;font-size:13px;"><strong>My Action, Live</strong> <span style="color:var(--muted);">follow your ${pend} pending pick${pend === 1 ? '' : 's'} on one live screen</span></span>
       <span style="color:var(--muted);font-size:13px;">&rarr;</span>
