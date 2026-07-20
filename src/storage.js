@@ -769,10 +769,14 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     // its "had more points" note read as a contradiction.
     const scoreLocked = gameStarted
       || ['win', 'loss', 'push', 'void'].includes((exists.result || '').toLowerCase());
+    // game_date locks with the score: post-decision recalcs re-derive it from
+    // today_games.start_time, which for tennis can be an UNCORRECTED placeholder
+    // a day ahead — every recalc re-drifted the row back under the future day
+    // and undid the resolver's board-day heal (Jul 20 Badosa flip-flop).
     db.prepare(`
       UPDATE mvp_picks
       SET score        = CASE WHEN ? = 1 THEN score ELSE ? END,
-          game_date    = ?,
+          game_date    = CASE WHEN ? = 1 THEN game_date ELSE ? END,
           espn_game_id = ?,
           ml_odds      = COALESCE(ml_odds, ?),
           ou_odds      = COALESCE(ou_odds, ?),
@@ -782,7 +786,7 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
           captured_total   = COALESCE(captured_total, ?),
           line_captured_at = COALESCE(line_captured_at, ?)
       WHERE id = ?
-    `).run(scoreLocked ? 1 : 0, score, game_date ?? null, espn_game_id, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, exists.id);
+    `).run(scoreLocked ? 1 : 0, score, scoreLocked ? 1 : 0, game_date ?? null, espn_game_id, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, exists.id);
   }
 }
 
