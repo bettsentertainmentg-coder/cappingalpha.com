@@ -161,8 +161,12 @@ router.post('/login', adminLoginRateLimit, express.urlencoded({ extended: false 
   const correct = process.env.ADMIN_PASSWORD;
   if (!correct) return res.status(500).send('ADMIN_PASSWORD not set in env.');
   if (req.body.password && safeEqual(req.body.password, correct)) {
-    req.session.admin = true;
-    return res.redirect('/admin');
+    // New session id on privilege gain (fixation defense).
+    return req.session.regenerate((err) => {
+      req.session.admin = true;
+      if (err) return res.redirect('/admin');
+      req.session.save(() => res.redirect('/admin'));
+    });
   }
   res.redirect('/admin/login?error=1');
 });
@@ -2652,6 +2656,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       function renderUserResults(users, q) {
         const el = document.getElementById('user-results');
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        q = esc(q);
         if (!users.length) { el.innerHTML = \`<p style="color:#8892a4;">No results for "\${q}".</p>\`; return; }
         el.innerHTML = \`<p class="users-results-note">\${users.length} result\${users.length !== 1 ? 's' : ''} for "\${q}"</p>
           <table><thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Tier</th><th>Expires</th><th>Actions</th></tr></thead>
@@ -2664,10 +2670,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const tierColor = u.subscription_tier === 'free' ? '#8892a4' : (expired ? '#ef4444' : '#16a34a');
         const tierLabel = u.subscription_tier === 'free' ? 'Free' : (expired ? u.subscription_tier + ' (expired)' : u.subscription_tier);
         const expiresStr = u.subscription_expires ? u.subscription_expires.slice(0, 16).replace('T', ' ') : '—';
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         return \`<tr>
           <td style="color:#8892a4;font-size:12px;">\${u.id}</td>
-          <td>\${u.username || '—'}</td>
-          <td style="color:#8892a4;">\${u.email}</td>
+          <td>\${esc(u.username || '—')}</td>
+          <td style="color:#8892a4;">\${esc(u.email)}</td>
           <td><span style="color:\${tierColor};font-weight:600;">\${tierLabel}</span></td>
           <td style="color:#8892a4;font-size:12px;">\${expiresStr}</td>
           <td style="white-space:nowrap;">

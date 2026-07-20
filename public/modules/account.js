@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=4';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=48';
+import { loadUserBets, setBetsData } from './track.js?v=49';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 
@@ -563,7 +563,7 @@ function accessStatusWidget(user) {
 // custom bets into one P/L. The leaderboard tab stays verified-only (votes), so
 // custom bets never affect ranking. Verified votes count as a flat 1u at the
 // user's unit size; custom bets carry their own real stake -> units.
-let _trackRange = 'all'; // today | week | month | all
+let _trackRange = 'all'; // today | yesterday | week | 10d | month | all
 
 function tsOf(s) {
   if (!s) return 0;
@@ -573,9 +573,17 @@ function tsOf(s) {
 function rangeStart(range) {
   const now = Date.now();
   if (range === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  if (range === 'yesterday') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() - 864e5; }
   if (range === 'week')  return now - 7 * 864e5;
+  if (range === '10d')   return now - 10 * 864e5;
   if (range === 'month') return now - 30 * 864e5;
   return 0;
+}
+// Yesterday is the only bounded window (every other range runs up to now), so it
+// needs an upper edge or it would just read as "since yesterday".
+function rangeEnd(range) {
+  if (range === 'yesterday') { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  return Infinity;
 }
 function etDate(ts) {
   if (!ts) return '';
@@ -583,8 +591,9 @@ function etDate(ts) {
 }
 function votesInRange(votes, range) {
   const start = rangeStart(range);
-  if (!start) return votes;
-  return votes.filter(v => { const t = tsOf(v.voted_at); return t === 0 ? true : t >= start; });
+  const end   = rangeEnd(range);
+  if (!start && end === Infinity) return votes;
+  return votes.filter(v => { const t = tsOf(v.voted_at); return t === 0 ? true : (t >= start && t < end); });
 }
 // Closing Line Value: did you get a better price than where the line closed?
 // Price CLV for ML + totals (you beat the close when your implied prob is lower).
@@ -765,8 +774,9 @@ function pendingCount(votes, bets) {
 }
 function itemsInRange(items, range) {
   const start = rangeStart(range);
-  if (!start) return items;
-  return items.filter(it => it.ts === 0 ? true : it.ts >= start);
+  const end   = rangeEnd(range);
+  if (!start && end === Infinity) return items;
+  return items.filter(it => it.ts === 0 ? true : (it.ts >= start && it.ts < end));
 }
 function statsOf(items) {
   let netUnits = 0, netD = 0, riskedD = 0, wins = 0, losses = 0, pushes = 0;
@@ -1240,7 +1250,7 @@ function renderRecordView() {
 
   const tabs = sc.kind === 'streak' ? '' : `
     <div class="rec-tabs">
-      ${[['today', 'Today'], ['yesterday', 'Yest'], ['week', 'Last 7'], ['month', 'Last 30'], ['all', 'All']]
+      ${[['today', 'Today'], ['yesterday', 'Yest'], ['week', 'Last 7'], ['10d', 'Last 10'], ['month', 'Last 30'], ['all', 'All']]
         .map(([w, lbl]) => `<button class="rec-tab${sc.window === w ? ' active' : ''}" onclick="recSetWindow('${w}')">${lbl}</button>`).join('')}
     </div>`;
 
@@ -1508,10 +1518,12 @@ function renderTracking(data) {
       <div class="perf-head">
         <span class="perf-title">Performance</span>
         <select class="perf-range" onchange="setTrackRange(this.value)" aria-label="Performance timeframe">
-          <option value="all" selected>All Time</option>
-          <option value="month">Last 30</option>
-          <option value="week">Last 7</option>
           <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="week">Last 7</option>
+          <option value="10d">Last 10</option>
+          <option value="month">Last 30</option>
+          <option value="all" selected>All Time</option>
         </select>
       </div>
       <div class="perf-body" id="track-perf">${performanceHtml(items, pend)}</div>
@@ -1757,6 +1769,7 @@ function renderSettings(data) {
               <span class="account-info-val">${memberSince}</span>
             </div>
             <button class="btn btn-danger" onclick="doLogout()" style="width:100%;margin-top:14px;padding:9px;">Log Out</button>
+            <button class="btn" onclick="deleteAccount()" style="width:100%;margin-top:8px;padding:9px;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:13px;">Delete account</button>
           </div>
           <div style="padding:0 20px 16px;border-top:1px solid var(--border);margin-top:4px;">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding-top:12px;margin-bottom:4px;">Change Username</div>
@@ -2109,8 +2122,25 @@ function copyReferral(btn) {
   else input.select();
 }
 
+// In-app account deletion (Apple 5.1.1(v) / Google). Two confirms, then the
+// authenticated DELETE; the server purges every row and cancels any subscription.
+async function deleteAccount() {
+  if (!confirm('Delete your account? This permanently removes your profile, tracked bets, votes, comments, and follows, and cancels any active subscription. This cannot be undone.')) return;
+  if (!confirm('Are you sure? This is permanent.')) return;
+  try {
+    const res = await fetch('/auth/account', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: 'DELETE' }),
+    });
+    if (res.ok) { alert('Your account has been deleted.'); location.href = '/'; return; }
+    const d = await res.json().catch(() => ({}));
+    alert(d.error || 'Could not delete the account. Please contact support@cappingalpha.com.');
+  } catch (_) { alert('Network error. Please try again.'); }
+}
+
 Object.assign(window, {
-  deleteVote, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
+  deleteVote, deleteAccount, toggleFavSport, saveFavSports, drawVotedPlGraph, changeUsername,
   toggleAccountPrivacy, uploadAvatar, saveUnitSize, saveBankroll, sendPasswordReset,
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,

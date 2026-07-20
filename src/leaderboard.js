@@ -343,15 +343,22 @@ function getFriendsList(meId) {
   `).all(...ids);
 
   const friends = meta.map(m => {
-    const agg = byUser.get(m.user_id) || { wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 };
-    return {
+    const isPub  = m.is_public == null ? 1 : m.is_public;
+    const mutual = myFollowers.has(m.user_id);
+    const base = {
       user_id: m.user_id,
       username: m.username || `user${m.user_id}`,
       avatar_url: m.avatar_path ? `/avatars/${m.avatar_path}` : null,
-      is_public: m.is_public == null ? 1 : m.is_public,
-      mutual: myFollowers.has(m.user_id),
-      ...statify(agg),
+      is_public: isPub,
+      mutual,
     };
+    // A private member exposes their record only to a mutual follow, matching
+    // getMemberProfile. A one-way follow keeps the row but not the numbers.
+    if (!isPub && !mutual) {
+      return { ...base, private_hidden: true, ...statify({ wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 }) };
+    }
+    const agg = byUser.get(m.user_id) || { wins: 0, losses: 0, pushes: 0, units: 0, risked: 0 };
+    return { ...base, ...statify(agg) };
   }).sort(SORT);
 
   return { friends, count: friends.length };

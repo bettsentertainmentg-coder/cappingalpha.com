@@ -110,7 +110,7 @@ async function _renderTopPick() {
           <span class="graph-pl-label ${sign}">${amt}</span>
         </div>
         <div class="ca-tp-graph-wrap"><canvas id="ca-tp-chart"></canvas></div>
-        <div class="ca-tp-betsize">Based on flat $${betUnit} bet size&nbsp;·&nbsp;<span class="ca-tp-track-note">Tracking 100+ points</span></div>
+        <div class="ca-tp-betsize">Based on flat $${betUnit} bet size&nbsp;·&nbsp;<span class="ca-tp-track-note">Tracking top-tier CA picks</span></div>
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>
@@ -173,6 +173,7 @@ const _TP_RANGES = [
   { key: '1D',  days: 1,        label: '1-Day' },
   { key: '5D',  days: 5,        label: '5-Day' },
   { key: '7D',  days: 7,        label: '7-Day' },
+  { key: '10D', days: 10,       label: '10-Day' },
   { key: '21D', days: 21,       label: '21-Day' },
   { key: '1M',  days: 30,       label: '1-Month' },
   { key: '3M',  days: 90,       label: '3-Month' },

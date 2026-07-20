@@ -64,12 +64,23 @@ function getGameChat(espnGameId, currentUserId = null) {
   `).get(espnGameId) || null;
 
   const rows = db.prepare(`
-    SELECT m.id, m.user_id, m.message, m.created_at, u.username, u.email
+    SELECT m.id, m.user_id, m.message, m.created_at, u.username
     FROM game_messages m
     JOIN users u ON u.id = m.user_id
     WHERE m.espn_game_id = ? AND m.deleted = 0
     ORDER BY m.created_at ASC, m.id ASC
   `).all(espnGameId);
+
+  // A private member's votes are visible only to themselves, matching the
+  // member-profile privacy gate (posting in chat must not out their picks).
+  const publicCache = new Map();
+  const isPublic = (uid) => {
+    if (!publicCache.has(uid)) {
+      const row = db.prepare(`SELECT is_public FROM user_preferences WHERE user_id = ?`).get(uid);
+      publicCache.set(uid, row ? (row.is_public == null ? 1 : row.is_public) : 1);
+    }
+    return publicCache.get(uid);
+  };
 
   // Cache votes per user so a chatty thread doesn't re-query for each message.
   const voteCache = new Map();
@@ -81,10 +92,10 @@ function getGameChat(espnGameId, currentUserId = null) {
     const ts = parseTs(r.created_at);
     return {
       id:         r.id,
-      username:   r.username || (r.email ? r.email.split('@')[0] : 'user'),
+      username:   r.username || `user${r.user_id}`,
       message:    r.message,
       created_at: r.created_at,
-      votes:      voteCache.get(r.user_id),
+      votes:      (isMine || isPublic(r.user_id)) ? voteCache.get(r.user_id) : [],
       is_mine:    isMine,
       // Only the author, and only within the first minute, can delete.
       deletable:  isMine && !Number.isNaN(ts) && (Date.now() - ts) <= DELETE_WINDOW_MS,

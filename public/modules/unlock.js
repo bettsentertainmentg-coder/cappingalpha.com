@@ -5,7 +5,7 @@
 // /auth/signup; never changes prices.
 
 import { state } from './state.js';
-import { isViewer, isPaying } from './auth.js';
+import { isViewer, isPaying, googleAuthSubmit } from './auth.js';
 import { startCheckout } from './paywall.js';
 
 const YES = '<span class="uc-yes">&#10003;</span>';
@@ -154,9 +154,9 @@ function injectUnlockCss() {
 const COMPARE = [
   ['Today\'s top-ranked pick', true, true],
   ['Live game intel (lines, weather, pitchers)', true, true],
-  ['Market signals (line moves, public %, Polymarket, Kalshi)', true, true],
+  ['Live market context (line moves, public betting, prediction markets)', true, true],
   ['Permanent pick-history archive', true, true],
-  ['Every sport, every day (MLB, NBA, WNBA, NHL, Tennis, Golf)', true, true],
+  ['Every sport, every day (MLB, NBA, WNBA, NFL, NCAAF, CBB, NHL, Soccer, Tennis, Golf)', true, true],
   ['Vote and track your own P/L', true, true],
   ['Every pick\'s score and conviction', '#1 only', true],
   ['CA picks, full long-term record', 'recent only', true],
@@ -180,7 +180,8 @@ function cell(v) {
 // ── Tracked-record P/L (mirrors the #1 pick card's math) ───────────────────────
 const _RANGES = [
   { days: 1, label: '1-Day' }, { days: 5, label: '5-Day' }, { days: 7, label: '7-Day' },
-  { days: 21, label: '21-Day' }, { days: 30, label: '1-Month' }, { days: 90, label: '3-Month' },
+  { days: 10, label: '10-Day' }, { days: 21, label: '21-Day' }, { days: 30, label: '1-Month' },
+  { days: 90, label: '3-Month' },
   { days: Infinity, label: 'All-Time' },
 ];
 const _MIN = 5;
@@ -292,14 +293,14 @@ function buildHeroStats(data, bet, best) {
 
 function buildProof(data, bet) {
   const resolved = _resolved(data?.picks || []);
-  if (!resolved.length) return { html: `<div class="unlock-proof-snippet">The tracked record builds daily. Every CA pick (50+ points) is logged long term, win or lose.</div>`, series: null };
+  if (!resolved.length) return { html: `<div class="unlock-proof-snippet">The tracked record builds daily. Every CA pick is logged long term, win or lose.</div>`, series: null };
   const s = _series(resolved, bet);
   const pos = s.total >= 0;
   const amt = `${pos ? '+' : '-'}$${Math.abs(s.total).toFixed(2)}`;
   const html = `
     <div class="unlock-proof-pl-head"><span class="unlock-proof-pl-label">All-Time P/L</span><span class="unlock-proof-pl-amt ${pos ? 'pos' : 'neg'}">${amt}</span></div>
     <div class="unlock-proof-chart-wrap"><canvas id="unlock-pl-chart"></canvas></div>
-    <div class="unlock-proof-betsize">Based on a flat $${bet} bet size. Every CA pick (50+ points) is tracked long term, win or lose.</div>`;
+    <div class="unlock-proof-betsize">Based on a flat $${bet} bet size. Every CA pick is tracked long term, win or lose.</div>`;
   return { html, series: s };
 }
 
@@ -375,6 +376,7 @@ function unlockHtml() {
           <input id="ua-username" type="text" placeholder="Username" autocomplete="username" />
           <input id="ua-password" type="password" placeholder="Password" autocomplete="new-password" />
           <input id="ua-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
+          <input id="ua-birthyear" type="number" inputmode="numeric" placeholder="Year of birth (18+)" min="1900" max="2025" />
           <button class="btn btn-primary unlock-signup-btn" onclick="window.__unlockSignup()">Create Account</button>
           <div class="unlock-form-err" id="ua-err"></div>
         </div>
@@ -484,14 +486,18 @@ async function unlockSignup() {
   const username = (document.getElementById('ua-username')?.value || '').trim();
   const password = document.getElementById('ua-password')?.value || '';
   const confirm = document.getElementById('ua-confirm')?.value || '';
+  const birthYear = parseInt(document.getElementById('ua-birthyear')?.value, 10);
   const err = document.getElementById('ua-err');
   if (err) { err.style.color = ''; err.textContent = ''; }
   if (!email || !password) { if (err) err.textContent = 'Email and password are required.'; return; }
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) { if (err) err.textContent = 'Username must be 3 to 20 letters, numbers, or underscores.'; return; }
   if (password.length < 8) { if (err) err.textContent = 'Password must be at least 8 characters.'; return; }
   if (password !== confirm) { if (err) err.textContent = 'Passwords do not match.'; return; }
+  const nowYear = new Date().getFullYear();
+  if (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > nowYear) { if (err) err.textContent = 'Enter your year of birth.'; return; }
+  if (nowYear - birthYear < 18) { if (err) err.textContent = 'You must be 18 or older to use CappingAlpha.'; return; }
   try {
-    const res = await fetch('/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, username, password, tos_agreed: true }) });
+    const res = await fetch('/auth/signup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, username, password, tos_agreed: true, birth_year: birthYear }) });
     const data = await res.json();
     if (!res.ok) { if (err) err.textContent = data.error || 'Signup failed.'; return; }
     location.reload();
@@ -534,12 +540,8 @@ async function unlockSoc(provider) {
       callback: async (resp) => {
         if (resp.error || !resp.access_token) { if (err) { err.style.color = ''; err.textContent = 'Google sign-in was cancelled.'; } return; }
         try {
-          const r = await fetch('/auth/google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: resp.access_token }),
-          });
-          const data = await r.json();
-          if (!r.ok) { if (err) { err.style.color = ''; err.textContent = data.error || 'Google sign-in failed.'; } return; }
+          const out = await googleAuthSubmit(resp.access_token);
+          if (!out.ok) { if (err) { err.style.color = ''; err.textContent = out.error; } return; }
           location.reload();
         } catch (_) { if (err) { err.style.color = ''; err.textContent = 'Network error. Try again.'; } }
       },

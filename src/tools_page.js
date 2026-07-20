@@ -354,6 +354,11 @@ ${buildNav(user)}
 
 ${body}
 
+<footer style="max-width:900px;margin:56px auto 0;padding:18px 16px 0;border-top:1px solid #252c3b;color:#8892a4;font-size:12px;line-height:1.7;text-align:center;">
+  <div>CappingAlpha is a sports information and data platform, not a sportsbook. All figures are for informational and entertainment purposes only. 18+ to use CappingAlpha. Gambling problem? Call 1-800-GAMBLER.</div>
+  <div style="margin-top:6px;"><a href="/" style="color:#8892a4;">Home</a> · <a href="/faq" style="color:#8892a4;">FAQ</a> · <a href="/terms" style="color:#8892a4;">Terms</a> · <a href="/privacy" style="color:#8892a4;">Privacy</a> · <a href="/responsible-gambling" style="color:#8892a4;">Responsible Gambling</a></div>
+</footer>
+
 </body>
 </html>`;
 }

@@ -37,6 +37,10 @@ function saveSubscription(userId, sub) {
   let u;
   try { u = new URL(sub.endpoint); } catch (_) { return false; }
   if (u.protocol !== 'https:') return false;
+  // Allowlist the real browser push services so the server can't be pointed at an
+  // arbitrary internal host (the send path POSTs to this URL — SSRF hardening).
+  const PUSH_HOSTS = [/(^|\.)googleapis\.com$/, /(^|\.)mozilla\.com$/, /(^|\.)windows\.com$/, /(^|\.)apple\.com$/];
+  if (!PUSH_HOSTS.some((re) => re.test(u.hostname)) || /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) return false;
   db.prepare(`
     INSERT INTO push_subscriptions (user_id, endpoint, keys_json) VALUES (?, ?, ?)
     ON CONFLICT(endpoint) DO UPDATE SET user_id = excluded.user_id, keys_json = excluded.keys_json

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>CappingAlpha | Daily Ranked Sports Betting Picks</title>
+  <title>CappingAlpha | Sports Data, Models, and Market Rankings</title>
 
   <!-- ── Favicon / app icons ── -->
   <link rel="icon" href="/favicon.ico" sizes="any" />
@@ -21,25 +21,25 @@
   </script>
 
   <!-- ── SEO ── -->
-  <meta name="description" content="CappingAlpha ranks and scores daily sports betting picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. Top-rated plays are tracked over time for transparency. The Seeking Alpha for sports gambling." />
+  <meta name="description" content="CappingAlpha is a sports information and data platform. We collect public sports data, run advanced models over it, and rank the results against the market. See the top-ranked play free." />
   <link rel="canonical" href="https://cappingalpha.com/" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
   <meta name="theme-color" content="#0f1117" />
   <meta name="author" content="CappingAlpha" />
 
-  <!-- ── Open Graph (Facebook, iMessage, Discord, LinkedIn) ── -->
+  <!-- ── Open Graph (link previews on social + messaging apps) ── -->
   <meta property="og:site_name" content="CappingAlpha" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="CappingAlpha | Daily Ranked Sports Betting Picks" />
-  <meta property="og:description" content="We don't condone gambling, but there's no reason to bet without checking CappingAlpha first. Ranked, scored, and tracked picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. See the top-rated play free." />
+  <meta property="og:title" content="CappingAlpha | Sports Data, Models, and Market Rankings" />
+  <meta property="og:description" content="A sports information and data platform. We collect public sports data, run advanced models over it, and rank the results against the market. See the top-ranked play free." />
   <meta property="og:url" content="https://cappingalpha.com/" />
   <meta property="og:image" content="https://cappingalpha.com/ca-logo.png" />
   <meta property="og:image:alt" content="CappingAlpha" />
 
   <!-- ── Twitter / X card ── -->
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="CappingAlpha | Daily Ranked Sports Betting Picks" />
-  <meta name="twitter:description" content="We don't condone gambling, but there's no reason to bet without checking CappingAlpha first. Ranked, scored, and tracked picks across MLB, NBA, WNBA, NHL, Tennis, and Golf. See the top-rated play free." />
+  <meta name="twitter:title" content="CappingAlpha | Sports Data, Models, and Market Rankings" />
+  <meta name="twitter:description" content="A sports information and data platform. We collect public sports data, run advanced models over it, and rank the results against the market. See the top-ranked play free." />
   <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
 
   <!-- ── Structured data (Google rich results + AI search engines) ── -->
@@ -53,15 +53,16 @@
         "name": "CappingAlpha",
         "url": "https://cappingalpha.com/",
         "logo": "https://cappingalpha.com/ca-logo.png",
-        "description": "CappingAlpha ranks, scores, and tracks daily sports betting picks for transparency across MLB, NBA, WNBA, NHL, Tennis, and Golf."
+        "description": "CappingAlpha is a sports data and analytics platform. It collects public sports data, runs advanced models over it, and ranks the results against sportsbook markets to surface where betting value and likelihood sit."
       },
       {
         "@type": "WebSite",
         "@id": "https://cappingalpha.com/#website",
         "url": "https://cappingalpha.com/",
         "name": "CappingAlpha",
+        "inLanguage": "en-US",
         "publisher": { "@id": "https://cappingalpha.com/#org" },
-        "description": "Daily ranked sports betting picks, scored and tracked over time."
+        "description": "A sports information and data platform: public sports data, advanced model rankings, and market comparison across MLB, NBA, WNBA, NFL, NCAAF, CBB, NHL, Soccer, Tennis, and Golf."
       }
     ]
   }
@@ -83,9 +84,13 @@
       capture_pageleave: true,     // time-on-page / bounce
       autocapture: true,           // all clicks, taps, form interactions
       capture_heatmaps: true,      // click/scroll heatmaps
+      // Session replay is off inside the native (Capacitor) shell to keep the
+      // mobile privacy label clean; it stays on for the web.
+      disable_session_recording: !!(window.Capacitor),
       session_recording: {
         // Privacy: never record what people type (emails, anything in a field).
         // Card data lives only on Stripe's hosted checkout, never on our page.
+        // Social surfaces carry other members' content + stakes — mask them.
         maskAllInputs: true,
         maskTextSelector: '[data-ph-mask]',
       },
@@ -3249,26 +3254,26 @@
     <div class="about-hero">
       <div class="about-hero-slogan">The research layer between you and the market.</div>
       <h1>Know the board.</h1>
-      <p>CappingAlpha processes high-end capper signals against live book lines. Institutional-grade research. One dollar to access it.</p>
-      <p style="font-size:13px;color:var(--gold);margin-top:12px;max-width:480px;margin-left:auto;margin-right:auto;">The world's #1 sports data aggregation and research tool.</p>
+      <p>CappingAlpha collects public sports data at scale, runs advanced models over it, and measures the output against live book lines. Deep research on the day's board. One dollar to access it.</p>
+      <p style="font-size:13px;color:var(--gold);margin-top:12px;max-width:480px;margin-left:auto;margin-right:auto;">A research and aggregation layer built for people who want the whole picture before they decide.</p>
     </div>
     <div class="about-section">
 
       <h2 class="about-h2">What is CappingAlpha?</h2>
-      <p class="about-p">Sports prediction is an information problem. The books have it, and most people do not. CappingAlpha works to close that gap by giving you everything you could possibly want to know about a game in one place. Player data, historical outcomes, public market behavior, live lines, weather, capper signals, and more, all normalized through a proprietary scoring engine and ranked into a single list of the day's highest-conviction plays.</p>
+      <p class="about-p">Sports prediction is an information problem. The books have it, and most people do not. CappingAlpha works to close that gap by giving you everything you could possibly want to know about a game in one place. Player data, historical outcomes, public market behavior, live lines, weather, and more, all normalized through a proprietary scoring engine and ranked into a single list of the day's highest-conviction plays.</p>
       <p class="about-p">We are not a pick service. We do not tell you how to play it. We surface the data and let you decide. You make the call. We just make sure you're informed when you do.</p>
       <p class="about-p">CappingAlpha never wagers on any game. All performance data shown is hypothetical and for informational purposes only. Past results are not indicative of future outcomes.</p>
 
       <div class="about-algo-box" id="about-algo" style="scroll-margin-top:70px;">
         <h2 class="about-h2">How the algorithm works</h2>
 
-        <h3 class="about-h3">Why does the house always win?</h3>
-        <p class="about-p">There are inconsistencies in the lines and spreads that can often give the house an edge. CappingAlpha's algorithm uses a system of complex agents to find the gaps where teams, players, and lines look most profitable versus the books, and ranks them accordingly.</p>
-        <p class="about-p">These calculations happen throughout the day and can sometimes take right up until tip-off to fully crystallize. Picks are ranked, and the day's CA picks (<span class="mvp-pts-live">50</span>+ points) are highlighted along with a wide range of statistics to help inform your call.</p>
+        <h3 class="about-h3">Why does the house tend to win?</h3>
+        <p class="about-p">There are inconsistencies in the lines and spreads that can often give the house an edge. The CappingAlpha algorithm uses a system of complex agents to find the spots where teams, players, and lines look mispriced versus the books, and ranks them accordingly.</p>
+        <p class="about-p">These calculations happen throughout the day and can sometimes take right up until tip-off to fully crystallize. Picks are ranked, and the day's CA picks are highlighted along with a wide range of statistics to help inform your call.</p>
         <p class="about-p">This is to inform you and give you an extra layer of insight on each pick. No pick is ever recommended by our side. Anything can happen in a sports match. It's purely statistical data.</p>
 
         <h3 class="about-h3">How the scoring model works</h3>
-        <p class="about-p">Each morning at 5am ET, opening book lines (moneylines, spreads, over/unders) are locked as the reference baseline for the day. From there, AI agents monitor public data streams in real time, cross-referencing signals against live game data from ESPN, weather from OpenWeatherMap, public sentiment from X, community intelligence sources, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
+        <p class="about-p">Each morning at 5am ET, opening book lines (moneylines, spreads, over/unders) are locked as the reference baseline for the day. From there, our models monitor public data streams in real time, weighing signals against live game data, weather on outdoor games, public market behavior, and more. Every signal is normalized, weighted, and run through the scoring engine before a pick appears on the board.</p>
         <p class="about-p">Picks are ranked by score. The model is built to detect market pressure early, before it moves a line. No single source can spike a score on its own.</p>
         <p class="about-p">The line each pick uses is not the 5am opener. It is the market line captured 1 hour before that game starts. Lines move during the day, so we let a pick track the market until then, capture that number once, and lock it, as if the bet were placed right there. That locked line is the official line the CA rankings show and every tracked bet grades against. Schedule slips happen, so the 1-hour mark follows the real start time. And until a game actually begins, the tracked call can still change: if our scoring moves ahead on the other side before the start, the recorded bet flips with it, at that same locked line.</p>
         <p class="about-p">Scoring keeps updating throughout the day as new signals come in, and locks 5 minutes after a game's actual tip-off. Schedule slips happen, so the lock follows the real start, not the scheduled one.</p>
@@ -3297,12 +3302,12 @@
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#f87171;">⬡</div>
           <div class="about-signal-title">Live Game Context</div>
-          <div class="about-signal-desc">Real-time game schedules and live scores from ESPN. Weather data from OpenWeatherMap for outdoor games. All context is factored in automatically.</div>
+          <div class="about-signal-desc">Real-time game schedules and live scores. Weather on outdoor games. All context is factored in automatically.</div>
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#FFD700;">★</div>
           <div class="about-signal-title">CA Pick Tracking</div>
-          <div class="about-signal-desc">Picks reaching <span id="about-mvp-pts" class="mvp-pts-live">50</span>+ points earn CA Pick status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
+          <div class="about-signal-desc">Picks that clear our proprietary scoring engine's tracking bar earn CA Pick status and are logged permanently with results and hypothetical P/L. No picks are deleted. The record is unedited.</div>
         </div>
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#38bdf8;">◈</div>
@@ -3312,7 +3317,7 @@
         <div class="about-signal-card">
           <div class="about-signal-icon" style="color:#5eead4;">⬢</div>
           <div class="about-signal-title">Cross-Market Validation</div>
-          <div class="about-signal-desc">Picks are cross-checked against prediction markets like Polymarket and Kalshi to surface where independent markets agree, or disagree, with the books.</div>
+          <div class="about-signal-desc">Picks are viewed alongside independent prediction markets to surface where those markets agree, or disagree, with the books.</div>
         </div>
       </div>
       </div><!-- /.about-algo-box -->
@@ -3414,7 +3419,7 @@
 
   <!-- ── Tab 5: Leaderboard ── -->
   <!-- ── Socials (Clubhouse): Feed | Friends | Board ── -->
-  <div id="panel-socials" class="tab-panel">
+  <div id="panel-socials" class="tab-panel" data-ph-mask>
     <div class="container">
       <div class="soc-subnav" role="tablist">
         <button class="soc-sn active" data-soc-pane="feed"    role="tab" onclick="socialsPane('feed')">Feed</button>
@@ -3499,7 +3504,7 @@
     <div class="footer-grid">
       <div class="footer-col">
         <div class="footer-brand-name"><img src="/ca-logo.png" alt="" onerror="this.style.display='none'">CappingAlpha</div>
-        <p class="footer-tag">Daily ranked sports betting intelligence. Capper picks scored, ranked, and tracked long term, win or lose.</p>
+        <p class="footer-tag">A sports information and data platform. We collect public sports data, run advanced models over it, and rank the results against the market, tracked long term, win or lose.</p>
         <div class="footer-apps">
           <span class="footer-app-badge" title="The CappingAlpha app is in the works"><i class="fa-brands fa-apple"></i><span><small>Coming soon to the</small>App Store</span></span>
           <span class="footer-app-badge" title="The CappingAlpha app is in the works"><i class="fa-brands fa-google-play"></i><span><small>Coming soon to</small>Google Play</span></span>
@@ -3535,9 +3540,10 @@
         <h4>Legal</h4>
         <a href="/terms" target="_blank">Terms of Service</a>
         <a href="/privacy" target="_blank">Privacy Policy</a>
+        <a href="/responsible-gambling" target="_blank">Responsible Gambling</a>
       </div>
     </div>
-    <div class="footer-rg">21+ where applicable. Gambling problem? Call 1-800-GAMBLER.</div>
+    <div class="footer-rg">CappingAlpha is a sports information and data platform, not a sportsbook. 18+ to use CappingAlpha. 21+ to wager where applicable. Gambling problem? Call <a href="/responsible-gambling" target="_blank" style="color:inherit;text-decoration:underline;">1-800-GAMBLER</a>.</div>
     <div class="footer-disclaimer">CappingAlpha never wagers on any game. All P/L figures shown are hypothetical, based on a flat $10 unit at the line recorded when each pick qualified for tracking. Past hypothetical performance is not indicative of future results. This platform is for informational and research purposes only.</div>
     <div class="footer-base">
       <span>© 2026 CappingAlpha</span>
@@ -3607,6 +3613,7 @@
       <div class="form-group"><label>Email</label><input type="email" id="signup-email" autocomplete="email" /></div>
       <div class="form-group"><label>Password</label><input type="password" id="signup-password" autocomplete="new-password" /></div>
       <div class="form-group"><label>Confirm Password</label><input type="password" id="signup-confirm" autocomplete="new-password" /></div>
+      <div class="form-group"><label>Year of birth</label><input type="number" id="signup-birthyear" inputmode="numeric" placeholder="YYYY" min="1900" max="2025" /><small style="color:var(--muted);font-size:12px;">You must be 18 or older to use CappingAlpha.</small></div>
       <div class="form-group tos-row">
         <input type="checkbox" id="signup-tos" />
         <label for="signup-tos">
@@ -3752,6 +3759,8 @@
         <a href="/privacy" target="_blank" rel="noopener" onclick="closeDrawer();" style="color:var(--muted);">Privacy</a>
         &nbsp;&middot;&nbsp;
         <a href="/faq" onclick="closeDrawer();" style="color:var(--muted);">FAQ</a>
+        &nbsp;&middot;&nbsp;
+        <a href="/responsible-gambling" target="_blank" rel="noopener" onclick="closeDrawer();" style="color:var(--muted);">Responsible Gambling</a>
       </div>
     </div>
 
@@ -3769,6 +3778,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=110"></script>
+  <script type="module" src="app.js?v=112"></script>
 </body>
 </html>

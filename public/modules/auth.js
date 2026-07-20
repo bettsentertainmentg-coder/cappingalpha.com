@@ -89,11 +89,12 @@ export function updateNavAuth() {
   const fab = document.getElementById('track-fab');
   if (fab) fab.style.display = loggedIn ? 'flex' : 'none';
 
-  // Identify user in PostHog so sessions are linked to accounts.
+  // Identify user in PostHog so sessions are linked to accounts. The user id is
+  // enough to link; email is deliberately not sent (keeps analytics off PII and
+  // the Apple label to Identifiers rather than Contact Info).
   if (loggedIn && window.posthog) {
     posthog.identify(String(state.currentUser.id), {
-      email: state.currentUser.email,
-      tier:  state.currentUser.tier,
+      tier: state.currentUser.tier,
     });
   }
 }
@@ -149,6 +150,7 @@ export async function doSignup() {
   const password  = document.getElementById('signup-password').value;
   const confirm   = document.getElementById('signup-confirm').value;
   const tosCheck  = document.getElementById('signup-tos')?.checked;
+  const birthYear = parseInt(document.getElementById('signup-birthyear')?.value, 10);
   const lbEl      = document.getElementById('signup-leaderboard');
   const publicLb  = lbEl ? lbEl.checked : true;
   const errEl     = document.getElementById('signup-error');
@@ -158,12 +160,15 @@ export async function doSignup() {
   if (!email || !password) { errEl.textContent = 'Email and password required.'; return; }
   if (password !== confirm) { errEl.textContent = 'Passwords do not match.'; return; }
   if (password.length < 8)  { errEl.textContent = 'Password must be at least 8 characters.'; return; }
+  const nowYear = new Date().getFullYear();
+  if (!Number.isInteger(birthYear) || birthYear < 1900 || birthYear > nowYear) { errEl.textContent = 'Enter your year of birth.'; return; }
+  if (nowYear - birthYear < 18) { errEl.textContent = 'You must be 18 or older to use CappingAlpha.'; return; }
   if (!tosCheck) { errEl.textContent = 'You must agree to the Terms of Service.'; return; }
   try {
     const res  = await fetch('/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, username, tos_agreed: true, public_leaderboard: publicLb }),
+      body: JSON.stringify({ email, password, username, tos_agreed: true, public_leaderboard: publicLb, birth_year: birthYear }),
     });
     const data = await res.json();
     if (!res.ok) { errEl.textContent = data.error || 'Signup failed.'; return; }
@@ -250,6 +255,40 @@ function _loadGis() {
   return _gisPromise;
 }
 
+// Brand-new Google accounts must confirm 18+ and agree to the Terms (the server
+// gates creation on this). A polished pre-OAuth screen lands with the app; this
+// minimal capture is enough for the web and satisfies the compliance requirement.
+async function collectGoogleConsent() {
+  const agree = confirm('To create your CappingAlpha account: you confirm you are 18 or older and agree to the Terms of Service and Privacy Policy (see cappingalpha.com/terms and /privacy). Click OK to agree.');
+  if (!agree) return null;
+  const birthYear = parseInt(prompt('Enter your year of birth (you must be 18 or older):'), 10);
+  const nowYear = new Date().getFullYear();
+  if (!Number.isInteger(birthYear) || nowYear - birthYear < 18) { alert('You must be 18 or older to use CappingAlpha.'); return null; }
+  return { tos_agreed: true, birth_year: birthYear };
+}
+
+// POST an access token to /auth/google, transparently handling the new-account
+// consent gate (a 428 needs_consent response). Returns { ok } / { ok, error }.
+export async function googleAuthSubmit(access_token) {
+  let body = { access_token };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await fetch('/auth/google', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) return { ok: true };
+    if (r.status === 428 && data.needs_consent && attempt === 0) {
+      const consent = await collectGoogleConsent();
+      if (!consent) return { ok: false, error: 'Sign-up cancelled.' };
+      body = { access_token, ...consent };
+      continue;
+    }
+    return { ok: false, error: data.error || 'Google sign-in failed.' };
+  }
+  return { ok: false, error: 'Google sign-in failed.' };
+}
+
 export async function loginWithGoogle() {
   const errEl = document.getElementById('login-error');
   const clientId = state.CONFIG?.google_client_id;
@@ -263,12 +302,8 @@ export async function loginWithGoogle() {
       callback: async (resp) => {
         if (resp.error || !resp.access_token) { if (errEl) errEl.textContent = 'Google sign-in was cancelled.'; return; }
         try {
-          const r = await fetch('/auth/google', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_token: resp.access_token }),
-          });
-          const data = await r.json();
-          if (!r.ok) { if (errEl) errEl.textContent = data.error || 'Google sign-in failed.'; return; }
+          const out = await googleAuthSubmit(resp.access_token);
+          if (!out.ok) { if (errEl) errEl.textContent = out.error; return; }
           location.reload();
         } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
       },

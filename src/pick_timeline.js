@@ -122,18 +122,20 @@ function buildV3Timeline(pick) {
     const score = Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
     const delta = score - prevScore;
     if (delta === 0 && !opened) continue;
+    // `step` names the advocate capper and the scoring component (fade, market,
+    // side lean, sport). No client renders it and the no-reveal rule bars it from
+    // reaching any non-admin reader, so it never leaves the server.
     events.push({
       ts: new Date(ev.ms).toISOString(),
       delta,
       label: `${delta >= 0 ? '+' : ''}${delta}`,
-      step,
       score,
     });
     prevScore = score;
   }
 
   if (!events.length) {
-    return [{ ts: new Date(firstMs).toISOString(), delta: displayScore, label: `+${displayScore}`, step: 'Backer', score: displayScore }];
+    return [{ ts: new Date(firstMs).toISOString(), delta: displayScore, label: `+${displayScore}`, score: displayScore }];
   }
 
   // Land exactly on the display score the picks list shows right now. Any drift

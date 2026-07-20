@@ -134,9 +134,9 @@ export function setMemberWindow(window) {
 // Same look and behavior as the All-Time P/L graph's dropdowns. Filters the
 // already-fetched all-time series client-side by each point's game date and
 // rebuilds the cumulative line from $0 inside the window.
-const MP_RANGE_OPTIONS = [['1D', 'Today'], ['YD', 'Yesterday'], ['5D', '5 Days'], ['7D', '7 Days'], ['21D', '21 Days'], ['1M', '1 Month'], ['3M', '3 Months'], ['ALL', 'All-Time']];
+const MP_RANGE_OPTIONS = [['1D', 'Today'], ['YD', 'Yesterday'], ['5D', '5 Day'], ['7D', '7 Day'], ['10D', '10 Day'], ['21D', '21 Day'], ['1M', '1 Month'], ['3M', '3 Month'], ['ALL', 'All-Time']];
 const MP_RANGE_LABEL = Object.fromEntries(MP_RANGE_OPTIONS);
-const MP_RANGE_DAYS = { '5D': 5, '7D': 7, '21D': 21, '1M': 30, '3M': 90 };
+const MP_RANGE_DAYS = { '5D': 5, '7D': 7, '10D': 10, '21D': 21, '1M': 30, '3M': 90 };
 
 function _addDays(s, n) {
   const d = new Date(s + 'T12:00:00Z');
@@ -203,11 +203,11 @@ export function mpToggleRange(event) {
   if (!dd) return;
   document.querySelectorAll('.ca-dd.open').forEach(d => { if (d !== dd) d.classList.remove('open'); });
   dd.classList.toggle('open');
+  // Always open at the top so Today / Yesterday lead. Centering the active
+  // option meant the default All-Time (last in the list) opened scrolled to the
+  // bottom and the short windows were never on screen.
   const list = dd.querySelector('.ca-dd-list');
-  const active = dd.querySelector('.ca-dd-opt.active');
-  if (dd.classList.contains('open') && list && active) {
-    list.scrollTop = Math.max(0, active.offsetTop - list.clientHeight / 2 + active.offsetHeight / 2);
-  }
+  if (dd.classList.contains('open') && list) list.scrollTop = 0;
 }
 
 export function mpPickRange(key) {
