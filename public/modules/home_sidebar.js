@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js?v=4';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate } from './utils.js?v=4';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -195,8 +195,14 @@ function _filterDays(picks, days) {
   if (days === 1) {
     // "1-Day" = the latest board day only. A rolling 24h cutoff spans two board
     // days (yesterday's slate grades into today), same trap as the MVP tab bar.
+    // Future game_date stamps are skipped (ESPN tennis placeholder-date drift) —
+    // one drifted graded row must never become "today" (Jul 20 Badosa).
+    const today = currentBoardDate();
     let latest = '';
-    for (const p of picks) if ((p.game_date || '') > latest) latest = p.game_date;
+    for (const p of picks) {
+      const d = p.game_date || '';
+      if (d && d <= today && d > latest) latest = d;
+    }
     return latest ? picks.filter(p => p.game_date === latest) : [];
   }
   const cutoff = new Date();

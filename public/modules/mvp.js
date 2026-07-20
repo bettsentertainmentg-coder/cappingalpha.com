@@ -115,9 +115,13 @@ function _filterByDays(picks, dayCount) {
 // yesterday's whole slate in the record bar while the 1D graph plotted only
 // today, so the widget said 28-13 over a 3-point line. Graph and record bar
 // must both come through here.
+// The anchor ignores FUTURE game_date stamps: ESPN's tennis placeholder dates
+// can drift a graded row a day ahead, and one such row became "today" and
+// collapsed the whole 1D graph to a single pick (Jul 20 Badosa).
 function _windowedPicks(picks, rangeKey) {
   if (rangeKey === '1D' || rangeKey === 'YD') {
-    const dates = [...new Set((picks || []).map(p => p.game_date || '').filter(Boolean))].sort();
+    const today = currentBoardDate();
+    const dates = [...new Set((picks || []).map(p => p.game_date || '').filter(d => d && d <= today))].sort();
     const day = dates[dates.length - (rangeKey === '1D' ? 1 : 2)];
     return day ? picks.filter(p => p.game_date === day) : [];
   }
@@ -147,7 +151,8 @@ function _isVoided(p) {
 function _voidedInWindow(picks, resolved, rangeKey) {
   const voided = (picks || []).filter(_isVoided);
   if (rangeKey === '1D' || rangeKey === 'YD') {
-    const dates = [...new Set((resolved || []).map(p => p.game_date || '').filter(Boolean))].sort();
+    const today = currentBoardDate();
+    const dates = [...new Set((resolved || []).map(p => p.game_date || '').filter(d => d && d <= today))].sort();
     const day = dates[dates.length - (rangeKey === '1D' ? 1 : 2)];
     return day ? voided.filter(p => p.game_date === day).length : 0;
   }

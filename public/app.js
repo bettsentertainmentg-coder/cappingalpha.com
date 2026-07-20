@@ -4,7 +4,7 @@ import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=4';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=35';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=36';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=15';
@@ -15,7 +15,7 @@ import './modules/books.js?v=2';
 import './modules/modal.js?v=7';
 import './modules/member_profile.js?v=23';
 import { resumePendingCheckout } from './modules/paywall.js';
-import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=8';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=9';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { renderUnlock } from './modules/unlock.js';
 
