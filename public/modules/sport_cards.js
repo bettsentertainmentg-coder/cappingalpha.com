@@ -57,49 +57,124 @@ function oppFor(p) {
   return (listingOrder || isHome) ? `vs ${nick}` : `@ ${nick}`;
 }
 
-function rowHtml(p) {
-  const live = p.game_status === 'in';
+// ── The Combo pick row (shared by the sport cards AND the Complete Ranking) ──
+// Lab anatomy: [rank] [score ring] [pick + odds / sport chip + context] [end
+// cell: start time | stacked live linescore | result chip + money].
+const LOCK_RING_SVG = `<svg width="12" height="14" viewBox="0 0 11 13" fill="none" aria-hidden="true"><rect x="1" y="5.5" width="9" height="7" rx="1.5" fill="#64748b"></rect><path d="M2.5 5.5V3.5a3 3 0 0 1 6 0v2" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" fill="none"></path></svg>`;
+
+function _fmtOdds(o) {
+  const n = Number(o);
+  if (!n || Number.isNaN(n)) return '';
+  return n > 0 ? `+${n}` : `${n}`;
+}
+function _pickOdds(p) {
+  const t = (p.pick_type || '').toLowerCase();
+  if (t === 'ml') return _fmtOdds(p.ml_odds);
+  if (t === 'over' || t === 'under') return _fmtOdds(p.ou_odds);
+  return ''; // board payloads carry no spread juice; omit rather than guess
+}
+function _abbrOf(name) {
+  const nick = teamNickname(name) || String(name || '');
+  return nick.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+}
+function _stripTags(s) { return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+// Flat $10 return for a graded pick (the tracked-record unit).
+export function caPickProfit10(p) { return +( _ret(p) * 10 ).toFixed(2); }
+
+export function caPickRowHtml(p, opts = {}) {
+  const graded = isGraded(p);
+  const live = !graded && p.game_status === 'in';
   const r = (p.result || '').toLowerCase();
   const isVoid = r === 'void' || !!(p.annotation && p.annotation.toLowerCase().includes('not counted'));
-  // Graded rows tint by outcome: green win, red loss, grey push/void.
-  const gradeCls = !isGraded(p) ? ''
-    : (isVoid || r === 'push') ? ' graded-push'
-    : r === 'win' ? ' graded-win'
-    : r === 'loss' ? ' graded-loss' : ' graded-push';
-  const click = p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'"` : '';
-  const heat = PICK_HEAT_COLOR(p.score || 0);
   const outscored = !!p._outscored;
-  const scoreColor = outscored ? 'var(--muted)' : heat.color;
-  const showFire = heat.fire && !outscored;
+  const heat = PICK_HEAT_COLOR(p.score || 0);
+  const goldLine = state.CONFIG?.mvp_display_threshold || 100;
+
+  const rowCls = 'ca-row'
+    + (live ? ' live' : '')
+    + (graded ? (isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
+
+  // Score ring: outcome color once graded, sky while live, heat color pre-game
+  // (grey when outscored), silver/dim tiers below the gold line.
+  let ringColor, numColor;
+  if (opts.locked) { ringColor = '#3a4356'; numColor = '#64748b'; }
+  else if (graded) {
+    ringColor = r === 'win' ? 'rgba(74,222,128,0.6)' : r === 'loss' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.55)';
+    numColor = r === 'win' ? '#4ade80' : r === 'loss' ? '#f87171' : '#94a3b8';
+  } else if (live) { ringColor = 'rgba(56,189,248,0.7)'; numColor = '#38bdf8'; }
+  else if (outscored) { ringColor = 'rgba(148,163,184,0.5)'; numColor = 'var(--muted)'; }
+  else if ((p.score || 0) < 75) { ringColor = '#39415a'; numColor = '#8892a4'; }
+  else if ((p.score || 0) < goldLine) { ringColor = '#a8b2c2'; numColor = '#c0c8d4'; }
+  else { ringColor = heat.color.startsWith('#') ? heat.color + '90' : heat.color; numColor = heat.color; }
+
   const score = p.score != null ? Math.round(p.score) : '—';
-  // Ring around the score number, same color family as the number: outcome color
-  // for graded rows, grey when outscored, the heat color (softened) otherwise.
-  const ringColor = isGraded(p)
-    ? (r === 'win' ? 'rgba(74,222,128,0.55)' : r === 'loss' ? 'rgba(248,113,113,0.55)' : 'rgba(148,163,184,0.55)')
-    : outscored ? 'rgba(148,163,184,0.5)'
-    : (heat.color.startsWith('#') ? heat.color + '80' : heat.color);
-  // No matchup line — but a bare "Over 8.5" identifies nothing, so totals keep
-  // the team in the label (same convention as the P/L chart tooltips).
+  const fire = !opts.locked && !graded && !live && heat.fire && !outscored ? '<span class="ca-rail-fire">🔥</span>' : '';
+  const ring = opts.locked
+    ? `<span class="ca-row-ring lockr">${LOCK_RING_SVG}</span>`
+    : `<span class="ca-row-ring" style="color:${numColor};border-color:${ringColor};">${score}${fire}</span>`;
+
+  // Main: pick + odds on line 1; sport chip + context on line 2.
   const pt = (p.pick_type || '').toLowerCase();
-  const label = (pt === 'over' || pt === 'under') && p.team
-    ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
-  const voidNote = isVoid
-    ? `<div class="ca-rail-void-note">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
-  const outscoredNote = outscored ? `<div class="ca-rail-void-note">Currently outscored</div>` : '';
-  const pushChip = r === 'push' ? `<span class="ca-push-chip">Push</span>` : '';
-  // Opponent tag ("@ Cubs" / "vs Cubs") sits directly under the pick on every
-  // face — upcoming, live, and graded read the same way.
-  const opp = oppFor(p);
-  const oppUnder = opp ? `<div class="ca-rail-opp-under">${opp}</div>` : '';
-  return `<div class="ca-rail-row${live ? ' live' : ''}${gradeCls}"${click}>
-    <span class="ca-rail-score" style="color:${scoreColor};border-color:${ringColor};">${score}${showFire ? '<span class="ca-rail-fire">🔥</span>' : ''}</span>
-    <div class="ca-rail-main">
-      <div class="ca-rail-label">${label}${pushChip}</div>
-      ${oppUnder}${voidNote}${outscoredNote}
-    </div>
-    <div class="ca-rail-status">${scoreDisplay(p)}</div>
-  </div>`;
+  const isTotal = pt === 'over' || pt === 'under';
+  const label = isTotal && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  const odds = _pickOdds(p);
+  const oddsHtml = odds ? `<span class="ca-row-odds">${odds}</span>` : '';
+  let context;
+  if (graded) {
+    const as = p.game_away_score ?? p.away_score, hs = p.game_home_score ?? p.home_score;
+    context = (as != null && hs != null) ? `Final ${as}-${hs}` : 'Final';
+  } else if (isTotal && p.away_team && p.home_team) {
+    context = `${teamNickname(p.away_team, p.home_team)} @ ${teamNickname(p.home_team, p.away_team)}`;
+  } else {
+    context = oppFor(p);
+  }
+  const voidNote = isVoid ? `<div class="ca-rail-void-note">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
+  const outNote = outscored && !graded ? `<div class="ca-rail-void-note">Currently outscored</div>` : '';
+  const main = opts.locked
+    ? `<div class="ca-row-main"><div class="ca-row-l1 blurred">Members only</div><div class="ca-row-l2 blurred">${sportBadge(p.sport)}</div></div>`
+    : `<div class="ca-row-main">
+        <div class="ca-row-l1">${label}${oddsHtml}</div>
+        <div class="ca-row-l2">${sportBadge(p.sport)}${context ? `<span>${context}</span>` : ''}</div>
+        ${voidNote}${outNote}
+      </div>`;
+
+  // End cell.
+  let end;
+  if (opts.locked) {
+    end = `<div class="ca-row-end"><span class="ca-row-time blurred">—</span></div>`;
+  } else if (live) {
+    const as = p.game_away_score ?? 0, hs = p.game_home_score ?? 0;
+    const pair = [
+      { a: p.away_abbr || _abbrOf(p.away_team), s: as },
+      { a: p.home_abbr || _abbrOf(p.home_team), s: hs },
+    ].sort((x, y) => y.s - x.s);
+    const clock = _stripTags(scoreDisplay(p)).replace(/^\s*\d+\s*-\s*\d+\s*/, '') || 'Live';
+    end = `<div class="ca-row-end ca-row-live">
+      <span class="lsc">${pair[0].a} ${pair[0].s}</span>
+      <span class="lsc">${pair[1].a} ${pair[1].s}</span>
+      <span class="lck"><span class="ca-live-dot ca-live-dot--flash"></span>${clock}</span></div>`;
+  } else if (graded) {
+    const chip = (isVoid || r === 'push')
+      ? `<span class="ca-res-chip p">${isVoid ? 'VOID' : 'PUSH'}</span>`
+      : r === 'win' ? `<span class="ca-res-chip w">WIN</span>` : `<span class="ca-res-chip l">LOSS</span>`;
+    // Money only on tracked (gold) picks — untracked board picks aren't in the record.
+    let money = '';
+    if (!isVoid && r !== 'push' && (p.score || 0) >= goldLine) {
+      const pf = caPickProfit10(p);
+      money = `<span class="ca-row-money ${pf > 0 ? 'pos' : pf < 0 ? 'neg' : ''}">${pf >= 0 ? '+' : '-'}$${Math.abs(pf).toFixed(2).replace(/\.00$/, '')}</span>`;
+    }
+    end = `<div class="ca-row-end ca-row-res">${chip}${money}</div>`;
+  } else {
+    end = `<div class="ca-row-end"><span class="ca-row-time">${_stripTags(scoreDisplay(p)) || ''}</span></div>`;
+  }
+
+  const rank = opts.rank ? `<span class="ca-row-rank${opts.rank === 1 ? ' rk1' : ''}">${opts.rank}</span>` : '';
+  const click = !opts.locked && p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'" style="cursor:pointer;"` : '';
+  return `<div class="${rowCls}"${click}>${rank}${ring}${main}${end}</div>`;
 }
+
+function rowHtml(p) { return caPickRowHtml(p); }
 
 // Flat-unit return for a graded pick, mirroring the P/L math elsewhere: ML uses
 // its odds, totals their juice, spreads default -115.
@@ -115,9 +190,7 @@ function _ret(p) {
 }
 
 const profileBtnHtml = (key) =>
-  `<button class="ca-profile-btn" onclick="openSportProfile('${key}', 'all')">
-    <i class="fa-solid fa-clock-rotate-left" style="font-size:11px;"></i>&nbsp; ${key} History &amp; profile
-  </button>`;
+  `<button class="ca-profile-btn" onclick="openSportProfile('${key}', 'all')">History &amp; profile</button>`;
 
 // The three buckets every card stacks, in display order: LIVE, STARTING SOON
 // (still ranked by score — the rail sort), GRADED (most recent final first).
@@ -328,7 +401,25 @@ export function renderSportRail(filters) {
   }
   el.innerHTML = cards.map(cardHtml).join('');
   renderSportBubbles(cards);
+  _renderRailDots(el, cards.length);
   _syncRailCentering();
+}
+
+// Pagination dots under the rail (lab: gold pill = current card). Synced via
+// the rail's onscroll property so re-renders never stack listeners.
+function _renderRailDots(rail, count) {
+  const dots = document.getElementById('ca-rail-dots');
+  if (!dots) return;
+  if (count < 2) { dots.innerHTML = ''; rail.onscroll = null; return; }
+  dots.innerHTML = Array.from({ length: count }, (_, i) => `<i${i === 0 ? ' class="on"' : ''}></i>`).join('');
+  const sync = () => {
+    const card = rail.querySelector('.ca-sport-card');
+    if (!card) return;
+    const ix = Math.max(0, Math.min(count - 1, Math.round(rail.scrollLeft / (card.offsetWidth + 14))));
+    dots.querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === ix));
+  };
+  rail.onscroll = sync;
+  sync();
 }
 
 // Center the cards whenever they all fit without scrolling; left-align the
