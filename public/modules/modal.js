@@ -39,7 +39,9 @@ function formatActualStart(actualIso, scheduledIso) {
 }
 
 // Team primary colors [primary, secondary]
-const TEAM_COLORS = {
+// Exported: the Sports broadcast board reuses this map for its card band
+// gradients (keyed by full team name, which is what /api/games ships).
+export const TEAM_COLORS = {
   // MLB
   'New York Yankees':      ['#003087','#C4CED4'],
   'Boston Red Sox':        ['#BD3039','#0C2340'],

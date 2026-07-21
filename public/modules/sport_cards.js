@@ -1,16 +1,17 @@
 // modules/sport_cards.js — "Today's CA Scores" sport-card rail (CA Rankings tab)
 // A horizontally scrolling PLAYING-CARD per sport (fixed portrait size, every
-// card identical): sport chip + day tally in the header, the day's ungraded
-// picks as concise scrollable rows (score + pick + matchup, live games
-// highlighted), and a footer with the CA sport profile button. Once a pick
-// grades, a "See graded" button appears and flips the card to the graded list.
+// card identical). Combo layout (2026-07-21): no view flipping — each card
+// stacks its LIVE, STARTING SOON, and GRADED picks in one scroll, the head
+// corner carries the day record + a win/loss/live segment bar, and the footer
+// keeps the CA sport profile button. A centered sport-bubble row above the
+// rail jumps to a card and flags live sports.
 //
 // MOCK MODE (local review): open the site with ?mockrail=1 and the rail renders
 // a built-in fake slate (5-10 picks per sport, every sport) instead of the live
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate } from './utils.js?v=4';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, SPORT_THEMES } from './utils.js?v=4';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -20,12 +21,6 @@ export function displaySport(sport) {
 }
 
 let _filters = { min: 100, max: null, sport: 'ALL' };
-const _view = new Map();          // key -> 'today' | 'live' | 'graded' (current face)
-const _userChoice = new Set();    // keys the user explicitly switched this session
-const _cardsByKey = new Map();    // key -> last-rendered card data (for the waterfall swap)
-const _animating = new Set();     // keys mid-waterfall (defer rail re-renders so they don't clobber it)
-const _timers = new Map();        // key -> [timeout ids] for the in-flight waterfall (cancel on re-tap)
-let _pendingRender = false;       // a re-render was requested while animating; run it after
 let _usedFallback = false;
 
 // True when the last render filled the rail from today's tracked picks instead
@@ -119,40 +114,13 @@ function _ret(p) {
   return odds < 0 ? 100 / Math.abs(odds) : odds / 100;
 }
 
-// The graded face's header: today's record / win% / ROI for this sport,
-// voids excluded (never counted in any record on the site).
-function dayStatsHtml(graded) {
-  const counted = graded.filter(p => {
-    const r = (p.result || '').toLowerCase();
-    return r === 'win' || r === 'loss' || r === 'push';
-  });
-  const wins   = counted.filter(p => (p.result || '').toLowerCase() === 'win').length;
-  const losses = counted.filter(p => (p.result || '').toLowerCase() === 'loss').length;
-  const pushes = counted.length - wins - losses;
-  const decided = wins + losses;
-  const winPct = decided ? Math.round(100 * wins / decided) + '%' : '—';
-  const profit = counted.reduce((s, p) => s + _ret(p), 0);
-  const roi = decided ? 100 * profit / decided : null;
-  const roiStr = roi == null ? '—' : `${roi >= 0 ? '+' : ''}${roi.toFixed(0)}%`;
-  const roiColor = roi == null ? 'var(--text)' : roi >= 0 ? 'var(--green)' : 'var(--red)';
-  // Same colors as the #1 ranked pick's record bar: green wins, red losses,
-  // gold win%. Pushes stay off the header (their chips show on the rows).
-  return `<div class="ca-card-stats">
-    <div class="ca-card-stat"><b style="color:var(--green);">${wins}</b><span>Wins</span></div>
-    <div class="ca-card-stat"><b style="color:var(--red);">${losses}</b><span>Losses</span></div>
-    <div class="ca-card-stat"><b style="color:var(--gold-ink);">${winPct}</b><span>Win%</span></div>
-    <div class="ca-card-stat"><b style="color:${roiColor};">${roiStr}</b><span>ROI</span></div>
-  </div>`;
-}
-
 const profileBtnHtml = (key) =>
   `<button class="ca-profile-btn" onclick="openSportProfile('${key}', 'all')">
-    <i class="fa-solid fa-clock-rotate-left" style="font-size:11px;"></i>&nbsp; ${key} History
+    <i class="fa-solid fa-clock-rotate-left" style="font-size:11px;"></i>&nbsp; ${key} History &amp; profile
   </button>`;
 
-// A card shows one of three views: today's UPCOMING picks, the LIVE picks, or the
-// GRADED picks. Switching views is a per-row waterfall flip (setCardView), not a
-// whole-card flip.
+// The three buckets every card stacks, in display order: LIVE, STARTING SOON
+// (still ranked by score — the rail sort), GRADED (most recent final first).
 function viewBuckets(card) {
   const { list } = card;
   const graded = list.filter(isGraded).sort((a, b) => _finishTs(b) - _finishTs(a));
@@ -162,213 +130,112 @@ function viewBuckets(card) {
   return { graded, live, upcoming };
 }
 
-function viewRows(card, view) {
-  const b = viewBuckets(card);
-  return view === 'live' ? b.live : view === 'graded' ? b.graded : b.upcoming;
+// Graded picks that count toward a record (voids and "not counted" never do).
+function _counted(graded) {
+  return graded.filter(p => {
+    const r = (p.result || '').toLowerCase();
+    if (p.annotation && p.annotation.toLowerCase().includes('not counted')) return false;
+    return r === 'win' || r === 'loss' || r === 'push';
+  });
 }
 
-function headMetaInner(card, view) {
+// Card-head corner: the day's record line in the record-bar colors (wins green,
+// losses red, win% gold, ROI by sign) over a win/loss/live/pending segment bar.
+// Before anything grades it reads as a signal count.
+function cornerMetaHtml(card) {
   const b = viewBuckets(card);
-  if (view === 'live') return `<div class="ca-card-live-head"><span class="ca-live-dot ca-live-dot--flash"></span>${b.live.length} live now</div>`;
-  if (view === 'graded') return dayStatsHtml(b.graded);
-  return `<div class="ca-card-tally">${card.list.length} Edge scores ranked</div>`;
-}
-
-function emptyMsgHtml(card, view) {
-  const b = viewBuckets(card);
-  const msg = view === 'live' ? 'No live games right now.'
-    : view === 'graded' ? 'Nothing graded yet.'
-    : (b.live.length || b.graded.length) ? 'All games live or final.' : 'All picks graded.';
-  return `<div class="ca-card-empty">${msg}</div>`;
-}
-
-function bodyInner(card, view) {
-  const rows = viewRows(card, view);
-  return rows.length ? rows.map(rowHtml).join('') : emptyMsgHtml(card, view);
-}
-
-// Two persistent buttons sit above the History button: Live and Graded. Clicking
-// one navigates to that view AND that same button smoothly recolors + renames to
-// "Rankings (N)" (N = picks currently being ranked = upcoming) as the return to
-// the ranking board. The other button keeps its Live/Graded label. On the today
-// (rankings) view neither is active. Buttons never move or resize — only their
-// color (via a background-color transition) and text change.
-function _flipBtnLabel(card, type, view) {
-  const b = viewBuckets(card);
-  if (view === type) return `Rankings (${b.upcoming.length})`;
-  if (type === 'live') return `<span class="ca-live-dot ca-live-dot--flash"></span>Live (${b.live.length})`;
-  return `Graded (${b.graded.length})`;
-}
-function flipBtnHtml(card, type, view) {
-  const active = view === type;
-  const target = active ? 'today' : type;
-  return `<button class="ca-flip-btn ca-fb-${type}${active ? ' active' : ''}" data-type="${type}" onclick="setCardView('${card.key}','${target}')">${_flipBtnLabel(card, type, view)}</button>`;
-}
-function flipSlotInner(card, view) {
-  return `<div class="ca-flip-row">${flipBtnHtml(card, 'live', view)}${flipBtnHtml(card, 'graded', view)}</div>`;
-}
-// Update the two buttons IN PLACE (same DOM nodes) so the color change animates
-// via CSS transition instead of a hard swap.
-function _applyFlipBtn(btn, card, type, view) {
-  const active = view === type;
-  btn.classList.toggle('active', active);
-  btn.setAttribute('onclick', `setCardView('${card.key}','${active ? 'today' : type}')`);
-  btn.innerHTML = _flipBtnLabel(card, type, view);
-}
-function updateFlipSlot(el, card, view) {
-  const liveBtn = el.querySelector('.ca-flip-btn[data-type="live"]');
-  const gradedBtn = el.querySelector('.ca-flip-btn[data-type="graded"]');
-  if (liveBtn && gradedBtn) {
-    _applyFlipBtn(liveBtn, card, 'live', view);
-    _applyFlipBtn(gradedBtn, card, 'graded', view);
+  const counted = _counted(b.graded);
+  const wins    = counted.filter(p => (p.result || '').toLowerCase() === 'win').length;
+  const losses  = counted.filter(p => (p.result || '').toLowerCase() === 'loss').length;
+  const decided = wins + losses;
+  const segs = [
+    ...b.graded.map(p => {
+      const r = (p.result || '').toLowerCase();
+      return `<i class="${r === 'win' ? 'w' : r === 'loss' ? 'l' : ''}"></i>`;
+    }),
+    ...b.live.map(() => '<i class="lv"></i>'),
+    ...b.upcoming.map(() => '<i></i>'),
+  ].join('');
+  let line;
+  if (decided) {
+    const profit = counted.reduce((s, p) => s + _ret(p), 0);
+    const roi = 100 * profit / decided;
+    line = `<b style="color:var(--green);">${wins}</b><span class="sep">-</span><b style="color:var(--red);">${losses}</b>`
+      + `<span class="sep"> · </span><b style="color:var(--gold-ink);">${Math.round(100 * wins / decided)}%</b>`
+      + `<span class="sep"> · </span><b style="color:${roi >= 0 ? 'var(--green)' : 'var(--red)'};">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% ROI</b>`;
   } else {
-    const slot = el.querySelector('.ca-card-flip-slot');
-    if (slot) slot.innerHTML = flipSlotInner(card, view);
+    const n = card.list.length;
+    line = `<b>${n}</b> signal${n === 1 ? '' : 's'} today`;
   }
+  return `<div class="ca-corner"><div class="ca-corner-line">${line}</div><div class="ca-corner-bar">${segs}</div></div>`;
+}
+
+function sectionHtml(title, cls, rows) {
+  if (!rows.length) return '';
+  return `<div class="ca-card-eyebrow ${cls}">${title}<span class="ca-eb-rule"></span></div>` + rows.map(rowHtml).join('');
+}
+
+function bodyInner(card) {
+  const b = viewBuckets(card);
+  const counted = _counted(b.graded);
+  const w = counted.filter(p => (p.result || '').toLowerCase() === 'win').length;
+  const l = counted.filter(p => (p.result || '').toLowerCase() === 'loss').length;
+  const html =
+    sectionHtml(`<span class="ca-live-dot ca-live-dot--flash"></span>Live · ${b.live.length}`, 'ca-eb-sky', b.live)
+    + sectionHtml('Starting soon', 'ca-eb-gold', b.upcoming)
+    + sectionHtml(`Graded ${w}-${l}`, 'ca-eb-green', b.graded);
+  return html || `<div class="ca-card-empty">Nothing on the board for this sport yet.</div>`;
 }
 
 function cardHtml(card) {
   const key = card.key;
-  const view = _view.get(key) || 'today';
   const chipSport = key === 'Tennis' ? (card.list[0]?.sport || 'ATP') : key;
-  // Footer: a swappable flip-slot (See Live/See Graded/Current Rankings) ABOVE a
-  // static History button. Only the flip-slot changes on a view switch.
   return `<div class="ca-sport-card" data-sport="${key}">
     <div class="ca-card-face">
-      <div class="ca-card-head">${sportBadge(chipSport)}<div class="ca-card-meta">${headMetaInner(card, view)}</div></div>
-      <div class="ca-card-body">${bodyInner(card, view)}</div>
-      <div class="ca-card-foot">
-        <div class="ca-card-flip-slot">${flipSlotInner(card, view)}</div>
-        ${profileBtnHtml(key)}
-      </div>
+      <div class="ca-card-head">${sportBadge(chipSport)}<div class="ca-card-meta">${cornerMetaHtml(card)}</div></div>
+      <div class="ca-card-body">${bodyInner(card)}</div>
+      <div class="ca-card-foot">${profileBtnHtml(key)}</div>
     </div>
   </div>`;
 }
 
-// Switch a card to a new view with a top-to-bottom WATERFALL of per-row flips:
-// each row flips edge-on, then becomes the new view's row in that slot — or, when
-// the new view has nothing there, collapses to nothing. The button set fades out
-// and the new one fades back in as the waterfall lands.
-export function setCardView(key, view) {
-  const el = document.querySelector(`.ca-sport-card[data-sport="${key}"]`);
-  const card = _cardsByKey.get(key);
-  if (!el || !card) return;
-  const interrupting = _animating.has(key);
-  if ((_view.get(key) || 'today') === view && !interrupting) return;
+// ── Sport bubbles (centered row above the rail) ───────────────────────────────
+// One gradient disc per sport card, real site badge gradients, a pulsing dot
+// when that sport has a live pick, tennis-ball seams on Tennis. Tapping one
+// scrolls the rail to that sport's card.
+const TENNIS_SEAMS = `<svg class="ca-bub-seams" viewBox="0 0 52 52" aria-hidden="true"><path d="M15 -3 C 1 12, 1 40, 15 55"></path><path d="M37 -3 C 51 12, 51 40, 37 55"></path></svg>`;
 
-  const body = el.querySelector('.ca-card-body');
-  const metaEl = el.querySelector('.ca-card-meta');
-  if (!body) return;
-
-  _view.set(key, view);
-  _userChoice.add(key); // the user is now driving this card
-
-  // Update the two buttons IN PLACE so the clicked one smoothly recolors +
-  // renames to "Rankings (N)"; the History button (static sibling) is untouched.
-  updateFlipSlot(el, card, view);
-
-  // Rapid re-tap: cancel the in-flight waterfall and snap straight to the new
-  // view (no animation) so half-finished rows can't mix into the result.
-  if (interrupting) {
-    (_timers.get(key) || []).forEach(clearTimeout);
-    _timers.delete(key);
-    if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
-    body.innerHTML = bodyInner(card, view);
-    body.style.minHeight = '';
-    _animating.delete(key);
-    if (!_animating.size && _pendingRender) { _pendingRender = false; renderSportRail(); }
-    return;
-  }
-
-  _animating.add(key);  // hold off rail re-renders until the waterfall lands
-  const timers = [];
-  _timers.set(key, timers);
-
-  const STAGGER = 45, HALF = 130;
-  if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
-
-  const oldRows = [...body.children];
-  const rows = viewRows(card, view);
-  const newHtml = rows.length ? rows.map(rowHtml) : [emptyMsgHtml(card, view)];
-  const maxLen = Math.max(oldRows.length, newHtml.length);
-  body.style.minHeight = body.offsetHeight + 'px'; // hold height through the swap
-
-  const spawn = (html) => { const t = document.createElement('div'); t.innerHTML = html; return t.firstElementChild; };
-  const flipIn = (nr) => {
-    nr.style.transformOrigin = 'center top';
-    nr.style.transform = 'rotateX(92deg)';
-    nr.style.opacity = '0';
-    nr.style.transition = `transform ${HALF}ms ease, opacity ${HALF}ms ease`;
-    // Double rAF: guarantees the edge-on start is committed before the reveal,
-    // so the transition always fires (a single rAF can batch both into one frame).
-    requestAnimationFrame(() => requestAnimationFrame(() => { nr.style.transform = 'rotateX(0deg)'; nr.style.opacity = '1'; }));
-  };
-
-  let lastEnd = 0;
-  for (let i = 0; i < maxLen; i++) {
-    const delay = i * STAGGER;
-    lastEnd = Math.max(lastEnd, delay + HALF * 2);
-    const oldRow = oldRows[i];
-    const html = newHtml[i];
-    timers.push(setTimeout(() => {
-      if (oldRow && oldRow.isConnected) {
-        oldRow.style.transformOrigin = 'center top';
-        oldRow.style.transition = `transform ${HALF}ms ease, opacity ${HALF}ms ease`;
-        oldRow.style.transform = 'rotateX(-92deg)';
-        oldRow.style.opacity = '0';
-        timers.push(setTimeout(() => {
-          if (html) {
-            const nr = spawn(html);
-            oldRow.replaceWith(nr);
-            flipIn(nr);
-          } else {
-            // Nothing in the new view here — collapse the row into nothing.
-            oldRow.style.height = '0px'; oldRow.style.minHeight = '0px';
-            oldRow.style.marginTop = '0px'; oldRow.style.marginBottom = '0px';
-            oldRow.style.paddingTop = '0px'; oldRow.style.paddingBottom = '0px';
-            oldRow.style.borderWidth = '0px'; oldRow.style.overflow = 'hidden';
-            timers.push(setTimeout(() => oldRow.remove(), HALF));
-          }
-        }, HALF));
-      } else if (html) {
-        const nr = spawn(html); // new view is longer than the old — grow into it
-        body.appendChild(nr);
-        flipIn(nr);
-      }
-    }, delay));
-  }
-
-  timers.push(setTimeout(() => {
-    // Rebuild the meta + body cleanly from state so the settled view exactly
-    // matches the data (no leftover inline flip styles). The flip slot was set
-    // at the start; the History button is never touched.
-    if (metaEl) metaEl.innerHTML = headMetaInner(card, view);
-    updateFlipSlot(el, card, view);
-    body.innerHTML = bodyInner(card, view);
-    body.style.minHeight = '';
-    _animating.delete(key);
-    _timers.delete(key);
-    if (!_animating.size && _pendingRender) { _pendingRender = false; renderSportRail(); }
-  }, lastEnd + 60));
+function bubbleHtml(card) {
+  const key = card.key;
+  const themeKey = key === 'Tennis' ? 'ATP' : key;
+  const grad = (SPORT_THEMES[themeKey] || {}).grad || 'var(--surface2)';
+  const hasLive = card.list.some(p => !isGraded(p) && p.game_status === 'in');
+  const label = key === 'Soccer' ? 'SOC' : key === 'Tennis' ? 'TEN' : key;
+  const small = label.length > 3 ? ' ca-bub-small' : '';
+  return `<button class="ca-bub" onclick="caRailScrollTo('${key}')" aria-label="Jump to ${key} card">
+    <span class="ca-bub-disc${hasLive ? ' haslive' : ''}" style="background:${grad};">${key === 'Tennis' ? TENNIS_SEAMS : ''}<span class="ca-bub-label${small}">${label}</span>${hasLive ? '<span class="ca-bub-dot"></span>' : ''}</span>
+    <span class="ca-bub-name">${key}</span>
+  </button>`;
 }
 
-// Data-driven default view (until the user taps a button and owns the card):
-// show upcoming if any; else if games are live show LIVE; else show final
-// (graded). Recomputed every render.
-function applyAutoView(cards) {
-  for (const card of cards) {
-    if (_userChoice.has(card.key)) continue;
-    const b = viewBuckets(card);
-    _view.set(card.key, b.upcoming.length ? 'today' : b.live.length ? 'live' : b.graded.length ? 'graded' : 'today');
-  }
+function renderSportBubbles(cards) {
+  const el = document.getElementById('ca-sport-bubbles');
+  if (!el) return;
+  el.innerHTML = (cards || []).map(bubbleHtml).join('');
+}
+
+export function caRailScrollTo(key) {
+  const rail = document.getElementById('ca-sport-rail');
+  const card = rail?.querySelector(`.ca-sport-card[data-sport="${key}"]`);
+  if (!rail || !card) return;
+  const left = rail.scrollLeft + (card.getBoundingClientRect().left - rail.getBoundingClientRect().left) - 8;
+  rail.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
 // Re-render the rail from the current board. `filters` merges into the last-used
 // set so picksUpdated re-renders keep the tab's active filters.
 export function renderSportRail(filters) {
   if (filters) _filters = { ..._filters, ...filters };
-  // A waterfall is in flight — don't rebuild the DOM under it. Re-run once it lands.
-  if (_animating.size) { _pendingRender = true; return; }
   const el = document.getElementById('ca-sport-rail');
   if (!el) return;
 
@@ -453,16 +320,14 @@ export function renderSportRail(filters) {
     return { key, list, top: list[0]?.score || 0 };
   }).sort((a, b) => b.top - a.top);
 
-  _cardsByKey.clear();
-  cards.forEach(c => _cardsByKey.set(c.key, c));
-
   if (!cards.length) {
     const bound = max != null ? `${min ?? 0}–${max}` : `${min ?? 0}+`;
     el.innerHTML = `<div class="empty" style="flex:1;padding:26px;"><p>No ${bound} picks on the board yet today.</p></div>`;
+    renderSportBubbles([]);
     return;
   }
-  applyAutoView(cards);
   el.innerHTML = cards.map(cardHtml).join('');
+  renderSportBubbles(cards);
   _syncRailCentering();
 }
 
@@ -475,7 +340,7 @@ function _syncRailCentering() {
 }
 window.addEventListener('resize', _syncRailCentering);
 
-Object.assign(window, { setCardView });
+Object.assign(window, { caRailScrollTo });
 
 // ── Drag-to-scroll (mirror of the Today's Games strips in home_top.js) ────────
 // Mouse only — touch already swipes natively. Document-level so it survives

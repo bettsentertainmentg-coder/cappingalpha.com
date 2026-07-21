@@ -5,7 +5,7 @@ import { isPaying } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate } from './utils.js?v=4';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=20';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=21';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -199,13 +199,41 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
 
   const graphDisclaimer = `<p class="graph-disclaimer">Hypothetical performance. CappingAlpha never wagers on any game.</p>`;
 
-  // "Today's CA Scores": one card per sport, horizontally scrollable, rebuilt on
+  // ── Bankroll strip: the all-time record headlines the tab ───────────────────
+  // Same resolved set every graph uses, $10 flat, so the strip, the chart, and
+  // the record bar can never disagree.
+  const stripResolved = _resolvedPicks(picks);
+  const stripPL = stripResolved.reduce((s, p) => s + calcReturn(p, 10), 0);
+  const stripRec = _computeRecord(stripResolved);
+  const boardDay = currentBoardDate();
+  const todayGraded = stripResolved.filter(p => p.game_date === boardDay);
+  const todayPL = todayGraded.reduce((s, p) => s + calcReturn(p, 10), 0);
+  const todayTracked = (picks || []).filter(p => p.game_date === boardDay).length;
+  const tWins = todayGraded.filter(p => p.result === 'win').length;
+  const tLoss = todayGraded.filter(p => p.result === 'loss').length;
+  const stripToday = todayGraded.length
+    ? `Today <b style="color:${todayPL >= 0 ? 'var(--green)' : 'var(--red)'};">${todayPL >= 0 ? '+' : ''}$${todayPL.toFixed(2)}</b> · ${tWins}-${tLoss}`
+    : `<b style="color:var(--text);">${todayTracked}</b> tracked today`;
+  const stripHtml = `
+    <div class="ca-strip">
+      <div class="ca-strip-l">
+        <span class="ca-strip-k">All-time P/L · flat $10 per pick</span>
+        <div class="ca-strip-v" style="color:${stripPL >= 0 ? 'var(--green)' : 'var(--red)'};">${stripPL >= 0 ? '+' : ''}$${stripPL.toFixed(2)}</div>
+        <span class="ca-strip-k ca-strip-sub">${stripRec.wins}-${stripRec.losses}${stripRec.pushes ? '-' + stripRec.pushes : ''} · every tracked pick graded and kept</span>
+      </div>
+      <div class="ca-strip-r">${stripToday}<br>
+        <button class="ca-strip-jump" onclick="caScrollToRecord()"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="width:13px;height:13px;margin-right:5px;" onerror="this.style.display='none'">Full Record ↓</button>
+      </div>
+    </div>`;
+
+  // "Today's CA Scores": centered sport bubbles + one card per sport, rebuilt on
   // every picksUpdated so the rail stays live all day.
   const railSection = limited ? '' : `
     <div class="mvp-section-title" style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
       <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Scores</span>
       <span id="ca-rail-note" style="font-size:11px;color:var(--muted);font-weight:600;">${_railDate()}</span>
     </div>
+    <div id="ca-sport-bubbles" class="ca-bubbles"></div>
     <div id="ca-sport-rail" class="ca-rail"></div>`;
 
   const upgradePrompt = limited ? `
@@ -214,13 +242,6 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
       <p style="color:var(--muted);font-size:13px;margin:0 0 16px;">Today's games, live action, and full P/L tracking are available to subscribers.</p>
       ${unlockCtaHtml()}
     </div>` : '';
-
-  const mvpHero = `
-    <div class="mvp-tab-hero">
-      <div class="mvp-tab-badge"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</div>
-      <h2 class="mvp-tab-title">Elite Signal Tracker</h2>
-      <p class="mvp-tab-desc">Picks that scored ${goldLine}+ points. Every result is tracked, wins, losses, and pushes, for full transparency.</p>
-    </div>`;
 
   // Sport dropdown options: every display sport present in the archive or on
   // today's board (Tennis folds ATP+WTA).
@@ -250,14 +271,27 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
   const barRec = _computeRecord(_windowedPicks(resolvedAll, _currentRange));
   barRec.voided = _voidedInWindow(picks.filter(_passesFilters), resolvedAll, _currentRange);
 
-  container.innerHTML = mvpHero + `
+  container.innerHTML = stripHtml + `
     ${upgradePrompt}
     ${railSection}
+
+    <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:26px;">
+      <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Today's Complete Ranking</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">Every pick on today's board, ranked first to last.</span>
+    </div>
+    <div class="card ca-rankbox"><div id="mvp-today-rankings-body"><div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div></div></div>
+
+    <div class="mvp-section-title" id="ca-record-anchor" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:26px;scroll-margin-top:70px;">
+      <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">CA Full Record</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">Every graded pick, kept for good.</span>
+    </div>
+    <button class="ca-how-row" onclick="caOpenAlgoExplainer()">How this works<span>The CappingAlpha algorithm ›</span></button>
     <div class="graph-card">
       <div class="graph-header">
         <div>
           <div class="graph-title" id="pl-label-title">ALL-TIME P/L</div>
           <div id="pl-total" class="graph-pl-label" style="margin-top:4px;">—</div>
+          <div id="pl-flat-note" class="pl-flat-note">P/L · flat $10 per pick</div>
         </div>
         <div class="pl-filter-row">
           ${_ddHtml('pl-range-dd', 'range', RANGE_LABEL[_currentRange] || 'All-Time', rangeOptions)}
@@ -276,25 +310,14 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
       <div class="graph-canvas-wrap">
         <canvas id="pl-chart"></canvas>
       </div>
+      <p class="graph-hint">Tap a point for that day. Press and drag across the line for the record inside any range.</p>
       ${graphDisclaimer}
       <div class="record-bar" id="record-bar" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:12px;">
         ${_recordBarHtml(barRec, true)}
       </div>
     </div>
-    <div class="mvp-toggle-row">
-      <button class="ca-history-toggle" onclick="toggleTodayRankings()">Today's Complete Rankings <i class="fa-solid fa-chevron-down" id="mvp-today-chev" style="font-size:10px;transition:transform .15s;"></i></button>
-      <button class="ca-history-toggle" onclick="toggleMvpHistory()">View Full History <i class="fa-solid fa-chevron-down" id="mvp-history-chev" style="font-size:10px;transition:transform .15s;"></i></button>
-    </div>
 
-    <div id="mvp-today-rankings-section" style="display:none;">
-      <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">Today's Complete Rankings</span>
-        <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">Every ranked pick on today's board.</span>
-      </div>
-      <div class="card"><div id="mvp-today-rankings-body"><div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div></div></div>
-    </div>
-
-    <div id="mvp-history-section" style="display:none;">
+    <div id="mvp-history-section">
       <div class="mvp-section-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <span style="display:inline-flex;align-items:center;gap:5px;"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" style="margin-right:0;" onerror="this.style.display='none'">History</span>
         <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:400;">CappingAlpha history. Rankings that scored ${goldLine}+ pts.</span>
@@ -304,46 +327,60 @@ export function renderMvpTab({ picks = [] } = {}, limited = false) {
           <div id="mvp-history-body"></div>
         </div>
       </div>
+      <div style="text-align:center;"><button id="mvp-history-more" class="ca-history-toggle" onclick="caShowAllHistory()" style="margin:14px auto 6px;display:none;">Show the full history</button></div>
     </div>`;
 
   refreshMvpToday();
+  renderPicks(state.allPicks, 'mvp-today-rankings-body');
 
   // Belt and suspenders: history rows must carry a real gold score. The server
   // already withholds pending pre-game rows; drop any scoreless stragglers.
-  renderMvpRows(picks.filter(p => p.score != null && p.score >= goldLine), 'mvp-history-body');
+  _histAll = picks.filter(p => p.score != null && p.score >= goldLine);
+  _renderHistory();
   drawPlGraph(picks);
 }
 
-// Expand/collapse the full tracked-history table ("View Full History" under the
-// P/L card — the day-to-day surface is the chart + sport-card rail).
-export function toggleMvpHistory() {
-  const sec = document.getElementById('mvp-history-section');
-  const chev = document.getElementById('mvp-history-chev');
-  if (!sec) return;
-  const open = sec.style.display !== 'none';
-  sec.style.display = open ? 'none' : '';
-  if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
-  if (!open) requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-}
+// ── Full history (always visible, capped until expanded) ─────────────────────
+let _histAll = [];
+let _histExpanded = false;
+const HIST_CAP = 30;
 
-// Expand/collapse the full today's-board ranking (same ranked list as the home
-// page, via renderPicks). Re-renders on open and stays fresh on picksUpdated.
-export function toggleTodayRankings() {
-  const sec = document.getElementById('mvp-today-rankings-section');
-  const chev = document.getElementById('mvp-today-chev');
-  if (!sec) return;
-  const open = sec.style.display !== 'none';
-  sec.style.display = open ? 'none' : '';
-  if (chev) chev.style.transform = open ? '' : 'rotate(180deg)';
-  if (!open) {
-    renderPicks(state.allPicks, 'mvp-today-rankings-body');
-    requestAnimationFrame(() => sec.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+function _renderHistory() {
+  const rows = _histExpanded ? _histAll : _histAll.slice(0, HIST_CAP);
+  renderMvpRows(rows, 'mvp-history-body');
+  const btn = document.getElementById('mvp-history-more');
+  if (btn) {
+    btn.style.display = (!_histExpanded && _histAll.length > HIST_CAP) ? '' : 'none';
+    btn.textContent = `Show all ${_histAll.length} picks`;
   }
 }
-// Keep the open ranking list live as scores climb / games go final.
+export function caShowAllHistory() { _histExpanded = true; _renderHistory(); }
+
+export function caScrollToRecord() {
+  document.getElementById('ca-record-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// "How this works" → the About page's algorithm explainer, with a floating
+// return chip appended INSIDE the about panel (so it hides with the panel if
+// the user navigates elsewhere on their own).
+export function caOpenAlgoExplainer() {
+  if (typeof window.switchTab === 'function') window.switchTab('about');
+  const target = document.getElementById('about-algo');
+  if (target) requestAnimationFrame(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  const panel = document.getElementById('panel-about');
+  if (panel && !document.getElementById('ca-about-return')) {
+    const chip = document.createElement('button');
+    chip.id = 'ca-about-return';
+    chip.className = 'ca-about-return';
+    chip.innerHTML = '‹ Back to Rankings';
+    chip.onclick = () => { chip.remove(); if (typeof window.switchTab === 'function') window.switchTab('mvp'); };
+    panel.appendChild(chip);
+  }
+}
+
+// Keep the always-open ranking list live as scores climb / games go final.
 document.addEventListener('picksUpdated', () => {
-  const sec = document.getElementById('mvp-today-rankings-section');
-  if (sec && sec.style.display !== 'none') renderPicks(state.allPicks, 'mvp-today-rankings-body');
+  if (document.getElementById('mvp-today-rankings-body')) renderPicks(state.allPicks, 'mvp-today-rankings-body');
 });
 
 // ── "Today's CA Scores" sport-card rail, rebuilt from the CURRENT board ───────
@@ -603,6 +640,8 @@ function calcReturn(pick, unit) {
 // ── MVP tab P/L graph ─────────────────────────────────────────────────────────
 export function drawPlGraph(picks) {
   const unit = parseFloat(document.getElementById('unit-size')?.value) || parseFloat(state.CONFIG?.bet_unit) || 10;
+  const flatNote = document.getElementById('pl-flat-note');
+  if (flatNote) flatNote.textContent = `P/L · flat $${unit} per pick`;
 
   const resolved = (picks || [])
     .filter(p => (p.result === 'win' || p.result === 'loss' || p.result === 'push')
@@ -708,22 +747,44 @@ function _updatePlLabel(el, dollarPL) {
   el.className   = 'graph-pl-label ' + (dollarPL >= 0 ? 'pos' : 'neg');
 }
 
-// ── Crosshair (ThinkOrSwim style) ─────────────────────────────────────────────
-// Press or touch a chart and drag: a full-height light-blue line follows the
-// pointer and PARKS on the point where you let go, tooltip pinned to it. The
-// next press moves it. Shared with the History popup via window.caCrosshair.
+// ── Crosshair + range scrub (ThinkOrSwim style) ───────────────────────────────
+// Press or touch a chart: a full-height dashed line parks on the nearest point,
+// tooltip pinned to it. DRAG across the line and the selection becomes a shaded
+// RANGE: both ends get a crosshair, and the tooltip aggregates every pick inside
+// (range P/L, record, ROI). Tap anywhere off the chart to clear.
 const caCrosshair = {
   id: 'caCrosshair',
   afterDatasetsDraw(chart) {
-    const idx = chart.$caParkIdx;
-    if (idx == null) return;
-    const pt = chart.getDatasetMeta(0)?.data?.[idx];
-    if (!pt) return;
     const { ctx, chartArea } = chart;
+    const meta = chart.getDatasetMeta(0)?.data;
+    if (!meta) return;
+    const a = chart.$caSelA, b = chart.$caSelB;
+    const dash = () => {
+      ctx.strokeStyle = 'rgba(125,211,252,0.85)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+    };
+    if (a != null && b != null && a !== b && meta[a] && meta[b]) {
+      const x1 = Math.min(meta[a].x, meta[b].x);
+      const x2 = Math.max(meta[a].x, meta[b].x);
+      ctx.save();
+      ctx.fillStyle = 'rgba(56,189,248,0.10)';
+      ctx.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top);
+      dash();
+      for (const x of [x1, x2]) {
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+    const idx = chart.$caParkIdx;
+    const pt = idx != null ? meta[idx] : null;
+    if (!pt) return;
     ctx.save();
-    ctx.strokeStyle = 'rgba(125,211,252,0.85)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
+    dash();
     ctx.beginPath();
     ctx.moveTo(pt.x, chartArea.top);
     ctx.lineTo(pt.x, chartArea.bottom);
@@ -736,19 +797,51 @@ function attachCrosshair(chart) {
   const canvas = chart.canvas;
   canvas.style.touchAction = 'none'; // dragging the chart drives the line, not the page
   let dragging = false;
-  const setIdx = (evt) => {
+  const idxAt = (evt) => {
     const els = chart.getElementsAtEventForMode(evt, 'index', { intersect: false }, true);
-    if (!els.length) return;
-    const idx = els[0].index;
+    return els.length ? els[0].index : null;
+  };
+  const showSingle = (idx) => {
     chart.$caParkIdx = idx;
     const active = [{ datasetIndex: 0, index: idx }];
     chart.setActiveElements(active);
-    chart.tooltip.setActiveElements(active, { x: els[0].element.x, y: els[0].element.y });
+    const el = chart.getDatasetMeta(0)?.data?.[idx];
+    if (el) chart.tooltip.setActiveElements(active, { x: el.x, y: el.y });
     chart.update('none');
   };
-  canvas.addEventListener('pointerdown', (e) => { dragging = true; setIdx(e); });
-  canvas.addEventListener('pointermove', (e) => { if (dragging) setIdx(e); });
-  const end = () => { dragging = false; };
+  canvas.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    const i = idxAt(e);
+    if (i == null) return;
+    _caTipPin = null; // a fresh press always starts a fresh selection
+    chart.$caSelA = i;
+    chart.$caSelB = i;
+    showSingle(i);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const i = idxAt(e);
+    if (i == null || i === chart.$caSelB) return;
+    if (chart.$caSelA == null) chart.$caSelA = i;
+    chart.$caSelB = i;
+    chart.$caParkIdx = i;
+    // Range aggregation needs $caData (set by _drawChart). Charts attached via
+    // window.caAttachCrosshair elsewhere (profile popups) fall back to the
+    // single-point tip so a drag can never pin an empty tooltip.
+    if (i !== chart.$caSelA && chart.$caData) {
+      _caTipPin = { chart, index: i, range: [chart.$caSelA, i] };
+      _renderCaRangeTip(chart, chart.$caSelA, i, false);
+    } else {
+      _caTipPin = null;
+      _renderCaTip(chart, i, false);
+    }
+    chart.update('none');
+  });
+  const end = () => {
+    dragging = false;
+    // A drag that came back to its start point is a single-point park again.
+    if (chart.$caSelA != null && chart.$caSelA === chart.$caSelB) { chart.$caSelA = null; chart.$caSelB = null; }
+  };
   canvas.addEventListener('pointerup', end);
   canvas.addEventListener('pointercancel', end);
   canvas.addEventListener('pointerleave', end);
@@ -770,7 +863,10 @@ function _caTipDom() {
   el.addEventListener('mouseenter', () => { _caTipHover = true; });
   el.addEventListener('mouseleave', () => { _caTipHover = false; if (!_caTipPin) _hideCaTip(); });
   el.addEventListener('click', (e) => {
-    if (e.target.closest('.ca-tip-more') && _caTipPin) _renderCaTip(_caTipPin.chart, _caTipPin.index, true);
+    if (e.target.closest('.ca-tip-more') && _caTipPin) {
+      if (_caTipPin.range) _renderCaRangeTip(_caTipPin.chart, _caTipPin.range[0], _caTipPin.range[1], true);
+      else _renderCaTip(_caTipPin.chart, _caTipPin.index, true);
+    }
   });
   document.body.appendChild(el);
   _caTipEl = el;
@@ -792,10 +888,42 @@ function _hideCaTip() {
 // can't wedge the tooltip or throw. Shared with the profile popup via window.
 function caResetTip() { _caTipPin = null; _caTipHover = false; _hideCaTip(); }
 
+// Aggregate a dragged range [a,b] into one tip payload: range P/L + record +
+// ROI in the sub line, every pick inside as rows (the 3-cap + "+N more" flow
+// still applies through the shared renderer).
+function _rangeTipData(chart, a, b) {
+  const lo = Math.min(a, b), hi = Math.max(a, b);
+  const data = chart && chart.$caData;
+  if (!data || !data.length || !data[lo] || !data[hi]) return null;
+  const slice = data.slice(lo, hi + 1);
+  const picks = slice.flatMap(d => d.picks || []);
+  const pl = slice.reduce((s, d) => s + (d.dayPL != null ? d.dayPL : (d.gamePL || 0)), 0);
+  const wins   = picks.filter(p => p.result === 'win').length;
+  const losses = picks.filter(p => p.result === 'loss').length;
+  const unit = chart.$caUnit || 10;
+  const roi = (wins + losses) ? 100 * pl / ((wins + losses) * unit) : null;
+  const labels = chart.$caLabels || [];
+  return {
+    title: `${labels[lo] ?? ''} to ${labels[hi] ?? ''}  ·  ${wins}W ${losses}L`,
+    sub: `Range P/L: ${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}${roi != null ? `  ·  ${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% ROI` : ''}  ·  flat $${unit}`,
+    items: picks.map(p => _tipItem(p, unit)),
+  };
+}
+
+function _renderCaRangeTip(chart, a, b, expanded) {
+  const d = _rangeTipData(chart, a, b);
+  if (!d) { _hideCaTip(); return; }
+  _renderTipCore(chart, Math.max(a, b), d, expanded);
+}
+
 function _renderCaTip(chart, index, expanded) {
+  const d = chart && chart.$caTip && chart.$caTip[index];
+  _renderTipCore(chart, index, d, expanded);
+}
+
+function _renderTipCore(chart, index, d, expanded) {
   const el = _caTipDom();
   try {
-    const d = chart && chart.$caTip && chart.$caTip[index];
     const canvas = chart && chart.canvas;
     const meta = canvas && chart.getDatasetMeta(0) && chart.getDatasetMeta(0).data[index];
     if (!d || !canvas || !meta) { _hideCaTip(); return; }
@@ -847,7 +975,16 @@ function caChartClick(evt, els, chart) {
   else if (_caTipPin) { _caTipPin = null; _hideCaTip(); }
 }
 document.addEventListener('click', (e) => {
-  if (_caTipPin && !e.target.closest('#ca-cht-tip') && e.target.tagName !== 'CANVAS') { _caTipPin = null; _hideCaTip(); }
+  if (_caTipPin && !e.target.closest('#ca-cht-tip') && e.target.tagName !== 'CANVAS') {
+    const c = _caTipPin.chart;
+    _caTipPin = null;
+    _hideCaTip();
+    // Clear any dragged range selection along with the pin.
+    if (c && (c.$caSelA != null || c.$caSelB != null)) {
+      c.$caSelA = null; c.$caSelB = null;
+      try { c.update('none'); } catch (_) { /* chart may be destroyed */ }
+    }
+  }
 });
 
 // Build the per-point tip data ({title, sub, items}) from a chart's displayData
@@ -906,6 +1043,9 @@ function _drawChart(canvasId, existingChart, setChart, { labels, values, lineCol
     },
   });
   chart.$caTip = buildCaTip(displayData, tooltip, labels);
+  chart.$caData = displayData;   // range-scrub aggregation source
+  chart.$caLabels = labels;
+  chart.$caUnit = unit;
   attachCrosshair(chart);
   setChart(chart);
 }
@@ -1104,5 +1244,6 @@ export function redrawHomeGraph() {
 Object.assign(window, {
   setGraphDays, redrawGraph,
   setHomeGraphDays, redrawHomeGraph,
-  setPlSport, pickDd, toggleScoreDd, toggleMvpHistory, toggleTodayRankings,
+  setPlSport, pickDd, toggleScoreDd,
+  caShowAllHistory, caScrollToRecord, caOpenAlgoExplainer,
 });

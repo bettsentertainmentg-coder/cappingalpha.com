@@ -4,7 +4,7 @@ import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=4';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=37';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=38';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=15';
@@ -12,7 +12,7 @@ import { loadSocials } from './modules/socials.js?v=5';
 import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=60';
 import './modules/track.js?v=49';
 import './modules/books.js?v=2';
-import './modules/modal.js?v=7';
+import './modules/modal.js?v=8';
 import './modules/member_profile.js?v=23';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=9';
@@ -51,6 +51,10 @@ export function switchTab(tabName) {
   // "My Account" split into "My Tracking" + "Settings". Keep old #account links /
   // callers working by routing them to the tracking view.
   if (tabName === 'account') tabName = 'tracking';
+  // The Rankings tab's algo-explainer push appends a return chip inside the
+  // About panel; any navigation that isn't that flow removes it so a later
+  // direct About visit doesn't show it out of context.
+  if (tabName !== 'about') document.getElementById('ca-about-return')?.remove();
   // The Leaderboard tab became the Socials tab (board folded in as a sub-tab).
   // Old #leaderboard hashes + in-app "View leaderboard" links land on Socials.
   if (tabName === 'leaderboard') tabName = 'socials';
