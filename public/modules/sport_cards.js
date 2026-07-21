@@ -406,22 +406,40 @@ export function renderSportRail(filters) {
   }
   _usedFallback = fallback;
 
-  // One tracked bet per game per dimension (sides vs totals): when two OPEN
-  // picks share a game and dimension, every one below the leader is "currently
-  // outscored" — grey score, grey note — until it retakes the lead or starts.
-  const gameKey = (p) => {
-    const t = (p.pick_type || '').toLowerCase();
-    const dim = (t === 'over' || t === 'under') ? 'total' : 'side';
-    return `${p.espn_game_id || `${p.away_team}@${p.home_team}`}|${dim}`;
+  // "Currently outscored" mirrors the resolver's conflict rule (src/mvp.js):
+  // an OPEN pick is outscored only when a CONFLICTING open pick on the same
+  // game carries more points — conflicting meaning NO final score lets both
+  // win. Same-team side bets never conflict (Wings ML + Wings +4.5 both cash
+  // on one final — the old per-game "side" bucket wrongly greyed one), and
+  // both-can-win middles (Yankees ML vs Jays +1.5, Over 5.5 vs Under 7.5)
+  // never conflict either.
+  const _pt  = (p) => (p.pick_type || '').toLowerCase();
+  const _pl  = (p) => Number(p.spread ?? 0) || 0;
+  const _mid = (lo, hi) => (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
+  const _conflicts = (a, b) => {
+    const ta = _pt(a), tb = _pt(b);
+    const aTot = ta === 'over' || ta === 'under', bTot = tb === 'over' || tb === 'under';
+    if (aTot !== bTot) return false;
+    if (aTot) {
+      if (ta === tb) return false;
+      const over = ta === 'over' ? a : b, under = ta === 'under' ? a : b;
+      return !_mid(_pl(over), _pl(under));
+    }
+    const na = (a.team || '').toLowerCase(), nb = (b.team || '').toLowerCase();
+    if (na && nb && na === nb) return false;
+    return !_mid(-(ta === 'ml' ? 0 : _pl(a)), (tb === 'ml' ? 0 : _pl(b)));
   };
-  const bestByKey = new Map();
+  const _gid = (p) => p.espn_game_id || `${p.away_team}@${p.home_team}`;
+  const openByGame = new Map();
   for (const p of picks) {
     if (isGraded(p)) continue;
-    const k = gameKey(p);
-    bestByKey.set(k, Math.max(bestByKey.get(k) ?? -Infinity, p.score || 0));
+    const k = _gid(p);
+    if (!openByGame.has(k)) openByGame.set(k, []);
+    openByGame.get(k).push(p);
   }
   for (const p of picks) {
-    p._outscored = !isGraded(p) && (p.score || 0) < (bestByKey.get(gameKey(p)) ?? -Infinity);
+    p._outscored = !isGraded(p) && (openByGame.get(_gid(p)) || [])
+      .some(o => o !== p && _conflicts(o, p) && (o.score || 0) > (p.score || 0));
   }
 
   const groups = new Map();
