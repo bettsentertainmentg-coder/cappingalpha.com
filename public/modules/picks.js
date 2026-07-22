@@ -2,11 +2,19 @@
 
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js?v=4';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey, skelRows } from './utils.js?v=5';
 import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
+import { haptic } from './native.js?v=1';
 
 export async function loadPicks() {
   try {
+    // Skeleton loading state (7g): geometry-matched gray rows while the first
+    // fetch is in flight. Only before the first render — interval refreshes
+    // repaint in place without flashing back to a skeleton.
+    for (const id of ['picks-body', 'home-picks-body']) {
+      const box = document.getElementById(id);
+      if (box && !box.dataset.caLoaded) box.innerHTML = skelRows(6, 'pick');
+    }
     const res = await fetch('/api/picks');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.allPicks = await res.json();
@@ -28,6 +36,22 @@ export async function loadPicks() {
 export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) {
   const el = document.getElementById(targetId);
   if (!el) return;
+
+  // Cross-fade skeleton → content: every branch below sets innerHTML
+  // synchronously, so adding the fade class first covers the real rows.
+  if (el.querySelector('.ca-skel')) {
+    el.classList.add('ca-content-in');
+    setTimeout(() => el.classList.remove('ca-content-in'), 250);
+  }
+  el.dataset.caLoaded = '1';
+  // Native feel (7g): one delegated listener per container — a light tick when
+  // a clickable pick row is tapped (rows navigate via their inline onclick).
+  if (!el.dataset.caTapWired) {
+    el.dataset.caTapWired = '1';
+    el.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('tr[onclick]')) haptic('light');
+    });
+  }
 
   // Paywall boundary (server is source of truth via /api/config). Free users see
   // rank #1 + the public tail (rank > MAX); ranks 2..MAX are paid-only.

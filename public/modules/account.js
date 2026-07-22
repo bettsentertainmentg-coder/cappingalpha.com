@@ -1,9 +1,9 @@
 // modules/account.js — "My Tracking" + "Settings" views (split from the old My Account tab)
 
 import { state } from './state.js';
-import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor } from './utils.js?v=4';
+import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor, skelRows } from './utils.js?v=5';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=49';
+import { loadUserBets, setBetsData } from './track.js?v=50';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 import { isNative } from './native.js?v=1';
@@ -21,7 +21,9 @@ window.addEventListener('myBooksChanged', () => {
 export async function loadTracking() {
   const el = document.getElementById('tracking-content');
   if (!el) return;
-  el.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+  // Skeleton loading state (7g): bet-row shaped gray rows while the fetches are
+  // in flight, cross-faded to the rendered view below.
+  el.innerHTML = skelRows(6, 'bet');
   try {
     const [accountRes, friendsRes, betsRes] = await Promise.all([
       fetch('/api/account'),
@@ -32,6 +34,8 @@ export async function loadTracking() {
     const data     = await accountRes.json();
     const friends  = friendsRes.ok ? (await friendsRes.json()).friends || [] : [];
     const betsData = betsRes.ok ? await betsRes.json() : {};
+    el.classList.add('ca-content-in');
+    setTimeout(() => el.classList.remove('ca-content-in'), 250);
     renderTracking({ ...data, friends, bets: betsData.bets || [], betsTotal: betsData.total });
   } catch (err) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load tracking</h3><p>${err.message}</p></div>`;

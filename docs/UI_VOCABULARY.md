@@ -40,7 +40,7 @@ ID convention: `AREA-##`. Areas: NAV (navigation), SCROLL (scrolling and contain
 | SYS-03 | Palette drift on tools + mylive | Their CSS uses `var(--card, #141a24)`, `var(--line, #232b38)`, `var(--gold, #d4af37)` but `--card`/`--line` are never defined, so the fallbacks always apply: slightly darker cards and a bronze gold instead of #FFD700. Looks intentional-ish on tools (bronze headings). Decide: adopt bronze as the "SEO page" accent or align to the app tokens |
 | NAV-04 | results, faq, terms, privacy keep a minimal `.site-header` (logo + Back to app), no drawer or tab bar | Deliberate for now: results is a lean crawler-first page by design (its file header says so), legal pages are destinations, not the app. Even so there are two sub-variants (faq has the velvet sticky header, terms/privacy/results have a flat grey one). Worth unifying the look later |
 | SYS-04 | track-sheet.css is a hand-extracted copy of the betslip styles in index.html | Every `.track-*`/`.tg-*`/`.ob-*`/`.bp-*` change must be made twice. Known sync hazard, called out in the file header. Candidate for extraction into one shared file |
-| SYS-05 | No skeleton loaders | Every loading state is the spinner. Fine for now; if the app build wants skeletons, add one shimmer primitive, not per-surface one-offs |
+| SYS-05 | No skeleton loaders | ADDRESSED (Phase 7g, app UI lab): one shimmer primitive (`.ca-skel` + Skeleton Shimmer, markup via `skelRows()` in utils.js) applied to the ranked pick list, Socials feed, and Tracking list. Remaining spinner surfaces can migrate to the same primitive as they get touched, never per-surface one-offs |
 | SYS-06 | Five live-dot treatments and four icon systems (see vocabulary) | Consolidation candidates listed below. Cosmetic, not broken |
 | SCROLL-06 | Leaderboard table keeps its 612px inner vertical scroll on phones | Two nested vertical scrollables (page + table) is tolerable but not ideal; if it feels bad on device, drop the max-height at 768px and let the page own vertical scrolling |
 
@@ -154,8 +154,10 @@ The Leaderboard tab became **Socials** (Feed / Friends / Board sub-tabs). It int
 | Tile Lift | hover translateY(-1 to -3px) + shadow | .12-.15s | tiles, podium, cards |
 | Bar Fill | width transition on meters | .3s | setup/history meters |
 | Onboard Glide | onboarding step slides in/out horizontally (translateX 100%); the intro carousel track glides between slides the same way | 240ms ease | first-run onboarding overlay (onboarding.css) |
+| Tab Glide | tab-panel swap cross-fades + slides 8px via the View Transitions API (`caTabGlideOut`/`caTabGlideIn` on `::view-transition-old/new(root)`); app.js switchTab wraps only the synchronous shell swap, never a fetch. Skipped when unsupported or reduced motion is on | 180ms ease | SPA tab switches (app.js + index.html) |
+| Skeleton Shimmer | the ONE skeleton primitive (SYS-05): `.ca-skel` background-position sweep (`caSkelShimmer`), markup from `skelRows(n, kind)` in utils.js; content replacing a skeleton fades in via `.ca-content-in` (`caContentIn`, 180ms, opacity only). Reduced motion: static tint, no sweep, no fade | 1.4s ease-in-out infinite | ranked pick list, Socials feed, Tracking list loading states |
 
-Reduced motion: gauge needle, value pulse, live command dot, account reveal, and Onboard Glide already respect `prefers-reduced-motion`. New animations must too.
+Reduced motion: gauge needle, value pulse, live command dot, account reveal, Onboard Glide, Tab Glide, and Skeleton Shimmer already respect `prefers-reduced-motion`. New animations must too.
 
 ### Iconography (four systems today)
 1. FontAwesome 6.5.0 (primary, ~115 uses): sport icons, nav, chevrons, locks, tab bar.

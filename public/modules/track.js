@@ -7,7 +7,8 @@
 //     settle it yourself, never on the leaderboard.
 
 import { state } from './state.js';
-import { sportBadge } from './utils.js?v=4';
+import { sportBadge } from './utils.js?v=5';
+import { haptic } from './native.js?v=1';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';
@@ -1642,6 +1643,7 @@ export async function confirmTrackBet() {
       showToast('Tracked: ' + selLabel + (_confirm.freeBet ? ' (free bet)' : ' (custom)'));
       document.dispatchEvent(new CustomEvent('ca:tracked', { detail: { id: _confirm.id, slot: _confirm.slot, verified: false } }));
     }
+    haptic('success'); // native feel (7g): bet tracked (verified or custom)
     closeTrackSheet(); refreshTracking();
   } catch (_) { showToast('Network error. Try again.', 'err'); }
   finally { if (btn) btn.disabled = false; }
@@ -1802,6 +1804,7 @@ export async function submitParlay() {
     });
     if (res.status === 401) { window.openLogin && window.openLogin(); return; }
     if (!res.ok) { const d = await res.json().catch(() => ({})); if (errEl) errEl.textContent = d.error || 'Could not track that.'; return; }
+    haptic('success'); // native feel (7g): parlay tracked
     showToast(`Tracked: ${_parlayLegs.length}-leg parlay`);
     _parlayLegs = []; _parlayMeta = { stake: null, book: '', freeBet: false, note: '' };
     closeTrackSheet(); refreshTracking();
@@ -1970,6 +1973,7 @@ export async function submitCustomBet() {
     });
     const data = await res.json();
     if (!res.ok) { if (errEl) errEl.textContent = data.error || 'Could not save.'; if (btn) btn.disabled = false; return; }
+    haptic('success'); // native feel (7g): custom bet tracked
     showToast('Tracked: ' + selection);
     closeTrackSheet();
     refreshTracking();

@@ -2,8 +2,8 @@
 
 import { state } from './state.js';
 import { isViewer, isAccount, isPaying } from './auth.js';
-import { LOCK_SVG } from './utils.js?v=4';
-import { isNative, openExternal, noteCheckoutOpened } from './native.js?v=1';
+import { LOCK_SVG } from './utils.js?v=5';
+import { isNative, openExternal, noteCheckoutOpened, haptic } from './native.js?v=1';
 
 const PRICE_IDS = {
   day:  'price_1TMhkAB0ohior8iouVKseqmk',
@@ -185,6 +185,7 @@ export async function doRedeemCode(inputId = 'access-code-input', errId = 'code-
     });
     const data = await res.json();
     if (!res.ok) { if (errEl) errEl.textContent = data.error || 'Invalid code.'; return; }
+    haptic('success'); // native feel (7g): code redeemed
     location.reload();
   } catch (_) { if (errEl) errEl.textContent = 'Network error. Try again.'; }
 }

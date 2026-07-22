@@ -394,3 +394,32 @@ export function liveStateHtml(g) {
   }
   return '';
 }
+
+// ── Skeleton loading rows (7g, SYS-05) ────────────────────────────────────────
+// ONE shimmer primitive: the .ca-skel class + caSkelShimmer keyframe live in
+// index.html ("Skeleton Shimmer" in docs/UI_VOCABULARY.md). This helper returns
+// n gray rows whose geometry matches the loaded content, so the cross-fade to
+// real rows tends not to jump. kind: 'pick' (ranked pick list row),
+// 'card' (Socials feed card), 'bet' (Tracking bet row).
+export function skelRows(n = 5, kind = 'pick') {
+  const row = {
+    pick: `<div class="ca-skel-row">
+      <span class="ca-skel" style="width:26px;height:26px;border-radius:50%;flex-shrink:0;"></span>
+      <span style="flex:1;min-width:0;"><span class="ca-skel" style="width:62%;"></span><span class="ca-skel" style="width:38%;height:10px;margin-top:6px;"></span></span>
+      <span class="ca-skel" style="width:34px;height:16px;border-radius:6px;flex-shrink:0;"></span>
+    </div>`,
+    card: `<div class="ca-skel-card">
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span class="ca-skel" style="width:36px;height:36px;border-radius:50%;flex-shrink:0;"></span>
+        <span style="flex:1;min-width:0;"><span class="ca-skel" style="width:34%;height:11px;"></span><span class="ca-skel" style="width:52%;height:10px;margin-top:6px;"></span></span>
+      </div>
+      <span class="ca-skel" style="width:100%;height:46px;margin-top:12px;border-radius:10px;"></span>
+      <span class="ca-skel" style="width:55%;margin-top:12px;"></span>
+    </div>`,
+    bet: `<div class="ca-skel-row" style="min-height:58px;">
+      <span style="flex:1;min-width:0;"><span class="ca-skel" style="width:55%;"></span><span class="ca-skel" style="width:35%;height:10px;margin-top:7px;"></span></span>
+      <span class="ca-skel" style="width:52px;height:20px;border-radius:999px;flex-shrink:0;"></span>
+    </div>`,
+  }[kind] || '';
+  return `<div class="ca-skel-wrap" aria-hidden="true">${row.repeat(Math.max(1, n))}</div>`;
+}

@@ -10,7 +10,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate } from './utils.js?v=4';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate } from './utils.js?v=5';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {

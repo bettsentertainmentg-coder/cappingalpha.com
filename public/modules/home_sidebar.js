@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js?v=4';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport } from './utils.js?v=5';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 

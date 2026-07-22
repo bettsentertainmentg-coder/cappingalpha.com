@@ -7,7 +7,8 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=4';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=5';
+import { haptic } from './native.js?v=1';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer', 'Tennis', 'Golf'];
@@ -559,6 +560,12 @@ function _initDragScroll() {
   }, true);
 }
 _initDragScroll();
+
+// Native feel (7g): a light tick when a game tile is tapped (tiles navigate
+// via their inline onclick; drag-swallowed clicks above never reach here).
+document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('.ca-tg-tile')) haptic('light');
+});
 
 // Close the Most Wagered Events sport dropdown on any click outside it.
 document.addEventListener('click', (e) => {

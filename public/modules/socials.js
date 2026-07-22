@@ -10,8 +10,9 @@
 // verified vote records the tail.
 
 import { state } from './state.js';
-import { avatarFor, fmtOdds, fmtSpread, teamNickname } from './utils.js?v=4';
-import { loadLeaderboard } from './leaderboard.js?v=15';
+import { avatarFor, fmtOdds, fmtSpread, teamNickname, skelRows } from './utils.js?v=5';
+import { loadLeaderboard } from './leaderboard.js?v=16';
+import { haptic } from './native.js?v=1';
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
@@ -105,7 +106,9 @@ let _feedCursorInit = false;
 function initFeed() {
   _feedCursor = null; _feedDone = false; _feedCursorInit = true;
   const feed = document.getElementById('soc-feed');
-  if (feed) feed.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;
+  // Skeleton loading state (7g): card-shaped gray blocks while the feed fetch
+  // is in flight, cross-faded to content in renderFeed.
+  if (feed) feed.innerHTML = skelRows(5, 'card');
   loadFeed(true);
 }
 
@@ -148,6 +151,11 @@ function renderStreakRail(rail) {
 function renderFeed(data, fresh) {
   const feed = document.getElementById('soc-feed');
   if (!feed) return;
+  // Cross-fade skeleton → content (fresh loads replace the skeleton below).
+  if (fresh && feed.querySelector('.ca-skel')) {
+    feed.classList.add('ca-content-in');
+    setTimeout(() => feed.classList.remove('ca-content-in'), 250);
+  }
   const items = data.items || [];
   if (fresh && !items.length) {
     feed.innerHTML = `<div class="empty"><div class="empty-icon">👋</div><h3>Your feed is quiet</h3>
@@ -303,6 +311,7 @@ function houseCard(it) {
 
 // ── feed interactions ─────────────────────────────────────────────────────────
 export async function socBoost(btn, key) {
+  haptic('medium'); // native feel (7g): Boost lands with a medium tap
   const on = btn.classList.contains('on');
   const span = btn.querySelector('span');
   const cur = parseInt(span ? span.textContent : '0', 10) || 0;
@@ -320,6 +329,7 @@ export async function socBoost(btn, key) {
 }
 
 export function socTail(gameId, slot, tailOf) {
+  haptic('medium'); // native feel (7g): Tail/Fade land with a medium tap
   if (!state.currentUser) { window.openLogin && window.openLogin(); return; }
   if (window.openTrackForSlot) window.openTrackForSlot(gameId, slot, tailOf);
 }
@@ -578,6 +588,7 @@ export function socialsBoardScope(scope) {
   loadLeaderboard(state.leaderboardWindow || 'week', { scope: _boardScope, sport: _boardSport });
 }
 export function socialsBoardSport(sport) {
+  haptic('selection'); // native feel (7g): sport chip change
   _boardSport = sport || null;
   renderSportRail();
   loadLeaderboard(state.leaderboardWindow || 'week', { scope: _boardScope, sport: _boardSport });

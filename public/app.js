@@ -1,20 +1,20 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
-import { setHeatScale } from './modules/utils.js?v=4';
-import { isNative, initNative, hideSplash, onNotificationTap } from './modules/native.js?v=1';
+import { setHeatScale } from './modules/utils.js?v=5';
+import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './modules/native.js?v=1';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=35';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
-import { loadLeaderboard } from './modules/leaderboard.js?v=15';
-import { loadSocials } from './modules/socials.js?v=5';
+import { loadLeaderboard } from './modules/leaderboard.js?v=16';
+import { loadSocials } from './modules/socials.js?v=6';
 import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=61';
-import './modules/track.js?v=49';
+import './modules/track.js?v=50';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=7';
-import './modules/member_profile.js?v=23';
+import './modules/member_profile.js?v=24';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=8';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
@@ -52,6 +52,11 @@ if ('serviceWorker' in navigator) {
 }
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
+// Logical active tab. Tracked here (not read from the DOM) because the Tab
+// Glide view transition applies the class swap a frame later — a DOM read
+// during a pending transition would see the OLD panel and misroute a fast
+// second tap. index.html boots with panel-home active.
+let _activeTab = 'home';
 export function switchTab(tabName) {
   // "My Account" split into "My Tracking" + "Settings". Keep old #account links /
   // callers working by routing them to the tracking view.
@@ -66,17 +71,37 @@ export function switchTab(tabName) {
     try { posthog.capture('tab_viewed', { tab: tabName }); } catch (e) {}
   }
 
-  const logo = document.querySelector('.logo');
-  if (logo) logo.classList.toggle('active', tabName === 'home');
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
-  // Mobile bottom tab bar active state (home/mvp/sports/tracking).
-  document.querySelectorAll('.ca-tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.tabbar === tabName));
+  const applySwap = () => {
+    const logo = document.querySelector('.logo');
+    if (logo) logo.classList.toggle('active', tabName === 'home');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabName));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
+    // Mobile bottom tab bar active state (home/mvp/sports/tracking).
+    document.querySelectorAll('.ca-tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.tabbar === tabName));
 
-  // Land at the top of the page on every tab switch. Without this the page keeps
-  // its prior scroll position (e.g. opening Unlock from mid-Home dropped you into
-  // the middle of the unlock page instead of the "edge, unlocked" hero).
-  window.scrollTo(0, 0);
+    // Land at the top of the page on every tab switch. Without this the page keeps
+    // its prior scroll position (e.g. opening Unlock from mid-Home dropped you into
+    // the middle of the unlock page instead of the "edge, unlocked" hero).
+    window.scrollTo(0, 0);
+  };
+
+  // "Tab Glide" (docs/UI_VOCABULARY.md): the shell swap cross-fades + slides 8px
+  // via the View Transitions API. Only the synchronous class swap above is
+  // wrapped — the data loads below run outside the transition, so nothing waits
+  // on a fetch. Skipped when unsupported, when reduced motion is on, and on
+  // re-entrant/no-op switches (hashchange re-entry lands here with the tab
+  // already current). A second startViewTransition while one is pending skips
+  // the first but still flushes its callback, so the last tap always wins.
+  const isNewPanel = _activeTab !== tabName;
+  _activeTab = tabName;
+  if (isNewPanel && document.startViewTransition
+      && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.startViewTransition(applySwap);
+  } else {
+    applySwap();
+  }
+  // Native feel (7g): a light tick on every real tab change. No-op on web.
+  if (isNewPanel) haptic('light');
 
   if (tabName === 'mvp') {
     loadMvpTab();
@@ -268,8 +293,9 @@ function applyHashTab() {
   if (!h) {
     // Browser Back/Forward to the bare URL: return to the Home tab. Skipped on
     // the initial page load, where panel-home is already the active default
-    // (avoids a redundant switchTab on every plain visit).
-    if (!document.getElementById('panel-home')?.classList.contains('active')) switchTab('home');
+    // (avoids a redundant switchTab on every plain visit). Checks the logical
+    // tab, not the DOM — a pending Tab Glide applies the class a frame later.
+    if (_activeTab !== 'home') switchTab('home');
     return;
   }
   if (HASH_TABS.has(h)) switchTab(h);

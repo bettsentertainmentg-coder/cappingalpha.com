@@ -2,8 +2,9 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate } from './utils.js?v=4';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, skelRows } from './utils.js?v=5';
 import { renderPicks } from './picks.js';
+import { haptic } from './native.js?v=1';
 import { unlockCtaHtml } from './paywall.js';
 import { renderSportRail, displaySport, railUsedFallback, railMockActive } from './sport_cards.js?v=19';
 
@@ -372,6 +373,7 @@ function _refreshFiltered() {
 }
 
 export function setPlSport(v) {
+  haptic('selection'); // native feel (7g): sport filter change
   _plSport = v || 'ALL';
   _refreshFiltered();
 }
@@ -980,7 +982,7 @@ export async function loadHomeMvp() {
             <span style="font-size:11px;color:var(--muted);">Ranked by edge vs. bookmaker odds</span>
           </div>
           <div id="home-picks-body">
-            <div class="spinner-wrap" style="padding:20px;"><div class="spinner"></div></div>
+            ${skelRows(5, 'pick')}
           </div>
         </div>`;
     }
