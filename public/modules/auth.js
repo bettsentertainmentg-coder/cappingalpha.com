@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { avatarFor } from './utils.js?v=4';
-import { isNative, appleSignIn, setToken } from './native.js?v=1';
+import { isNative, appleSignIn, setToken, deregisterPush } from './native.js?v=1';
 
 // Inside the app shell the auth endpoints return a bearer token when the body
 // carries client:'app'. Store it (Capacitor Preferences) before reloading so the
@@ -233,8 +233,10 @@ export async function doForgotPassword() {
 // ── Logout ────────────────────────────────────────────────────────────────────
 export async function doLogout() {
   if (isNative()) {
-    // Revoke the bearer token server-side (the interceptor attaches it), then
-    // drop the stored copy so the next boot starts signed out.
+    // Drop this phone's push token server-side FIRST (the DELETE rides on the
+    // bearer token, which is revoked next), then revoke the bearer token
+    // server-side and drop the stored copy so the next boot starts signed out.
+    try { await deregisterPush(); } catch (_) {}
     await fetch('/auth/logout-token', { method: 'POST' }).catch(() => {});
     try { await setToken(null); } catch (_) {}
   }

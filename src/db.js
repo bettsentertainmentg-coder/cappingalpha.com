@@ -777,6 +777,22 @@ try {
       UNIQUE(user_id, topic, dedupe_key)
     )`);
 } catch (_) {}
+// Native app push tokens (Phase 7e) — one row per device, never wiped. Pure
+// delivery addresses: notify_prefs stays the source of truth for what gets sent,
+// and push.js sendToUserTopic is the only reader. Mirrors push_subscriptions.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS push_devices (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id     INTEGER NOT NULL,
+      platform    TEXT,
+      fcm_token   TEXT NOT NULL UNIQUE,
+      app_version TEXT,
+      created_at  TEXT DEFAULT (datetime('now')),
+      last_seen   TEXT DEFAULT (datetime('now'))
+    )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices (user_id)`);
+} catch (_) {}
 // Permanent record of weekly/monthly leaderboard finishes (top 10) → drives profile
 // badges. Never wiped. tier: gold (#1), silver (top 5), bronze (top 10).
 try {

@@ -114,6 +114,119 @@ export async function appleSignIn() {
   }
 }
 
+// ── Native push (Phase 7e) ────────────────────────────────────────────────────
+// Official @capacitor/push-notifications plugin. register() yields an FCM token
+// on Android and the raw APNs token on iOS; the server stores whatever string
+// arrives, and once the APNs key is uploaded to the Firebase project the iOS
+// tokens route through FCM with no client change. The onboarding soft-ask (7d)
+// feature-detects requestPushPermission(), so it lights up automatically.
+
+// Android notification channels, one per topic (the server sets channelId
+// `ca_<topic>` on every message). steam/swing are high importance so a line
+// move lands as a heads-up alert; everything else stays default importance.
+const PUSH_CHANNELS = [
+  { id: 'ca_grades',        name: 'Bet and pick grades', importance: 3 },
+  { id: 'ca_game_start',    name: 'Game start',          importance: 3 },
+  { id: 'ca_top_pick',      name: "Today's #1 pick",     importance: 3 },
+  { id: 'ca_steam',         name: 'Line steam',          importance: 4 },
+  { id: 'ca_swing',         name: 'Live swings',         importance: 4 },
+  { id: 'ca_social_follow', name: 'New followers',       importance: 3 },
+  { id: 'ca_social_tail',   name: 'Tails on your picks', importance: 3 },
+  { id: 'ca_default',       name: 'General',             importance: 3 },
+];
+
+async function createPushChannels() {
+  if (cap()?.getPlatform?.() !== 'android') return;   // channels are Android-only
+  const P = plugin('PushNotifications');
+  if (!P) return;
+  for (const ch of PUSH_CHANNELS) {
+    try { await P.createChannel(ch); } catch (_) {}
+  }
+}
+
+// Token handler wiring: 'registration' upserts the token to the server (the 7b
+// fetch interceptor routes the call to the API base with the bearer header) and
+// keeps a local copy so logout can deregister; 'registrationError' logs quietly.
+let _pushListenersArmed = false;
+function armPushListeners() {
+  if (_pushListenersArmed) return;
+  const P = plugin('PushNotifications');
+  if (!P) return;
+  _pushListenersArmed = true;
+  try {
+    P.addListener('registration', async (token) => {
+      const t = token && token.value;
+      if (!t) return;
+      try { await plugin('Preferences')?.set({ key: 'ca_fcm_token', value: t }); } catch (_) {}
+      let version = '';
+      try { version = (await plugin('App')?.getInfo?.())?.version || ''; } catch (_) {}
+      try {
+        await fetch('/api/push/register-device', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fcm_token: t, platform: cap()?.getPlatform?.() || '', app_version: version }),
+        });
+      } catch (_) {}
+    });
+    P.addListener('registrationError', (err) => {
+      try { console.warn('[native] push registration failed', err && err.error); } catch (_) {}
+    });
+  } catch (_) {}
+}
+
+// The hook the 7d onboarding soft-ask and the Settings card call: system prompt
+// (when still undecided) -> on granted, wire listeners + channels + register.
+export async function requestPushPermission() {
+  if (!isNative()) return false;
+  const P = plugin('PushNotifications');
+  if (!P) return false;
+  try {
+    let status = await P.checkPermissions();
+    if (status.receive === 'prompt' || status.receive === 'prompt-with-rationale') {
+      status = await P.requestPermissions();
+    }
+    if (status.receive !== 'granted') return false;
+    armPushListeners();
+    await createPushChannels();
+    await P.register();
+    return true;
+  } catch (_) { return false; }
+}
+
+// Logout: drop this device's token server-side. Must run BEFORE the bearer
+// token is revoked/cleared — the DELETE needs it.
+export async function deregisterPush() {
+  if (!isNative()) return;
+  try {
+    const r = await plugin('Preferences')?.get({ key: 'ca_fcm_token' });
+    const t = r && r.value;
+    if (!t) return;
+    await fetch('/api/push/device', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fcm_token: t }),
+    }).catch(() => {});
+    try { await plugin('Preferences')?.remove({ key: 'ca_fcm_token' }); } catch (_) {}
+  } catch (_) {}
+}
+
+// Notification tap -> in-app navigation. app.js registers its callback
+// immediately after initNative(): the bridge buffers a cold-start tap and
+// replays it once this listener attaches (the official plugin exposes no
+// separate launch-notification getter — early registration IS the cold-start
+// path). cb receives the payload's data map ({ type, url, ... }), identical to
+// what sw.js reads on the web.
+export function onNotificationTap(cb) {
+  if (!isNative()) return;
+  const P = plugin('PushNotifications');
+  if (!P) return;
+  try {
+    P.addListener('pushNotificationActionPerformed', (event) => {
+      try { cb((event && event.notification && event.notification.data) || {}); } catch (_) {}
+    });
+  } catch (_) {}
+}
+
 // ── Haptics: no-ops without a bridge or on devices without an engine ──
 export function haptic(kind = 'light') {
   if (!isNative()) return;
@@ -175,6 +288,22 @@ export function initNative() {
     e.preventDefault();
     openExternal(a.href);
   }, true);
+
+  // Push token refresh: FCM tokens rotate, so when permission was granted on a
+  // previous run, silently re-register on every launch to re-upsert the current
+  // token (also bumps push_devices.last_seen). Never prompts: requestPushPermission
+  // is the only place the system dialog can appear.
+  (async () => {
+    try {
+      const P = plugin('PushNotifications');
+      if (!P) return;
+      const status = await P.checkPermissions();
+      if (status.receive !== 'granted') return;
+      armPushListeners();
+      await createPushChannels();
+      await P.register();
+    } catch (_) {}
+  })();
 
   // Deep links back into the app (Stripe return, notification taps later).
   try {

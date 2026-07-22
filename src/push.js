@@ -14,6 +14,11 @@ try { webpush = require('web-push'); } catch (_) { /* not installed -> push disa
 let publicKey = null;
 
 function init() {
+  // Native transport status: one boot line, so a prod deploy without the
+  // Firebase project yet is visibly (and safely) web-push only.
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+    console.log('[push] FIREBASE_SERVICE_ACCOUNT not set; native app push disabled (web push unaffected)');
+  }
   if (!webpush) { console.log('[push] web-push not installed; push disabled'); return; }
   let pub  = db.getSetting('vapid_public');
   let priv = db.getSetting('vapid_private');
@@ -75,6 +80,128 @@ async function sendToUser(userId, payload) {
   }
 }
 
+// ── Native app push (FCM) — second transport under the same topic gates ───────
+// firebase-admin initializes lazily from FIREBASE_SERVICE_ACCOUNT: either a path
+// to the service-account JSON file or the JSON itself inline. When the env var is
+// absent (Jack has not created the Firebase project yet) every native send
+// no-ops, so this is fully safe to deploy ahead of the Firebase setup.
+let _fbMessaging = null;
+let _fbTried = false;
+
+function initFirebase() {
+  if (_fbTried) return _fbMessaging;
+  _fbTried = true;
+  const src = (process.env.FIREBASE_SERVICE_ACCOUNT || '').trim();
+  if (!src) return null;   // boot already logged the one-liner in init()
+  try {
+    // firebase-admin v14 is modular: app + messaging come from subpath exports.
+    const { initializeApp, cert } = require('firebase-admin/app');
+    const { getMessaging } = require('firebase-admin/messaging');
+    const creds = src.startsWith('{')
+      ? JSON.parse(src)
+      : JSON.parse(require('fs').readFileSync(src, 'utf8'));
+    const app = initializeApp({ credential: cert(creds) });
+    _fbMessaging = getMessaging(app);
+    console.log('[push] firebase-admin initialized; native app push enabled');
+  } catch (e) {
+    console.warn('[push] firebase-admin init failed; native app push disabled:', e.message);
+    _fbMessaging = null;
+  }
+  return _fbMessaging;
+}
+
+// steam/swing land as heads-up alerts (Android channel importance is set
+// client-side in native.js; the per-message priority rides along here).
+const HIGH_PRIORITY_TOPICS = new Set(['steam', 'swing']);
+
+// Send one payload to a batch of FCM tokens. The data{} map mirrors the
+// web-push payload (type, url, plus ids) so a native tap and a sw.js
+// notification click share semantics. Tokens FCM reports dead or malformed
+// self-prune, exactly like the web-push 404/410 prune.
+async function sendToFcmTokens(tokens, payload) {
+  const messaging = initFirebase();
+  if (!messaging || !Array.isArray(tokens) || !tokens.length) return;
+  const data = {};
+  for (const k of ['type', 'url', 'tag', 'espn_game_id']) {
+    if (payload[k] != null) data[k] = String(payload[k]);
+  }
+  const high = HIGH_PRIORITY_TOPICS.has(payload.type || '');
+  const message = {
+    tokens,
+    notification: { title: payload.title || 'CappingAlpha', body: payload.body || '' },
+    data,
+    android: {
+      priority: high ? 'high' : 'normal',
+      notification: { channelId: payload.type ? `ca_${payload.type}` : 'ca_default' },
+    },
+    apns: {
+      headers: { 'apns-priority': high ? '10' : '5' },
+      payload: { aps: { alert: { title: payload.title || 'CappingAlpha', body: payload.body || '' }, sound: 'default' } },
+    },
+  };
+  try {
+    const res = await messaging.sendEachForMulticast(message);
+    res.responses.forEach((r, i) => {
+      if (r.success) return;
+      const code = r.error && r.error.code;
+      if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-argument') {
+        try { db.prepare(`DELETE FROM push_devices WHERE fcm_token = ?`).run(tokens[i]); } catch (_) {}
+      }
+    });
+  } catch (_) { /* a delivery failure must never break the caller */ }
+}
+
+// Register/refresh a device token. Reassignment on conflict is deliberate: a
+// shared phone that signs into a second account delivers to its current owner,
+// mirroring the web-push endpoint upsert.
+function saveDevice(userId, body) {
+  const { fcm_token, platform, app_version } = body || {};
+  if (typeof fcm_token !== 'string') return false;
+  const token = fcm_token.trim();
+  if (!token || token.length >= 512 || /\s/.test(token)) return false;
+  const plat = (platform === 'ios' || platform === 'android') ? platform : null;
+  const ver = typeof app_version === 'string' ? app_version.slice(0, 32) : null;
+  db.prepare(`
+    INSERT INTO push_devices (user_id, platform, fcm_token, app_version, last_seen)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(fcm_token) DO UPDATE SET
+      user_id = excluded.user_id, platform = excluded.platform,
+      app_version = excluded.app_version, last_seen = datetime('now')
+  `).run(userId, plat, token, ver);
+  // Cap devices per user (newest win) — same flood guard as web subscriptions.
+  db.prepare(`
+    DELETE FROM push_devices WHERE user_id = ? AND id NOT IN
+      (SELECT id FROM push_devices WHERE user_id = ? ORDER BY id DESC LIMIT 10)
+  `).run(userId, userId);
+  return true;
+}
+
+function removeDevice(userId, fcmToken) {
+  if (typeof fcmToken !== 'string' || !fcmToken) return;
+  db.prepare(`DELETE FROM push_devices WHERE user_id = ? AND fcm_token = ?`).run(userId, fcmToken);
+}
+
+// ── Quiet hours ───────────────────────────────────────────────────────────────
+// notify_prefs.quiet = { start: 'HH:MM', end: 'HH:MM', tz: 'America/Chicago' }.
+// While the user's local time sits inside [start, end) — windows may span
+// midnight — nothing is delivered on any transport. The sendOnce dedupe row
+// still lands first, so a quiet-hours alert is skipped, not queued for later.
+function inQuietHours(prefs) {
+  const q = prefs && prefs.quiet;
+  if (!q || typeof q !== 'object') return false;
+  const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (!HHMM.test(q.start || '') || !HHMM.test(q.end || '') || q.start === q.end) return false;
+  let now;
+  try {
+    now = new Intl.DateTimeFormat('en-GB', {
+      timeZone: q.tz || 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).format(new Date());
+  } catch (_) { return false; }   // unknown tz = fail open (deliver)
+  return q.start < q.end
+    ? (now >= q.start && now < q.end)
+    : (now >= q.start || now < q.end);
+}
+
 // ── Notification topics (preference center) ───────────────────────────────────
 // Every send routes through sendToUserTopic so the user's per-topic preference
 // (user_preferences.notify_prefs JSON) and the paid-tier gate are enforced in
@@ -94,7 +221,9 @@ const TOPICS = {
 // Web push is per-device (the subscription itself is the opt-in), so it has no
 // pref key. channel_email = the user wants email delivery once the email
 // sender ships; nothing reads it yet, it just persists the opt-in.
-const CHANNEL_PREF_KEYS = ['channel_email'];
+// channel_apppush = native app push to the user's registered devices (absent =
+// on; the device-level permission prompt was already the opt-in).
+const CHANNEL_PREF_KEYS = ['channel_email', 'channel_apppush'];
 
 // DB-level paid check (no req/session here). Mirrors auth.isPaid: tier not
 // 'free' + unexpired (null expiry = lifetime, unparseable fails open).
@@ -108,20 +237,41 @@ function isPaidUserId(userId) {
   } catch (_) { return false; }
 }
 
+function getNotifyPrefs(userId) {
+  try {
+    const row = db.prepare(`SELECT notify_prefs FROM user_preferences WHERE user_id = ?`).get(userId);
+    return row && row.notify_prefs ? JSON.parse(row.notify_prefs) : {};
+  } catch (_) { return {}; }
+}
+
 function userWantsTopic(userId, topic) {
   const def = TOPICS[topic];
   if (!def) return false;
   if (def.paid && !isPaidUserId(userId)) return false;
-  try {
-    const row = db.prepare(`SELECT notify_prefs FROM user_preferences WHERE user_id = ?`).get(userId);
-    const prefs = row && row.notify_prefs ? JSON.parse(row.notify_prefs) : {};
-    return prefs[topic] !== false;   // absent = on
-  } catch (_) { return true; }
+  return getNotifyPrefs(userId)[topic] !== false;   // absent = on
 }
 
+// The single delivery gate. Everything above the transport fork — paid topic,
+// notify_prefs, quiet hours, and the sendOnce dedupe in the caller — applies to
+// ALL devices, so a user with a browser subscription and a phone token gets one
+// logical send fanned out to every device. Returns false when gated/skipped.
 async function sendToUserTopic(userId, topic, payload) {
-  if (!userWantsTopic(userId, topic)) return;
-  return sendToUser(userId, payload);
+  if (!userWantsTopic(userId, topic)) return false;
+  const prefs = getNotifyPrefs(userId);
+  if (inQuietHours(prefs)) return false;
+  // type rides in the payload so a sw.js notification click and a native tap
+  // route identically (data.type -> in-app navigation, data.url as fallback).
+  const body = { ...payload, type: payload.type || topic };
+  await sendToUser(userId, body);
+  // Native fork: same logical send, second transport. channel_apppush (absent
+  // = on) is the account-level phone opt-out, alongside channel_email.
+  if (prefs.channel_apppush !== false) {
+    try {
+      const tokens = db.prepare(`SELECT fcm_token FROM push_devices WHERE user_id = ?`).all(userId).map(r => r.fcm_token);
+      await sendToFcmTokens(tokens, body);
+    } catch (_) {}
+  }
+  return true;
 }
 
 // Once-only send: dedupes on (user, topic, key) via push_log so a cron that
@@ -146,5 +296,6 @@ function subscribedUserIds() {
 
 module.exports = {
   init, getPublicKey, saveSubscription, removeSubscription, sendToUser,
+  saveDevice, removeDevice, sendToFcmTokens, inQuietHours,
   TOPICS, CHANNEL_PREF_KEYS, userWantsTopic, sendToUserTopic, sendOnce, subscribedUserIds, isPaidUserId,
 };

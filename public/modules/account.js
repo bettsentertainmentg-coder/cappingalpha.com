@@ -6,6 +6,7 @@ import { doRedeemCode } from './paywall.js';
 import { loadUserBets, setBetsData } from './track.js?v=49';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
+import { isNative } from './native.js?v=1';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
 
@@ -371,12 +372,43 @@ const NOTIFY_TOPICS = [
   { key: 'top_pick',   label: "Today's #1 pick",     desc: 'Once a day when the top-ranked pick is up.',             paid: false },
   { key: 'steam',      label: 'Line steam',          desc: 'A sharp line move on a game carrying a CA pick.',        paid: true  },
   { key: 'swing',      label: 'Live swings',         desc: 'Lead changes in games where you have action.',           paid: true  },
+  { key: 'social_follow', label: 'New followers',       desc: 'When a member starts following you.',                 paid: false },
+  { key: 'social_tail',   label: 'Tails on your picks', desc: 'When a member tails one of your picks.',              paid: false },
 ];
 let _notifyPrefs = {};
 let _notifyPaid  = false;
 
 export async function saveNotifyPref(topic, on) {
   _notifyPrefs = { ..._notifyPrefs, [topic]: !!on };
+  try {
+    await fetch('/api/account/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notify_prefs: _notifyPrefs }),
+    });
+  } catch (_) {}
+}
+
+// Quiet hours: notify_prefs.quiet = { start, end, tz }, enforced server-side at
+// send time on every transport. The zone is auto-detected here; times are the
+// user's local clock. Unchecking the row clears the window (quiet key absent).
+export async function saveQuietHours() {
+  const on = !!document.getElementById('quiet-hours-on')?.checked;
+  const times = document.getElementById('quiet-hours-times');
+  if (times) times.style.display = on ? 'flex' : 'none';
+  const next = { ..._notifyPrefs };
+  if (on) {
+    let tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (_) {}
+    next.quiet = {
+      start: document.getElementById('quiet-start')?.value || '22:00',
+      end:   document.getElementById('quiet-end')?.value   || '08:00',
+      tz,
+    };
+  } else {
+    delete next.quiet;
+  }
+  _notifyPrefs = next;
   try {
     await fetch('/api/account/preferences', {
       method: 'PUT',
@@ -414,10 +446,54 @@ async function refreshPushCard() {
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px;">What you get</div>
     <div>${notifyTopicsHtml()}</div>`;
 
-  // Delivery: web push per device (opt-in), email saved now and switched on
-  // when the email sender ships.
+  // Quiet hours: no alerts on any device inside the window. Times are the
+  // user's local clock; the zone is auto-detected on save and enforced
+  // server-side at send time. Selects stay at 16px (phone input-size floor).
+  const q = _notifyPrefs.quiet || null;
+  const selStyle = 'font-size:16px;padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--card,transparent);color:inherit;';
+  const timeOpts = (sel) => {
+    let h = '';
+    for (let i = 0; i < 48; i++) {
+      const v = `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`;
+      h += `<option value="${v}" ${sel === v ? 'selected' : ''}>${v}</option>`;
+    }
+    return h;
+  };
+  const quietRow = `
+    <div style="padding:9px 0;border-top:1px solid var(--border);">
+      <div style="display:flex;align-items:flex-start;gap:10px;">
+        <input type="checkbox" id="quiet-hours-on" ${q ? 'checked' : ''} style="margin-top:3px;accent-color:var(--gold,#d4af37);"
+               onchange="saveQuietHours()" />
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;">Quiet hours</div>
+          <div style="font-size:12px;color:var(--muted);">Pause alerts during these hours, on every device. Uses your local time.</div>
+          <div id="quiet-hours-times" style="display:${q ? 'flex' : 'none'};align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+            <select id="quiet-start" style="${selStyle}" onchange="saveQuietHours()">${timeOpts((q && q.start) || '22:00')}</select>
+            <span style="font-size:12px;color:var(--muted);">to</span>
+            <select id="quiet-end" style="${selStyle}" onchange="saveQuietHours()">${timeOpts((q && q.end) || '08:00')}</select>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Delivery: web push per device (opt-in), native app push inside the shell
+  // (channel_apppush, absent = on), email saved now and switched on when the
+  // email sender ships.
   let pushRow;
-  if (!pushSupported()) {
+  if (isNative()) {
+    // Inside the app shell the browser-push toggle is meaningless (no service
+    // worker); the phone's own channel row replaces it.
+    const appOn = _notifyPrefs.channel_apppush !== false;
+    pushRow = `
+      <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;">
+        <input type="checkbox" ${appOn ? 'checked' : ''} style="margin-top:3px;accent-color:var(--gold,#d4af37);"
+               onchange="saveNotifyPref('channel_apppush', this.checked)" />
+        <div style="flex:1;">
+          <div style="font-size:13px;font-weight:600;">Push to this phone</div>
+          <div style="font-size:12px;color:var(--muted);">App notifications on your phone. Your phone's notification settings also apply.</div>
+        </div>
+      </div>`;
+  } else if (!pushSupported()) {
     pushRow = `<div style="font-size:12px;color:var(--muted);padding:8px 0;">This browser does not support push yet. On iPhone, add CappingAlpha to your Home Screen (Share, then Add to Home Screen), then open it from that icon and turn push on here.</div>`;
   } else {
     const sub = await currentPushSub();
@@ -443,6 +519,7 @@ async function refreshPushCard() {
   el.innerHTML = `
     <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Pick what you want to hear about. Choices apply to your whole account.</div>
     ${topicsBlock}
+    ${quietRow}
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 2px;">How you get it</div>
     ${pushRow}
     ${emailRow}`;
@@ -2145,5 +2222,5 @@ Object.assign(window, {
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,
   openRecordView, closeRecordView, recSetWindow, recToggleFilters, recSetFilter, shareRecord,
-  copyReferral, saveNotifyPref,
+  copyReferral, saveNotifyPref, saveQuietHours,
 });

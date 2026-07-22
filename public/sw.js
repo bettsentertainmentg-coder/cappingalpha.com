@@ -78,7 +78,9 @@ self.addEventListener('push', (e) => {
     icon: '/icon-192.png',
     badge: '/favicon-32.png',
     tag: d.tag || undefined,
-    data: { url: d.url || '/' },
+    // type mirrors the native push data map (Phase 7e) so both transports carry
+    // the same routing keys; the click handler below navigates by url either way.
+    data: { url: d.url || '/', type: d.type || '' },
   }));
 });
 

@@ -2,7 +2,7 @@
 
 import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=4';
-import { isNative, initNative, hideSplash } from './modules/native.js?v=1';
+import { isNative, initNative, hideSplash, onNotificationTap } from './modules/native.js?v=1';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=35';
@@ -344,6 +344,33 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // set pre-paint by the inline script in index.html).
   setTheme(getTheme());
   initNative(); // no-op on web; splash/status-bar/deep-link wiring in the app shell
+
+  // Notification taps (native push, Phase 7e): map the payload's data.type to
+  // in-app navigation. Registered immediately after initNative — the earliest
+  // point in boot — so a cold-start tap, which the bridge buffers until the
+  // listener attaches, lands on the right screen. Web push routes through
+  // sw.js instead, which navigates by the same data.url. No-op on web.
+  onNotificationTap((data) => {
+    const go = () => {
+      try {
+        const type = (data && data.type) || '';
+        const url  = (data && data.url)  || '';
+        const gameId = (/^\/game\/([\w-]+)/.exec(url) || [])[1] || (data && data.espn_game_id) || '';
+        if (type === 'game_start' || type === 'steam' || type === 'swing') {
+          // The game modal when we know the game; the live dashboard otherwise.
+          if (gameId && window.openGameModal) window.openGameModal(gameId);
+          else window.location.href = '/mylive';
+        }
+        else if (type === 'grades')   switchTab('mvp');
+        else if (type === 'top_pick') switchTab('home');
+        else if (type === 'social_follow' || type === 'social_tail') switchTab('socials');
+        else if (url) window.location.href = url;
+      } catch (_) {}
+    };
+    // A cold-start tap can arrive before the DOM is ready — defer it.
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go, { once: true });
+    else go();
+  });
 
   const cfg = await fetch('/api/config').then(r => r.json()).catch(() => null);
   if (cfg) {

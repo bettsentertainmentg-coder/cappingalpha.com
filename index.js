@@ -1612,6 +1612,23 @@ app.delete('/api/push/subscribe', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Native app push (Phase 7e) — FCM device tokens from the Capacitor shell ───
+// Pure delivery addresses; notify_prefs stays the source of truth for topics.
+// Token shape is validated in push.saveDevice (< 512 chars, no whitespace).
+app.post('/api/push/register-device', (req, res) => {
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const ok = push.saveDevice(auth.userOf(req).id, req.body || {});
+  if (!ok) return res.status(400).json({ error: 'Invalid device token' });
+  res.json({ ok: true });
+});
+app.delete('/api/push/device', (req, res) => {
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const token = (req.body || {}).fcm_token;
+  if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Missing fcm_token' });
+  push.removeDevice(auth.userOf(req).id, token);
+  res.json({ ok: true });
+});
+
 // PUT /api/account/preferences — save favorite sports and/or leaderboard privacy.
 // Accepts a partial body: only the fields present are changed; the rest are kept.
 app.put('/api/account/preferences', (req, res) => {
@@ -1678,6 +1695,19 @@ app.put('/api/account/preferences', (req, res) => {
         if (notify_prefs && typeof notify_prefs === 'object' && !Array.isArray(notify_prefs)) {
           for (const k of [...Object.keys(push.TOPICS), ...push.CHANNEL_PREF_KEYS]) {
             if (typeof notify_prefs[k] === 'boolean') out[k] = notify_prefs[k];
+          }
+          // Quiet hours: { start:'HH:MM', end:'HH:MM', tz } — enforced at send
+          // time in push.sendToUserTopic. Validated strictly; anything malformed
+          // is dropped rather than stored, and omitting it clears the window.
+          const q = notify_prefs.quiet;
+          const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+          if (q && typeof q === 'object' && !Array.isArray(q)
+              && typeof q.start === 'string' && HHMM.test(q.start)
+              && typeof q.end   === 'string' && HHMM.test(q.end)
+              && typeof q.tz    === 'string' && q.tz.length <= 64) {
+            let tzOk = true;
+            try { new Intl.DateTimeFormat('en-US', { timeZone: q.tz }); } catch (_) { tzOk = false; }
+            if (tzOk) out.quiet = { start: q.start, end: q.end, tz: q.tz };
           }
         }
         return out;
