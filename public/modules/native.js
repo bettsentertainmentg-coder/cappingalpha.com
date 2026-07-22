@@ -29,8 +29,22 @@ export function isNative() {
   try { return !!cap()?.isNativePlatform?.(); } catch (_) { return false; }
 }
 
+// True only when the page is served FROM the bundled shell (capacitor:// on a
+// default iOS config, or https://localhost with no port under the https scheme).
+// In the live-reload dev loop (capacitor.config server.url -> the Mac's dev
+// server) isNative() is still true but the origin is http://<mac>:3013, and
+// relative fetches must keep hitting THAT server, not prod. Without this check
+// "local testing" would silently talk to the production API.
+function isBundledOrigin() {
+  try {
+    if (!isNative()) return false;
+    if (location.protocol === 'capacitor:') return true;
+    return location.hostname === 'localhost' && !location.port;
+  } catch (_) { return false; }
+}
+
 export function apiUrl(path) {
-  return isNative() ? API_BASE + path : path;
+  return isBundledOrigin() ? API_BASE + path : path;
 }
 
 // ── Bearer token (7b wires /auth issuance; storage is ready now) ──
@@ -67,7 +81,10 @@ export async function authHeaders() {
 // bearer token, so no other module needs app-specific fetch code. Inert on web.
 let _fetchWrapped = false;
 export function installFetchInterceptor() {
-  if (_fetchWrapped || !isNative()) return;
+  // Bundled shell only. In the live-reload dev loop the page's own origin IS the
+  // dev server, so relative /api/ fetches already go to the right place (and the
+  // session cookie works, being same-origin).
+  if (_fetchWrapped || !isBundledOrigin()) return;
   _fetchWrapped = true;
   const origFetch = window.fetch.bind(window);
   window.fetch = async function (input, init) {

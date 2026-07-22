@@ -47,5 +47,13 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- Dev loop only: lets the shell load http://<mac-ip>:3013 (npm run app:dev
+	     with --lan) on a physical phone. Local networking only; production traffic
+	     stays https and is unaffected by this key. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>
