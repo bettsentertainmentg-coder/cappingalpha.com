@@ -1,0 +1,13 @@
+[
+  {
+    "comment_TODO": "PLACEHOLDER fingerprint below. Before shipping the Android app, replace sha256_cert_fingerprints with the real Play App Signing SHA-256 certificate fingerprint from Play Console (Setup > App signing), or Android App Links verification will fail and ?payment= deep links will open the browser instead of the app.",
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.cappingalpha.app",
+      "sha256_cert_fingerprints": [
+        "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"
+      ]
+    }
+  }
+]

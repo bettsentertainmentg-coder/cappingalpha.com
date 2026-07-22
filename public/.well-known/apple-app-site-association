@@ -1,0 +1,19 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.cappingalpha.app",
+        "appIDs": ["TEAMID.com.cappingalpha.app"],
+        "components": [
+          {
+            "/": "/",
+            "?": { "payment": "*" },
+            "comment": "Stripe checkout return: /?payment=success or /?payment=cancelled opens the app. TODO before shipping: replace TEAMID with the Apple Developer Team ID (Membership page), in both appID and appIDs."
+          }
+        ],
+        "paths": ["/"]
+      }
+    ]
+  }
+}

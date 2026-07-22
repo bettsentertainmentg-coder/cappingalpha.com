@@ -374,6 +374,7 @@ const NOTIFY_TOPICS = [
   { key: 'swing',      label: 'Live swings',         desc: 'Lead changes in games where you have action.',           paid: true  },
   { key: 'social_follow', label: 'New followers',       desc: 'When a member starts following you.',                 paid: false },
   { key: 'social_tail',   label: 'Tails on your picks', desc: 'When a member tails one of your picks.',              paid: false },
+  { key: 'account',       label: 'Account and trial',   desc: 'A reminder before your trial or current period renews, plus subscription notices.', paid: false },
 ];
 let _notifyPrefs = {};
 let _notifyPaid  = false;

@@ -15,8 +15,10 @@
 //                       with the bearer header attached (7b; inert on web)
 //   appleSignIn()     - native Sign in with Apple sheet -> { identity_token, user }
 //   haptic(kind)      - tap feedback: 'light' | 'medium' | 'success' | 'selection'
-//   initNative()      - boot: splash handoff, status bar, external-link routing,
-//                       deep-link handling. Called once from app.js.
+//   initNative(opts)  - boot: splash handoff, status bar, external-link routing,
+//                       deep-link handling, checkout-return listener (7f; the
+//                       opts.onCheckoutReturn callback avoids a circular import
+//                       of auth.js). Called once from app.js.
 
 const API_BASE = 'https://cappingalpha.com';
 
@@ -132,6 +134,7 @@ const PUSH_CHANNELS = [
   { id: 'ca_swing',         name: 'Live swings',         importance: 4 },
   { id: 'ca_social_follow', name: 'New followers',       importance: 3 },
   { id: 'ca_social_tail',   name: 'Tails on your picks', importance: 3 },
+  { id: 'ca_account',       name: 'Account and trial',   importance: 3 },
   { id: 'ca_default',       name: 'General',             importance: 3 },
 ];
 
@@ -240,6 +243,26 @@ export function haptic(kind = 'light') {
   } catch (_) {}
 }
 
+// ── Checkout return (Phase 7f) ────────────────────────────────────────────────
+// Stripe checkout runs in the system browser, so the reliable completion signal
+// is the app coming back to the foreground (appStateChange / browserFinished),
+// not a deep link. paywall.js arms this flag when it opens a checkout; on the
+// next foreground event initNative() calls the onCheckoutReturn callback app.js
+// registered (it re-fetches /auth/me and reacts to a tier flip). The callback
+// returns true when it is done; until then the flag stays armed so a resume
+// that beat the Stripe webhook retries on the following foreground event.
+let _checkoutOpened = false;
+let _onCheckoutReturn = null;
+
+export function noteCheckoutOpened() { _checkoutOpened = true; }
+
+async function fireCheckoutReturn() {
+  if (!_checkoutOpened || !_onCheckoutReturn) return;
+  try {
+    if (await _onCheckoutReturn()) _checkoutOpened = false;
+  } catch (_) { /* stay armed; the next resume retries */ }
+}
+
 // ── External links: system browser, never trapped in the webview ──
 export async function openExternal(url) {
   if (isNative() && plugin('Browser')) {
@@ -258,8 +281,12 @@ export function hideSplash() {
   try { plugin('SplashScreen')?.hide({ fadeOutDuration: 200 }); } catch (_) {}
 }
 
-export function initNative() {
+export function initNative(opts = {}) {
   if (!isNative()) return;
+
+  // Checkout return callback (7f): registered here instead of imported so
+  // native.js never imports auth.js (which already imports native.js).
+  if (typeof opts.onCheckoutReturn === 'function') _onCheckoutReturn = opts.onCheckoutReturn;
 
   // Route every /api/ + /auth/ fetch to the API base with the bearer token
   // attached. MUST install before the first checkAuth() fetch in app.js boot.
@@ -315,5 +342,20 @@ export function initNative() {
         }
       } catch (_) {}
     });
+  } catch (_) {}
+
+  // Checkout return, the robust layer (7f): a foreground transition after a
+  // checkout was opened this session triggers the /auth/me re-check, whether
+  // the user finished in the system browser or dismissed it. browserFinished
+  // covers the iOS SFSafariViewController dismiss (the app may never leave the
+  // active state there); appStateChange covers Android Custom Tabs and any
+  // full background/foreground cycle.
+  try {
+    plugin('App')?.addListener?.('appStateChange', (s) => {
+      if (s && s.isActive === true) fireCheckoutReturn();
+    });
+  } catch (_) {}
+  try {
+    plugin('Browser')?.addListener?.('browserFinished', () => { fireCheckoutReturn(); });
   } catch (_) {}
 }

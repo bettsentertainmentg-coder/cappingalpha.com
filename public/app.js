@@ -154,6 +154,64 @@ function loadMvpTab() {
   if (paid) loadMvp(); else loadMvpPublic();
 }
 
+// ── Payment success banner + checkout return (Phase 7f) ───────────────────────
+// One banner pattern for both arrival paths: the web's /?payment=success
+// redirect and the native checkout return (system browser back to the shell).
+function showPaymentSuccessBanner() {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#16a34a;color:#fff;text-align:center;padding:14px;font-weight:600;font-size:15px;z-index:9999;';
+  banner.textContent = 'Payment successful. Welcome to CappingAlpha!';
+  document.body.prepend(banner);
+  setTimeout(() => banner.remove(), 5000);
+}
+
+// Re-render every auth-gated surface that may already be on screen. Used at boot
+// (a tab can render before checkAuth resolves) and after a native checkout
+// return flips the tier mid-session.
+function resyncAuthSurfaces() {
+  if (state.mvpLoaded) loadMvpTab();
+  if (state.leaderboardLoaded) loadLeaderboard(state.leaderboardWindow);
+  if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
+  if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
+  if (document.getElementById('panel-profile')?.classList.contains('active')) switchTab('profile');
+}
+
+// Native checkout return: registered with initNative (native.js calls it on the
+// first foreground event after a checkout opened in the system browser). Returns
+// true when handled so native.js can disarm; false keeps it armed for the next
+// resume (e.g. the user came back before finishing, or the webhook lagged).
+async function handleCheckoutReturn() {
+  const wasPaying = isPaying();
+  await checkAuth();
+  if (!isPaying()) {
+    // The Stripe webhook that flips the tier can land a beat after the success
+    // redirect; give it one short retry before staying armed.
+    await new Promise(r => setTimeout(r, 2500));
+    await checkAuth();
+  }
+  if (!isPaying()) return false;
+  try { sessionStorage.removeItem('ca_checkout_plan'); } catch (_) {}
+  if (!wasPaying) {
+    resyncAuthSurfaces();
+    if (window.__caOnboardActive && typeof window.__caOnboardComplete === 'function') {
+      // Completing the flow can reload (an account was created mid-flow); stash
+      // the banner in sessionStorage so it survives, and show it directly when
+      // no reload happens.
+      try { sessionStorage.setItem('ca_payment_banner', '1'); } catch (_) {}
+      window.__caOnboardComplete();
+      try {
+        if (sessionStorage.getItem('ca_payment_banner') === '1') {
+          sessionStorage.removeItem('ca_payment_banner');
+          showPaymentSuccessBanner();
+        }
+      } catch (_) {}
+    } else {
+      showPaymentSuccessBanner();
+    }
+  }
+  return true;
+}
+
 // ── Support / contact form (About page) ───────────────────────────────────────
 async function sendSupport() {
   const btn    = document.getElementById('support-send');
@@ -343,7 +401,11 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // Sync theme-color meta + any toggle UI to the saved choice (attribute is already
   // set pre-paint by the inline script in index.html).
   setTheme(getTheme());
-  initNative(); // no-op on web; splash/status-bar/deep-link wiring in the app shell
+  // No-op on web; splash/status-bar/deep-link wiring in the app shell. The
+  // callback is the checkout return path (7f): after Stripe opens in the system
+  // browser, the next foreground event re-checks /auth/me and reacts to the
+  // tier flip (banner, surface re-sync, onboarding completion).
+  initNative({ onCheckoutReturn: handleCheckoutReturn });
 
   // Notification taps (native push, Phase 7e): map the payload's data.type to
   // in-app navigation. Registered immediately after initNative — the earliest
@@ -363,6 +425,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
         }
         else if (type === 'grades')   switchTab('mvp');
         else if (type === 'top_pick') switchTab('home');
+        else if (type === 'account')  switchTab('settings');
         else if (type === 'social_follow' || type === 'social_tail') switchTab('socials');
         else if (url) window.location.href = url;
       } catch (_) {}
@@ -387,11 +450,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // DOMContentLoaded hash nav beat checkAuth. Re-sync whatever already rendered so a
   // logged-in member never sees the logged-out view: the CA Rankings "Unlock" view,
   // "Log in to rank" on the leaderboard, or an account bounce to the login popup.
-  if (state.mvpLoaded) loadMvpTab();
-  if (state.leaderboardLoaded) loadLeaderboard(state.leaderboardWindow);
-  if (document.getElementById('panel-tracking')?.classList.contains('active')) switchTab('tracking');
-  if (document.getElementById('panel-settings')?.classList.contains('active')) switchTab('settings');
-  if (document.getElementById('panel-profile')?.classList.contains('active')) switchTab('profile');
+  resyncAuthSurfaces();
 
   // App shell: the shell + auth state are painted, drop the native splash. (A 6s
   // safety timer in initNative covers any throw above; extra calls no-op.)
@@ -413,15 +472,17 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
     }
   } catch (_) {}
 
-  // Handle Stripe redirect back to site
+  // Handle Stripe redirect back to the site (web), plus the banner flag a
+  // native checkout return stashed before an onboarding-completion reload (7f).
   const params = new URLSearchParams(location.search);
-  if (params.get('payment') === 'success') {
-    history.replaceState({}, '', '/');
-    const banner = document.createElement('div');
-    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#16a34a;color:#fff;text-align:center;padding:14px;font-weight:600;font-size:15px;z-index:9999;';
-    banner.textContent = 'Payment successful. Welcome to CappingAlpha!';
-    document.body.prepend(banner);
-    setTimeout(() => banner.remove(), 5000);
+  let nativeBanner = false;
+  try {
+    nativeBanner = sessionStorage.getItem('ca_payment_banner') === '1';
+    if (nativeBanner) sessionStorage.removeItem('ca_payment_banner');
+  } catch (_) {}
+  if (params.get('payment') === 'success' || nativeBanner) {
+    if (params.get('payment') === 'success') history.replaceState({}, '', '/');
+    showPaymentSuccessBanner();
   } else if (params.get('payment') === 'cancelled') {
     history.replaceState({}, '', '/');
   }

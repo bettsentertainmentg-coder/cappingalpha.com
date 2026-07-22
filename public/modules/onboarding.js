@@ -105,6 +105,12 @@ function finish() {
   if (_authHappened) location.reload();
 }
 
+// 7f: the native checkout-return path (app.js handleCheckoutReturn) completes an
+// open onboarding flow once the tier flips to paying. A window hook rather than
+// an export so app.js does not need a second import of this module's internals;
+// callers gate on window.__caOnboardActive first.
+window.__caOnboardComplete = finish;
+
 // ── Step navigation: the Onboard Glide ────────────────────────────────────────
 // Steps 2-5 are one carousel screen, so the stage steps are 1, C, 6, 7, 8, 9.
 const RENDER = {

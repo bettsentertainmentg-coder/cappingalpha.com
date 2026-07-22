@@ -215,6 +215,7 @@ const TOPICS = {
   swing:      { paid: true,  label: 'Live swings',         desc: 'Lead changes in games where you have action.' },
   social_follow: { paid: false, label: 'New followers',    desc: 'When a member starts following you.' },
   social_tail:   { paid: false, label: 'Tails on your picks', desc: 'When a member tails one of your picks.' },
+  account:       { paid: false, label: 'Account and trial', desc: 'A reminder before your trial or current period renews, plus subscription notices.' },
 };
 
 // Delivery-channel preference keys stored alongside topics in notify_prefs.

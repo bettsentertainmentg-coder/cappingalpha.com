@@ -254,6 +254,23 @@ app.use('/api/bets',  makeRateLimit({ max: 240, windowMs: 15 * 60 * 1000, msg: '
 app.use('/api/track', makeRateLimit({ max: 60,  windowMs: 60 * 1000,      msg: 'Slow down and try again shortly.' }));
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
+// ── Universal links groundwork (Phase 7f) ─────────────────────────────────────
+// Apple fetches /.well-known/apple-app-site-association (no extension) and
+// Google fetches /.well-known/assetlinks.json; both require application/json
+// with no redirects. Explicit routes because the static mount below skips the
+// dot-directory (serve-static dotfiles handling) and would type the
+// extensionless Apple file as octet-stream anyway.
+for (const name of ['apple-app-site-association', 'assetlinks.json']) {
+  app.get(`/.well-known/${name}`, (req, res) => {
+    try {
+      const p = path.join(__dirname, 'public', '.well-known', name);
+      res.type('application/json').send(require('fs').readFileSync(p, 'utf8'));
+    } catch (_) {
+      res.status(404).json({ error: 'Not found' });
+    }
+  });
+}
+
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
@@ -3624,6 +3641,14 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // runs after scores/statuses are fresh; per-user prefs + paid gating enforced
   // in push.js, per-event dedupe in push_log.
   await require('./src/live_alerts').runLiveAlerts(getSetting).catch(err => console.error('[cron] liveAlerts error:', err.message));
+  // Trial and renewal reminder (7f): a day-ahead heads-up before a paid period
+  // ends. The hour gate makes this a daily-ish job inside the 5-min cron, and
+  // sendOnce dedupes per (user, subscription, period end), so the passes within
+  // the hour deliver at most one notification per period.
+  if (etHour() === 16) {
+    await require('./src/trial_reminder').runTrialReminders()
+      .catch(err => console.error('[cron] trialReminders error:', err.message));
+  }
   // Freeze the detail bundle for any MVP game that just started — the enrichment
   // caches still hold the final pre-game values (market syncs stop at 'pre').
   try { snapshotStartedMvpGames(); } catch (e) { console.error('[cron] mvp snapshot:', e.message); }

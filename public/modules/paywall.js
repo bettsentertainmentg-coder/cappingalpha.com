@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { isViewer, isAccount, isPaying } from './auth.js';
 import { LOCK_SVG } from './utils.js?v=4';
+import { isNative, openExternal, noteCheckoutOpened } from './native.js?v=1';
 
 const PRICE_IDS = {
   day:  'price_1TMhkAB0ohior8iouVKseqmk',
@@ -30,6 +31,16 @@ export async function startCheckout(plan) {
     const data = await res.json();
     if (res.status === 401) { window.openLogin(); return; }
     if (!res.ok) { alert([data.error || 'Could not start checkout. Try again.', data.detail].filter(Boolean).join('\n\n')); return; }
+    if (isNative()) {
+      // App shell (7f): Stripe checkout always opens in the system browser,
+      // never inside the webview. Keep a pending-plan marker and arm the
+      // resume listener in native.js, which re-checks /auth/me when the app
+      // comes back to the foreground (works even without universal links).
+      try { sessionStorage.setItem('ca_checkout_plan', plan); } catch (_) {}
+      noteCheckoutOpened();
+      await openExternal(data.url);
+      return;
+    }
     window.location.href = data.url;
   } catch (_) {
     alert('Network error. Please try again.');
