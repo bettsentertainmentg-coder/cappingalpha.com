@@ -153,8 +153,9 @@ The Leaderboard tab became **Socials** (Feed / Friends / Board sub-tabs). It int
 | Reveal | fade + 16px rise on enter | .55s cubic-bezier(.16,1,.3,1) | account sections |
 | Tile Lift | hover translateY(-1 to -3px) + shadow | .12-.15s | tiles, podium, cards |
 | Bar Fill | width transition on meters | .3s | setup/history meters |
+| Onboard Glide | onboarding step slides in/out horizontally (translateX 100%); the intro carousel track glides between slides the same way | 240ms ease | first-run onboarding overlay (onboarding.css) |
 
-Reduced motion: gauge needle, value pulse, live command dot, and account reveal already respect `prefers-reduced-motion`. New animations must too.
+Reduced motion: gauge needle, value pulse, live command dot, account reveal, and Onboard Glide already respect `prefers-reduced-motion`. New animations must too.
 
 ### Iconography (four systems today)
 1. FontAwesome 6.5.0 (primary, ~115 uses): sport icons, nav, chevrons, locks, tab bar.

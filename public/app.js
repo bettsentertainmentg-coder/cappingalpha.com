@@ -19,6 +19,7 @@ import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=8';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { renderUnlock } from './modules/unlock.js';
+import { maybeStartOnboarding } from './modules/onboarding.js?v=1';
 
 // ── Referral capture ──────────────────────────────────────────────────────────
 // A ?ref=CODE share link stores the code; doSignup() redeems it right after the
@@ -369,12 +370,18 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // safety timer in initNative covers any throw above; extra calls no-op.)
   hideSplash();
 
+  // First-run onboarding (Phase 7d): native first launch, or ?onboard=1 anywhere
+  // (desktop preview + the admin phone lab). No-ops for paying members; sets
+  // window.__caOnboardActive while the overlay owns the screen.
+  maybeStartOnboarding();
+
   // Referral link (?ref=CODE): a friend arriving from a share link lands right on
   // the signup form, with the "code applied, 3 free days" banner (unlock.js). The
   // code was stashed in localStorage above and is redeemed automatically the moment
-  // they finish signing up (auth.doSignup). Logged-out visitors only.
+  // they finish signing up (auth.doSignup). Logged-out visitors only. Skipped while
+  // the onboarding overlay is up — its own account step redeems the code instead.
   try {
-    if (!state.currentUser && localStorage.getItem('ca_ref') && window.openSignup) {
+    if (!window.__caOnboardActive && !state.currentUser && localStorage.getItem('ca_ref') && window.openSignup) {
       window.openSignup();
     }
   } catch (_) {}

@@ -226,6 +226,7 @@ router.get('/preview', requireAuth, (_req, res) => {
     <span class="pv-note">Live site, real data &mdash; a 1:1 mirror of the phone UI. Hit Reload after you change anything.</span>
     <div class="pv-sizes" id="pv-sizes"></div>
     <button class="pv-reload" onclick="document.getElementById('pv-frame').contentWindow.location.reload()">&#8635; Reload</button>
+    <button class="pv-size" id="pv-onboard" onclick="toggleOnboard()" title="Preview the 9-screen first-run onboarding (?onboard=1)">Onboarding</button>
     <a class="pv-back" href="/admin/dashboard">&larr; Admin</a>
   </div>
   <div class="pv-stage">
@@ -241,6 +242,15 @@ router.get('/preview', requireAuth, (_req, res) => {
     function setSize(i){var s=SIZES[i];phone.style.width=s.w+'px';phone.style.height=s.h+'px';dim.textContent=s.label+' \\u2014 '+s.w+' \\u00d7 '+s.h;Array.prototype.forEach.call(bar.children,function(b,j){b.classList.toggle('active',j===i);});}
     SIZES.forEach(function(s,i){var b=document.createElement('button');b.className='pv-size';b.textContent=s.label;b.onclick=function(){setSize(i);};bar.appendChild(b);});
     setSize(0);
+    // Onboarding preview: swap the iframe between the live site and /?onboard=1
+    // (the 9-screen first-run flow). Each flip is a fresh load of that URL.
+    var obOn=false;
+    function toggleOnboard(){
+      obOn=!obOn;
+      document.getElementById('pv-frame').src=obOn?'/?onboard=1':'/';
+      document.getElementById('pv-onboard').classList.toggle('active',obOn);
+    }
+    window.toggleOnboard=toggleOnboard;
   </script>
 </body></html>`);
 });

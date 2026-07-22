@@ -1,0 +1,324 @@
+/* onboarding.css — Phase 7d first-run onboarding overlay.
+   Loaded from index.html as /onboarding.css?v=1 (bump on every content change).
+   Reuses the site tokens (--bg/--surface/--gold/...) so both themes just work.
+
+   "Onboard Glide" (docs/UI_VOCABULARY.md): steps slide horizontally with a
+   240ms transform; the intro carousel track glides between slides the same
+   way. Both are fully disabled under prefers-reduced-motion. */
+
+.ob-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overscroll-behavior: contain;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  -webkit-tap-highlight-color: transparent;
+}
+html.ob-lock, html.ob-lock body { overflow: hidden; }
+
+.ob-top {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 6px;
+}
+.ob-brand { font-weight: 800; font-size: 17px; letter-spacing: 0.2px; }
+.ob-brand b { color: var(--gold-ink); }
+.ob-skip {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ob-skip:hover { color: var(--text); border-color: var(--muted); }
+
+/* Stage: steps stack on top of each other while one glides out. */
+.ob-stage { flex: 1 1 auto; position: relative; overflow: hidden; }
+.ob-step {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Onboard Glide ── */
+.ob-step { transition: transform 240ms ease, opacity 240ms ease; }
+.ob-in-right { transform: translateX(100%); transition: none; }
+.ob-in-left  { transform: translateX(-100%); transition: none; }
+.ob-out-left  { transform: translateX(-100%); opacity: 0.4; pointer-events: none; }
+.ob-out-right { transform: translateX(100%);  opacity: 0.4; pointer-events: none; }
+.ob-car-track { transition: transform 240ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  .ob-step, .ob-car-track { transition: none !important; }
+}
+
+.ob-pad {
+  width: 100%;
+  max-width: 430px;
+  margin: 0 auto;
+  padding: 14px 22px calc(26px + env(safe-area-inset-bottom, 0px));
+}
+.ob-center { text-align: center; margin-top: auto; margin-bottom: auto; }
+
+.ob-icon {
+  width: 74px;
+  height: 74px;
+  margin: 18px auto 6px;
+  border-radius: 50%;
+  background: var(--overlay-2, rgba(255, 255, 255, 0.07));
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  color: var(--gold-ink);
+}
+.ob-icon-muted { color: var(--muted); }
+
+.ob-h1 {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.22;
+  margin: 12px 0 8px;
+  text-align: center;
+}
+.ob-body {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--muted);
+  text-align: center;
+  margin: 0 0 18px;
+}
+.ob-eyebrow {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--gold-ink);
+  margin-top: 14px;
+}
+.ob-fine { font-size: 12px; line-height: 1.5; color: var(--muted); margin-top: 14px; }
+.ob-fine a { color: var(--accent); }
+.ob-err { color: var(--red); font-size: 13px; min-height: 18px; margin: 4px 0 6px; text-align: center; }
+
+/* Buttons */
+.ob-btn {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 13px 22px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ob-btn-block { display: block; width: 100%; margin-top: 10px; }
+.ob-btn-gold { background: var(--gold); color: #1a1a1a; }
+.ob-btn-gold:hover { filter: brightness(1.06); }
+.ob-btn-gold:disabled { opacity: 0.6; cursor: default; }
+.ob-btn-ghost {
+  background: none;
+  border-color: var(--border);
+  color: var(--text);
+}
+.ob-btn-ghost:hover { border-color: var(--muted); }
+.ob-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  touch-action: manipulation;
+}
+
+/* ── Age gate ── */
+.ob-dob-row { display: flex; gap: 10px; margin: 6px 0 4px; }
+.ob-dob-field { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ob-dob-day { flex: 0 0 84px; }
+.ob-dob-field span { font-size: 12px; font-weight: 600; color: var(--muted); }
+.ob-dob-field select {
+  font: inherit;
+  font-size: 16px; /* 16px floor: no iOS zoom */
+  padding: 11px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  width: 100%;
+}
+
+/* ── Carousel ── */
+.ob-car-vp { flex: 1 1 auto; overflow: hidden; touch-action: pan-y; }
+.ob-car-track { display: flex; height: 100%; }
+.ob-slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px 30px;
+}
+.ob-dots { flex: 0 0 auto; display: flex; justify-content: center; gap: 8px; padding: 6px 0 2px; }
+.ob-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: var(--border);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ob-dot.active { background: var(--gold); }
+.ob-nav {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 22px calc(24px + env(safe-area-inset-bottom, 0px));
+  max-width: 430px;
+  margin: 0 auto;
+  width: 100%;
+}
+.ob-nav .ob-btn { min-width: 118px; }
+
+/* ── Value tease ── */
+.ob-tease-card { margin: 4px 0 16px; cursor: default; }
+
+/* ── Account step ── */
+.ob-social {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  margin-top: 10px;
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+  font-size: 16px;
+}
+.ob-social:hover { border-color: var(--muted); }
+.ob-apple { background: #000; color: #fff; border-color: #3a3f4d; }
+.ob-apple i { font-size: 19px; position: relative; top: -1px; }
+.ob-g {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  color: #1a73e8;
+  font-weight: 800;
+  font-size: 13px;
+}
+.ob-g-big { width: 34px; height: 34px; font-size: 21px; }
+.ob-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 14px 0 4px;
+}
+.ob-or::before, .ob-or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+.ob-field { display: block; margin-top: 10px; }
+.ob-field span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+.ob-field input {
+  font: inherit;
+  font-size: 16px; /* 16px floor: no iOS zoom */
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.ob-field input:focus { outline: none; border-color: var(--accent); }
+
+.ob-uname-wrap { position: relative; }
+.ob-uname-wrap input { padding-right: 38px; }
+.ob-uname-mark {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.ob-uname-mark.ok { color: var(--green); }
+.ob-uname-mark.bad { color: var(--red); }
+.ob-uname-note { font-size: 12px; color: var(--muted); margin-top: 5px; min-height: 16px; }
+.ob-uname-note.ok { color: var(--green); }
+.ob-uname-note.bad { color: var(--red); }
+.ob-uname-sug { font-size: 12px; }
+
+/* Clickwrap: its own row, unchecked by default, nothing else bundled in. */
+.ob-tos {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 0 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+.ob-tos input { width: 18px; height: 18px; margin-top: 1px; flex: 0 0 auto; accent-color: var(--gold); }
+.ob-tos a { color: var(--accent); }
+
+/* ── Paywall step ── */
+.ob-plan-rows { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.ob-plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ob-plan-row:hover { border-color: var(--muted); }
+.ob-plan-price { color: var(--gold-ink); font-weight: 800; white-space: nowrap; }
+.ob-plan-price em { font-style: normal; font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
+
+/* Small phones: keep the hero copy comfortably on screen. */
+@media (max-height: 640px) {
+  .ob-icon { width: 60px; height: 60px; font-size: 24px; margin-top: 8px; }
+  .ob-h1 { font-size: 21px; }
+  .ob-body { font-size: 14px; }
+}

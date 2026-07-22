@@ -286,7 +286,7 @@ if (MIRROR_URL) {
   // /api/leaderboard + /api/member join them so the whole Socials world reads ONE
   // local dataset — a prod board over local follows/feeds would split numbers the
   // same way the /api/friends + /api/mvp skips already guard against.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member', '/api/username-available'];
   app.use((req, res, next) => {
     // /results stays LOCAL for the same reason /api/mvp does: it renders the same
     // tracked record the (now-local) CA Rankings tab shows, so the two surfaces
@@ -544,6 +544,20 @@ app.get('/api/config', (req, res) => {
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
   });
 });
+
+// GET /api/username-available?u= — live availability check for the onboarding
+// signup screen (Phase 7d). Public, read-only. Format-invalid names come back
+// {available:false, invalid:true} so the client can show the format hint
+// instead of "taken". Case-insensitive against users, same rule as /auth/signup
+// (deleted accounts keep their name reserved there too, so no deleted_at filter).
+app.get('/api/username-available',
+  makeRateLimit({ max: 30, windowMs: 60 * 1000, msg: 'Too many checks. Give it a few seconds.' }),
+  (req, res) => {
+    const u = String(req.query.u || '').trim();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(u)) return res.json({ available: false, invalid: true });
+    const row = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?)`).get(u);
+    res.json({ available: !row });
+  });
 
 // ── POST /api/support — contact / suggestion form (About page) ────────────────
 // Send-only via Resend: emails the ticket to SUPPORT_EMAIL (default
