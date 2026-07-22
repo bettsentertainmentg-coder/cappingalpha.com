@@ -5,7 +5,7 @@
 // /auth/signup; never changes prices.
 
 import { state } from './state.js';
-import { isViewer, isPaying, googleAuthSubmit } from './auth.js';
+import { isViewer, isPaying, googleAuthSubmit, appleFlow } from './auth.js';
 import { startCheckout } from './paywall.js';
 
 const YES = '<span class="uc-yes">&#10003;</span>';
@@ -97,6 +97,10 @@ const UNLOCK_CSS = `
 .unlock-social-btn:hover { border-color:var(--accent); background:#222a3a; }
 .unlock-social-btn span { font-weight:900; width:20px; height:20px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; font-size:13px; flex-shrink:0; }
 .us-g { background:#fff; color:#4285F4; } .us-a { background:#fff; color:#000; } .us-f { background:#1877F2; color:#fff; }
+/* Standard Apple black button (shown only inside the native shell; 16px+ text) */
+.unlock-social-btn.us-apple { background:#000; border-color:#3a3f4d; color:#fff; font-size:16px; }
+.unlock-social-btn.us-apple:hover { border-color:#666; background:#000; }
+.unlock-social-btn.us-apple i { font-size:19px; position:relative; top:-1px; }
 .unlock-or { display:flex; align-items:center; gap:12px; color:var(--muted); font-size:12px; margin:18px 0; }
 .unlock-or::before, .unlock-or::after { content:''; flex:1; height:1px; background:var(--border); }
 .unlock-form { display:flex; flex-direction:column; gap:10px; }
@@ -368,6 +372,7 @@ function unlockHtml() {
         <p class="unlock-account-sub">Free gets you the number one pick. Make an account in seconds, then unlock all picks whenever you want.</p>
         ${refBanner}
         <div class="unlock-social">
+          <button class="unlock-social-btn us-apple" id="ua-apple-btn" style="display:none;" onclick="window.__unlockSoc('Apple')"><i class="fa-brands fa-apple" aria-hidden="true"></i> Continue with Apple</button>
           <button class="unlock-social-btn" onclick="window.__unlockSoc('Google')"><span class="us-g">G</span> Continue with Google</button>
         </div>
         <div class="unlock-or"><span>or</span></div>
@@ -453,6 +458,12 @@ export async function renderUnlock() {
   if (!panel) return;
   injectUnlockCss();
   panel.innerHTML = unlockHtml();
+  // "Continue with Apple" only exists inside the native shell (App Review wants
+  // it there; the web keeps Google + email only).
+  if (window.Capacitor?.isNativePlatform?.()) {
+    const ab = document.getElementById('ua-apple-btn');
+    if (ab) ab.style.display = '';
+  }
   try {
     const data = await fetch('/api/mvp/public').then(r => r.json());
     const bet = parseFloat(state.CONFIG?.bet_unit) || 10;
@@ -527,6 +538,11 @@ function loadGis() {
 async function unlockSoc(provider) {
   const err = document.getElementById('ua-err');
   if (err) { err.style.color = 'var(--muted)'; err.textContent = ''; }
+  if (provider === 'Apple') {
+    // Native-only (the button is hidden on web). Shared flow with the login modal.
+    await appleFlow((m) => { if (err) { err.style.color = ''; err.textContent = m; } });
+    return;
+  }
   const clientId = state.CONFIG?.google_client_id;
   if (provider !== 'Google' || !clientId) {
     if (err) err.textContent = `${provider} sign-in is coming soon. Create an account with email below for now.`;

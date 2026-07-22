@@ -2,6 +2,17 @@
 
 import { state } from './state.js';
 import { avatarFor } from './utils.js?v=4';
+import { isNative, appleSignIn, setToken } from './native.js?v=1';
+
+// Inside the app shell the auth endpoints return a bearer token when the body
+// carries client:'app'. Store it (Capacitor Preferences) before reloading so the
+// fetch interceptor authenticates every call from the next boot on.
+function appClientBody(body) {
+  return isNative() ? { ...body, client: 'app' } : body;
+}
+async function storeAppToken(data) {
+  if (isNative() && data && data.token) { try { await setToken(data.token); } catch (_) {} }
+}
 
 // ── Tier helpers ──────────────────────────────────────────────────────────────
 export function isViewer()  { return !state.currentUser; }
@@ -119,10 +130,11 @@ export async function doLogin() {
     const res  = await fetch('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(appClientBody({ email, password })),
     });
     const data = await res.json();
     if (!res.ok) { errEl.textContent = data.error || 'Login failed.'; return; }
+    await storeAppToken(data);
     location.reload();
   } catch (_) { errEl.textContent = 'Network error. Try again.'; }
 }
@@ -168,10 +180,11 @@ export async function doSignup() {
     const res  = await fetch('/auth/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, username, tos_agreed: true, public_leaderboard: publicLb, birth_year: birthYear }),
+      body: JSON.stringify(appClientBody({ email, password, username, tos_agreed: true, public_leaderboard: publicLb, birth_year: birthYear })),
     });
     const data = await res.json();
     if (!res.ok) { errEl.textContent = data.error || 'Signup failed.'; return; }
+    await storeAppToken(data);
     // Referral loop: if this visit came from a ?ref= share link, redeem it now
     // (session is live after signup). Best-effort — a bad code just no-ops.
     const ref = localStorage.getItem('ca_ref');
@@ -219,6 +232,12 @@ export async function doForgotPassword() {
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 export async function doLogout() {
+  if (isNative()) {
+    // Revoke the bearer token server-side (the interceptor attaches it), then
+    // drop the stored copy so the next boot starts signed out.
+    await fetch('/auth/logout-token', { method: 'POST' }).catch(() => {});
+    try { await setToken(null); } catch (_) {}
+  }
   await fetch('/auth/logout', { method: 'POST' }).catch(() => {});
   location.reload();
 }
@@ -270,23 +289,67 @@ async function collectGoogleConsent() {
 // POST an access token to /auth/google, transparently handling the new-account
 // consent gate (a 428 needs_consent response). Returns { ok } / { ok, error }.
 export async function googleAuthSubmit(access_token) {
-  let body = { access_token };
+  let body = appClientBody({ access_token });
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await fetch('/auth/google', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await r.json().catch(() => ({}));
-    if (r.ok) return { ok: true };
+    if (r.ok) { await storeAppToken(data); return { ok: true }; }
     if (r.status === 428 && data.needs_consent && attempt === 0) {
       const consent = await collectGoogleConsent();
       if (!consent) return { ok: false, error: 'Sign-up cancelled.' };
-      body = { access_token, ...consent };
+      body = appClientBody({ access_token, ...consent });
       continue;
     }
     return { ok: false, error: data.error || 'Google sign-in failed.' };
   }
   return { ok: false, error: 'Google sign-in failed.' };
+}
+
+// ── Continue with Apple (native shell only) ───────────────────────────────────
+// The native sheet returns an identity token; /auth/apple verifies it against
+// Apple's keys and signs the account in. Same 428 consent gate as Google for
+// brand-new accounts. The button is hidden on the plain web.
+async function appleAuthSubmit(cred) {
+  let body = { identity_token: cred.identity_token, user: cred.user || null, client: 'app' };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await fetch('/auth/apple', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) { await storeAppToken(data); return { ok: true }; }
+    if (r.status === 428 && data.needs_consent && attempt === 0) {
+      const consent = await collectGoogleConsent();
+      if (!consent) return { ok: false, error: 'Sign-up cancelled.' };
+      body = { ...body, ...consent };
+      continue;
+    }
+    return { ok: false, error: data.error || 'Apple sign-in failed.' };
+  }
+  return { ok: false, error: 'Apple sign-in failed.' };
+}
+
+// Shared Apple flow: the login modal and the unlock account card both call this
+// with their own error setter.
+export async function appleFlow(showErr) {
+  showErr('');
+  if (!isNative()) { showErr('Apple sign-in is available in the CappingAlpha app.'); return; }
+  let cred = null;
+  try { cred = await appleSignIn(); } catch (_) {}
+  if (!cred || !cred.identity_token) { showErr('Apple sign-in was cancelled.'); return; }
+  try {
+    const out = await appleAuthSubmit(cred);
+    if (!out.ok) { showErr(out.error || 'Apple sign-in failed.'); return; }
+    location.reload();
+  } catch (_) { showErr('Network error. Try again.'); }
+}
+
+export async function loginWithApple() {
+  const errEl = document.getElementById('login-error');
+  await appleFlow((m) => { if (errEl) errEl.textContent = m; });
 }
 
 export async function loginWithGoogle() {
@@ -315,6 +378,13 @@ export async function loginWithGoogle() {
 Object.assign(window, {
   openLogin, closeLogin, doLogin,
   openSignup, closeSignup, doSignup,
-  doLogout, loginWithGoogle,
+  doLogout, loginWithGoogle, loginWithApple,
   showForgotPassword, showLoginForm, doForgotPassword,
 });
+
+// The "Continue with Apple" button ships in the markup but only shows inside the
+// native shell (Apple requires it there; the web keeps Google + email only).
+if (window.Capacitor?.isNativePlatform?.()) {
+  const appleBtn = document.getElementById('login-apple-btn');
+  if (appleBtn) appleBtn.style.display = '';
+}

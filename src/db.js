@@ -1036,6 +1036,30 @@ try { db.exec(`ALTER TABLE users ADD COLUMN username_changed_at TEXT`); } catch 
 try { db.exec(`ALTER TABLE users ADD COLUMN tos_accepted_at TEXT`); } catch (_) {}
 // Google sign-in: links a users row to a Google account (payload.sub).
 try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT`); } catch (_) {}
+// Sign in with Apple: links a users row to an Apple account (token sub). Partial
+// unique index (NULLs excluded) so at most one live row per Apple account.
+try { db.exec(`ALTER TABLE users ADD COLUMN apple_id TEXT`); } catch (_) {}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_apple_id ON users(apple_id) WHERE apple_id IS NOT NULL`); } catch (_) {}
+
+// ── App bearer tokens (Phase 7b) ──────────────────────────────────────────────
+// The native shell can't ride session cookies cross-origin, so /auth issues a
+// bearer token when the request body carries client:'app'. Only the sha256 hash
+// is stored; the raw token is returned once and lives in Capacitor Preferences.
+// Sliding expiry: rows idle for 90+ days are purged on use/issuance.
+// NEVER wiped (not in wipe.js FULL_WIPE_TABLES — that list is an allowlist).
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_tokens (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used  TEXT NOT NULL DEFAULT (datetime('now')),
+      label      TEXT
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_user_tokens_user ON user_tokens (user_id)`);
+} catch (_) {}
 // In-app account deletion (Apple 5.1.1(v) / Google Play). Tombstone: the row is
 // anonymized and stamped so login is blocked and the first-time-trial guard
 // (stripe_customer_id) survives, while every child row is hard-purged.

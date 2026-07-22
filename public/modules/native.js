@@ -9,9 +9,11 @@
 //   isNative()        - platform test every other module can use
 //   apiUrl(path)      - prepends the API base inside the app (bundled shell talks
 //                       to cappingalpha.com; on web, paths stay relative)
-//   authHeaders()     - Authorization: Bearer header once a token is stored (7b
-//                       wires the server side; storage side is ready now)
+//   authHeaders()     - Authorization: Bearer header once a token is stored
 //   setToken/getToken - bearer token in Capacitor Preferences (native only)
+//   installFetchInterceptor() - routes /api/ + /auth/ fetches to the API base
+//                       with the bearer header attached (7b; inert on web)
+//   appleSignIn()     - native Sign in with Apple sheet -> { identity_token, user }
 //   haptic(kind)      - tap feedback: 'light' | 'medium' | 'success' | 'selection'
 //   initNative()      - boot: splash handoff, status bar, external-link routing,
 //                       deep-link handling. Called once from app.js.
@@ -57,6 +59,61 @@ export async function authHeaders() {
   return t ? { Authorization: 'Bearer ' + t } : {};
 }
 
+// ── Fetch interceptor (Phase 7b) ──────────────────────────────────────────────
+// Inside the shell, every module still fetches relative paths ('/api/...',
+// '/auth/...'). Wrapping window.fetch prepends the API base and attaches the
+// bearer token, so no other module needs app-specific fetch code. Inert on web.
+let _fetchWrapped = false;
+export function installFetchInterceptor() {
+  if (_fetchWrapped || !isNative()) return;
+  _fetchWrapped = true;
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function (input, init) {
+    try {
+      const url = typeof input === 'string' ? input
+        : (input instanceof URL) ? input.href
+        : (input && typeof input.url === 'string') ? input.url : '';
+      if (url.startsWith('/api/') || url.startsWith('/auth/')) {
+        const t = await getToken();
+        if (input instanceof Request) {
+          // Rebuild the Request against the API base, keeping method/body/headers.
+          const rebuilt = new Request(API_BASE + url, input);
+          if (t && !rebuilt.headers.has('Authorization')) {
+            rebuilt.headers.set('Authorization', 'Bearer ' + t);
+          }
+          return origFetch(rebuilt, init);
+        }
+        const opts = Object.assign({}, init);
+        const headers = new Headers(opts.headers || {});
+        if (t && !headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + t);
+        opts.headers = headers;
+        return origFetch(API_BASE + url, opts);
+      }
+    } catch (_) { /* fall through to the untouched fetch */ }
+    return origFetch(input, init);
+  };
+}
+
+// ── Sign in with Apple (native only) ──────────────────────────────────────────
+// @capacitor-community/apple-sign-in registers as Plugins.SignInWithApple. On
+// iOS the native sheet ignores clientId/redirectURI (web-only options), so we
+// just ask for email + fullName. Returns { identity_token, user } or null
+// (cancelled / unavailable / web).
+export async function appleSignIn() {
+  if (!isNative()) return null;
+  const P = plugin('SignInWithApple');
+  if (!P) return null;
+  try {
+    const result = await P.authorize({ scopes: 'email name' });
+    const r = (result && result.response) || {};
+    if (!r.identityToken) return null;
+    const name = [r.givenName, r.familyName].filter(Boolean).join(' ') || null;
+    return { identity_token: r.identityToken, user: { name } };
+  } catch (_) {
+    return null; // user cancelled or the sheet failed — caller shows a soft error
+  }
+}
+
 // ── Haptics: no-ops without a bridge or on devices without an engine ──
 export function haptic(kind = 'light') {
   if (!isNative()) return;
@@ -90,6 +147,10 @@ export function hideSplash() {
 
 export function initNative() {
   if (!isNative()) return;
+
+  // Route every /api/ + /auth/ fetch to the API base with the bearer token
+  // attached. MUST install before the first checkAuth() fetch in app.js boot.
+  installFetchInterceptor();
 
   // Splash safety net: if boot throws before the first-paint hide fires, drop the
   // splash anyway rather than hanging the app on it.

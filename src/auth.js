@@ -14,15 +14,86 @@ function userPayload(row) {
   return { id: row.id, email: row.email, tier: row.subscription_tier, username: row.username || null };
 }
 
-// Regenerate the session id on every privilege change (login/signup/Google), so a
-// pre-planted session cookie cannot be replayed as the authenticated user
+// The one way to read "who is making this request". Web requests carry a session
+// cookie; the native app carries a bearer token (bearerMiddleware below sets
+// req.bearerUser). Every user read outside this file goes through here — a direct
+// req.session.user read would silently break that feature for app users.
+function userOf(req) {
+  return req?.bearerUser || (req?.session && req.session.user) || null;
+}
+
+// ── App bearer tokens (Phase 7b) ──────────────────────────────────────────────
+// The Capacitor shell (capacitor://localhost / https://localhost) cannot use the
+// session cookie cross-origin, so the auth endpoints hand it a bearer token when
+// the request body says client:'app'. Only the sha256 hash is stored.
+const TOKEN_IDLE_DAYS = 90;
+
+function sha256Hex(s) {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
+
+function issueToken(userId, label) {
+  const raw = crypto.randomBytes(32).toString('hex');
+  db.prepare(`
+    INSERT INTO user_tokens (user_id, token_hash, created_at, last_used, label)
+    VALUES (?, ?, datetime('now'), datetime('now'), ?)
+  `).run(userId, sha256Hex(raw), label || null);
+  // Sliding expiry: cheap global sweep of tokens idle 90+ days.
+  try { db.prepare(`DELETE FROM user_tokens WHERE last_used < datetime('now', '-${TOKEN_IDLE_DAYS} days')`).run(); } catch (_) {}
+  return raw;
+}
+
+// Mounted in index.js right after the session middleware. Accepts a bearer token
+// when no session user exists, and sets req.bearerUser without ever writing to
+// req.session (that would mint a session row per API call).
+function bearerMiddleware(req, res, next) {
+  try {
+    if (req.session?.user) return next();
+    const hdr = req.headers.authorization || '';
+    if (!hdr.startsWith('Bearer ')) return next();
+    const raw = hdr.slice(7).trim();
+    if (!/^[a-f0-9]{64}$/i.test(raw)) return next();
+    const row = db.prepare(`
+      SELECT t.id AS token_id, t.last_used AS token_last_used,
+             u.id, u.email, u.username, u.subscription_tier AS tier
+      FROM user_tokens t JOIN users u ON u.id = t.user_id
+      WHERE t.token_hash = ? AND u.deleted_at IS NULL
+    `).get(sha256Hex(raw));
+    if (!row) return next();
+    // Sliding expiry: a token idle past the window is dead on presentation.
+    const lastMs = Date.parse(String(row.token_last_used || '').replace(' ', 'T') + 'Z');
+    if (Number.isFinite(lastMs) && Date.now() - lastMs > TOKEN_IDLE_DAYS * 24 * 60 * 60 * 1000) {
+      db.prepare(`DELETE FROM user_tokens WHERE id = ?`).run(row.token_id);
+      return next();
+    }
+    // Throttled touch: only stamp last_used when it's over an hour stale.
+    if (!Number.isFinite(lastMs) || Date.now() - lastMs > 60 * 60 * 1000) {
+      db.prepare(`UPDATE user_tokens SET last_used = datetime('now') WHERE id = ?`).run(row.token_id);
+    }
+    req.bearerUser = { id: row.id, email: row.email, username: row.username || null, tier: row.tier };
+  } catch (err) {
+    console.warn('[auth] bearer middleware error:', err.message);
+  }
+  next();
+}
+
+// Regenerate the session id on every privilege change (login/signup/Google/Apple),
+// so a pre-planted session cookie cannot be replayed as the authenticated user
 // (session fixation). Stamp the user onto the fresh session and persist it first.
+// The native app (body client:'app') also gets a bearer token in the response —
+// the raw token appears exactly once, here.
 function establishSession(req, res, user) {
   const payload = userPayload(user);
+  let token = null;
+  if (req.body && req.body.client === 'app') {
+    try { token = issueToken(user.id, 'app'); }
+    catch (err) { console.error('[auth] token issue failed:', err.message); }
+  }
+  const respond = () => res.json(token ? { success: true, user: payload, token } : { success: true, user: payload });
   req.session.regenerate((err) => {
     req.session.user = payload;
-    if (err) return res.json({ success: true, user: payload });
-    req.session.save(() => res.json({ success: true, user: payload }));
+    if (err) return respond();
+    req.session.save(respond);
   });
 }
 
@@ -180,9 +251,100 @@ router.post('/google', express.json(), async (req, res) => {
   establishSession(req, res, user);
 });
 
+// ── POST /auth/apple — Sign in with Apple (native app) ────────────────────────
+// The shell sends the identity token from the native Sign in with Apple sheet.
+// We verify the JWT signature against Apple's published JWKS (jose caches the
+// keys), pin issuer + audience (our app id), then find-or-create the account the
+// same way /auth/google does. Private-relay addresses are ordinary emails here.
+const { createRemoteJWKSet, jwtVerify } = require('jose');
+const APPLE_ISSUER   = 'https://appleid.apple.com';
+const APPLE_AUDIENCE = 'com.cappingalpha.app';
+let _appleJwks = null;
+function appleJwks() {
+  if (!_appleJwks) _appleJwks = createRemoteJWKSet(new URL('https://appleid.apple.com/auth/keys'));
+  return _appleJwks;
+}
+
+router.post('/apple', express.json(), async (req, res) => {
+  const { identity_token } = req.body || {};
+  if (!identity_token || typeof identity_token !== 'string') {
+    return res.status(400).json({ error: 'Missing Apple token.' });
+  }
+
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(identity_token, appleJwks(), {
+      issuer:   APPLE_ISSUER,
+      audience: APPLE_AUDIENCE,
+    }));
+  } catch (err) {
+    console.warn('[auth] Apple token verify failed:', err.message);
+    return res.status(401).json({ error: 'Could not verify Apple sign-in.' });
+  }
+
+  const appleId = payload.sub;
+  const email   = (payload.email || '').toLowerCase().trim();
+  if (!appleId) return res.status(400).json({ error: 'Apple sign-in is missing an account id.' });
+  const emailVerified = !(payload.email_verified === false || payload.email_verified === 'false');
+
+  // 1) known apple_id  2) same verified email (link it)  3) brand-new account.
+  // Tombstoned rows are excluded so a re-signin starts a fresh account.
+  let user = db.prepare(`SELECT * FROM users WHERE apple_id = ? AND deleted_at IS NULL`).get(appleId);
+  if (!user && email && emailVerified) {
+    const byEmail = db.prepare(`SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND deleted_at IS NULL`).get(email);
+    if (byEmail) {
+      // Same pre-hijack defense as the Google path: Apple has verified this
+      // address belongs to the person signing in now, so linking + invalidating
+      // the existing password + burning reset tokens evicts an email squatter.
+      const deadHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
+      db.prepare(`UPDATE users SET apple_id = ?, password_hash = ? WHERE id = ?`).run(appleId, deadHash, byEmail.id);
+      db.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).run(byEmail.id);
+      user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(byEmail.id);
+      console.log(`[auth] Linked Apple to existing email ${email} (password reset for safety)`);
+    }
+  }
+  if (!user) {
+    // Apple only sends the email on the FIRST authorization. If we get here with
+    // no email, the original account is gone or unlinked and we can't create one.
+    if (!email) return res.status(400).json({ error: 'Apple did not share an email for this account. Remove CappingAlpha from Sign in with Apple settings and try again.' });
+    if (!emailVerified) return res.status(403).json({ error: 'Your Apple email is not verified.' });
+    // Brand-new account: same 18+ / ToS consent gate as the Google path.
+    const tosAgreed = req.body?.tos_agreed === true;
+    const birthYear = parseInt(req.body?.birth_year, 10);
+    const nowYear = new Date().getFullYear();
+    const ageOk = Number.isInteger(birthYear) && birthYear >= 1900 && birthYear <= nowYear && (nowYear - birthYear) >= 18;
+    if (!tosAgreed || !ageOk) {
+      return res.status(428).json({ needs_consent: true, error: 'Please confirm you are 18 or older and agree to the Terms.' });
+    }
+    const username   = deriveUsername(email);
+    const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), SALT_ROUNDS);
+    const result = db.prepare(`
+      INSERT INTO users (email, password_hash, subscription_tier, username, apple_id, tos_accepted_at, birth_year)
+      VALUES (?, ?, 'free', ?, ?, datetime('now'), ?)
+    `).run(email, randomHash, username, appleId, birthYear);
+    try {
+      db.prepare(`INSERT OR IGNORE INTO user_preferences (user_id, favorite_sports) VALUES (?, '[]')`)
+        .run(result.lastInsertRowid);
+    } catch (_) {}
+    user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(result.lastInsertRowid);
+    console.log(`[auth] New Apple account: ${email} (@${username})`);
+  }
+
+  establishSession(req, res, user);
+});
+
 // ── POST /auth/logout ─────────────────────────────────────────────────────────
 router.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ success: true }));
+});
+
+// ── POST /auth/logout-token — revoke the presented bearer token (app logout) ──
+router.post('/logout-token', (req, res) => {
+  const hdr = req.headers.authorization || '';
+  if (!hdr.startsWith('Bearer ')) return res.status(400).json({ error: 'No token presented.' });
+  const raw = hdr.slice(7).trim();
+  try { db.prepare(`DELETE FROM user_tokens WHERE token_hash = ?`).run(sha256Hex(raw)); } catch (_) {}
+  res.json({ success: true });
 });
 
 // ── DELETE /auth/account — in-app account deletion (Apple 5.1.1(v) / Google) ────
@@ -191,7 +353,7 @@ router.post('/logout', (req, res) => {
 // then anonymizes + tombstones the users row. stripe_customer_id is kept so the
 // first-time-trial guard cannot be reset by delete-and-resubscribe.
 router.delete('/account', express.json(), async (req, res) => {
-  const sessionUser = req.session?.user;
+  const sessionUser = userOf(req);
   if (!sessionUser) return res.status(401).json({ error: 'You must be logged in.' });
   if (req.body?.confirm !== true && req.body?.confirm !== 'DELETE') {
     return res.status(400).json({ error: 'Deletion must be confirmed.' });
@@ -226,12 +388,13 @@ router.delete('/account', express.json(), async (req, res) => {
     db.prepare(`DELETE FROM code_redemptions WHERE user_id = ?`).run(userId);
     db.prepare(`DELETE FROM referral_redemptions WHERE referred_id = ? OR referrer_id = ?`).run(userId, userId);
     db.prepare(`DELETE FROM password_reset_tokens WHERE user_id = ?`).run(userId);
+    try { db.prepare(`DELETE FROM user_tokens WHERE user_id = ?`).run(userId); } catch (_) {}
     try { db.prepare(`DELETE FROM sessions WHERE json_extract(sess, '$.user.id') = ?`).run(userId); } catch (_) {}
     db.prepare(`
       UPDATE users SET
         email = 'deleted+' || id || '@deleted.invalid',
         username = NULL, password_hash = '!', avatar_path = NULL,
-        google_id = NULL, referral_code = NULL,
+        google_id = NULL, apple_id = NULL, referral_code = NULL,
         subscription_tier = 'free', subscription_expires = NULL,
         stripe_subscription_id = NULL, is_dummy = 0,
         deleted_at = datetime('now')
@@ -250,9 +413,17 @@ router.delete('/account', express.json(), async (req, res) => {
 
 // ── GET /auth/me ──────────────────────────────────────────────────────────────
 router.get('/me', (req, res) => {
-  if (!req.session?.user) return res.json({ user: null });
+  const su = userOf(req);
+  if (!su) {
+    // A presented-but-invalid bearer token gets a hard 401 (not a soft null) so
+    // the app shell knows to clear its stored token. Web never sends the header.
+    if ((req.headers.authorization || '').startsWith('Bearer ')) {
+      return res.status(401).json({ user: null, error: 'Invalid token.' });
+    }
+    return res.json({ user: null });
+  }
   // Re-fetch from DB so subscription_expires is fresh
-  const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.session.user.id);
+  const row = db.prepare(`SELECT * FROM users WHERE id = ?`).get(su.id);
   if (!row) return res.json({ user: null });
   if (row.deleted_at) { return req.session.destroy(() => res.json({ user: null })); }
   // unit_size rides along so the betslip's default stake is right from the first
@@ -272,7 +443,7 @@ router.get('/me', (req, res) => {
 
 // ── POST /auth/redeem-code ────────────────────────────────────────────────────
 router.post('/redeem-code', express.json(), (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'You must be logged in to redeem a code.' });
+  if (!userOf(req)) return res.status(401).json({ error: 'You must be logged in to redeem a code.' });
 
   const { code } = req.body || {};
   if (!code) return res.status(400).json({ error: 'No code provided.' });
@@ -287,7 +458,8 @@ router.post('/redeem-code', express.json(), (req, res) => {
     return res.status(401).json({ error: 'Invalid code. Try again.' });
   }
 
-  const userId  = req.session.user.id;
+  const su      = userOf(req);
+  const userId  = su.id;
   const maxUses = row.max_uses == null ? 1 : row.max_uses;   // 0 = unlimited
 
   // Can't redeem the same code twice.
@@ -333,9 +505,11 @@ router.post('/redeem-code', express.json(), (req, res) => {
       .run(userId, row.id);
   }
 
-  console.log(`[auth] Code "${row.code}" redeemed by user ${userId} (${req.session.user.email || req.session.user.username}), use ${used + 1}/${maxUses === 0 ? '∞' : maxUses}, expires: ${expires || 'never'}`);
+  console.log(`[auth] Code "${row.code}" redeemed by user ${userId} (${su.email || su.username}), use ${used + 1}/${maxUses === 0 ? '∞' : maxUses}, expires: ${expires || 'never'}`);
 
-  req.session.user.tier = newTier;
+  // For web `su` IS the session user object, so this persists in-session; for a
+  // bearer request it's the per-request object (the DB row is the truth anyway).
+  su.tier = newTier;
   res.json({ success: true });
 });
 
@@ -363,7 +537,8 @@ function grantAccessDays(userId, days) {
 }
 
 function redeemReferral(req, res, referrer) {
-  const userId = req.session.user.id;
+  const su     = userOf(req);
+  const userId = su.id;
   if (referrer.id === userId) {
     return res.status(400).json({ error: 'That is your own referral code. Share it with a friend instead.' });
   }
@@ -381,7 +556,7 @@ function redeemReferral(req, res, referrer) {
   if (earned * REFERRAL_GRANT_DAYS <= REFERRAL_EARN_CAP) grantAccessDays(referrer.id, REFERRAL_GRANT_DAYS);
 
   console.log(`[auth] Referral code of user ${referrer.id} redeemed by user ${userId} (referral #${earned}, +${REFERRAL_GRANT_DAYS}d each)`);
-  req.session.user.tier = newTier;
+  su.tier = newTier;
   res.json({ success: true, referral: true });
 }
 
@@ -449,7 +624,7 @@ const PLANS = {
 
 // POST /auth/create-checkout-session
 router.post('/create-checkout-session', express.json(), async (req, res) => {
-  const user = req.session?.user;
+  const user = userOf(req);
   if (!user) return res.status(401).json({ error: 'You must be logged in to purchase.' });
 
   const { priceId } = req.body || {};
@@ -581,14 +756,15 @@ async function stripeWebhook(req, res) {
 
 // ── PUT /auth/username ────────────────────────────────────────────────────────
 router.put('/username', express.json(), async (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Not logged in.' });
+  const su = userOf(req);
+  if (!su) return res.status(401).json({ error: 'Not logged in.' });
   const { username } = req.body || {};
   if (!username) return res.status(400).json({ error: 'Username is required.' });
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
     return res.status(400).json({ error: 'Username must be 3–20 characters: letters, numbers, and underscores only.' });
   }
 
-  const row = db.prepare(`SELECT username, username_changed_at FROM users WHERE id = ?`).get(req.session.user.id);
+  const row = db.prepare(`SELECT username, username_changed_at FROM users WHERE id = ?`).get(su.id);
   if (row.username_changed_at) {
     const lastChange = new Date(row.username_changed_at + 'Z');
     const daysSince  = (Date.now() - lastChange.getTime()) / (1000 * 60 * 60 * 24);
@@ -598,12 +774,12 @@ router.put('/username', express.json(), async (req, res) => {
     }
   }
 
-  const taken = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?`).get(username, req.session.user.id);
+  const taken = db.prepare(`SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?`).get(username, su.id);
   if (taken) return res.status(409).json({ error: 'That username is already taken.' });
 
   db.prepare(`UPDATE users SET username = ?, username_changed_at = datetime('now') WHERE id = ?`)
-    .run(username.trim(), req.session.user.id);
-  req.session.user.username = username.trim();
+    .run(username.trim(), su.id);
+  su.username = username.trim();
   res.json({ success: true, username: username.trim() });
 });
 
@@ -723,9 +899,11 @@ router.post('/reset-password', express.json(), async (req, res) => {
   const hash = await bcrypt.hash(password, SALT_ROUNDS);
   db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(hash, row.user_id);
   // Burn every outstanding reset token for this user, not just the one used, and
-  // evict all their active sessions so a reset actually ends a compromise.
+  // evict all their active sessions AND app bearer tokens so a reset actually
+  // ends a compromise on every device.
   db.prepare(`UPDATE password_reset_tokens SET used = 1 WHERE user_id = ?`).run(row.user_id);
   try { db.prepare(`DELETE FROM sessions WHERE json_extract(sess, '$.user.id') = ?`).run(row.user_id); } catch (_) {}
+  try { db.prepare(`DELETE FROM user_tokens WHERE user_id = ?`).run(row.user_id); } catch (_) {}
 
   res.json({ success: true });
 });
@@ -737,7 +915,7 @@ router.post('/reset-password', express.json(), async (req, res) => {
 // missed Stripe webhook would otherwise read as paid forever), so re-check the DB
 // and honor subscription_expires. NULL expiry = lifetime / comp access.
 function isPaid(req) {
-  const u = req?.session?.user;
+  const u = userOf(req);
   if (!u) return false;
   // The DB is authoritative, NOT the session tier. A just-completed Stripe webhook
   // updates the DB row but the in-memory session still says 'free', so short-
@@ -760,8 +938,9 @@ function isPaid(req) {
 
 // True for any logged-in user (free account, code, or paid). The #1 ranked pick
 // is gated on this — logged-out visitors must create an account to see it.
+// Covers both the web session and the app bearer token.
 function isAuthed(req) {
-  return !!req?.session?.user;
+  return !!userOf(req);
 }
 
 // ── Middleware: require paid tier ─────────────────────────────────────────────
@@ -769,7 +948,7 @@ function requirePaid(req, res, next) {
   if (!isPaid(req)) {
     // A 403 on a paid endpoint is always worth a trace: it's either an expired
     // grant (expected) or a session/cookie problem (a paying user locked out).
-    const u = req?.session?.user;
+    const u = userOf(req);
     console.warn(`[paywall] 403 ${req.path} — ${u ? `user ${u.id} (${u.email || 'no email'}) tier ${u.tier}` : 'no session'}`);
     return res.status(403).json({ error: 'Paid subscription required.' });
   }
@@ -782,3 +961,6 @@ module.exports.isAuthed           = isAuthed;
 module.exports.requirePaid        = requirePaid;
 module.exports.stripeWebhook      = stripeWebhook;
 module.exports.ensureReferralCode = ensureReferralCode;
+module.exports.userOf             = userOf;
+module.exports.bearerMiddleware   = bearerMiddleware;
+module.exports.issueToken         = issueToken;

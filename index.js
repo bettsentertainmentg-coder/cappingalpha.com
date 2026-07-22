@@ -182,6 +182,11 @@ const CSP = [
   "form-action 'self'",
   "frame-ancestors 'self'",
 ].join('; ');
+// CORS for the native app shell ONLY (Phase 7b). The Capacitor webview serves the
+// bundled frontend from capacitor://localhost (iOS) / https://localhost (Android),
+// so its API calls are cross-origin. Auth rides a bearer token, not cookies, so
+// Allow-Credentials is deliberately absent. Any other Origin gets no CORS headers.
+const APP_ORIGINS = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost']);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -191,6 +196,17 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', CSP);
   if (process.env.SESSION_SECURE) {
     res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  }
+  const origin = req.headers.origin;
+  if (origin && APP_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Max-Age', '600');
+      return res.status(204).end();
+    }
   }
   next();
 });
@@ -216,8 +232,17 @@ app.use(session({
     maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days (rolling — refreshed each visit)
   },
 }));
+// App bearer tokens (Phase 7b): when a request carries Authorization: Bearer and
+// no session user, resolve it to req.bearerUser. Never writes to req.session
+// (that would mint a session row per API call). auth.userOf(req) is the single
+// read path for "who is this" across index.js + src/*.
+app.use(auth.bearerMiddleware);
 app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
+// OAuth token endpoints share the login limiter budget: each POST is a
+// find-or-create-account attempt, same abuse surface as /auth/login.
+app.use('/auth/google', loginRateLimit);
+app.use('/auth/apple',  loginRateLimit);
 // Throttle the other unauthenticated / brute-forceable auth writes.
 app.use('/auth/forgot-password', makeRateLimit({ max: 5,  windowMs: 15 * 60 * 1000, msg: 'Too many reset requests. Try again in 15 minutes.' }));
 app.use('/auth/redeem-code',     makeRateLimit({ max: 10, windowMs: 15 * 60 * 1000, msg: 'Too many code attempts. Try again in 15 minutes.' }));
@@ -569,8 +594,8 @@ app.post('/api/support', supportRateLimit, async (req, res) => {
 
   const dest      = process.env.SUPPORT_EMAIL || 'support@cappingalpha.com';
   const safeTopic = (topic || 'General').toString().slice(0, 40);
-  const acct      = req.session?.user
-    ? `${req.session.user.email || req.session.user.username} (#${req.session.user.id})`
+  const acct      = auth.userOf(req)
+    ? `${auth.userOf(req).email || auth.userOf(req).username} (#${auth.userOf(req).id})`
     : 'not logged in';
 
   if (!process.env.RESEND_API_KEY) {
@@ -1210,7 +1235,7 @@ app.get('/api/esports/top', (req, res) => {
 // Public read; "me" only resolves when logged in.
 app.get('/api/leaderboard', (req, res) => {
   const window = (req.query.window || 'week').toLowerCase();
-  const meId   = req.session?.user?.id ?? null;
+  const meId   = auth.userOf(req)?.id ?? null;
   try {
     res.json(getLeaderboard(window, meId, {
       scope: (req.query.scope || 'all').toLowerCase(),
@@ -1226,9 +1251,9 @@ app.get('/api/leaderboard', (req, res) => {
 // Friends page). Each entry carries all-time stats + a mutual flag, clickable
 // through to the full profile popup.
 app.get('/api/friends', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   try {
-    res.json(getFriendsList(req.session.user.id));
+    res.json(getFriendsList(auth.userOf(req).id));
   } catch (err) {
     console.error('[friends]', err.message);
     res.status(500).json({ error: 'Failed to load friends' });
@@ -1238,8 +1263,8 @@ app.get('/api/friends', (req, res) => {
 // POST/DELETE /api/follow/:userId — follow or unfollow a member (one-way, Twitter
 // style). Returns the target's updated follower count + your new follow state.
 app.post('/api/follow/:userId', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const me = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const me = auth.userOf(req).id;
   const target = parseInt(req.params.userId, 10);
   if (!Number.isInteger(target)) return res.status(400).json({ error: 'Bad user id' });
   if (target === me) return res.status(400).json({ error: 'You cannot follow yourself' });
@@ -1260,8 +1285,8 @@ app.post('/api/follow/:userId', (req, res) => {
 });
 
 app.delete('/api/follow/:userId', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const me = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const me = auth.userOf(req).id;
   const target = parseInt(req.params.userId, 10);
   if (!Number.isInteger(target)) return res.status(400).json({ error: 'Bad user id' });
   db.prepare(`DELETE FROM follows WHERE follower_id = ? AND followee_id = ?`).run(me, target);
@@ -1273,7 +1298,7 @@ app.delete('/api/follow/:userId', (req, res) => {
 app.get('/api/member/:userId', (req, res) => {
   const userId = parseInt(req.params.userId, 10);
   if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Bad user id' });
-  const meId = req.session?.user?.id ?? null;
+  const meId = auth.userOf(req)?.id ?? null;
   const window = (req.query.window || 'all').toLowerCase();
   try {
     const profile = getMemberProfile(userId, meId, window);
@@ -1297,9 +1322,9 @@ app.get('/api/member/:userId', (req, res) => {
 // Everything is session-gated and derived per caller; nothing here exposes CA
 // pick details (the house card is a paywall-safe tease).
 app.get('/api/social/feed', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   try {
-    res.json(social.getFeed(req.session.user.id, { cursor: req.query.cursor || null }));
+    res.json(social.getFeed(auth.userOf(req).id, { cursor: req.query.cursor || null }));
   } catch (err) {
     console.error('[social feed]', err.message);
     res.status(500).json({ error: 'Failed to load feed' });
@@ -1307,9 +1332,9 @@ app.get('/api/social/feed', (req, res) => {
 });
 
 app.get('/api/social/suggested', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   try {
-    res.json(social.getSuggested(req.session.user.id));
+    res.json(social.getSuggested(auth.userOf(req).id));
   } catch (err) {
     console.error('[social suggested]', err.message);
     res.status(500).json({ error: 'Failed to load suggestions' });
@@ -1317,9 +1342,9 @@ app.get('/api/social/suggested', (req, res) => {
 });
 
 app.get('/api/members/search', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   try {
-    res.json(social.searchMembers(req.session.user.id, req.query.q || ''));
+    res.json(social.searchMembers(auth.userOf(req).id, req.query.q || ''));
   } catch (err) {
     console.error('[member search]', err.message);
     res.status(500).json({ error: 'Search failed' });
@@ -1327,36 +1352,36 @@ app.get('/api/members/search', (req, res) => {
 });
 
 app.post('/api/social/react', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const out = social.boost(req.session.user.id, String(req.body?.key || ''));
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const out = social.boost(auth.userOf(req).id, String(req.body?.key || ''));
   if (out.error) return res.status(404).json(out);
   res.json(out);
 });
 app.delete('/api/social/react', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  res.json(social.unboost(req.session.user.id, String(req.body?.key || req.query.key || '')));
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  res.json(social.unboost(auth.userOf(req).id, String(req.body?.key || req.query.key || '')));
 });
 
 app.get('/api/social/comments', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  res.json(social.listComments(req.session.user.id, String(req.query.key || '')));
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  res.json(social.listComments(auth.userOf(req).id, String(req.query.key || '')));
 });
 app.post('/api/social/comments', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const out = social.addComment(req.session.user.id, String(req.body?.key || ''), req.body?.body);
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const out = social.addComment(auth.userOf(req).id, String(req.body?.key || ''), req.body?.body);
   if (out.error) return res.status(400).json(out);
   res.json(out);
 });
 app.delete('/api/social/comments/:id', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const out = social.deleteComment(req.session.user.id, parseInt(req.params.id, 10));
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const out = social.deleteComment(auth.userOf(req).id, parseInt(req.params.id, 10));
   if (out.error) return res.status(403).json(out);
   res.json(out);
 });
 
 app.post('/api/social/report', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const out = social.report(req.session.user.id, {
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const out = social.report(auth.userOf(req).id, {
     subject_key: req.body?.subject_key || null,
     subject_user: Number.isInteger(parseInt(req.body?.subject_user, 10)) ? parseInt(req.body.subject_user, 10) : null,
     reason: req.body?.reason || '',
@@ -1366,14 +1391,14 @@ app.post('/api/social/report', (req, res) => {
 });
 
 app.post('/api/social/block/:userId', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const out = social.block(req.session.user.id, parseInt(req.params.userId, 10), req.body?.kind);
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const out = social.block(auth.userOf(req).id, parseInt(req.params.userId, 10), req.body?.kind);
   if (out.error) return res.status(400).json(out);
   res.json(out);
 });
 app.delete('/api/social/block/:userId', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  res.json(social.unblock(req.session.user.id, parseInt(req.params.userId, 10)));
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  res.json(social.unblock(auth.userOf(req).id, parseInt(req.params.userId, 10)));
 });
 
 // GET /api/ca-profile/summary — CappingAlpha's all-time record per display sport
@@ -1404,8 +1429,8 @@ app.get('/api/ca-profile/:sport', (req, res) => {
 
 // GET /api/account — current user's profile + preferences + today's voted picks
 app.get('/api/account', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const userId = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const userId = auth.userOf(req).id;
 
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1476,8 +1501,8 @@ app.get('/api/account', (req, res) => {
 // game on today's board where the user has action (a vote, a pending tracked
 // bet, or a pending parlay leg), with live scores/state and the user's slots.
 app.get('/api/my/live', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const userId = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const userId = auth.userOf(req).id;
 
   const byGame = new Map();
   const addSlot = (gameId, slot) => {
@@ -1534,7 +1559,7 @@ app.get('/api/my/live', (req, res) => {
 
 // DELETE /api/game/:espn_game_id/vote — remove a vote while game is still pre-game
 app.delete('/api/game/:espn_game_id/vote', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
 
   const { espn_game_id } = req.params;
   const { slot } = req.body || {};
@@ -1548,7 +1573,7 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
   }
 
   db.prepare(`DELETE FROM game_votes WHERE user_id = ? AND espn_game_id = ? AND pick_slot = ?`)
-    .run(req.session.user.id, espn_game_id, slot);
+    .run(auth.userOf(req).id, espn_game_id, slot);
 
   res.json({ ok: true });
 });
@@ -1560,24 +1585,24 @@ app.get('/api/push/key', (req, res) => {
   res.json({ key });
 });
 app.post('/api/push/subscribe', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const ok = push.saveSubscription(req.session.user.id, req.body || {});
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const ok = push.saveSubscription(auth.userOf(req).id, req.body || {});
   if (!ok) return res.status(400).json({ error: 'Invalid subscription' });
   res.json({ ok: true });
 });
 app.delete('/api/push/subscribe', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   const endpoint = (req.body || {}).endpoint;
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
-  push.removeSubscription(req.session.user.id, endpoint);
+  push.removeSubscription(auth.userOf(req).id, endpoint);
   res.json({ ok: true });
 });
 
 // PUT /api/account/preferences — save favorite sports and/or leaderboard privacy.
 // Accepts a partial body: only the fields present are changed; the rest are kept.
 app.put('/api/account/preferences', (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const userId = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const userId = auth.userOf(req).id;
   const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
@@ -1667,8 +1692,8 @@ app.put('/api/account/preferences', (req, res) => {
 // Dependency-free (no multer): { image: 'data:image/png;base64,...' }. Stored on
 // the data volume at data/avatars/<userId>.<ext>; users.avatar_path keeps the name.
 app.post('/api/account/avatar', express.json({ limit: '4mb' }), (req, res) => {
-  if (!req.session?.user) return res.status(401).json({ error: 'Login required' });
-  const userId = req.session.user.id;
+  if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
+  const userId = auth.userOf(req).id;
   const { image } = req.body || {};
 
   const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=]+)$/.exec(image || '');
@@ -1749,10 +1774,10 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
 
   // Current user's votes
   let userVote = {};
-  if (req.session?.user?.id) {
+  if (auth.userOf(req)?.id) {
     const userVotes = db.prepare(`
       SELECT pick_slot FROM game_votes WHERE espn_game_id = ? AND user_id = ?
-    `).all(espn_game_id, req.session.user.id);
+    `).all(espn_game_id, auth.userOf(req).id);
     for (const r of userVotes) userVote[r.pick_slot] = true;
   }
 
@@ -2416,11 +2441,11 @@ app.get('/api/tennis-history', async (req, res) => {
 
 // POST /api/game/:espn_game_id/vote — cast a vote on a pick slot
 app.post('/api/game/:espn_game_id/vote', (req, res) => {
-  if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)?.id) return res.status(401).json({ error: 'Login required' });
 
   const { espn_game_id } = req.params;
   const { slot } = req.body;
-  const userId = req.session.user.id;
+  const userId = auth.userOf(req).id;
 
   const validSlots = ['home_ml', 'away_ml', 'home_spread', 'away_spread', 'over', 'under'];
   if (!validSlots.includes(slot)) return res.status(400).json({ error: 'Invalid slot' });
@@ -2530,23 +2555,23 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
 // GET /api/game/:espn_game_id/chat — public read of the community chat.
 // Each message carries its author's username + current vote annotations.
 app.get('/api/game/:espn_game_id/chat', (req, res) => {
-  const messages = community.getGameChat(req.params.espn_game_id, req.session?.user?.id || null);
+  const messages = community.getGameChat(req.params.espn_game_id, auth.userOf(req)?.id || null);
   res.json({ messages, maxLength: community.MAX_MESSAGE_LEN });
 });
 
 // POST /api/game/:espn_game_id/chat — post a message (login required).
 app.post('/api/game/:espn_game_id/chat', (req, res) => {
-  if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
+  if (!auth.userOf(req)?.id) return res.status(401).json({ error: 'Login required' });
   const { message } = req.body || {};
-  const result = community.addGameMessage(req.session.user.id, req.params.espn_game_id, message);
+  const result = community.addGameMessage(auth.userOf(req).id, req.params.espn_game_id, message);
   if (result.error) return res.status(400).json(result);
   res.json(result);
 });
 
 // DELETE /api/game/:espn_game_id/chat/:id — remove your own message (login required).
 app.delete('/api/game/:espn_game_id/chat/:id', (req, res) => {
-  if (!req.session?.user?.id) return res.status(401).json({ error: 'Login required' });
-  const result = community.deleteGameMessage(req.session.user.id, req.params.espn_game_id, Number(req.params.id));
+  if (!auth.userOf(req)?.id) return res.status(401).json({ error: 'Login required' });
+  const result = community.deleteGameMessage(auth.userOf(req).id, req.params.espn_game_id, Number(req.params.id));
   if (result.error) {
     const status = (result.expired || result.error === 'Not your message.') ? 403 : 404;
     return res.status(status).json(result);
@@ -2752,7 +2777,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
     const votes = { home_ml:0, away_ml:0, home_spread:0, away_spread:0, over:0, under:0 };
     for (const v of voteRows) if (v.pick_slot in votes) votes[v.pick_slot] = v.total;
 
-    const userId = req.session?.user?.id;
+    const userId = auth.userOf(req)?.id;
     const userVote = {};
     if (userId) {
       const uvRows = db.prepare(`SELECT pick_slot FROM game_votes WHERE espn_game_id = ? AND user_id = ?`).all(game.espn_game_id, userId);
@@ -2779,7 +2804,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
       game, picks: safePicks, pickRanks, votes, userVote, stats, lines, publicBetting,
       lineHistory, polymarket, kalshi, insights,
       heatScale: heatScale(),   // dynamic heat/🔥 anchors — this page fetches no config
-      user: req.session?.user || null,
+      user: auth.userOf(req) || null,
     };
 
     const away     = game.away_team || 'Away';
@@ -2855,12 +2880,12 @@ app.get('/game/:espn_game_id', async (req, res) => {
 // but exact routes keep it explicit). All math runs client-side, zero cost.
 const { buildToolsIndexHtml, buildToolPageHtml } = require('./src/tools_page');
 app.get('/tools', (req, res) => {
-  try { res.send(buildToolsIndexHtml(req.session?.user || null)); }
+  try { res.send(buildToolsIndexHtml(auth.userOf(req) || null)); }
   catch (err) { console.error('[tools] index failed:', err.message); res.status(500).send('Error loading page'); }
 });
 app.get('/tools/:slug', (req, res) => {
   try {
-    const html = buildToolPageHtml(req.params.slug, req.session?.user || null);
+    const html = buildToolPageHtml(req.params.slug, auth.userOf(req) || null);
     if (!html) return res.status(404).send('Not found');
     res.send(html);
   } catch (err) { console.error('[tools] page failed:', err.message); res.status(500).send('Error loading page'); }
@@ -2868,7 +2893,7 @@ app.get('/tools/:slug', (req, res) => {
 
 // ── "My action, live" second-screen dashboard (/mylive) ───────────────────────
 app.get('/mylive', (req, res) => {
-  try { res.send(require('./src/mylive_page').buildMyLivePageHtml(req.session?.user || null)); }
+  try { res.send(require('./src/mylive_page').buildMyLivePageHtml(auth.userOf(req) || null)); }
   catch (err) { console.error('[mylive] page failed:', err.message); res.status(500).send('Error loading page'); }
 });
 
@@ -2881,7 +2906,7 @@ const { SPORT_PAGES } = require('./src/detail_page');
 for (const pageDef of SPORT_PAGES) {
   app.get('/' + pageDef.slug, async (req, res) => {
     try {
-      res.send(await buildSportPageHtml(pageDef, { user: req.session?.user || null }));
+      res.send(await buildSportPageHtml(pageDef, { user: auth.userOf(req) || null }));
     } catch (err) {
       console.error(`[sport-page] /${pageDef.slug} failed:`, err.message);
       res.status(500).send('Error loading page');

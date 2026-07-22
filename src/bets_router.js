@@ -6,8 +6,10 @@
 const express = require('express');
 const router  = express.Router();
 const ub      = require('./user_bets');
+const { userOf } = require('./auth');
 
-function uid(req) { return req?.session?.user?.id || null; }
+// Session cookie (web) or bearer token (app) — auth.userOf covers both.
+function uid(req) { return userOf(req)?.id || null; }
 
 router.use(express.json());
 router.use((req, res, next) => {
