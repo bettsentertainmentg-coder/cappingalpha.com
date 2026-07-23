@@ -2,9 +2,6 @@
   "appId": "com.cappingalpha.app",
   "appName": "CappingAlpha",
   "webDir": "public",
-  "ios": {
-    "scheme": "CappingAlpha"
-  },
   "server": {
     "url": "http://localhost:3013",
     "cleartext": true
