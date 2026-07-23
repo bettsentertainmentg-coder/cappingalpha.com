@@ -381,13 +381,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
       const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${capperLink(f.capper)} +${f.pts}`).join(', ');
       return `
       <div style="padding:8px 12px;background:#12151d;border-radius:6px;margin-bottom:8px;">
-        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}</div>
+        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}${bd.insport ? ` <span style="color:#FFD700;font-weight:800;" title="In-sport scoring: backer ladder + stack read from this sport's own Wilson pool (20+ sport decisions required to rank; quarter-peak stack). Sports listed in the v3_insport_sports setting.">· ${escHtml(String(p.sport || 'sport').toUpperCase())} IN-SPORT LADDER</span>` : ''}</div>
         <table style="width:auto;margin:0;border:none;font-size:12px;">
           ${(bd.base || 0) > 0 ? row('Base (legacy)', bd.base) : ''}
-          ${row('Best backer', bd.resume, bd.advocate
-            ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}]</span>` : ''}`
+          ${row(bd.insport ? 'Best backer (sport pool)' : 'Best backer', bd.resume, bd.advocate
+            ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}${bd.insport && bd.advocate_sport_decisions != null ? ` · ${bd.advocate_sport_decisions} sport dec` : ''}]</span>` : ''}`
             : '· untracked capper (flat)')}
-          ${row('Backer stack', bd.consensus)}
+          ${row(bd.insport ? 'Backer stack (quarter-peak, qualified only)' : 'Backer stack', bd.consensus)}
           ${joinRows}
           ${(bd.sport_pct && bd.sport_pct.pts) ? row('Sport rank bonus', bd.sport_pct.pts, bd.sport_pct.rank ? `· #${bd.sport_pct.rank} in sport` : '') : ''}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
@@ -646,14 +646,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
       : (m.spread != null ? m.spread : '');
     const scoreStr  = m.home_score != null ? `${m.away_score}–${m.home_score}` : '—';
     const savedDate = m.saved_at ? m.saved_at.slice(0, 10) : m.game_date || '—';
-    return `<tr class="mvp-row" style="cursor:pointer;" onclick="openMvp(${m.id})"
+    const retired = !!m.retired;
+    return `<tr class="mvp-row" style="cursor:pointer;${retired ? 'opacity:0.45;' : ''}" onclick="openMvp(${m.id})"
       data-date="${savedDate}" data-sport="${escHtml((m.sport||'').toLowerCase())}"
       data-pick-type="${escHtml(pt)}" data-result="${escHtml((m.result||'pending').toLowerCase())}"
       data-score="${m.score ?? 0}">
       <td>${m.id}</td><td>${matchup}</td>
       <td>${escHtml(m.sport || '—')}</td>
       <td>${escHtml(m.pick_type || '—')} <span style="color:#8892a4;">${sp}</span></td>
-      <td>${m.score ?? '—'} <span class="badge mvp">MVP</span></td>
+      <td>${m.score ?? '—'} ${retired
+        ? '<span class="badge" title="Restated out of the record by the MLB in-sport rework (2026-07-23 replay). Kept for audit; excluded from every public record surface." style="background:#3a3f4b;color:#8892a4;">RETIRED</span>'
+        : '<span class="badge mvp">MVP</span>'}</td>
       <td>${scoreStr}</td>
       <td>${resultBadge(m.result)}</td>
       <td style="color:#8892a4;font-size:12px;">${savedDate}</td>
@@ -678,6 +681,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     SELECT id, team, sport, pick_type, spread, game_date, saved_at, score, result,
            ml_odds, ou_odds, home_team, away_team
     FROM mvp_picks
+    WHERE COALESCE(retired, 0) = 0
   `).all()) {
     const day = m.game_date || (m.saved_at || '').slice(0, 10);
     if (!day) continue;
@@ -991,6 +995,36 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }
   } catch (_) {}
 
+  // ── IN-SPORT LADDER VIEW (Jack 2026-07-23, the MLB rework) ──────────────────
+  // ?lb_sport=MLB re-renders the leaderboard from that sport's Wilson pool:
+  // rank/band/pts come from the capper_ratings 'sport:X' rows (materialized with
+  // the full ladder since the rework) and record/win%/units/money become the
+  // sport record. This is the insight surface for judging which sports need
+  // in-sport scoring (v3_insport_sports) or per-sport shrinkage next.
+  let ladderSports = [];
+  try {
+    ladderSports = db.prepare(`
+      SELECT sport, COUNT(*) AS n FROM capper_ratings
+      WHERE scope LIKE 'sport:%' AND sport IS NOT NULL AND sport != 'Unknown' AND band IS NOT NULL
+      GROUP BY sport ORDER BY n DESC
+    `).all().map(r => r.sport);
+  } catch (_) {}
+  const lbSport = ladderSports.includes(String(req.query.lb_sport || '').trim())
+    ? String(req.query.lb_sport).trim() : null;
+  const sportRatingsMap = new Map();
+  if (lbSport) {
+    try {
+      for (const r of db.prepare(`SELECT * FROM capper_ratings WHERE scope = ?`).all(`sport:${lbSport}`)) {
+        sportRatingsMap.set(r.canonical_name, r);
+      }
+    } catch (_) {}
+  }
+  let insportSportsSet = new Set(['MLB']);
+  try {
+    const arr = JSON.parse(db.getSetting('v3_insport_sports', '["MLB"]'));
+    insportSportsSet = new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toUpperCase()));
+  } catch (_) {}
+
   // Source Feed: every pick recorded by the wave-1 scrapers (no message scanner),
   // newest first. Provenance meta (units, notional, live, contest) rides in
   // sources_json. today_games enriches the matchup while the game is still on board.
@@ -1011,6 +1045,30 @@ router.get('/dashboard', requireAuth, (req, res) => {
   // picks are worth, so the default view is that ranking.
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
+      // Sport-ladder mode: every column becomes sport-scoped — the sport pool's
+      // rank/band/pts plus the sport record itself. Cappers with no graded
+      // decisions in the sport drop out of the view.
+      if (lbSport) {
+        const sr = sportRatingsMap.get(name) || null;
+        const sRec = c.sports[lbSport] || { wins: 0, losses: 0, pushes: 0, money: 0 };
+        const total = sRec.wins + sRec.losses + sRec.pushes;
+        if (!sr && !total) return null;
+        const decided = sRec.wins + sRec.losses;
+        const winPct = decided > 0 ? Math.round((sRec.wins / decided) * 100) : null;
+        const r = ratingsMap.get(name) || null;
+        const srcUnion = new Set([...(c.srcs || []), ...(r?.sources ? r.sources.split(',') : [])]);
+        return { name, sports: c.sports, pending: c.pending,
+                 wins: sRec.wins, losses: sRec.losses, pushes: sRec.pushes, money: sRec.money,
+                 total, winPct, units: sRec.wins - sRec.losses,
+                 rating: r ? (r.resume_points ?? 0) : null,
+                 tier: r?.tier ?? null, fade: r?.fade ?? null,
+                 wilson: sr?.wilson ?? null, wrank: sr?.wilson_rank ?? null,
+                 pctile: sr?.percentile ?? null, band: sr?.band ?? 'new',
+                 pts: sr?.pts ?? null, stackAdd: sr?.stack_add ?? null,
+                 sportBonus: sr?.sport_bonus_pts ?? 0,
+                 decisionsR: sr?.decisions ?? decided,
+                 srcList: [...srcUnion].sort() };
+      }
       const total = c.wins + c.losses + c.pushes;
       // Win% is over decided picks only (pushes excluded) — the same convention as
       // the member leaderboard, capper ratings, and the public record pages.
@@ -1028,6 +1086,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
                decisionsR: r?.decisions ?? decided,
                srcList: [...srcUnion].sort() };
     })
+    .filter(Boolean)
     .filter(c => c.total > 0 || c.pending > 0)
     .sort((a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
       || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
@@ -1186,8 +1245,39 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }).join(' ');
   const fadeCount = sortedCappers.filter(c => c.fade).length;
 
+  // Ladder scope chips: Overall + one per sport pool with a materialized ladder.
+  const ladderChips = [`<a href="/admin/dashboard?tab=cappers" class="btn-sm" style="text-decoration:none;${!lbSport ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">Overall</a>`]
+    .concat(ladderSports.map(s => {
+      const active = lbSport === s;
+      const ins = insportSportsSet.has(s.toUpperCase());
+      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool, 20+ sport decisions required, quarter-peak stack.">IN-SPORT</span>' : ''}</a>`;
+    })).join(' ');
+  // Pool summary (sport mode): the readout for judging in-sport / shrinkage moves.
+  const poolSummaryHtml = lbSport ? (() => {
+    const pool = [...sportRatingsMap.values()].filter(r => r.band != null);
+    const dec = pool.map(r => r.decisions || 0).sort((a, b) => a - b);
+    const med = dec.length ? dec[Math.floor(dec.length / 2)] : 0;
+    const ranked = pool.filter(r => (r.pts ?? 0) > 10).length;
+    const qual = pool.filter(r => (r.decisions || 0) >= 20 && (r.pts ?? 0) > 10).length;
+    const ins = insportSportsSet.has(lbSport.toUpperCase());
+    return `<div style="margin-bottom:10px;padding:8px 12px;background:#12151d;border:1px solid #2a3142;border-radius:6px;font-size:12px;color:#b7c0d0;">
+      <b style="color:#e5e9f0;">${escHtml(lbSport)} pool:</b> ${pool.length} cappers ·
+      ${ranked} clear the gates (worth more than the flat 10) ·
+      <span style="color:${qual >= 10 ? '#16a34a' : '#f59e0b'};">${qual} fully qualified (20+ ${escHtml(lbSport)} decisions + gates)</span> ·
+      median ${med} decisions
+      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; stack is quarter-peak, qualified backers only.</span>` : ''}
+    </div>`;
+  })() : '';
+
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper's picks are worth. Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">${lbSport
+      ? `Ranked by the <b style="color:#e5e9f0;">${escHtml(lbSport)}</b> pool's Wilson interval (99% lower bound on the ${escHtml(lbSport)} record only). Record, win%, units, and money below are ${escHtml(lbSport)}-only.`
+      : 'Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper\'s picks are worth.'} Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">LADDER</span>
+      ${ladderChips}
+    </div>
+    ${poolSummaryHtml}
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">SOURCE</span>
       <button class="btn-sm src-filter-btn active" data-src="all" onclick="filterCapperSrc('all', this)"
@@ -4437,6 +4527,41 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── POST /admin/api/retire-mvp — the MLB restatement applier (Jack 2026-07-23) ─
+// Marks tracked picks retired=1 (restated OUT of the record by the in-sport MLB
+// rework replay) or back to 0. Rows are never deleted: the flag is reversible
+// and retired rows stay visible in the admin MVP panel with a RETIRED badge.
+// Body: { ids: [mvp id, ...], retired: 1|0, note: 'optional annotation suffix' }
+// Header-auth so scripts/mlb_restate.js can apply from the Mac. Idempotent.
+router.post('/api/retire-mvp', adminLoginRateLimit, express.json({ limit: '1mb' }), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt(n, 10)).filter(Number.isFinite) : [];
+  if (!ids.length) return res.status(400).send('Expected { ids: [...] }');
+  const flag = req.body?.retired === 0 ? 0 : 1;
+  const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : null;
+  let changed = 0;
+  const upd = db.prepare(`
+    UPDATE mvp_picks SET retired = ?,
+      annotation = CASE
+        WHEN ? IS NULL THEN annotation
+        WHEN annotation IS NULL OR annotation = '' THEN ?
+        WHEN annotation LIKE '%' || ? || '%' THEN annotation
+        ELSE annotation || ' | ' || ?
+      END
+    WHERE id = ?
+  `);
+  const tx = db.transaction(() => {
+    for (const id of ids) changed += upd.run(flag, note, note, note, note, id).changes;
+  });
+  try { tx(); } catch (e) { return res.status(500).send('retire failed: ' + e.message); }
+  const totals = db.prepare(`SELECT COALESCE(SUM(CASE WHEN retired = 1 THEN 1 ELSE 0 END), 0) AS retired, COUNT(*) AS total FROM mvp_picks`).get();
+  console.log(`[restate] retire-mvp: ${changed} rows set retired=${flag} (${totals.retired}/${totals.total} retired total)`);
+  res.json({ changed, retired_total: totals.retired, table_total: totals.total });
 });
 
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─

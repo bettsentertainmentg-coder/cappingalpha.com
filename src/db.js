@@ -1504,6 +1504,15 @@ try {
 // home) is wiped daily, so pick_history carries the calibration series forever.
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN v3_total REAL`); } catch (_) {}
 
+// ── THE MLB RESTATEMENT (Jack 2026-07-23) ─────────────────────────────────────
+// retired=1 marks a tracked pick RESTATED OUT of the record: the in-sport MLB
+// rework replayed the v4 era (2026-07-09+) with no lookahead, and picks that
+// would not have gone gold under the new rules leave every record surface
+// (lists, W-L, P/L graphs, sport cards). Rows are kept, never deleted — the
+// flag is reversible and the pick stays as a dedup/void anchor. Applied via
+// POST /admin/api/retire-mvp (header-auth) from scripts/mlb_restate.js output.
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN retired INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+
 // ── ONE SCALE EVERYWHERE (Jack, 2026-07-07): rescale ALL historical scores onto
 // the v3 100-scale. Mapping: new = round(old * 20/13), capped 135. Old 65 (the
 // publicly tracked tier floor) lands exactly on 100, old 50-64 (the old MVP

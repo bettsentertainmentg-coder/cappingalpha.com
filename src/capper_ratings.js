@@ -309,13 +309,22 @@ function recomputeCapperRatings() {
 
   // Per-sport pools: same ranking inside each sport; feeds the in-sport bonus
   // (+20 for the sport's #1 or top 5%, +10 for top 25%; needs at least one win).
+  //
+  // IN-SPORT LADDERS (Jack 2026-07-23, the MLB rework): every sport pool now
+  // also materializes the FULL ladder — band, pts, stack_add — computed exactly
+  // like the overall ladder but on the sport record alone (sport percentile,
+  // sport volume cap, win%+money gates on the sport ledger, sport hard zero).
+  // Two readers: the scorer (sports listed in v3_insport_sports collect ladder
+  // points from THEIR SPORT'S pool, not the overall one — MLB first: overall
+  // rank transferred at 55% inside MLB vs 62% elsewhere while real MLB records
+  // hit 60.5%) and the admin Cappers tab's per-sport ladder view.
   const sportPools = new Map();
   for (const [name, c] of cappers) {
     for (const [sport, s] of c.sports) {
       const dec = s.w + s.l;
       if (dec < 1) continue;
       if (!sportPools.has(sport)) sportPools.set(sport, []);
-      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w });
+      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w, u: s.u });
     }
   }
   const sinfo = new Map(); // `${canonical}|${sport}` -> the sport wilson record
@@ -332,9 +341,22 @@ function recomputeCapperRatings() {
                 : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
       const bonus = hardZero.has(m.key) ? 0
         : Math.round(Math.min(gateT(m.w, m.decisions), moneyT.get(m.key) ?? 1) * raw);
+      // The sport-scoped ladder: identical math to the overall pool, every input
+      // swapped for the sport record. Sport hard zero (raw sport win% <= 49)
+      // and the overall money position both zero it — a capper down bad overall
+      // hands out nothing, even inside their best sport.
+      const sBand = bandFor(m.pctile);
+      const sCap = capForDecisions(m.decisions);
+      const sSlid = sBand.key === 'bottom25' ? 0 : ladderPts(m.pctile);
+      const sZero = m.winPct <= HARD_ZERO_WIN;
+      const sT = Math.min(gateT(m.w, m.decisions), moneyGateT(m.u, m.decisions), moneyT.get(m.key) ?? 1);
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),
+        band: sBand.key,
+        pts: (sZero || sBand.key === 'bottom25') ? 0
+           : +(UNRANKED_PTS + sT * (Math.min(sSlid, sCap) - UNRANKED_PTS)).toFixed(1),
+        stackAdd: (sZero || sBand.key === 'bottom25') ? 0 : +(sT * Math.min(sBand.peak, sCap) / 2).toFixed(1),
       });
     }
   }
@@ -443,7 +465,8 @@ function recomputeCapperRatings() {
         insert.run(
           name, `sport:${sport}`, sport, null, s.n, s.w, s.l, s.p, +s.u.toFixed(3),
           +sBlend.toFixed(4), resumePoints(sBlend, s.n, oBlend), null, null, null,
-          si?.wilson ?? 0, si?.rank ?? null, si?.pctile ?? null, null, null, null,
+          si?.wilson ?? 0, si?.rank ?? null, si?.pctile ?? null, si?.band ?? null,
+          si?.pts ?? null, si?.stackAdd ?? null,
           si?.decisions ?? 0, si?.winPct ?? null, si?.bonus ?? 0,
         );
       }
@@ -492,6 +515,9 @@ module.exports = {
   recomputeCapperRatings, getOverall, getSportRating, getTypeRating, getFadeList,
   resumePoints, overallRating, profit, effOdds,
   wilsonLower, LADDER, UNRANKED_PTS, WILSON_Z,
+  // ladder internals exported for the no-lookahead replay (scripts/mlb_restate.js)
+  // so the restatement runs the REAL math, never a fork
+  bandFor, ladderPts, gateT, moneyGateT, capForDecisions, rankPool, HARD_ZERO_WIN,
 };
 
 // CLI: node src/capper_ratings.js

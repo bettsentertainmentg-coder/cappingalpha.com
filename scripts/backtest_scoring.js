@@ -9,6 +9,12 @@
 // (refresh first: ADMIN_PASSWORD=... node scripts/pull-capper-server.js)
 //
 // Usage: node scripts/backtest_scoring.js [--grid]
+//
+// NOTE (2026-07-23): this harness replays the PRE-v4 formula (BASE + resume +
+// consensus) and has not been updated for the Wilson percentile engine. For
+// the v4-era MLB in-sport replay (the MLB rework + restatement), use
+// scripts/mlb_restate.js — it imports the real ladder math from
+// src/capper_ratings.js and mirrors scoring_v3.js in-sport mode.
 
 const fs = require('fs');
 const path = require('path');

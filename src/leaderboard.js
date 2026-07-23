@@ -133,6 +133,7 @@ function houseAgg(window, sport) {
     FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void')
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      AND COALESCE(retired, 0) = 0
       ${sport ? 'AND sport = ?' : ''}
       ${houseWindowClause(window)}
   `).all(...params);
@@ -166,6 +167,7 @@ function houseEntries(window) {
   const sports = db.prepare(`
     SELECT DISTINCT sport FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void') AND sport IS NOT NULL
+      AND COALESCE(retired, 0) = 0
       ${houseWindowClause(window)}
   `).all(houseThreshold()).map(r => r.sport).filter(Boolean);
 
@@ -527,6 +529,7 @@ function caProfileRows(window, sports) {
     FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void')
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      AND COALESCE(retired, 0) = 0
       ${clause}
       ${houseWindowClause(window)}
     ORDER BY COALESCE(resolved_at, saved_at) ASC, id ASC
@@ -601,7 +604,8 @@ function getCaSportProfile(sport, window, includePending) {
   const firstParams = sports ? [houseThreshold(), ...sports] : [houseThreshold()];
   const first = db.prepare(`
     SELECT MIN(game_date) AS d FROM mvp_picks
-    WHERE score >= ? ${sports ? `AND sport IN (${sports.map(() => '?').join(',')})` : ''}
+    WHERE score >= ? AND COALESCE(retired, 0) = 0
+      ${sports ? `AND sport IN (${sports.map(() => '?').join(',')})` : ''}
   `).get(...firstParams);
 
   return {

@@ -16,7 +16,7 @@ function getRecentMvpPicks(threshold = 50) {
            COALESCE(m.away_team, tg.away_team) AS away_team
     FROM mvp_picks m
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
-    WHERE m.score >= ?
+    WHERE m.score >= ? AND COALESCE(m.retired, 0) = 0
     ORDER BY m.saved_at DESC
   `).all(threshold);
 }
@@ -27,6 +27,7 @@ function getAllTimeRecord(threshold = 50) {
     SELECT result, COUNT(*) as count FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void')
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      AND COALESCE(retired, 0) = 0
     GROUP BY result
   `).all(threshold);
 
