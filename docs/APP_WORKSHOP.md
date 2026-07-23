@@ -48,6 +48,18 @@ This build talks to the live Railway server exactly like the shipped app.
 
 **Rule: always `npm run app:prod` before any Archive or TestFlight upload.** `capacitor.config.json` carries a loud `__DEV_SERVER__` marker whenever the dev state is active.
 
+## Making changes to the app ONLY (not the website)
+
+Three tiers, use the lightest one that fits:
+
+1. **Branch divergence (the default).** The app bundles `public/` from THIS branch (`app`) at build time; the website serves `master` from Railway. So any commit here that never merges to master is app-only automatically. Good for: app screens, onboarding tweaks, app-specific layout work.
+2. **`html.ca-app` CSS scope.** The shell stamps `ca-app` on the root element before first paint (website never gets it). `html.ca-app .ca-tabbar { ... }` styles the app only, even for code that lives on both branches. Good for: styling differences you want to keep through master merges.
+3. **`isNative()` JS gate** (from `modules/native.js`). Behavior differences: `if (isNative()) { ... }`. Good for: app-only features, hiding web-only UI, native plugin calls.
+
+Server note: there is no app server, so `/api` behavior changes always ship via Railway and affect both surfaces. If server behavior must differ for the app, branch on the request (app requests carry `Authorization: Bearer` and send `client:'app'` at auth).
+
+Rule of thumb: if the site would also benefit, build it un-gated and merge to master later; if it only makes sense in the app, tier 1 or 2. Keeping divergence small keeps the master merges painless.
+
 ## Sending updates after launch
 
 1. **Server-side change** (data, scoring, paywall, copy served by API): deploy Railway as always. Every app user has it immediately. This covers most updates.

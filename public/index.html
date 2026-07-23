@@ -18,6 +18,14 @@
       var __t = localStorage.getItem('ca_theme');
       document.documentElement.setAttribute('data-theme', __t === 'light' ? 'light' : 'dark');
     } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
+    // App-only styling hook: Capacitor injects its bridge before page scripts, so
+    // this is flash-free. Any CSS scoped under html.ca-app applies ONLY inside the
+    // native app shell (including the live-reload dev loop), never on the website.
+    try {
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+        document.documentElement.classList.add('ca-app');
+      }
+    } catch (e) {}
   </script>
 
   <!-- ── SEO ── -->
