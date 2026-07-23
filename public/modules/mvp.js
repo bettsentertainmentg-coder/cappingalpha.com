@@ -2,10 +2,10 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate } from './utils.js?v=4';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=5';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=22';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=23';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -399,7 +399,9 @@ function _renderHistory() {
       const money = (!pending && !voided && r !== 'push')
         ? `<span class="ca-row-money ${pf > 0 ? 'pos' : pf < 0 ? 'neg' : ''}">${pf >= 0 ? '+' : '-'}$${Math.abs(pf).toFixed(2).replace(/\.00$/, '')}</span>` : '';
       const pt = (p.pick_type || '').toLowerCase();
-      const odds = pt === 'ml' ? p.ml_odds : (pt === 'over' || pt === 'under') ? p.ou_odds : null;
+      // Same odds the money is computed from (board rows keep the line in
+      // captured_ml/original_ml, not ml_odds); spreads show no juice.
+      const odds = (pt === 'ml' || pt === 'over' || pt === 'under') ? pickOddsAmerican(p) : null;
       const oddsStr = odds ? ` · ${odds > 0 ? '+' : ''}${odds}` : '';
       const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
       const click = p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'" style="cursor:pointer;"` : '';
@@ -695,23 +697,11 @@ function _gameEndTooltip(unit) {
 }
 
 // ── P/L calculation ───────────────────────────────────────────────────────────
-function calcReturn(pick, unit) {
-  const r = (pick.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
-  if (r === 'loss') return -unit;
-  const type = (pick.pick_type || '').toLowerCase();
-  let odds;
-  if (type === 'ml') {
-    odds = pick.ml_odds || null;
-  } else if (type === 'over' || type === 'under') {
-    odds = pick.ou_odds || -115;
-  } else {
-    odds = -115;
-  }
-  if (!odds) odds = -115;
-  if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);
-  return +(unit * (odds / 100)).toFixed(2);
-}
+// Thin alias over the single source of truth in utils.js (flatUnitReturn) so the
+// chart, its tooltip, the history money column, the sport cards, and the home
+// widget can never diverge. Reads the pick's real odds (MVP ml_odds/ou_odds, or
+// the board's captured_/original_ line) instead of defaulting every ML to -115.
+const calcReturn = flatUnitReturn;
 
 // ── MVP tab P/L graph ─────────────────────────────────────────────────────────
 export function drawPlGraph(picks) {

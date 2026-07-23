@@ -11,7 +11,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, SPORT_THEMES } from './utils.js?v=4';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, SPORT_THEMES, flatUnitReturn, pickOddsAmerican } from './utils.js?v=5';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -69,8 +69,10 @@ function _fmtOdds(o) {
 }
 function _pickOdds(p) {
   const t = (p.pick_type || '').toLowerCase();
-  if (t === 'ml') return _fmtOdds(p.ml_odds);
-  if (t === 'over' || t === 'under') return _fmtOdds(p.ou_odds);
+  // Same odds resolution as the P/L math (pickOddsAmerican): board rows keep the
+  // real line in captured_ml/original_ml, not ml_odds — so the odds SHOWN on a row
+  // and the money computed from them always agree.
+  if (t === 'ml' || t === 'over' || t === 'under') return _fmtOdds(pickOddsAmerican(p));
   return ''; // board payloads carry no spread juice; omit rather than guess
 }
 function _abbrOf(name) {
@@ -79,8 +81,9 @@ function _abbrOf(name) {
 }
 function _stripTags(s) { return String(s || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(); }
 
-// Flat $10 return for a graded pick (the tracked-record unit).
-export function caPickProfit10(p) { return +( _ret(p) * 10 ).toFixed(2); }
+// Flat $10 return for a graded pick (the tracked-record unit). Delegates to the
+// single P/L source of truth so the card money matches the chart to the cent.
+export function caPickProfit10(p) { return flatUnitReturn(p, 10); }
 
 export function caPickRowHtml(p, opts = {}) {
   const graded = isGraded(p);
@@ -176,19 +179,6 @@ export function caPickRowHtml(p, opts = {}) {
 
 function rowHtml(p) { return caPickRowHtml(p); }
 
-// Flat-unit return for a graded pick, mirroring the P/L math elsewhere: ML uses
-// its odds, totals their juice, spreads default -115.
-function _ret(p) {
-  const r = (p.result || '').toLowerCase();
-  if (r === 'loss') return -1;
-  if (r !== 'win') return 0;
-  const type = (p.pick_type || '').toLowerCase();
-  const odds = type === 'ml' ? (p.ml_odds || -115)
-             : (type === 'over' || type === 'under') ? (p.ou_odds || -115)
-             : -115;
-  return odds < 0 ? 100 / Math.abs(odds) : odds / 100;
-}
-
 const profileBtnHtml = (key) =>
   `<button class="ca-profile-btn" onclick="openSportProfile('${key}', 'all')">History &amp; profile</button>`;
 
@@ -231,7 +221,7 @@ function cornerMetaHtml(card) {
   ].join('');
   let line;
   if (decided) {
-    const profit = counted.reduce((s, p) => s + _ret(p), 0);
+    const profit = counted.reduce((s, p) => s + flatUnitReturn(p, 1), 0);
     const roi = 100 * profit / decided;
     line = `<b style="color:var(--green);">${wins}</b><span class="sep">-</span><b style="color:var(--red);">${losses}</b>`
       + `<span class="sep"> · </span><b style="color:var(--gold-ink);">${Math.round(100 * wins / decided)}%</b>`

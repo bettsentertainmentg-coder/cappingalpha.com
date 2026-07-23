@@ -10,7 +10,7 @@
 // through this exact layout (CA avatar, no follow button, no member badges).
 
 import { state } from './state.js';
-import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=4';
+import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=5';
 
 let _picks = [];           // recent picks for the open profile (for sport filtering)
 let _sportFilter = 'all';

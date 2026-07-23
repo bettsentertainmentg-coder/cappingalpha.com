@@ -16,7 +16,7 @@ import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
   onBoardForSport, currentBoardDate, teamNickname,
-} from './utils.js?v=4';
+} from './utils.js?v=5';
 import { isPaying } from './auth.js';
 import { TEAM_COLORS } from './modal.js?v=8';
 

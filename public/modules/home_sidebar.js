@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate } from './utils.js?v=4';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn } from './utils.js?v=5';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -239,18 +239,10 @@ function _bestWindow(resolved) {
   return best;
 }
 
-function _tpReturn(pick, unit) {
-  const r = (pick.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
-  if (r === 'loss') return -unit;
-  const type = (pick.pick_type || '').toLowerCase();
-  let odds = type === 'ml' ? (pick.ml_odds || -115)
-           : (type === 'over' || type === 'under') ? (pick.ou_odds || -115)
-           : -115;
-  if (!odds) odds = -115;
-  return odds < 0 ? +(unit * (100 / Math.abs(odds))).toFixed(2)
-                  : +(unit * (odds / 100)).toFixed(2);
-}
+// Alias over the single P/L source of truth (utils.flatUnitReturn) — same odds
+// resolution as the Rankings chart and sport cards, so the home #1 mini chart
+// never disagrees with them.
+const _tpReturn = flatUnitReturn;
 
 // Cumulative series for the mini chart. Multiple game-dates plot by day; a
 // single date (e.g. a hot 1-day window) plots per pick so the line isn't a dot.

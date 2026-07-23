@@ -7,6 +7,7 @@
 import { state } from './state.js';
 import { isViewer, isPaying, googleAuthSubmit } from './auth.js';
 import { startCheckout } from './paywall.js';
+import { flatUnitReturn } from './utils.js?v=5';
 
 const YES = '<span class="uc-yes">&#10003;</span>';
 const NO  = '<span class="uc-no">&#8211;</span>';
@@ -220,15 +221,9 @@ function _bestWindow(resolved) {
   if (!best) { const all = _stats(resolved.slice(), _RANGES[_RANGES.length - 1]); return all.decided ? all : null; }
   return best;
 }
-function _ret(pick, unit) {
-  const r = (pick.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
-  if (r === 'loss') return -unit;
-  const type = (pick.pick_type || '').toLowerCase();
-  let odds = type === 'ml' ? (pick.ml_odds || -115) : (type === 'over' || type === 'under') ? (pick.ou_odds || -115) : -115;
-  if (!odds) odds = -115;
-  return odds < 0 ? +(unit * (100 / Math.abs(odds))).toFixed(2) : +(unit * (odds / 100)).toFixed(2);
-}
+// Single P/L source of truth (utils.flatUnitReturn) — the unlock preview chart
+// reads the same real odds as the live Rankings chart it teases.
+const _ret = flatUnitReturn;
 function _series(picks, unit) {
   const sorted = picks.slice().sort((a, b) => (a.saved_at || a.game_date || '').localeCompare(b.saved_at || b.game_date || ''));
   const byDate = {};
