@@ -6,8 +6,8 @@
     "scheme": "CappingAlpha"
   },
   "server": {
-    "androidScheme": "https",
-    "iosScheme": "https"
+    "url": "http://localhost:3013",
+    "cleartext": true
   },
   "plugins": {
     "SplashScreen": {
@@ -26,5 +26,6 @@
         "list"
       ]
     }
-  }
+  },
+  "__DEV_SERVER__": "dev only, added by scripts/cap-dev.js — run \"npm run app:prod\" before any release build"
 }

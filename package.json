@@ -11,7 +11,8 @@
     "app:prod": "node scripts/cap-prod.js",
     "app:copy": "npx cap copy",
     "app:ios": "npx cap open ios",
-    "app:android": "npx cap open android"
+    "app:android": "npx cap open android",
+    "postinstall": "patch-package"
   },
   "keywords": [],
   "author": "",
@@ -48,6 +49,7 @@
     "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/share": "^8.0.1",
     "@capacitor/splash-screen": "^8.0.2",
-    "@capacitor/status-bar": "^8.0.3"
+    "@capacitor/status-bar": "^8.0.3",
+    "patch-package": "^8.0.1"
   }
 }
