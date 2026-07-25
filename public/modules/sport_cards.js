@@ -316,20 +316,38 @@ export function renderSportRail(filters) {
   if (mockRailActive()) {
     picks = MOCK_PICKS.filter(inRange);
   } else {
-    picks = (state.allPicks || []).filter(inRange);
-    // Fallback source: when the board carries nothing eligible (locally the
+    // Open (live / upcoming) rows come from the live board, but GRADED rows
+    // come from the TRACKED ledger (state.mvpData — the exact source the P/L
+    // record bar reads). A raw board row can sit graded at 100+ without ever
+    // being a tracked bet (crossed gold after its game started, blocked by the
+    // totals gate, or outscored on its game), and counting those made the
+    // cards' day records disagree with Today's P/L. Same set, same record.
+    const today = currentBoardDate();
+    const _mapTracked = (p) => ({
+      ...p,
+      game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
+      game_home_score: p.home_score,
+      game_away_score: p.away_score,
+    });
+    const tracked = (state.mvpData?.picks || [])
+      .filter(p => p.game_date === today && isGraded(p))
+      .map(_mapTracked)
+      .filter(inRange);
+    // A just-finished game can briefly be graded in the ledger while the board
+    // row hasn't flipped yet; the tracked row wins the slot.
+    const _betKey = (p) => `${p.espn_game_id}|${String(p.team || '').trim().toLowerCase()}|${(p.pick_type || '').toLowerCase()}`;
+    const seen = new Set(tracked.map(_betKey));
+    const board = (state.allPicks || [])
+      .filter(p => !isGraded(p) && !seen.has(_betKey(p)))
+      .filter(inRange);
+    picks = board.concat(tracked);
+    // Fallback source: when neither carries anything eligible (locally the
     // mirrored /api/picks is a logged-out payload with scores stripped), fill
     // the rail from today's tracked picks — real rows, minus live game state.
     if (!picks.length && state.mvpData?.picks?.length) {
-      const today = currentBoardDate();
       picks = state.mvpData.picks
         .filter(p => p.game_date === today)
-        .map(p => ({
-          ...p,
-          game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
-          game_home_score: p.home_score,
-          game_away_score: p.away_score,
-        }))
+        .map(_mapTracked)
         .filter(inRange);
       fallback = picks.length > 0;
     }
