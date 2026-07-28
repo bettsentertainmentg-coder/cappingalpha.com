@@ -2742,14 +2742,22 @@ function renderProfile(account, member, bets) {
   const todayEt   = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
   const todayBets = bets.filter(b => String(b.game_date || b.created_at || '').slice(0, 10) === todayEt);
 
+  const prof = account.profile || {};
   el.innerHTML = `
     <div class="pf-head account-reveal">
       ${avatarFor(name, 72, avatarUrl)}
       <div class="pf-id">
-        <div class="pf-name">${name}</div>
+        <div class="pf-name-row">
+          <div class="pf-name">${name}</div>
+          <button class="pf-gear" onclick="switchTab('settings')" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+        </div>
+        ${prof.bio ? `<div class="pf-bio">${escRec(prof.bio)}</div>` : ''}
+        ${(prof.fav_sport || prof.style) ? `<div class="pf-chips">
+          ${prof.fav_sport ? `<span class="as-mini-chip"><i class="fa-solid fa-star" style="color:var(--gold);"></i> ${prof.fav_sport}</span>` : ''}
+          ${prof.style ? `<span class="as-mini-chip">${prof.style}</span>` : ''}
+        </div>` : ''}
         ${user.username ? '' : `<div class="pf-name-hint">Set a username in Settings so other members recognize you.</div>`}
       </div>
-      <button class="pf-gear" onclick="switchTab('settings')" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
     </div>
     <div class="pf-stats account-reveal">
       <div class="pf-stat"><b>${totalBets}</b><span>Total Bets</span></div>

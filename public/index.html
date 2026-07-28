@@ -425,6 +425,11 @@
     .pf-head { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
     .pf-id { flex: 1; min-width: 0; }
     .pf-name { font-size: 24px; font-weight: 800; }
+    /* Name + the Settings gear side by side, top-left of the profile page. */
+    .pf-name-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .pf-name-row .pf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pf-bio { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+    .pf-chips { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 7px; }
     .pf-name-hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
     .pf-gear { background: none; border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 15px; width: 38px; height: 38px; cursor: pointer; transition: color .12s, border-color .12s; }
     .pf-gear:hover { color: var(--text); border-color: var(--muted); }
@@ -4427,6 +4432,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=126"></script>
+  <script type="module" src="app.js?v=127"></script>
 </body>
 </html>

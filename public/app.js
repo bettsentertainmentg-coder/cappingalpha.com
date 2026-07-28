@@ -10,7 +10,7 @@ import { loadSports } from './modules/sports.js?v=2';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=16';
 import { loadSocials } from './modules/socials.js?v=6';
-import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=66';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=67';
 import './modules/track.js?v=51';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=8';
@@ -415,10 +415,10 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount, toggleDr
 // ── Account dropdown (desktop avatar menu) ────────────────────────────────────
 export function toggleAccountMenu(e) {
   if (e) e.stopPropagation();
-  // App: no dropdown. The avatar goes straight to My profile (Settings leaf).
+  // App: no dropdown. The avatar goes straight to the profile page; Settings
+  // is the gear next to the name up top.
   if (document.documentElement.classList.contains('ca-app')) {
-    if (window.settingsGo) settingsGo('profile');
-    switchTab('settings');
+    switchTab('profile');
     return;
   }
   const dd  = document.getElementById('account-dropdown');
