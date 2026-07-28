@@ -1758,6 +1758,39 @@ try {
   console.warn('[db] line display snap failed:', err.message);
 }
 
+// ── One-time removal of the CapperTek tracker (2026-07-28, settings-flag guarded) ──
+// The source shipped and was pulled the same day: its free tier reveals pick
+// sides 30 minutes AFTER game start, so nothing it produces can ever be a
+// pregame pick — and pregame picks are the whole point of tracking. This wipes
+// what the few hours of polling wrote: record-only history rows, source
+// handles, roster settings, and registry/ratings entries for cappers no other
+// system knows. Board rows need no cleanup (every ingested pick carried the
+// live flag, which never mints a mention).
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'cappertek_removed'`).get();
+  if (!done) {
+    const orphans = db.prepare(`
+      SELECT DISTINCT h.canonical_name FROM capper_source_handles h
+      WHERE h.source = 'cappertek'
+        AND NOT EXISTS (SELECT 1 FROM capper_source_handles o
+                        WHERE o.canonical_name = h.canonical_name AND o.source != 'cappertek')
+        AND NOT EXISTS (SELECT 1 FROM capper_history ch
+                        WHERE ch.capper_name = h.canonical_name AND ch.source != 'cappertek')
+        AND NOT EXISTS (SELECT 1 FROM capper_aliases a WHERE a.canonical_name = h.canonical_name)
+    `).all().map(r => r.canonical_name);
+    const delHist = db.prepare(`DELETE FROM capper_history WHERE source = 'cappertek'`).run();
+    db.prepare(`DELETE FROM capper_source_handles WHERE source = 'cappertek'`).run();
+    const delReg = db.prepare(`DELETE FROM capper_registry WHERE canonical_name = ?`);
+    const delRat = db.prepare(`DELETE FROM capper_ratings WHERE canonical_name = ?`);
+    for (const name of orphans) { delReg.run(name); delRat.run(name); }
+    db.prepare(`DELETE FROM settings WHERE key IN ('cappertek_cappers','cappertek_scrape_enabled','cappertek_max_cappers')`).run();
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cappertek_removed', datetime('now'))`).run();
+    console.log(`[db] cappertek removal: ${delHist.changes} history rows, ${orphans.length} orphan cappers purged`);
+  }
+} catch (err) {
+  console.warn('[db] cappertek removal failed:', err.message);
+}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
