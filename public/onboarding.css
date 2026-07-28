@@ -181,6 +181,47 @@ html.ob-lock, html.ob-lock body { overflow: hidden; }
   text-align: center;
   padding: 10px 30px;
 }
+/* Slide previews: small CSS mockups of the real surfaces (board, gold pick,
+   P/L build, locked board). Theme-aware, no images beyond the CA mark. */
+.ob-shot {
+  width: 100%; max-width: 250px; margin: 0 auto 18px; text-align: left;
+  background: var(--surface, #171b24); border: 1px solid var(--border, #252c3b);
+  border-radius: 14px; padding: 12px 12px 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+.ob-shot-center { text-align: center; }
+.ob-shot-chips { display: flex; gap: 5px; margin-bottom: 10px; }
+.ob-shot-chips span {
+  font-size: 9px; font-weight: 800; letter-spacing: .03em; color: var(--muted, #8892a4);
+  background: var(--surface2, #1d2330); border-radius: 999px; padding: 3px 7px;
+}
+.ob-shot-chips span.on { color: #fff; background: var(--accent, #3b82f6); }
+.ob-shot-row { display: flex; align-items: center; gap: 8px; padding: 6px 2px; border-top: 1px solid var(--border, #252c3b); }
+.ob-shot-row:first-child, .ob-shot-chips + .ob-shot-row { border-top: none; }
+.ob-shot-rank {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; color: var(--muted, #8892a4); background: var(--surface2, #1d2330);
+}
+.ob-shot-rank.gold { color: #1a1205; background: var(--gold, #FFD700); }
+.ob-shot-team { flex: 1; font-size: 12px; font-weight: 700; color: var(--text, #e2e8f0); }
+.ob-shot-score { font-size: 12px; font-weight: 800; color: var(--muted, #8892a4); }
+.ob-shot-score.gold { color: var(--gold, #FFD700); }
+.ob-shot-logo { height: 30px; width: auto; border-radius: 6px; margin: 2px auto 6px; display: block; }
+.ob-shot-big { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; color: var(--gold, #FFD700); line-height: 1; }
+.ob-shot-goldchip {
+  display: inline-block; margin-top: 6px; font-size: 9px; font-weight: 800; letter-spacing: .06em;
+  color: #1a1205; background: var(--gold, #FFD700); border-radius: 999px; padding: 3px 8px;
+}
+.ob-shot-meter { height: 6px; border-radius: 999px; background: var(--surface2, #1d2330); margin: 12px 6px 4px; overflow: hidden; }
+.ob-shot-meter span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--gold, #FFD700), #f0b400); }
+.ob-shot-svg { width: 100%; height: 46px; display: block; margin-bottom: 6px; }
+.ob-shot-win { color: #4ade80; font-size: 15px; }
+.ob-shot-pl { font-size: 12px; font-weight: 800; color: #4ade80; }
+.ob-shot-sample { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #8892a4); text-align: right; margin-top: 2px; }
+.ob-shot-lockrow { opacity: .75; }
+.ob-shot-lockrow i { font-size: 10px; color: var(--muted, #8892a4); }
+.ob-shot-blur { flex: 1; height: 9px; border-radius: 999px; background: var(--surface2, #1d2330); filter: blur(2.5px); }
+
 .ob-dots { flex: 0 0 auto; display: flex; justify-content: center; gap: 8px; padding: 6px 0 2px; }
 .ob-dot {
   width: 8px;

@@ -92,7 +92,7 @@
   <link rel="stylesheet" href="/vendor/fonts/fonts.css?v=1" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
-  <link rel="stylesheet" href="/onboarding.css?v=1" />
+  <link rel="stylesheet" href="/onboarding.css?v=2" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
   <!-- PostHog analytics. Guarded OFF inside the native (Capacitor) shell so the
        app ships analytics-free; Capacitor injects its bridge before page scripts
@@ -561,6 +561,72 @@
     .perf-m-val.pos { color: var(--green); } .perf-m-val.neg { color: var(--red); }
     .perf-note { font-size: 11.5px; color: var(--muted); margin-top: 16px; }
 
+    /* ── "My" overview (app redesign): header, summary card, swipe rows ── */
+    .my-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .my-id { flex: 1; min-width: 0; }
+    .my-name { font-size: 17px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .my-sub { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .my-ca { height: 26px; width: auto; border-radius: 5px; opacity: .9; }
+    .my-gear {
+      background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 15px;
+      display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .my-summary .my-chart { height: 190px; position: relative; margin-top: 4px; }
+    .my-chart-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .my-section-h { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 2px 12px; }
+
+    /* Horizontal swipe rows: period cards + per-sport cards (scroll-snap, no bar). */
+    .myp-row, .mys-row {
+      display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; margin-bottom: 14px;
+      scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    .myp-row::-webkit-scrollbar, .mys-row::-webkit-scrollbar { display: none; }
+    .myp-card, .mys-card {
+      flex: 0 0 auto; scroll-snap-align: start; position: relative; cursor: pointer;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      padding: 12px 14px; min-width: 128px;
+    }
+    .myp-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
+    .myp-val { font-size: 21px; font-weight: 800; font-family: 'Space Grotesk', 'Inter', sans-serif; letter-spacing: -0.02em; }
+    .myp-val.pos { color: var(--green); } .myp-val.neg { color: var(--red); }
+    .myp-val i { font-size: 13px; vertical-align: 2px; }
+    .myp-rec { font-size: 13px; font-weight: 700; margin-top: 5px; }
+    .myp-roi { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+    .myp-roi.pos { color: var(--green); } .myp-roi.neg { color: var(--red); }
+    .mys-card { text-align: center; min-width: 112px; padding: 14px 14px 12px; }
+    .mys-ic { font-size: 22px; color: var(--muted); margin-bottom: 7px; }
+    .mys-star { position: absolute; top: 8px; left: 9px; color: var(--gold); font-size: 12px; }
+    .mys-name { font-size: 12.5px; font-weight: 800; letter-spacing: .02em; }
+    .mys-rec { font-size: 14px; font-weight: 800; margin-top: 3px; }
+    .mys-rec.pos { color: var(--green); } .mys-rec.neg { color: var(--red); }
+    .mys-net { font-size: 12px; font-weight: 700; margin-top: 2px; }
+    .mys-net.pos { color: var(--green); } .mys-net.neg { color: var(--red); }
+    .mys-net.add { color: var(--accent); }
+    .mys-net i { font-size: 10px; }
+    .my-recent { padding: 2px 16px 10px; }
+
+    /* Favorite Bets: per-sport stacked bet-type bars + legend. */
+    .fb-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .fb-sport { flex: 0 0 52px; font-size: 12px; font-weight: 800; }
+    .fb-bar { flex: 1; height: 9px; border-radius: 999px; overflow: hidden; display: flex; background: var(--surface2); }
+    .fb-bar span { height: 100%; }
+    .fb-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .fb-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); font-weight: 600; }
+    .fb-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+    /* Guest view of the Account tab (sample preview + get started). */
+    .my-guest { text-align: center; padding: 26px 6px 30px; }
+    .my-guest-cards { display: flex; gap: 10px; justify-content: center; margin-bottom: 8px; }
+    .my-guest-card { cursor: default; }
+    .my-guest-chart svg { width: 100%; height: 44px; display: block; margin: 6px 0 4px; }
+    .my-guest-sample { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 22px; }
+    .my-guest-h { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 10px; }
+    .my-guest-p { font-size: 14px; color: var(--muted); line-height: 1.55; max-width: 340px; margin: 0 auto 20px; }
+    .my-guest-go { max-width: 260px; margin: 0 auto; display: block; width: 100%; }
+    .my-guest-login { font-size: 13px; color: var(--muted); margin-top: 14px; }
+    @media (max-width: 420px) { .my-guest-cards { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; } }
+
     .track-verified-note {
       display: flex; align-items: center; gap: 9px; background: var(--surface2); border: 1px solid var(--border);
       border-radius: 10px; padding: 11px 14px; font-size: 13px; color: var(--muted); margin-bottom: 20px;
@@ -635,6 +701,109 @@
       .track-fab { bottom: calc(64px + env(safe-area-inset-bottom)); padding: 11px 16px; }
       body { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
     }
+
+    /* ── Native app chrome (html.ca-app, stamped pre-paint in the shell) ──
+       The iOS webview draws edge to edge under the status bar (viewport-fit=cover
+       + black-translucent), so the top bar grows by the status-bar inset: the
+       velvet extends under the clock while the nav content sits below it. */
+    html.ca-app nav:not(.ca-tabbar) {
+      padding-top: env(safe-area-inset-top);
+      /* Tighter than the web's 56px: the avatar sits close under the clock. */
+      height: calc(46px + env(safe-area-inset-top));
+    }
+    html.ca-app .soc-subnav { top: calc(50px + env(safe-area-inset-top)); }
+    html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
+    /* App: no website footer, no hamburger drawer. Their contents live in
+       Settings (About, FAQ, calculators, legal) and the tab bar. */
+    html.ca-app footer { display: none !important; }
+    html.ca-app .ca-hamburger { display: none !important; }
+    /* Native polish: no gray tap flash, and the app chrome never text-selects. */
+    html.ca-app { -webkit-tap-highlight-color: transparent; }
+    html.ca-app nav, html.ca-app .ca-drawer, html.ca-app .track-fab { -webkit-user-select: none; user-select: none; }
+    /* App: long lists ride the page scroll instead of nesting a scrollbox inside
+       the thumb path (nested scrollers are the #1 "hard to scroll" complaint). */
+    html.ca-app .voted-picks-scroll, html.ca-app .fav-picks-scroll { max-height: none; overflow-y: visible; }
+
+    /* ── App Home scoreboard (the My Sports bundle, native shell only) ──
+       Website home keeps its sections; the app hides the website-y ones and
+       renders the ESPN-style grouped scores instead (modules/home_scores.js). */
+    .ca-app-scores { display: none; }
+    html.ca-app .ca-app-scores { display: block; }
+    html.ca-app #ca-my-sports-row { display: none; }
+    html.ca-app #ca-todays-picks-section,
+    html.ca-app #ca-mvp-home-section,
+    html.ca-app .ca-home-sidebar .ca-sidebar-section-header,
+    html.ca-app #ca-sidebar-sport-tabs,
+    html.ca-app .ca-sidebar-games-card { display: none !important; }
+    .hs-chips { display: flex; gap: 7px; overflow-x: auto; padding: 2px 0 12px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .hs-chips::-webkit-scrollbar { display: none; }
+    .hs-chip {
+      flex: 0 0 auto; background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px; cursor: pointer;
+    }
+    .hs-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .hs-sec { margin-bottom: 18px; }
+    .hs-sec-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 8px; }
+    .hs-sec-title { font-size: 14px; font-weight: 800; letter-spacing: .02em; }
+    .hs-live-count { font-size: 10.5px; font-weight: 800; color: #f87171; margin-left: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .hs-sec-link { font-size: 12px; color: var(--accent); font-weight: 700; cursor: pointer; }
+    .hs-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .hs-row { display: flex; align-items: center; gap: 10px; padding: 11px 12px; cursor: pointer; }
+    .hs-row + .hs-row { border-top: 1px solid var(--border); }
+    .hs-teams { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+    .hs-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .hs-abbr { width: 34px; flex: none; text-align: center; font-size: 10.5px; font-weight: 800; border-radius: 6px; padding: 3px 0; }
+    .hs-abbr-plain { background: var(--surface2); color: var(--muted); }
+    .hs-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+    .hs-team.dim .hs-name, .hs-team.dim .hs-pts { color: var(--muted); font-weight: 600; }
+    .hs-pts { font-size: 15px; font-weight: 800; min-width: 20px; text-align: right; }
+    .hs-win-arrow { color: var(--text); font-size: 11px; }
+    .hs-state { flex: 0 0 auto; text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 74px; }
+    .hs-state-line { font-size: 12.5px; font-weight: 700; }
+    .hs-live-dot { color: #f87171; font-size: 9px; vertical-align: 1px; }
+    .hs-sub { font-size: 11px; color: var(--muted); }
+    .hs-caslot { flex: 0 0 auto; min-width: 50px; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+    .hs-lock {
+      color: var(--muted); font-size: 12px; background: var(--surface2); border-radius: 50%;
+      width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .hs-ca-chip { font-size: 10.5px; font-weight: 800; color: var(--gold); border: 1px solid var(--gold); border-radius: 6px; padding: 2px 6px; white-space: nowrap; }
+    .hs-count { font-size: 9.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+    .hs-more {
+      display: block; width: 100%; background: none; border: none; border-top: 1px solid var(--border);
+      color: var(--accent); font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 10px; cursor: pointer;
+    }
+    .hs-empty { padding: 18px 4px; color: var(--muted); font-size: 13px; }
+
+    /* ── First-visit coach marks (one-time tooltip above the tab bar) ── */
+    .ca-coach { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) + 8px); z-index: 145; pointer-events: none; }
+    .ca-coach-bubble {
+      margin: 0 14px; background: var(--gold); color: #1a1205; font-size: 13px; font-weight: 700;
+      border-radius: 12px; padding: 11px 14px; box-shadow: 0 8px 24px var(--shadow-soft);
+      animation: coachIn .22s ease;
+    }
+    .ca-coach-arrow {
+      position: absolute; top: 100%; width: 0; height: 0;
+      border: 7px solid transparent; border-top-color: var(--gold); border-bottom: none;
+    }
+    @keyframes coachIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    /* ── Persistent guest prompt (native app, signed out) ──
+       The simple AN-style create-account bar: rides above the tab bar, whole bar
+       taps through to sign-up. Gold on dark, the CA signature. */
+    .ca-guest-banner {
+      position: fixed; left: 10px; right: 10px;
+      bottom: calc(58px + env(safe-area-inset-bottom) + 10px);
+      z-index: 139; display: none; align-items: center; gap: 10px; text-align: left;
+      background: linear-gradient(135deg, var(--gold), #e7b53c); color: #111;
+      border: none; border-radius: 12px; padding: 11px 14px; cursor: pointer;
+      font-family: inherit; box-shadow: 0 8px 24px var(--shadow-soft);
+      -webkit-user-select: none; user-select: none;
+    }
+    .ca-guest-banner .gb-text { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+    .ca-guest-banner .gb-text b { font-size: 13.5px; font-weight: 800; }
+    .ca-guest-banner .gb-sub { font-size: 11.5px; opacity: .8; }
+    .ca-guest-banner i { font-size: 13px; opacity: .7; }
 
     .track-overlay {
       position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,0.55);
@@ -1063,6 +1232,8 @@
     @media (max-width: 768px) {
       .ca-cookie-banner { bottom: calc(64px + env(safe-area-inset-bottom)); }
     }
+    /* Native app: no cookie banner ever — consent lives in the signup clickwrap. */
+    html.ca-app .ca-cookie-banner { display: none !important; }
     footer .footer-col a { color: var(--muted); text-decoration: none; }
     footer .footer-col a:hover { color: var(--accent); }
 
@@ -3213,7 +3384,8 @@
           </div>
         </div>
 
-        <!-- My Sports (quick nav) -->
+        <!-- My Sports (quick nav on web; in the app this section becomes the
+             scoreboard bundle rendered into #ca-app-scores by home_scores.js) -->
         <div class="ca-home-section" id="ca-my-sports-section">
           <div class="ca-home-section-header">
             <span class="ca-home-section-title">My Sports</span>
@@ -3221,6 +3393,7 @@
           <div id="ca-my-sports-row" class="ca-my-sports-row">
             <div class="spinner-wrap" style="padding:12px;"><div class="spinner"></div></div>
           </div>
+          <div id="ca-app-scores" class="ca-app-scores"></div>
         </div>
 
         <!-- Today's Rankings -->
@@ -3545,8 +3718,8 @@
   <!-- ── My Tracking ── -->
   <div id="panel-tracking" class="tab-panel">
     <div class="hero" style="padding-bottom:16px;">
-      <h1>My Tracking</h1>
-      <p>Your units, returns, and tracked-pick history.</p>
+      <h1>My Account</h1>
+      <p>Your bets, record, and profile in one place.</p>
     </div>
     <div class="container">
       <div id="tracking-content">
@@ -3636,6 +3809,7 @@
   <script>
     (function () {
       try {
+        if (document.documentElement.classList.contains('ca-app')) return; // app: consent lives in signup
         if (localStorage.getItem('ca_cookie_ack') !== '1') {
           var b = document.getElementById('ca-cookie-banner');
           if (b) b.style.display = 'flex';
@@ -3850,14 +4024,21 @@
        becomes the secondary overflow (About / Leaderboard / Settings / Support). -->
   <nav class="ca-tabbar" id="ca-tabbar" aria-label="Primary">
     <button class="ca-tabbar-item active" data-tabbar="home"     onclick="switchTab('home')"><i class="fa-solid fa-house"></i><span>Home</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="switchTab('sports')"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
     <button class="ca-tabbar-item"        data-tabbar="mvp"      onclick="switchTab('mvp')"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></button>
     <button class="ca-tabbar-item"        data-tabbar="socials"  onclick="switchTab('socials')"><i class="fa-solid fa-user-group"></i><span>Socials</span></button>
-    <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-circle-user"></i><span>Account</span></button>
   </nav>
 
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=113"></script>
+  <!-- Persistent guest prompt (native app, signed out; shown via auth.js) -->
+  <button class="ca-guest-banner" id="ca-guest-banner" style="display:none;" onclick="openSignup()">
+    <span class="gb-text"><b>New here? Create your free account</b><span class="gb-sub">The day's #1 ranked pick is free with an account</span></span>
+    <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+  </button>
+
+  <script type="module" src="app.js?v=115"></script>
 </body>
 </html>

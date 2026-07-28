@@ -461,7 +461,8 @@ export async function saveBetEdit(id) {
 
 // ── Track-Bet sheet ───────────────────────────────────────────────────────────
 export function openTrackSheet() {
-  if (!state.currentUser) { window.openLogin && window.openLogin(); return; }
+  // Guests land on account creation (the FAB shows to guests inside the app).
+  if (!state.currentUser) { (window.openSignup || window.openLogin || (() => {}))(); return; }
   _tailOf = null; // generic entry — not a tail
   let host = document.getElementById('track-sheet-host');
   if (!host) {

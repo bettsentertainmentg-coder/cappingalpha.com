@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { sportBadge, matchupLabel, scoreDisplay, pickLabel, PICK_HEAT_COLOR, calcVoteReturn, avatarFor, skelRows } from './utils.js?v=5';
 import { doRedeemCode } from './paywall.js';
-import { loadUserBets, setBetsData } from './track.js?v=50';
+import { loadUserBets, setBetsData } from './track.js?v=51';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
 import { isNative } from './native.js?v=1';
@@ -40,6 +40,43 @@ export async function loadTracking() {
   } catch (err) {
     el.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load tracking</h3><p>${err.message}</p></div>`;
   }
+}
+
+// Guest view of the Account tab: a sample preview of what tracking builds, then
+// one clear step. The sample cards are labeled as such — never fake real results.
+export function renderTrackingGuest() {
+  const el = document.getElementById('tracking-content');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="my-guest">
+      <div class="my-guest-cards">
+        <div class="mys-card my-guest-card">
+          <i class="fa-solid fa-star mys-star"></i>
+          <i class="fa-solid fa-football mys-ic"></i>
+          <div class="mys-name">NFL</div>
+          <div class="mys-rec pos">12-7-1</div>
+          <div class="mys-net pos">+$182.40 <i class="fa-solid fa-caret-up"></i></div>
+        </div>
+        <div class="mys-card my-guest-card my-guest-chart">
+          <div class="myp-label">Net Units - 30 Days</div>
+          <svg viewBox="0 0 120 44" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M0 38 L18 30 L36 33 L54 24 L72 27 L90 14 L108 18 L120 8" fill="none" stroke="#4ade80" stroke-width="2.5"/>
+          </svg>
+          <div class="mys-net pos">+14.2u</div>
+        </div>
+        <div class="mys-card my-guest-card">
+          <i class="fa-solid fa-fire mys-ic" style="color:#fb923c;"></i>
+          <div class="mys-name">Hot Streak</div>
+          <div class="mys-rec">4 days</div>
+          <div class="mys-net add">and counting</div>
+        </div>
+      </div>
+      <div class="my-guest-sample">Sample preview</div>
+      <h2 class="my-guest-h">All your bets in one place.</h2>
+      <p class="my-guest-p">Track a bet in seconds and watch your record, units, and P/L build as games go final. Free tools, no book account needed.</p>
+      <button class="ob-btn ob-btn-gold my-guest-go" onclick="openSignup()">Get started</button>
+      <div class="my-guest-login">Already a member? <span class="ca-link" onclick="openLogin()">Log in</span></div>
+    </div>`;
 }
 
 export async function loadSettings() {
@@ -1096,6 +1133,130 @@ function netUnitsCardsHtml(items) {
   }).join('');
 }
 
+// ── "My" overview builders (app redesign: swipeable period + sport cards,
+//    favorite-bets distribution, recent AN-style rows) ─────────────────────────
+const SPORT_ICON = {
+  MLB: 'fa-baseball', NBA: 'fa-basketball', WNBA: 'fa-basketball', CBB: 'fa-basketball',
+  NFL: 'fa-football', NCAAF: 'fa-football', NHL: 'fa-hockey-puck', SOCCER: 'fa-futbol',
+  ATP: 'fa-baseball', WTA: 'fa-baseball', TENNIS: 'fa-baseball', GOLF: 'fa-golf-ball-tee',
+  MULTI: 'fa-layer-group',
+};
+// Swipeable period cards: net $, record, ROI per window. Each opens its Net
+// Record drill-down (same windows the record pages speak).
+function periodCardsHtml(items) {
+  const sToday = startOfTodayTs();
+  const yest = items.filter(it => it.ts >= sToday - 864e5 && it.ts < sToday);
+  const defs = [
+    ['All Time',  statsOf(items),                          'all'],
+    ['Today',     statsOf(itemsInRange(items, 'today')),   'today'],
+    ['Yesterday', statsOf(yest),                           'yesterday'],
+    ['Last 7',    statsOf(itemsInRange(items, 'week')),    'week'],
+    ['Last 30',   statsOf(itemsInRange(items, 'month')),   'month'],
+  ];
+  return defs.map(([label, s, win]) => {
+    const cls = s.netD > 0 ? 'pos' : s.netD < 0 ? 'neg' : '';
+    const caret = s.netD > 0 ? ' <i class="fa-solid fa-caret-up"></i>' : s.netD < 0 ? ' <i class="fa-solid fa-caret-down"></i>' : '';
+    return `<div class="myp-card" onclick="openRecordView('net','${win}')" title="Open ${label} record">
+      <div class="myp-label">${label}</div>
+      <div class="myp-val ${cls}">${s.netD < 0 ? '-' : ''}$${Math.abs(s.netD).toFixed(2)}${caret}</div>
+      <div class="myp-rec">${s.wins}-${s.losses}-${s.pushes || 0}</div>
+      <div class="myp-roi ${s.roi == null ? '' : s.roi >= 0 ? 'pos' : 'neg'}">ROI ${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</div>
+    </div>`;
+  }).join('');
+}
+// Swipeable per-sport record cards (star on the best positive sport). Favorite
+// sports with nothing settled become "+ Add bets" cards.
+function sportCardsHtml(items) {
+  const m = new Map();
+  for (const it of items) {
+    const k = it.sport || 'Other';
+    const r = m.get(k) || { k, d: 0, wins: 0, losses: 0, pushes: 0 };
+    r.d += it.dollars;
+    if (it.result === 'win') r.wins++; else if (it.result === 'loss') r.losses++; else r.pushes++;
+    m.set(k, r);
+  }
+  const rows = [...m.values()].sort((a, b) => b.d - a.d);
+  const have = new Set(rows.map(r => r.k));
+  const favs = (window._trackingFavSports || []).map(s => String(s).toUpperCase());
+  const adds = favs.filter(s => !have.has(s)).slice(0, rows.length ? 2 : 4);
+  if (!rows.length && !adds.length) return '';
+  const card = (r, i) => `<div class="mys-card" onclick="openRecordView('sport','${r.k.replace(/'/g, '')}')" title="Open ${r.k} record">
+      ${i === 0 && r.d > 0 ? '<i class="fa-solid fa-star mys-star"></i>' : ''}
+      <i class="fa-solid ${SPORT_ICON[r.k] || 'fa-medal'} mys-ic"></i>
+      <div class="mys-name">${r.k}</div>
+      <div class="mys-rec ${r.d > 0 ? 'pos' : r.d < 0 ? 'neg' : ''}">${r.wins}-${r.losses}-${r.pushes || 0}</div>
+      <div class="mys-net ${r.d >= 0 ? 'pos' : 'neg'}">${r.d < 0 ? '-' : '+'}$${Math.abs(r.d).toFixed(2)} <i class="fa-solid fa-caret-${r.d >= 0 ? 'up' : 'down'}"></i></div>
+    </div>`;
+  const add = (s) => `<div class="mys-card mys-add" onclick="openTrackSheet()" title="Track a ${s} bet">
+      <i class="fa-solid ${SPORT_ICON[s] || 'fa-medal'} mys-ic"></i>
+      <div class="mys-name">${s}</div>
+      <div class="mys-rec">0-0-0</div>
+      <div class="mys-net add">+ Add bets</div>
+    </div>`;
+  return rows.map(card).join('') + adds.map(add).join('');
+}
+// Favorite Bets: per-sport stacked bars showing the mix of bet types you play.
+const FB_TYPES  = ['Spread', 'ML', 'Total', 'Prop', 'Parlay', 'Future', 'Other'];
+const FB_COLORS = { Spread: '#60a5fa', ML: '#c084fc', Total: '#fbbf24', Prop: '#2dd4bf', Parlay: '#f472b6', Future: '#a3a3a3', Other: '#94a3b8' };
+function favoriteBetsHtml(items) {
+  const m = new Map();
+  for (const it of items) {
+    const s = it.sport || 'Other';
+    const row = m.get(s) || { s, total: 0, counts: {} };
+    row.total++;
+    row.counts[it.type] = (row.counts[it.type] || 0) + 1;
+    m.set(s, row);
+  }
+  const rows = [...m.values()].sort((a, b) => b.total - a.total).slice(0, 5);
+  if (!rows.length) return '';
+  const used = new Set();
+  const bars = rows.map(r => {
+    const segs = FB_TYPES.filter(t => r.counts[t]).map(t => {
+      used.add(t);
+      return `<span style="width:${(100 * r.counts[t] / r.total).toFixed(1)}%;background:${FB_COLORS[t]};" title="${t}: ${r.counts[t]}"></span>`;
+    }).join('');
+    return `<div class="fb-row"><span class="fb-sport">${r.s}</span><div class="fb-bar">${segs}</div></div>`;
+  }).join('');
+  const legend = FB_TYPES.filter(t => used.has(t))
+    .map(t => `<span class="fb-leg"><span class="fb-dot" style="background:${FB_COLORS[t]};"></span>${t}</span>`).join('');
+  return `<div class="fb-wrap">${bars}<div class="fb-legend">${legend}</div></div>`;
+}
+// Whole-block wrappers so recomputeTrackStats can rebuild (or empty) each section
+// in place without leaving a hollow card behind.
+function sportRowHtml(items) {
+  const inner = sportCardsHtml(items);
+  return inner ? `<div class="mys-row">${inner}</div>` : '';
+}
+function favBetsCardHtml(items) {
+  const inner = favoriteBetsHtml(items);
+  return inner ? `
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-header"><span class="card-title">Favorite Bets</span><span style="font-size:12px;color:var(--muted);">bet type mix</span></div>
+      <div style="padding:12px 20px 14px;">${inner}</div>
+    </div>` : '';
+}
+// Latest settled items as AN-style rows (result badge, selection + odds, score
+// line, right-aligned P/L). Reuses the record-page row styling.
+function recentBetsHtml(items) {
+  const recent = items.slice().sort((a, b) => b.ts - a.ts).slice(0, 8);
+  if (!recent.length) return `<div style="padding:16px 0;color:var(--muted);font-size:13px;">Settled bets land here as games go final.</div>`;
+  return recent.map(it => {
+    const icon = it.result === 'win' ? '<i class="fa-solid fa-circle-check rec-ic win"></i>'
+               : it.result === 'loss' ? '<i class="fa-solid fa-circle-xmark rec-ic loss"></i>'
+               : '<i class="fa-solid fa-circle-minus rec-ic push"></i>';
+    const oddsStr = it.odds > 0 ? `+${it.odds}` : `${it.odds}`;
+    const v = it.dollars;
+    return `<div class="rec-item${it.verified ? '' : ' rec-custom'}" onclick="openRecordView('net','all')">
+      ${icon}
+      <div class="rec-item-main">
+        <div class="rec-item-sel">${escRec(it.sel)} <span class="rec-item-odds">${oddsStr}</span>${it.verified ? '' : '<span class="rec-custom-tag">custom</span>'}</div>
+        <div class="rec-item-sub">${escRec(it.sub)}</div>
+      </div>
+      <div class="rec-item-net ${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${it.result === 'push' ? 'Push' : (v >= 0 ? '+' : '-') + '$' + Math.abs(v).toFixed(2)}</div>
+    </div>`;
+  }).join('');
+}
+
 // ── Performance card body (headline P/L + ROI / Record / Win% for a timeframe) ──
 function performanceHtml(items, pending) {
   const s = statsOf(items);
@@ -1207,9 +1368,16 @@ export function recomputeTrackStats() {
   const filtered = applyTrackFilters(all);           // global sport/type filters
   const ranged   = itemsInRange(filtered, _trackRange);
   const pend     = pendingCount(votes, bets);
-  // Net Units cards show all 4 fixed timeframes (data-driven, not the dropdown).
+  // Period cards show the fixed timeframes (data-driven, not the dropdown).
   const nu = document.getElementById('track-nu');
-  if (nu) nu.innerHTML = netUnitsCardsHtml(filtered);
+  if (nu) nu.innerHTML = periodCardsHtml(filtered);
+  // Sport cards, recent rows, and the favorite-bets mix follow the global filters.
+  const sp = document.getElementById('track-sports');
+  if (sp) sp.innerHTML = sportRowHtml(filtered);
+  const rec = document.getElementById('track-recent');
+  if (rec) rec.innerHTML = recentBetsHtml(filtered);
+  const fb = document.getElementById('track-favbets');
+  if (fb) fb.innerHTML = favBetsCardHtml(filtered);
   // Performance card follows the dropdown timeframe.
   const perf = document.getElementById('track-perf');
   if (perf) perf.innerHTML = performanceHtml(ranged, pend);
@@ -1595,8 +1763,17 @@ function renderTracking(data) {
 
   el.innerHTML = `
     ${emptyIntro}
-    <div class="nu-row account-reveal" id="track-nu">${netUnitsCardsHtml(items)}</div>
-    <div class="perf-card account-reveal">
+    <div class="my-head account-reveal">
+      ${avatarFor(user.username || user.email || 'me', 44, avatarUrl)}
+      <div class="my-id">
+        <div class="my-name">@${user.username || 'me'}</div>
+        <div class="my-sub">${pend > 0 ? `${pend} pending bet${pend === 1 ? '' : 's'}` : 'My record'}</div>
+      </div>
+      <img src="/ca-logo.png" class="my-ca" alt="CappingAlpha" />
+      <button class="my-gear" onclick="switchTab('settings')" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+    </div>
+
+    <div class="perf-card my-summary account-reveal">
       <div class="perf-head">
         <span class="perf-title">Performance</span>
         <select class="perf-range" onchange="setTrackRange(this.value)" aria-label="Performance timeframe">
@@ -1609,9 +1786,42 @@ function renderTracking(data) {
         </select>
       </div>
       <div class="perf-body" id="track-perf">${performanceHtml(items, pend)}</div>
+      <div class="graph-canvas-wrap my-chart">
+        <canvas id="voted-pl-chart"></canvas>
+        <div class="graph-empty" id="track-graph-empty" style="display:none;"></div>
+      </div>
+      <div class="my-chart-foot">
+        <div class="theme-toggle" style="padding:2px;">
+          <button class="theme-opt active" data-track-metric="dollars" style="padding:4px 11px;" onclick="setTrackMetric('dollars')">$</button>
+          <button class="theme-opt" data-track-metric="units" style="padding:4px 11px;" onclick="setTrackMetric('units')">Units</button>
+          <button class="theme-opt" data-track-metric="bankroll" style="padding:4px 11px;" onclick="setTrackMetric('bankroll')">Bankroll</button>
+        </div>
+        <div class="unit-input-row">
+          <span>Unit $</span>
+          <input type="number" id="voted-unit-size" value="${unit}" min="1" max="100000"
+                 onchange="saveUnitSize(this.value)"
+                 style="width:72px;" />
+        </div>
+        <span class="graph-pl-label" id="voted-pl-total" style="display:none;"></span>
+      </div>
+      ${items.length > 0 ? `<div class="graph-hint" style="margin:6px 2px 0;">Dashed blue = flat 1u pace. Red shading = below your running peak.</div>` : ''}
     </div>
-    <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
+
+    <div class="myp-row account-reveal" id="track-nu">${periodCardsHtml(items)}</div>
+    <div class="account-reveal" id="track-sports">${sportRowHtml(items)}</div>
+
     ${liveNowBar}
+
+    <div class="card account-reveal" style="margin-bottom:20px;">
+      <div class="card-header">
+        <span class="card-title">Recent Bets</span>
+        <span class="ca-link" style="font-size:12px;cursor:pointer;" onclick="openRecordView('net','all')">View all</span>
+      </div>
+      <div class="rec-list my-recent" id="track-recent">${recentBetsHtml(items)}</div>
+    </div>
+
+    <div class="account-reveal" id="track-favbets">${favBetsCardHtml(items)}</div>
+
     ${filterBar}
     <div class="account-reveal" style="display:flex;gap:14px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
       <div class="track-verified-note" style="margin-bottom:0;flex:1;min-width:240px;">
@@ -1621,38 +1831,11 @@ function renderTracking(data) {
       <button class="track-submit" style="width:auto;white-space:nowrap;padding:11px 18px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
     </div>
 
+    <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
+
+    <div class="my-section-h account-reveal">My Stats</div>
     <div class="account-layout track-wide">
       <div>
-        <div class="graph-card account-reveal" style="margin-bottom:20px;">
-          <div class="graph-header">
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span class="graph-title">Cumulative P/L</span>
-              <div class="theme-toggle" style="padding:2px;">
-                <button class="theme-opt active" data-track-metric="dollars" style="padding:4px 11px;" onclick="setTrackMetric('dollars')">$</button>
-                <button class="theme-opt" data-track-metric="units" style="padding:4px 11px;" onclick="setTrackMetric('units')">Units</button>
-                <button class="theme-opt" data-track-metric="bankroll" style="padding:4px 11px;" onclick="setTrackMetric('bankroll')">Bankroll</button>
-              </div>
-            </div>
-            <div style="display:flex;align-items:center;gap:16px;">
-              <div class="unit-input-row">
-                <span>Unit $</span>
-                <input type="number" id="voted-unit-size" value="${unit}" min="1" max="100000"
-                       onchange="saveUnitSize(this.value)"
-                       style="width:72px;" />
-              </div>
-              <div>
-                <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;">ALL-TIME P/L</div>
-                <div class="graph-pl-label${initStats.netD >= 0 ? ' pos' : ' neg'}" id="voted-pl-total">${initStats.netD >= 0 ? '+' : ''}$${Math.abs(initStats.netD).toFixed(2)}</div>
-              </div>
-            </div>
-          </div>
-          <div class="graph-canvas-wrap">
-            <canvas id="voted-pl-chart"></canvas>
-            <div class="graph-empty" id="track-graph-empty" style="display:none;"></div>
-          </div>
-          ${items.length > 0 ? `<div class="graph-hint">Dashed blue = flat 1u pace. Red shading = below your running peak.</div>` : ''}
-        </div>
-
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header">
             <span class="card-title">Win Rate by Odds</span>

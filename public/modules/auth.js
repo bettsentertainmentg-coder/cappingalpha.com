@@ -95,10 +95,16 @@ export function updateNavAuth() {
   show(document.getElementById('btn-unlock'), !paying);
   // Mobile top-bar: Unlock when logged out; the avatar (handled above) when signed in.
   show(mUnlock,  !loggedIn);
-  // Track-Bet FAB: floating, only for logged-in users. Set 'flex' explicitly (not
-  // via show(), whose '' would fall back to the CSS display:none default).
+  // Track-Bet FAB: floating, only for logged-in users. Guests in the native shell
+  // get the persistent sign-up banner in the same zone instead (one CTA, not two).
+  // Set 'flex' explicitly (not via show(), whose '' would fall back to the CSS
+  // display:none default).
   const fab = document.getElementById('track-fab');
   if (fab) fab.style.display = loggedIn ? 'flex' : 'none';
+  // Persistent guest prompt (app only): a tap-to-signup bar riding above the tab
+  // bar while signed out, the simple Action-Network-style create-account nudge.
+  const gb = document.getElementById('ca-guest-banner');
+  if (gb) gb.style.display = (!loggedIn && isNative()) ? 'flex' : 'none';
 
   // Identify user in PostHog so sessions are linked to accounts. The user id is
   // enough to link; email is deliberately not sent (keeps analytics off PII and

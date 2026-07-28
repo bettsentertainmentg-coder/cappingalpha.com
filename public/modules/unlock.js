@@ -381,11 +381,11 @@ function unlockHtml() {
           <input id="ua-username" type="text" placeholder="Username" autocomplete="username" />
           <input id="ua-password" type="password" placeholder="Password" autocomplete="new-password" />
           <input id="ua-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" />
-          <input id="ua-birthyear" type="number" inputmode="numeric" placeholder="Year of birth (18+)" min="1900" max="2025" />
+          <input id="ua-birthyear" type="number" inputmode="numeric" placeholder="Year of birth (18+)" min="1900" max="${new Date().getFullYear()}" />
           <button class="btn btn-primary unlock-signup-btn" onclick="window.__unlockSignup()">Create Account</button>
           <div class="unlock-form-err" id="ua-err"></div>
         </div>
-        <div class="unlock-tos">By continuing, you agree to CappingAlpha's <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</div>
+        <div class="unlock-tos">By continuing, you agree to CappingAlpha's <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, including the use of cookies to keep you signed in.</div>
         <div class="unlock-account-login">Already have an account? <a onclick="openLogin()">Log in</a> &middot; <a onclick="openCodeModal()">I have a code</a></div>
       </div>
     </section>` : '';
@@ -449,7 +449,7 @@ function unlockHtml() {
 
     <div class="unlock-code-cta">Have an access code? <a onclick="openCodeModal()">Redeem it here</a></div>
 
-    <div class="unlock-legal">21+. Gamble responsibly. CappingAlpha is information, not a guarantee of any outcome.</div>
+    <div class="unlock-legal">18+. Gamble responsibly. CappingAlpha is information, not a guarantee of any outcome.</div>
   </div>`;
 }
 

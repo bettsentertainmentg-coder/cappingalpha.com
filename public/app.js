@@ -10,16 +10,17 @@ import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=16';
 import { loadSocials } from './modules/socials.js?v=6';
-import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=61';
-import './modules/track.js?v=50';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=62';
+import './modules/track.js?v=51';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=7';
 import './modules/member_profile.js?v=24';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=8';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
+import { loadHomeScores } from './modules/home_scores.js?v=2';
 import { renderUnlock } from './modules/unlock.js';
-import { maybeStartOnboarding } from './modules/onboarding.js?v=1';
+import { maybeStartOnboarding } from './modules/onboarding.js?v=2';
 
 // ── Referral capture ──────────────────────────────────────────────────────────
 // A ?ref=CODE share link stores the code; doSignup() redeems it right after the
@@ -124,7 +125,9 @@ export function switchTab(tabName) {
   // resolves it instead of bouncing a logged-in member to the login popup.
   if (tabName === 'tracking') {
     if (state.currentUser) loadTracking();
-    else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
+    // Guests see the Account tab's sample preview + get-started step (the AN
+    // pattern) instead of being bounced to a login popup.
+    else if (state.authReady) renderTrackingGuest();
   }
   if (tabName === 'settings') {
     if (state.currentUser) loadSettings();
@@ -134,6 +137,10 @@ export function switchTab(tabName) {
     if (state.currentUser) loadProfile();
     else if (state.authReady) { switchTab('home'); window.openLogin(); return; }
   }
+
+  // First visit to a tab gets a one-time coach mark above the tab bar (runs
+  // after the auth gates so a bounced tab never claims its mark).
+  maybeCoachMark(tabName);
 
   // Keep the URL hash in sync with the active tab, and give each real tab
   // change its own history entry. This used to replaceState instead, which
@@ -163,6 +170,38 @@ export function switchTab(tabName) {
 }
 
 window.switchTab = switchTab;
+
+// ── First-visit coach marks ───────────────────────────────────────────────────
+// One short tooltip the first time each tab is opened, anchored above the tab
+// bar with the arrow on the tab that was tapped. Tap anywhere (or 7s) dismisses.
+const COACH_COPY = {
+  sports:   'Every game today, by sport. Tap a game for live data and lines.',
+  mvp:      'The ranked board. Gold is the top tier, graded in public.',
+  socials:  'Friends, tails, and the leaderboard.',
+  tracking: 'Your bets and record live here. Track one with the + button.',
+};
+function maybeCoachMark(tabName) {
+  if (!COACH_COPY[tabName]) return;
+  if (!matchMedia('(max-width: 768px)').matches) return;   // tab-bar surfaces only
+  if (window.__caOnboardActive) return;                    // never over the intro
+  let seen; try { seen = localStorage.getItem('ca_coach_' + tabName); } catch (_) { seen = '1'; }
+  if (seen === '1') return;
+  try { localStorage.setItem('ca_coach_' + tabName, '1'); } catch (_) {}
+  document.getElementById('ca-coach')?.remove();
+  const el = document.createElement('div');
+  el.id = 'ca-coach';
+  el.className = 'ca-coach';
+  el.innerHTML = `<div class="ca-coach-bubble">${COACH_COPY[tabName]}</div><div class="ca-coach-arrow"></div>`;
+  document.body.appendChild(el);
+  const btn = document.querySelector(`.ca-tabbar-item[data-tabbar="${tabName}"]`);
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    el.querySelector('.ca-coach-arrow').style.left = (r.left + r.width / 2 - 7) + 'px';
+  }
+  const kill = () => { el.remove(); document.removeEventListener('pointerdown', kill, true); };
+  setTimeout(() => document.addEventListener('pointerdown', kill, true), 150);
+  setTimeout(kill, 7000);
+}
 
 // Load the CA Picks tab for the current auth tier. Re-loads when the tier changed
 // since the last render — fixes the paywall race where the tab rendered its
@@ -522,6 +561,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   loadHomeMvp();
   loadHomeSidebar();
   loadHeadlines();
+  loadHomeScores();   // app shell only (self-gated on html.ca-app)
   setInterval(loadPicks, REFRESH_MS);
   setInterval(loadTopGames, REFRESH_MS);
   // Keep the #1 pick card (live score badge) + sidebar games fresh on the same cadence.
@@ -529,6 +569,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // Home MVP widget too — its record and P/L must fold in games graded during
   // the session, not just what was final at page load.
   setInterval(loadHomeMvp, REFRESH_MS);
+  setInterval(loadHomeScores, REFRESH_MS);
 
   // Near-real-time refresh while a game is live: every 30s re-pull the live
   // surfaces (board scores, #1 card, Top Games tiles). Gated on a live game being
@@ -540,5 +581,6 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
     loadPicks();
     loadTopGames();
     loadHomeSidebar();
+    loadHomeScores();
   }, 30000);
 })();

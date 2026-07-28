@@ -89,6 +89,9 @@ function setSkipVisible(on) {
 
 function finish() {
   LS.set('ca_onboarded', '1');
+  // In the shell, cookie disclosure lives in the signup clickwrap, so the web's
+  // cookie banner must never appear. Ack it for good measure (CSS hides it too).
+  if (native.isNative()) LS.set('ca_cookie_ack', '1');
   window.__caOnboardActive = false;
   // Drop ?onboard=1 from the URL so a reload does not re-open the flow.
   try {
@@ -224,24 +227,58 @@ function renderUnderage() {
 }
 
 // ══ Steps 2-5: carousel ═══════════════════════════════════════════════════════
+// Each slide leads with a small CSS-built preview of the real surface it sells
+// (board rows, a gold pick, the P/L build, the locked board) instead of a bare
+// icon. Numbers in the previews are illustrations, and the one that looks like
+// a record carries a Sample tag.
+const SHOTS = {
+  board: `
+    <div class="ob-shot">
+      <div class="ob-shot-chips"><span class="on">MLB</span><span>NFL</span><span>NBA</span><span>NHL</span><span>Tennis</span></div>
+      <div class="ob-shot-row"><span class="ob-shot-rank gold">1</span><span class="ob-shot-team">Reds ML</span><span class="ob-shot-score gold">100</span></div>
+      <div class="ob-shot-row"><span class="ob-shot-rank">2</span><span class="ob-shot-team">Packers +6</span><span class="ob-shot-score">82</span></div>
+      <div class="ob-shot-row"><span class="ob-shot-rank">3</span><span class="ob-shot-team">Over 8.5</span><span class="ob-shot-score">77</span></div>
+    </div>`,
+  engine: `
+    <div class="ob-shot ob-shot-center">
+      <img src="/ca-logo.png" alt="" class="ob-shot-logo" />
+      <div class="ob-shot-big">100</div>
+      <span class="ob-shot-goldchip">GOLD TIER</span>
+      <div class="ob-shot-meter"><span style="width:86%;"></span></div>
+    </div>`,
+  track: `
+    <div class="ob-shot">
+      <svg class="ob-shot-svg" viewBox="0 0 200 46" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 40 L28 33 L56 36 L84 26 L112 29 L140 15 L168 19 L200 8" fill="none" stroke="#4ade80" stroke-width="2.5"/>
+      </svg>
+      <div class="ob-shot-row"><i class="fa-solid fa-circle-check ob-shot-win" aria-hidden="true"></i><span class="ob-shot-team">Bills ML +135</span><span class="ob-shot-pl">+$27.00</span></div>
+      <div class="ob-shot-sample">Sample</div>
+    </div>`,
+  unlock: `
+    <div class="ob-shot">
+      <div class="ob-shot-row"><span class="ob-shot-rank gold">1</span><span class="ob-shot-team">Free every day</span><span class="ob-shot-score gold">100</span></div>
+      <div class="ob-shot-row ob-shot-lockrow"><span class="ob-shot-rank">2</span><span class="ob-shot-blur"></span><i class="fa-solid fa-lock" aria-hidden="true"></i></div>
+      <div class="ob-shot-row ob-shot-lockrow"><span class="ob-shot-rank">3</span><span class="ob-shot-blur"></span><i class="fa-solid fa-lock" aria-hidden="true"></i></div>
+    </div>`,
+};
 const SLIDES = [
   {
-    icon: 'fa-solid fa-ranking-star',
+    shot: SHOTS.board,
     title: 'Every major sport, one board',
     body: 'CappingAlpha is a sports data platform that ranks the sharpest picks of the day across MLB, NBA, NFL, NHL, tennis, soccer, golf, and more.',
   },
   {
-    icon: 'fa-solid fa-gauge-high',
+    shot: SHOTS.engine,
     title: 'Ranked, not guessed',
     body: 'Our proprietary scoring engine grades every play and surfaces the ones that tend to matter most. No hot takes, just the data.',
   },
   {
-    icon: 'fa-solid fa-chart-line',
+    shot: SHOTS.track,
     title: 'Track it, share it',
     body: 'Track your bets, follow friends, and watch your live P/L move as the games play out.',
   },
   {
-    icon: 'fa-solid fa-unlock',
+    shot: SHOTS.unlock,
     title: 'Free and paid, honestly',
     body: 'A free account gets the #1 ranked pick every day. A paid pass opens the full top 50 board. No pressure either way.',
   },
@@ -254,7 +291,7 @@ function renderCarousel(el) {
       <div class="ob-car-track" id="ob-car-track">
         ${SLIDES.map(s => `
           <div class="ob-slide">
-            <div class="ob-icon"><i class="${s.icon}" aria-hidden="true"></i></div>
+            ${s.shot || `<div class="ob-icon"><i class="${s.icon}" aria-hidden="true"></i></div>`}
             <h1 class="ob-h1">${s.title}</h1>
             <p class="ob-body">${s.body}</p>
           </div>`).join('')}
@@ -452,7 +489,7 @@ function renderAccount(el) {
         ${needYear ? `<label class="ob-field"><span>Year of birth</span><input type="number" id="ob-su-year" inputmode="numeric" placeholder="YYYY" min="1900" max="${new Date().getFullYear()}" /></label>` : ''}
         <label class="ob-tos">
           <input type="checkbox" id="ob-su-tos" />
-          <span>I am 18 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span>
+          <span>I am 18 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, including the use of cookies to keep me signed in</span>
         </label>
         <button type="button" class="ob-btn ob-btn-gold ob-btn-block" id="ob-su-go">Create Account</button>
         <div class="ob-fine" style="text-align:center;">Already have an account? <button type="button" class="ob-link" id="ob-to-login">Log in</button></div>
@@ -663,7 +700,7 @@ function renderConsent(provider) {
         ? 'Google will share your name, email address, and profile picture with CappingAlpha to create or sign in to your account. Nothing is posted anywhere on your behalf.'
         : 'Apple will share your name and email address (or a private relay address you control) with CappingAlpha to create or sign in to your account. Nothing is posted anywhere on your behalf.'}</p>
       ${needYear ? `<label class="ob-field" style="text-align:left;"><span>Year of birth</span><input type="number" id="ob-cs-year" inputmode="numeric" placeholder="YYYY" min="1900" max="${new Date().getFullYear()}" /></label>` : ''}
-      <p class="ob-fine">By continuing you confirm you are 18 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>.</p>
+      <p class="ob-fine">By continuing you confirm you are 18 or older and agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>, including the use of cookies to keep you signed in.</p>
       <div class="ob-err" id="ob-cs-err"></div>
       <button type="button" class="ob-btn ob-btn-gold ob-btn-block" id="ob-cs-go">Continue</button>
       <button type="button" class="ob-btn ob-btn-ghost ob-btn-block" id="ob-cs-cancel">Cancel</button>
