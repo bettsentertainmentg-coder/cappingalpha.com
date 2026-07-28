@@ -415,6 +415,12 @@ Object.assign(window, { toggleDrawer, closeDrawer, toggleDrawerAccount, toggleDr
 // ── Account dropdown (desktop avatar menu) ────────────────────────────────────
 export function toggleAccountMenu(e) {
   if (e) e.stopPropagation();
+  // App: no dropdown. The avatar goes straight to My profile (Settings leaf).
+  if (document.documentElement.classList.contains('ca-app')) {
+    if (window.settingsGo) settingsGo('profile');
+    switchTab('settings');
+    return;
+  }
   const dd  = document.getElementById('account-dropdown');
   const btn = document.getElementById('nav-avatar-btn');
   if (!dd) return;
