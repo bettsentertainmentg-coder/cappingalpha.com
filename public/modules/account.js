@@ -1829,6 +1829,7 @@ function renderTracking(data) {
         <span>Verified picks (a side tracked on a real game) are graded automatically and count on the <span class="ca-link" onclick="showLeaderboardInfo()">leaderboard</span>. Custom bets are personal only.</span>
       </div>
       <button class="track-submit" style="width:auto;white-space:nowrap;padding:11px 18px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
+      <button class="ca-link" style="background:none;border:none;font-family:inherit;font-size:12.5px;padding:0;" onclick="openPage('/tools')" title="No vig, EV, parlay, hedge, and more"><i class="fa-solid fa-calculator" style="margin-right:5px;"></i>Calculators</button>
     </div>
 
     <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
@@ -1926,7 +1927,176 @@ function renderTracking(data) {
 }
 
 // ── Settings view ─────────────────────────────────────────────────────────────
+// The app shell gets a native grouped IA (root menu + deep Notifications screen
+// + About & Legal absorbing the old website footer). The web keeps the card
+// layout, which also stays reachable in-app as the "classic" leaf so every
+// existing control keeps working while leaves migrate one at a time.
+let _appSetData = null;
+let _appSetScreen = 'root';
+export function settingsGo(screen) {
+  _appSetScreen = screen || 'root';
+  if (_appSetData) renderSettings(_appSetData);
+  window.scrollTo(0, 0);
+}
+const APP_SET_SPORTS = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'Soccer', 'Tennis', 'Golf'];
+// Server-rendered pages (terms, faq, tools) are not in the bundled shell, so
+// inside the native app they open on cappingalpha.com; on the web (and the
+// dev shell, which serves the whole site) relative paths work as-is.
+function openPage(path) {
+  const bundled = !/^https?:$/.test(location.protocol);
+  window.open((bundled ? 'https://cappingalpha.com' : '') + path, '_blank', 'noopener');
+}
+function toggleMuteSport(sport) {
+  const cur = new Set((_notifyPrefs.sports_muted || []).map(s => String(s).toUpperCase()));
+  const key = String(sport).toUpperCase();
+  if (cur.has(key)) cur.delete(key); else cur.add(key);
+  _notifyPrefs = { ..._notifyPrefs, sports_muted: [...cur] };
+  fetch('/api/account/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notify_prefs: _notifyPrefs }),
+  }).catch(() => {});
+  if (_appSetScreen === 'notifs') settingsGo('notifs');
+}
+function setRow(label, sub, action, opts = {}) {
+  const right = opts.toggle !== undefined
+    ? `<label class="as-switch"><input type="checkbox" ${opts.toggle ? 'checked' : ''} onchange="${action}"><span></span></label>`
+    : `<i class="fa-solid fa-chevron-right as-chev" aria-hidden="true"></i>`;
+  const click = opts.toggle !== undefined ? '' : ` onclick="${action}"`;
+  return `<div class="as-row${opts.danger ? ' danger' : ''}${opts.locked ? ' locked' : ''}"${click}>
+    <div class="as-row-main"><div class="as-row-label">${label}${opts.lockChip ? ' <span class="as-lock-chip"><i class="fa-solid fa-lock"></i> Members</span>' : ''}</div>${sub ? `<div class="as-row-sub">${sub}</div>` : ''}</div>
+    ${right}
+  </div>`;
+}
+function setGroup(title, rows) {
+  return `<div class="as-group-title">${title}</div><div class="as-group">${rows.join('')}</div>`;
+}
+function renderSettingsApp(data) {
+  const el = document.getElementById('settings-content');
+  if (!el) return;
+  const { user = {}, referral = null, isPaid = false, avatarUrl = null } = data;
+  const tierChip = isPaid ? '<span class="as-tier gold">MEMBER</span>' : '<span class="as-tier">FREE</span>';
+  const np = _notifyPrefs || {};
+  const on = (k, dflt = true) => (typeof np[k] === 'boolean' ? np[k] : dflt);
+
+  if (_appSetScreen === 'notifs') {
+    const muted = new Set((np.sports_muted || []).map(s => String(s).toUpperCase()));
+    const chip = (s) => `<button class="as-sportchip${muted.has(s.toUpperCase()) ? '' : ' on'}" onclick="toggleMuteSport('${s}')">${s}</button>`;
+    const quiet = np.quiet || null;
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Notifications</span><span></span></div>
+      ${setGroup('My picks', [
+        setRow('Pick graded', 'When a game you tracked or voted on settles.', "saveNotifyPref('grades', this.checked)", { toggle: on('grades') }),
+        setRow('Game start', 'When a game you have action on goes live.', "saveNotifyPref('game_start', this.checked)", { toggle: on('game_start') }),
+      ])}
+      ${setGroup('Rankings', [
+        setRow('#1 pick of the day', "One alert when the day's top ranked pick is set.", "saveNotifyPref('top_pick', this.checked)", { toggle: on('top_pick') }),
+        setRow('Rankings updates', 'When a new pick reaches the top tier.', "saveNotifyPref('rankings_updates', this.checked)", { toggle: on('rankings_updates') }),
+      ])}
+      ${setGroup('Market alerts', isPaid ? [
+        setRow('Line moves', 'Sharp pregame movement on a game you picked.', "saveNotifyPref('steam', this.checked)", { toggle: on('steam') }),
+        setRow('Score swings', 'Lead changes in games where you have action.', "saveNotifyPref('swing', this.checked)", { toggle: on('swing') }),
+      ] : [
+        setRow('Line moves', 'Sharp pregame movement on a game you picked.', "switchTab('unlock')", { lockChip: true, locked: true }),
+        setRow('Score swings', 'Lead changes in games where you have action.', "switchTab('unlock')", { lockChip: true, locked: true }),
+      ])}
+      ${setGroup('Social', [
+        setRow('Tails on my picks', 'When a member tails a pick you tracked.', "saveNotifyPref('social_tails', this.checked)", { toggle: on('social_tails') }),
+        setRow('New follower', '', "saveNotifyPref('social_follows', this.checked)", { toggle: on('social_follows') }),
+        setRow('Comments and mentions', '', "saveNotifyPref('social_comments', this.checked)", { toggle: on('social_comments') }),
+      ])}
+      <div class="as-group-title">My sports</div>
+      <div class="as-group as-sportwrap">
+        <div class="as-row-sub" style="padding:10px 14px 0;">Turn a sport off to mute its alerts everywhere above.</div>
+        <div class="as-sportchips">${APP_SET_SPORTS.map(chip).join('')}</div>
+      </div>
+      ${setGroup('Quiet hours', [
+        `<div class="as-row">
+          <div class="as-row-main"><div class="as-row-label">Quiet hours</div><div class="as-row-sub">We hold alerts during these hours.</div></div>
+          <label class="as-switch"><input type="checkbox" id="quiet-hours-on" ${quiet ? 'checked' : ''} onchange="saveQuietHours()"><span></span></label>
+        </div>`,
+        `<div class="as-row" id="quiet-hours-times" style="${quiet ? '' : 'display:none;'}">
+          <div class="as-row-main" style="display:flex;gap:10px;align-items:center;">
+            <span class="as-row-sub">From</span><input type="time" id="quiet-start" value="${quiet?.start || '23:00'}" onchange="saveQuietHours()">
+            <span class="as-row-sub">to</span><input type="time" id="quiet-end" value="${quiet?.end || '08:00'}" onchange="saveQuietHours()">
+          </div>
+        </div>`,
+      ])}
+      <div class="as-foot">Alerts follow these choices on every device. Per sport filtering arrives with the next server update.</div>`;
+    return;
+  }
+
+  if (_appSetScreen === 'legal') {
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">About and legal</span><span></span></div>
+      ${setGroup('About', [
+        setRow('About CappingAlpha', 'What the platform is and how picks are graded.', "switchTab('about')"),
+        setRow('Our track record', 'Every graded pick, wins and losses alike.', "switchTab('mvp')"),
+      ])}
+      ${setGroup('Legal', [
+        setRow('Terms of Service', '', "openPage('/terms')"),
+        setRow('Privacy Policy', '', "openPage('/privacy')"),
+        setRow('Responsible Gaming', 'If you or someone you know has a gambling problem, call 1-800-GAMBLER.', "openPage('/responsible-gambling')"),
+        setRow('FAQ', '', "openPage('/faq')"),
+      ])}
+      <div class="as-foot">CappingAlpha is an informational sports data platform, not a sportsbook. 18+.<br>Version 2.0.0</div>`;
+    return;
+  }
+
+  // Root menu.
+  el.innerHTML = `
+    <div class="as-profile" onclick="settingsGo('classic')">
+      ${avatarFor(user.username || user.email || 'me', 46, avatarUrl)}
+      <div class="as-profile-main">
+        <div class="as-profile-name">@${user.username || 'me'} ${tierChip}</div>
+        <div class="as-row-sub">Edit profile, username, and photo</div>
+      </div>
+      <i class="fa-solid fa-chevron-right as-chev" aria-hidden="true"></i>
+    </div>
+    ${setGroup('Membership', [
+      isPaid
+        ? setRow('Manage membership', 'Plan, billing, and access details.', "settingsGo('classic')")
+        : setRow('Unlock CappingAlpha', 'The full ranked board, top to bottom.', "switchTab('unlock')"),
+      setRow('Referral code', referral ? `Share it and you both get a free day. ${referral.redemptions || 0} joined so far.` : 'Share it and you both get a free day.', "settingsGo('classic')"),
+    ])}
+    ${setGroup('Preferences', [
+      setRow('Notifications', 'Alerts for picks, rankings, and your games.', "settingsGo('notifs')"),
+      setRow('My sports', 'Pick the sports you follow.', "settingsGo('classic')"),
+      setRow('My sportsbooks', 'The books you bet with.', 'openBookPicker()'),
+      setRow('Bet settings', 'Unit size, bankroll, default odds.', "settingsGo('classic')"),
+      setRow('Appearance', 'Dark or light.', "settingsGo('classic')"),
+    ])}
+    ${setGroup('Support', [
+      setRow('Help and FAQ', '', "openPage('/faq')"),
+      setRow('Contact support', '', 'goSupport()'),
+      setRow('Betting calculators', 'No vig, EV, parlay, hedge, and more.', "openPage('/tools')"),
+    ])}
+    ${setGroup('About and legal', [
+      setRow('About, terms, and privacy', 'Everything about the platform in one place.', "settingsGo('legal')"),
+    ])}
+    ${setGroup('Account', [
+      setRow('Log out', '', 'doLogout()'),
+      setRow('Delete account', 'Permanent. Removes your data and cancels billing.', 'deleteAccount()', { danger: true }),
+    ])}
+    <div class="as-foot">CappingAlpha is an informational sports data platform, not a sportsbook. 18+.<br>Version 2.0.0</div>`;
+}
+
 function renderSettings(data) {
+  _appSetData = data;
+  if (document.documentElement.classList.contains('ca-app') && _appSetScreen !== 'classic') {
+    _notifyPrefs = data.notifyPrefs || {};
+    return renderSettingsApp(data);
+  }
+  renderSettingsWeb(data);
+  // Classic leaf inside the app: keep a way back to the native menu.
+  if (document.documentElement.classList.contains('ca-app')) {
+    const el = document.getElementById('settings-content');
+    if (el) el.insertAdjacentHTML('afterbegin',
+      `<div class="as-head" style="margin-bottom:14px;"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">All settings</span><span></span></div>`);
+  }
+}
+
+function renderSettingsWeb(data) {
   const el = document.getElementById('settings-content');
   const { user, favoriteSports = [], allPicks = [], isPublic, avatarUrl, unitSize, startingBankroll, defaultOdds = 'consensus', myBooks = [], referral = null, notifyPrefs = {}, isPaid = false } = data;
   _notifyPrefs = notifyPrefs || {};
@@ -2410,5 +2580,5 @@ Object.assign(window, {
   loadTracking, loadSettings, setTrackRange, recomputeTrackStats, saveDefaultOdds, setTrackMetric,
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,
   openRecordView, closeRecordView, recSetWindow, recToggleFilters, recSetFilter, shareRecord,
-  copyReferral, saveNotifyPref, saveQuietHours,
+  copyReferral, saveNotifyPref, saveQuietHours, settingsGo, toggleMuteSport, openPage,
 });

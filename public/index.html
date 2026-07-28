@@ -777,6 +777,46 @@
     }
     .hs-empty { padding: 18px 4px; color: var(--muted); font-size: 13px; }
 
+    /* ── App Settings IA (grouped native lists; account.js renderSettingsApp) ── */
+    .as-head { display: flex; align-items: center; gap: 10px; margin: 2px 0 12px; }
+    .as-head > span:last-child { width: 38px; }
+    .as-back {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 14px; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .as-title { flex: 1; text-align: center; font-size: 17px; font-weight: 800; }
+    .as-group-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 4px 8px; }
+    .as-group { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .as-row { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; }
+    .as-row + .as-row { border-top: 1px solid var(--border); }
+    .as-row.danger .as-row-label { color: #f87171; }
+    .as-row.locked { opacity: .8; }
+    .as-row-main { flex: 1; min-width: 0; }
+    .as-row-label { font-size: 14.5px; font-weight: 700; }
+    .as-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .as-chev { color: var(--muted); font-size: 12px; flex: none; }
+    .as-lock-chip { font-size: 9.5px; font-weight: 800; color: #1a1205; background: var(--gold); border-radius: 999px; padding: 1px 7px; margin-left: 6px; white-space: nowrap; }
+    .as-lock-chip i { font-size: 8px; }
+    .as-switch { position: relative; width: 46px; height: 27px; flex: none; }
+    .as-switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+    .as-switch span { position: absolute; inset: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; transition: background .15s; }
+    .as-switch span::after { content: ''; position: absolute; top: 2px; left: 2px; width: 21px; height: 21px; border-radius: 50%; background: #fff; transition: transform .15s; }
+    .as-switch input:checked + span { background: #22c55e; border-color: transparent; }
+    .as-switch input:checked + span::after { transform: translateX(19px); }
+    .as-tier { font-size: 9.5px; font-weight: 800; letter-spacing: .05em; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; vertical-align: 2px; }
+    .as-tier.gold { color: #1a1205; background: var(--gold); border-color: var(--gold); }
+    .as-profile { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; cursor: pointer; }
+    .as-profile-main { flex: 1; min-width: 0; }
+    .as-profile-name { font-size: 16px; font-weight: 800; }
+    .as-sportchips { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+    .as-sportchip {
+      background: var(--surface2); color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+      padding: 7px 13px; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+    }
+    .as-sportchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .as-foot { text-align: center; color: var(--muted); font-size: 11.5px; line-height: 1.6; margin: 24px 0 8px; }
+
     /* ── First-visit coach marks (one-time tooltip above the tab bar) ── */
     .ca-coach { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) + 8px); z-index: 145; pointer-events: none; }
     .ca-coach-bubble {
@@ -4336,6 +4376,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=121"></script>
+  <script type="module" src="app.js?v=123"></script>
 </body>
 </html>

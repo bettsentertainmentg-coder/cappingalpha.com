@@ -1771,8 +1771,20 @@ app.put('/api/account/preferences', (req, res) => {
     ? (() => {
         const out = {};
         if (notify_prefs && typeof notify_prefs === 'object' && !Array.isArray(notify_prefs)) {
-          for (const k of [...Object.keys(push.TOPICS), ...push.CHANNEL_PREF_KEYS]) {
+          // Topics beyond push.TOPICS: stored now, senders arrive with the app
+          // notification build-out (rankings updates + social pings).
+          const EXTRA_TOPICS = ['rankings_updates', 'social_tails', 'social_follows', 'social_comments'];
+          for (const k of [...Object.keys(push.TOPICS), ...push.CHANNEL_PREF_KEYS, ...EXTRA_TOPICS]) {
             if (typeof notify_prefs[k] === 'boolean') out[k] = notify_prefs[k];
+          }
+          // Per-sport mute list: a suppressor across every topic (the app's
+          // My Sports filter chips). Enforced at send time in sendToUserTopic.
+          const SPORTS_OK = new Set(['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'SOCCER', 'TENNIS', 'GOLF']);
+          if (Array.isArray(notify_prefs.sports_muted)) {
+            const list = [...new Set(notify_prefs.sports_muted
+              .filter(s => typeof s === 'string' && SPORTS_OK.has(s.toUpperCase()))
+              .map(s => s.toUpperCase()))].slice(0, 20);
+            if (list.length) out.sports_muted = list;
           }
           // Quiet hours: { start:'HH:MM', end:'HH:MM', tz } — enforced at send
           // time in push.sendToUserTopic. Validated strictly; anything malformed
