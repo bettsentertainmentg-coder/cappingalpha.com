@@ -270,6 +270,12 @@ nav {
   width: 100%; height: 100%; border-radius: 50%;
   object-fit: cover; display: block;
 }
+/* Tennis player photo (ESPN headshot / Wikipedia lead image) fills the circle.
+   Top-anchored crop: player photos are head-and-shoulders, center crop beheads them. */
+.ca-team-logo-circle .ca-headshot-img {
+  width: 100%; height: 100%; border-radius: 50%;
+  object-fit: cover; object-position: 50% 18%; display: block;
+}
 
 .ca-team-info { display: flex; flex-direction: column; gap: 2px; }
 .ca-text-right { text-align: right; align-items: flex-end; }

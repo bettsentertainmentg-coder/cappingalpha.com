@@ -433,9 +433,9 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=3" />
   <link rel="stylesheet" href="/gauge.css" />
-  <link rel="stylesheet" href="/track-sheet.css?v=2" />
+  <link rel="stylesheet" href="/track-sheet.css?v=3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -465,7 +465,9 @@ ${buildNav(payload.user)}
   <div class="ca-gh-matchup">
     <div class="ca-gh-team ca-gh-away">
       <div class="ca-team-logo-circle" id="ca-logo-away" style="background:${awayBg};">
-        ${game.away_flag
+        ${game.away_photo
+          ? `<img class="ca-headshot-img" src="${esc(game.away_photo)}" alt="${esc(away || '')}" loading="lazy" onerror="this.remove()">`
+          : game.away_flag
           ? `<img class="ca-flag-img" src="${esc(game.away_flag)}" alt="${esc(game.away_country || '')}" loading="lazy">`
           : `<span>${esc((game.away_abbr || game.away_short || away || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
@@ -477,7 +479,9 @@ ${buildNav(payload.user)}
     <div class="ca-gh-at">@</div>
     <div class="ca-gh-team ca-gh-home">
       <div class="ca-team-logo-circle" id="ca-logo-home" style="background:${homeBg};">
-        ${game.home_flag
+        ${game.home_photo
+          ? `<img class="ca-headshot-img" src="${esc(game.home_photo)}" alt="${esc(home || '')}" loading="lazy" onerror="this.remove()">`
+          : game.home_flag
           ? `<img class="ca-flag-img" src="${esc(game.home_flag)}" alt="${esc(game.home_country || '')}" loading="lazy">`
           : `<span>${esc((game.home_abbr || game.home_short || home || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
@@ -649,10 +653,10 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=8"></script>
+<script type="module" src="/game-detail.js?v=9"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=49"></script>
+<script type="module" src="/modules/track.js?v=50"></script>
 </body>
 </html>`;
 }

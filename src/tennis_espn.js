@@ -126,8 +126,9 @@ function upsertTennisMatch(comp, sportLabel) {
       away_team, away_short, away_name, away_abbr,
       tennis_home_games, tennis_away_games, tennis_score_detail,
       home_flag, away_flag, home_country, away_country,
+      home_athlete_id, away_athlete_id,
       fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
       status               = excluded.status,
       period               = excluded.period,
@@ -153,6 +154,8 @@ function upsertTennisMatch(comp, sportLabel) {
       away_flag            = COALESCE(excluded.away_flag, today_games.away_flag),
       home_country         = COALESCE(excluded.home_country, today_games.home_country),
       away_country         = COALESCE(excluded.away_country, today_games.away_country),
+      home_athlete_id      = COALESCE(excluded.home_athlete_id, today_games.home_athlete_id),
+      away_athlete_id      = COALESCE(excluded.away_athlete_id, today_games.away_athlete_id),
       fetched_at           = excluded.fetched_at
   `).run(
     comp.id,
@@ -177,7 +180,11 @@ function upsertTennisMatch(comp, sportLabel) {
     homeFlag.href,
     awayFlag.href,
     homeFlag.code,
-    awayFlag.code
+    awayFlag.code,
+    // The tennis scoreboard's competitor id IS the athlete id (uid "a:<id>");
+    // it keys the ESPN headshot URL in tennis_photos.js.
+    homeComp.id || homeAth.id || null,
+    awayComp.id || awayAth.id || null
   );
 }
 
@@ -229,6 +236,9 @@ async function fetchTodaysTennisMatches() {
     }
   }
   console.log(`[tennis_espn] fetchTodaysTennisMatches complete: ${total} total matches`);
+  // Resolve player photos for the new board in the background (free: ESPN CDN +
+  // Wikipedia, cached forever in tennis_player_photos). Never blocks the fetch.
+  try { require('./tennis_photos').syncTennisPhotos(); } catch (_) {}
   return total;
 }
 
@@ -264,6 +274,9 @@ async function refreshTennisStartTimes() {
     }
   }
   if (refreshed > 0) console.log(`[tennis_espn] refreshTennisStartTimes: ${refreshed} matches refreshed`);
+  // New matches can join the board during the day (qualifying -> main draw);
+  // the sync self-guards and everything already cached is a no-op.
+  if (refreshed > 0) { try { require('./tennis_photos').syncTennisPhotos(); } catch (_) {} }
   return refreshed;
 }
 

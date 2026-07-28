@@ -1380,6 +1380,30 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN away_flag TEXT`); } catch (_) 
 try { db.exec(`ALTER TABLE today_games ADD COLUMN home_country TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN away_country TEXT`); } catch (_) {}
 
+// Tennis: ESPN athlete ids (competitor.id on the tennis scoreboard) + resolved
+// player photo URLs. Photos are stamped by src/tennis_photos.js from its cache
+// (ESPN headshot when one exists, Wikipedia lead image otherwise); the frontend
+// avatar cascade is photo -> country flag -> initials.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN home_athlete_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN away_athlete_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN home_photo TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE today_games ADD COLUMN away_photo TEXT`); } catch (_) {}
+
+// Tennis player photo cache (src/tennis_photos.js). One row per player name;
+// photo_url NULL means "looked, found nothing" (re-checked after ~14 days).
+// Never wiped — photo sources are stable and lookups are rate-limited.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tennis_player_photos (
+      player_name TEXT PRIMARY KEY,
+      athlete_id  TEXT,
+      photo_url   TEXT,
+      source      TEXT,
+      checked_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 // Reader path tracking — which extraction path was used (mac/haiku/fallback)
 try { db.exec(`ALTER TABLE api_usage ADD COLUMN reader_path TEXT`); } catch (_) {}
 try {

@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
-import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime } from './utils.js?v=5';
+import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime, countryColorPair } from './utils.js?v=6';
 import { cappingGauge } from './gauge.js';
 
 // Escape any value that reaches innerHTML. Golf player/capper names come from
@@ -225,7 +225,12 @@ export function renderGameModal(data, clickedType, clickedTeam) {
   const { game, picks, votes, userVote } = data;
   const content = document.getElementById('game-modal-content');
 
-  const matchup = `${game.away_team || '?'} @ ${game.home_team || '?'}`;
+  // Tennis matchups carry each player's country flag in the title.
+  const _sUp = (game.sport || '').toUpperCase();
+  const _mFlag = url => url ? `<img class="gm-flag" src="${url}" alt="" onerror="this.style.display='none'" />` : '';
+  const matchup = (_sUp === 'ATP' || _sUp === 'WTA')
+    ? `${_mFlag(game.away_flag)}${game.away_team || '?'} @ ${_mFlag(game.home_flag)}${game.home_team || '?'}`
+    : `${game.away_team || '?'} @ ${game.home_team || '?'}`;
   let statusStr = '';
   if (game.status === 'post') {
     statusStr = `<span style="color:var(--muted);font-size:13px;">${game.away_score}–${game.home_score} Final</span>`;
@@ -853,8 +858,12 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
     betLabelColor  = '#fbbf24';
     // No team secondaries on totals — keep labels clean.
   } else {
-    const homeColors = TEAM_COLORS[game.home_team] || ['#3b82f6','#6366f1'];
-    const awayColors = TEAM_COLORS[game.away_team] || ['#8b5cf6','#a78bfa'];
+    // Tennis has no TEAM_COLORS entries, so every match used to fall back to the
+    // same blue-vs-purple. Color each side by the player's country instead.
+    const sUp = (game.sport || '').toUpperCase();
+    const tennisPair = (sUp === 'ATP' || sUp === 'WTA') ? countryColorPair(game.home_country, game.away_country) : null;
+    const homeColors = tennisPair ? [tennisPair.home, ''] : (TEAM_COLORS[game.home_team] || ['#3b82f6','#6366f1']);
+    const awayColors = tennisPair ? [tennisPair.away, ''] : (TEAM_COLORS[game.away_team] || ['#8b5cf6','#a78bfa']);
     leftLabel  = game.away_team?.split(' ').pop() || 'Away';
     rightLabel = game.home_team?.split(' ').pop() || 'Home';
     leftColor           = awayColors[0];

@@ -399,6 +399,90 @@ export function avatarFor(username, size = 40, avatarUrl = null) {
   return `<div style="width:${px};height:${px};border-radius:50%;background:${bg};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:${fs}px;flex-shrink:0;letter-spacing:.01em;">${avatarInitials(username)}</div>`;
 }
 
+// ── Tennis player visuals — country colors + avatar cascade ───────────────────
+// Country primary colors keyed by ESPN's 3-letter flag code (home_country /
+// away_country on tennis rows). Kept in sync with the standalone detail page's
+// own map in game-detail.js (that file is a separate bundle).
+export const COUNTRY_COLORS = {
+  srb:'#C6363C', esp:'#C60B1E', sui:'#D52B1E', usa:'#3C3B6E', gbr:'#012169',
+  fra:'#0055A4', ger:'#DD0000', ita:'#0066CC', rus:'#0039A6', gre:'#0D5EAF',
+  aut:'#ED2939', arg:'#74ACDF', aus:'#00247D', can:'#D52B1E', chn:'#DE2910',
+  jpn:'#BC002D', cro:'#FF0000', pol:'#DC143C', nor:'#BA0C2F', den:'#C8102E',
+  bul:'#00966E', bel:'#FDDA24', ned:'#FF6200', kaz:'#00AFCA', cze:'#11457E',
+  hun:'#CD2A3E', fin:'#003580', swe:'#006AA7', bra:'#009C3B', chi:'#D52B1E',
+  rsa:'#007A4D', tun:'#E70013', ukr:'#0057B7', rou:'#002B7F', slo:'#005DA4',
+  svk:'#0B4EA2', lat:'#9E3039', est:'#4891D9', ltu:'#FDB913', geo:'#FF0000',
+  por:'#006600', mex:'#006847', col:'#FCD116', per:'#D91023', ind:'#FF9933',
+  kor:'#003478', tpe:'#000095', tha:'#241D4F', mda:'#0072CE', mon:'#CE1126',
+  bih:'#002395', blr:'#CE1720', moz:'#007168', egy:'#C8102E', isr:'#0038B8',
+  lux:'#00A1DE', cyp:'#D57800', new:'#00247D', nzl:'#00247D',
+};
+const COUNTRY_FALLBACK_PALETTE = ['#2563EB', '#DC2626', '#16A34A', '#D97706', '#7C3AED', '#0891B2', '#DB2777', '#65A30D'];
+
+function _hx(hex) {
+  const h = String(hex || '').replace('#', '');
+  return { r: parseInt(h.slice(0, 2), 16) || 0, g: parseInt(h.slice(2, 4), 16) || 0, b: parseInt(h.slice(4, 6), 16) || 0 };
+}
+function _hexDist(a, b) { const x = _hx(a), y = _hx(b); return Math.sqrt((x.r - y.r) ** 2 + (x.g - y.g) ** 2 + (x.b - y.b) ** 2); }
+function _lightenHex(hex, amt) {
+  const { r, g, b } = _hx(hex);
+  const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+  return `#${c(r + (255 - r) * amt)}${c(g + (255 - g) * amt)}${c(b + (255 - b) * amt)}`;
+}
+export function hexToRgba(hex, a) { const { r, g, b } = _hx(hex); return `rgba(${r},${g},${b},${a})`; }
+
+export function countryColor(code) {
+  const c = (code || '').toLowerCase();
+  if (!c) return null;
+  if (COUNTRY_COLORS[c]) return COUNTRY_COLORS[c];
+  let h = 0;
+  for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) >>> 0;
+  return COUNTRY_FALLBACK_PALETTE[h % COUNTRY_FALLBACK_PALETTE.length];
+}
+
+// Both sides' colors with a separation guard: two near-identical flag colors
+// (Serbia red vs Spain red) lighten the home side so the pair reads as two.
+export function countryColorPair(homeCode, awayCode) {
+  let home = countryColor(homeCode), away = countryColor(awayCode);
+  if (!home && !away) return null;
+  home = home || '#3b82f6';
+  away = away || '#8b5cf6';
+  if (_hexDist(home, away) < 110) home = _lightenHex(home, 0.45);
+  return { home, away };
+}
+
+// Round avatar for one side of a tennis row: player photo -> country flag ->
+// initial on a country-tinted disc. side = 'home' | 'away'; fields ride the game
+// row (home_photo, home_flag, home_country from /api/games + /api/game).
+export function tennisAvatar(g, side, size = 20) {
+  const photo = g[side + '_photo'] || null;
+  const flag  = g[side + '_flag'] || null;
+  const name  = g[side + '_short'] || g[side + '_team'] || '';
+  const col   = countryColor(g[side + '_country']) || '#334155';
+  const px = `${size}px`;
+  const base = `width:${px};height:${px};border-radius:50%;flex-shrink:0;object-fit:cover;background:#1a2030;`;
+  if (photo) {
+    // Dead photo URL -> swap to the flag (or vanish); never a broken-image icon.
+    // Top-anchored crop: these are head-and-shoulders shots.
+    const fall = flag ? `this.onerror=null;this.src='${flag}';` : `this.onerror=null;this.style.display='none';`;
+    return `<img class="tp-av" src="${photo}" alt="" loading="lazy" style="${base}object-position:50% 18%;box-shadow:0 0 0 1.5px ${hexToRgba(col, 0.65)};" onerror="${fall}" />`;
+  }
+  if (flag) return `<img class="tp-av" src="${flag}" alt="" loading="lazy" style="${base}" onerror="this.style.display='none'" />`;
+  const initial = (String(name).trim() || '?').charAt(0).toUpperCase();
+  return `<span class="tp-av" style="width:${px};height:${px};border-radius:50%;background:${col};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:${Math.round(size * 0.5)}px;font-weight:800;flex-shrink:0;">${initial}</span>`;
+}
+
+// Subtle two-sided row wash: the left-rendered player's country color bleeds in
+// from the left edge, the other side's from the right. leftSide names which side
+// renders first ('home' for the Sports tab's "home vs away" rows).
+export function tennisRowBg(g, leftSide = 'home', alpha = 0.14) {
+  const pair = countryColorPair(g.home_country, g.away_country);
+  if (!pair) return '';
+  const left  = leftSide === 'home' ? pair.home : pair.away;
+  const right = leftSide === 'home' ? pair.away : pair.home;
+  return `linear-gradient(90deg, ${hexToRgba(left, alpha)} 0%, transparent 34%, transparent 66%, ${hexToRgba(right, alpha)} 100%)`;
+}
+
 // ── Live in-game state (condensed per-sport scoreboards) ──────────────────────
 // Baseball bases diamond from a bitmask (1 = on first, 2 = on second, 4 = on
 // third). Inline SVG: 2B top, 1B right, 3B left. Occupied bases light up gold.

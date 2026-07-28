@@ -10,8 +10,8 @@
 // verified vote records the tail.
 
 import { state } from './state.js';
-import { avatarFor, fmtOdds, fmtSpread, teamNickname } from './utils.js?v=5';
-import { loadLeaderboard } from './leaderboard.js?v=15';
+import { avatarFor, fmtOdds, fmtSpread, teamNickname } from './utils.js?v=6';
+import { loadLeaderboard } from './leaderboard.js?v=16';
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }

@@ -7,7 +7,7 @@
 //     settle it yourself, never on the leaderboard.
 
 import { state } from './state.js';
-import { sportBadge } from './utils.js?v=5';
+import { sportBadge } from './utils.js?v=6';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';
@@ -668,10 +668,7 @@ function openScannedBet(p) {
   set('cf-odds', p.odds);
   set('cf-stake', p.stake);
   set('cf-line', p.line);
-  if (p.book) {
-    _form.book = p.book;
-    document.querySelectorAll('.bet-seg[onclick^="setFormBook"]').forEach(b => b.classList.toggle('active', b.textContent === p.book));
-  }
+  if (p.book) setCustomBook(p.book);
   const form = document.querySelector('#track-sheet-body .track-form');
   if (form) form.insertAdjacentHTML('afterbegin', `<div class="track-form-note" style="border:1px solid rgba(167,139,250,.4);border-radius:8px;padding:8px 10px;"><i class="fa-regular fa-image" style="color:#a78bfa;margin-right:6px;"></i>Read from your screenshot. Double-check the numbers before tracking.</div>`);
   updatePayoutPreview();
@@ -712,6 +709,18 @@ function dateLabel(offset) {
 // to the TOP of the sport dropdown by our betting volume. Every other sport ESPN gives
 // us (UFC, Soccer, WCBB, ...) is offered too but sorts to the bottom and is custom-only.
 const CORE_SPORTS = ['MLB', 'NBA', 'NHL', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'GOLF', 'SOCCER'];
+// Niche sports (odds-engine relays + low-volume feeds) sink BELOW the majors in
+// the game list (Jack 2026-07-28): an overnight table-tennis or esports slate was
+// flooding the top because the list sorted by time alone. They stay available,
+// but only under a "More sports" divider, and engine events only appear at all
+// when we have odds for them (server-side filter in track_schedule.js).
+const NICHE_SPORTS = new Set([
+  'TABLE TENNIS', 'ESPORTS', 'CRICKET', 'DARTS', 'VOLLEYBALL', 'HANDBALL',
+  'RUGBY', 'RUGBY LEAGUE', 'RUGBY UNION',
+  'CS2', 'LOL', 'VALORANT', 'DOTA 2', 'CALL OF DUTY', 'R6', 'OVERWATCH',
+  'ROCKET LEAGUE', 'APEX', 'PUBG',
+]);
+const isNicheSport = s => NICHE_SPORTS.has((s || '').toUpperCase());
 // Mascot-style last-word shortening reads wrong for soccer clubs ("United",
 // "City"), so soccer keeps full names everywhere.
 const FULL_NAME_SPORTS = new Set(['SOCCER']);
@@ -732,6 +741,8 @@ function sortSports(arr) {
     if (ia >= 0 && ib >= 0) return ia - ib;   // both core: by our order
     if (ia >= 0) return -1;                    // core before extra
     if (ib >= 0) return 1;
+    const na = isNicheSport(a), nb = isNicheSport(b);
+    if (na !== nb) return na ? 1 : -1;         // niche sinks below the other extras
     return a.localeCompare(b);                  // extras alphabetical
   });
 }
@@ -848,14 +859,18 @@ export async function setTrackDay(offset) {
   if (_trackDay === offset) { renderSportDropdown(); renderTrackGames(); } // ignore if the user already moved on
 }
 
-// Future-day game tapped: open the custom-bet form with the sport preset and the
-// matchup as a hint. No odds board / verified tracking for future games (no lines).
+// Future-day / niche game tapped: open the custom-bet form with the league, the
+// matchup, and the tapped row's day preset. No odds board for these (no lines).
 export function trackFutureGame(sport, matchup) {
   showCustomForm();
-  const sportSel = document.getElementById('cf-sport');
-  if (sportSel && sport) sportSel.value = sport;
+  const label = SPORTS.find(s => s.toUpperCase() === (sport || '').toUpperCase()) || (sport || '');
+  if (label) _form.sport = label;
+  if (matchup) _form.game = matchup;
+  const d = new Date(); d.setDate(d.getDate() + _trackDay);
+  _form.eventDate = etYmd(d);
   const sel = document.getElementById('cf-selection');
   if (sel && matchup) sel.placeholder = `Your pick for ${matchup}`;
+  updateCbiRows();
   loadKalshiEventStrip(sport, matchup);
 }
 
@@ -914,11 +929,10 @@ async function loadKalshiEventStrip(sport, matchup) {
 export function fillFromKalshiEvent(btn) {
   const sel = document.getElementById('cf-selection');
   const odds = document.getElementById('cf-odds');
-  if (sel) sel.value = btn.getAttribute('data-sel') || '';
+  if (sel) { sel.value = btn.getAttribute('data-sel') || ''; syncCustomTitle(); }
   if (odds) odds.value = btn.getAttribute('data-odds') || '';
-  // Mark the book as Kalshi in the segmented book row (it's in BOOKS).
-  const bookBtn = [...document.querySelectorAll('.bet-seg')].find(b => b.textContent.trim() === 'Kalshi' && (b.getAttribute('onclick') || '').includes('setFormBook'));
-  if (bookBtn && _form.book !== 'Kalshi') bookBtn.click();
+  // Mark the book as Kalshi (the prices came from there).
+  if (_form.book !== 'Kalshi') setCustomBook('Kalshi');
   document.querySelectorAll('#cf-kalshi .lc-book').forEach(b => b.classList.toggle('active', b === btn));
   updatePayoutPreview();
 }
@@ -931,11 +945,22 @@ function renderTrackGames() {
   let games = currentDayGames();
   if (_trackSport) games = games.filter(g => (g.sport || '').toUpperCase() === _trackSport);
   if (q.length >= 1) games = games.filter(g => `${g.away_team} ${g.home_team} ${g.sport}`.toLowerCase().includes(q));
-  // Live first, then upcoming by time, then finals.
+  // Live first, then upcoming by time, then finals...
   const rank = g => g.status === 'in' ? 0 : g.status === 'post' ? 2 : 1;
-  games = games.slice().sort((a, b) => rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || '')));
-  games = games.slice(0, 60);
-  if (!games.length) {
+  const byRankTime = (a, b) => rank(a) - rank(b) || String(a.start_time || '').localeCompare(String(b.start_time || ''));
+  // ...with niche sports pinned BELOW the majors under a divider. The row cap
+  // applies per section so an overnight niche slate can never push real games
+  // off the list. A sport filter or search shows one flat list (the user asked
+  // for those rows specifically).
+  let mainList, nicheList;
+  if (_trackSport || q.length >= 1) {
+    mainList = games.slice().sort(byRankTime).slice(0, 60);
+    nicheList = [];
+  } else {
+    mainList  = games.filter(g => !isNicheSport(g.sport)).sort(byRankTime).slice(0, 60);
+    nicheList = games.filter(g => isNicheSport(g.sport)).sort(byRankTime).slice(0, 30);
+  }
+  if (!mainList.length && !nicheList.length) {
     const msg = otherDay ? 'No games scheduled for this day.' : (_trackGames.length ? 'No games match.' : 'No games on the board right now.');
     el.innerHTML = `<div style="padding:14px;color:var(--muted);font-size:13px;">${msg}</div>`;
     return;
@@ -950,7 +975,10 @@ function renderTrackGames() {
     if (!(CORE_SPORTS.includes(s) && !FULL_NAME_SPORTS.has(s))) return full || '';
     return shortSide(full, other);
   };
-  el.innerHTML = note + games.map(g => {
+  // Tennis rows carry each player's country flag (from today_games); rows from the
+  // multi-sport schedule feed have no flag data and just skip the chip.
+  const flagIco = (url) => url ? `<img class="tg-flag" src="${url}" alt="" onerror="this.style.display='none'" />` : '';
+  const rowHtml = (g) => {
     const cust = isCustomGame(g);
     const away = nameOf(g.away_team, g.home_team, g.sport);
     const home = nameOf(g.home_team, g.away_team, g.sport);
@@ -961,16 +989,25 @@ function renderTrackGames() {
       : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
       : time;
-    const matchup = isEventRow ? home : `${away} @ ${home}`;
+    const sUp = (g.sport || '').toUpperCase();
+    const isTennis = sUp === 'ATP' || sUp === 'WTA';
+    const matchup = isEventRow ? home
+      : isTennis ? `${flagIco(g.away_flag)}${away} @ ${flagIco(g.home_flag)}${home}`
+      : `${away} @ ${home}`;
+    const plainMatchup = isEventRow ? home : `${away} @ ${home}`;
     const onclick = cust
-      ? `trackFutureGame('${(g.sport || '').toUpperCase()}','${matchup.replace(/'/g, "\\'")}')`
+      ? `trackFutureGame('${sUp}','${plainMatchup.replace(/'/g, "\\'")}')`
       : `pickTrackGame('${g.espn_game_id}')`;
     const tag = cust ? `<span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;margin-left:5px;">custom</span>` : '';
     return `<button class="tg-row" onclick="${onclick}">
       <span class="tg-matchup">${matchup} ${sportBadge(g.sport)}${tag}</span>
       <span class="tg-status">${status} ›</span>
     </button>`;
-  }).join('');
+  };
+  const divider = nicheList.length
+    ? `<div class="tg-divider"><span>More sports</span></div>`
+    : '';
+  el.innerHTML = note + mainList.map(rowHtml).join('') + divider + nicheList.map(rowHtml).join('');
 }
 
 // ── Odds board: tap a real line to track it (verified) ────────────────────────
@@ -1809,95 +1846,354 @@ export async function submitParlay() {
   finally { if (btn) btn.disabled = false; }
 }
 
-let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
+let _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over', sport: '', game: '', player: '', eventDate: '' };
+
+// AN-style full league names for the League picker sheet.
+const LEAGUE_NAMES = {
+  MLB: 'Major League Baseball', NBA: 'National Basketball Association',
+  WNBA: "Women's National Basketball Association", NHL: 'National Hockey League',
+  NFL: 'National Football League', NCAAF: "Men's College Football",
+  CBB: "Men's College Basketball", WCBB: "Women's College Basketball",
+  ATP: 'ATP Tennis', WTA: 'WTA Tennis', Golf: 'Golf', Soccer: 'Soccer',
+  UFC: 'UFC', MMA: 'MMA', Boxing: 'Boxing', F1: 'Formula 1', NASCAR: 'NASCAR',
+  Cricket: 'Cricket', Rugby: 'Rugby',
+};
+const RESULT_META = {
+  pending: { label: 'Pending', ic: 'fa-solid fa-circle-dot', col: '#cbd5e1',  bg: 'rgba(136,146,164,.2)' },
+  win:     { label: 'Win',     ic: 'fa-solid fa-check',      col: '#06230f',  bg: '#4ade80' },
+  loss:    { label: 'Loss',    ic: 'fa-solid fa-xmark',      col: '#fff',     bg: '#ef4444' },
+  push:    { label: 'Push',    ic: 'fa-solid fa-minus',      col: '#cbd5e1',  bg: 'rgba(136,146,164,.28)' },
+  void:    { label: 'Void',    ic: 'fa-solid fa-ban',        col: '#cbd5e1',  bg: 'rgba(136,146,164,.28)' },
+};
+
+function etYmd(d) { return (d || new Date()).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); }
+function eventDateLabel(ymdStr) {
+  if (!ymdStr) return 'Today';
+  const today = etYmd(new Date());
+  if (ymdStr === today) return 'Today';
+  const t = Date.parse(ymdStr + 'T12:00:00Z'), td = Date.parse(today + 'T12:00:00Z');
+  if (t - td === 864e5) return 'Tomorrow';
+  if (td - t === 864e5) return 'Yesterday';
+  return new Date(ymdStr + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 export function showCustomForm() {
   stopBoardPoll();
-  _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over' };
+  _form = { bet_type: 'ml', result: 'pending', book: '', totalSide: 'over', sport: '', game: '', player: '', eventDate: etYmd() };
   const body = document.getElementById('track-sheet-body');
   if (body) body.innerHTML = customFormHtml();
-  updatePayoutPreview();
+  onCustomField('odds'); // seed To Win from the default -110 at unit size
+  updateCbiRows();
 }
 
 function seg(name, value, current, label) {
   return `<button type="button" class="bet-seg${value === current ? ' active' : ''}" onclick="setFormField('${name}','${value}')">${label}</button>`;
 }
 
+// ── Custom bet — AN-style screen (Jack 2026-07-28) ────────────────────────────
+// One compact slip card (type pills, Risk / To Win / Line / Odds boxes, Book,
+// Add Note) over a Bet Info list whose rows open bottom-sheet pickers (League,
+// Game/Match search, Player, Event Time, Result). Replaces the old 12-control
+// stacked form. Field ids (cf-*) are unchanged so the betslip scan prefill and
+// Kalshi fills keep working.
 function customFormHtml() {
   const needsLine = _form.bet_type === 'spread' || _form.bet_type === 'total';
   return `
+    <button class="ob-back" onclick="backToTrackMenu()">‹ Back</button>
     <div class="track-form">
-      <div class="settings-field">
-        <label>Bet type</label>
-        <div class="bet-seg-row">
+      <div class="cb-card">
+        <div class="cb-card-top">
+          <span class="cb-ic"><i class="fa-solid fa-dice"></i></span>
+          <span class="cb-title-line"><span id="cb-title-preview">Custom Pick</span><span class="cb-odds-preview" id="cb-odds-preview">-110</span></span>
+        </div>
+        <div class="bet-seg-row cb-type-row">
           ${seg('bet_type', 'ml', _form.bet_type, 'Moneyline')}
           ${seg('bet_type', 'spread', _form.bet_type, 'Spread')}
           ${seg('bet_type', 'total', _form.bet_type, 'Total')}
           ${seg('bet_type', 'prop', _form.bet_type, 'Prop')}
         </div>
-      </div>
-      <div class="settings-field" id="cf-ou-wrap" style="${_form.bet_type === 'total' ? '' : 'display:none;'}">
-        <label>Over / Under</label>
-        <div class="bet-seg-row">
+        <div class="bet-seg-row cb-type-row" id="cf-ou-wrap" style="${_form.bet_type === 'total' ? '' : 'display:none;'}">
           ${seg('totalSide', 'over', _form.totalSide || 'over', 'Over')}
           ${seg('totalSide', 'under', _form.totalSide || 'over', 'Under')}
         </div>
-      </div>
-      <div id="cf-kalshi"></div>
-      <div class="settings-field">
-        <label for="cf-selection">Your pick</label>
-        <input type="text" id="cf-selection" placeholder='e.g. "Yankees ML" or "Judge 2+ HR"' maxlength="80" />
-      </div>
-      <div style="display:flex;gap:12px;">
-        <div class="settings-field" style="flex:1;">
-          <label for="cf-sport">Sport</label>
-          <select id="cf-sport" style="width:100%;padding:9px 12px;font-size:14px;">
-            <option value="">—</option>
-            ${SPORTS.map(s => `<option value="${s}">${s}</option>`).join('')}
-          </select>
+        <div id="cf-kalshi"></div>
+        <div class="lc-fields">
+          <fieldset class="lc-field"><legend>Risk</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="cf-stake" value="${unitSize()}" min="0" step="1" oninput="onCustomField('risk')" /></div></fieldset>
+          <fieldset class="lc-field"><legend>To Win</legend><div class="lc-fin"><span class="lc-fpre">$</span><input type="number" id="cf-towin" min="0" step="1" oninput="onCustomField('towin')" /></div></fieldset>
+          <fieldset class="lc-field" id="cf-line-wrap" style="${needsLine ? '' : 'display:none;'}"><legend id="cf-line-leg">${_form.bet_type === 'total' ? 'Total' : 'Line'}</legend><div class="lc-fin"><input type="number" id="cf-line" step="0.5" placeholder="8.5" /></div></fieldset>
+          <fieldset class="lc-field"><legend>Odds</legend><div class="lc-fin"><input type="number" id="cf-odds" value="-110" step="5" oninput="onCustomField('odds')" /></div></fieldset>
         </div>
-        <div class="settings-field" style="flex:1;${needsLine ? '' : 'display:none;'}" id="cf-line-wrap">
-          <label for="cf-line">Line</label>
-          <input type="number" id="cf-line" step="0.5" placeholder="e.g. -1.5 or 8.5" />
+        <div class="cb-actions">
+          <button type="button" class="cb-act" id="cb-book-btn" onclick="toggleCustomBook()">${_form.book || 'Book'} <i class="fa-solid fa-chevron-down"></i></button>
+          <button type="button" class="cb-act" onclick="toggleCustomNote()"><i class="fa-solid fa-pen"></i> Add Note</button>
         </div>
-      </div>
-      <div style="display:flex;gap:12px;">
-        <div class="settings-field" style="flex:1;">
-          <label for="cf-odds">Odds</label>
-          <input type="number" id="cf-odds" value="-110" step="5" oninput="updatePayoutPreview()" />
-        </div>
-        <div class="settings-field" style="flex:1;">
-          <label for="cf-stake">Stake</label>
-          <div class="field-prefix-wrap"><span class="field-prefix">$</span>
-            <input type="number" id="cf-stake" value="${unitSize()}" min="0" step="1" oninput="updatePayoutPreview()" />
+        <div id="cb-book-area" style="display:none;margin-top:10px;">
+          <div class="bet-seg-row" style="flex-wrap:wrap;">
+            ${orderedFormBooks().map(b => `<button type="button" class="bet-seg${_form.book === b ? ' active' : ''}" onclick="setFormBook('${b}',this)">${b}</button>`).join('')}
           </div>
         </div>
-      </div>
-      <div class="track-payout" id="cf-payout"></div>
-      <div class="settings-field">
-        <label>Book (optional)</label>
-        <div class="bet-seg-row" style="flex-wrap:wrap;">
-          ${orderedFormBooks().map(b => `<button type="button" class="bet-seg" onclick="setFormBook('${b}',this)">${b}</button>`).join('')}
+        <div id="cb-note-area" style="display:none;margin-top:10px;">
+          <input type="text" id="cf-notes" class="cbp-search" style="margin-bottom:0;font-size:14px;" placeholder="e.g. tailed @capper, group-chat play" maxlength="200" />
         </div>
       </div>
+
+      <div class="cb-info-head">Bet Info</div>
       <div class="settings-field">
-        <label>Result</label>
-        <div class="bet-seg-row">
-          ${seg('result', 'pending', _form.result, 'Pending')}
-          ${seg('result', 'win', _form.result, 'Won')}
-          ${seg('result', 'loss', _form.result, 'Lost')}
-          ${seg('result', 'push', _form.result, 'Push')}
-          ${seg('result', 'void', _form.result, 'Void')}
-        </div>
+        <label for="cf-selection">Title</label>
+        <input type="text" id="cf-selection" placeholder="Custom Pick" maxlength="80" oninput="syncCustomTitle()" />
       </div>
-      <div class="settings-field">
-        <label for="cf-notes">Note (optional)</label>
-        <input type="text" id="cf-notes" placeholder="e.g. tailed @capper, group-chat play" maxlength="200" />
+      <div class="cbi-rows">
+        <button type="button" class="cbi-row" onclick="openCbPicker('league')"><span>League</span><span class="cbi-val" id="cbi-league">Not Selected <i class="fa-solid fa-chevron-right"></i></span></button>
+        <button type="button" class="cbi-row" onclick="openCbPicker('game')"><span>Game/Match</span><span class="cbi-val" id="cbi-game">Not Selected <i class="fa-solid fa-chevron-right"></i></span></button>
+        <button type="button" class="cbi-row" onclick="openCbPicker('player')"><span>Player</span><span class="cbi-val" id="cbi-player">Not Selected <i class="fa-solid fa-chevron-right"></i></span></button>
+        <button type="button" class="cbi-row" onclick="openCbPicker('time')"><span>Event Time</span><span class="cbi-val" id="cbi-time">Today <i class="fa-solid fa-chevron-right"></i></span></button>
+        <button type="button" class="cbi-row" onclick="openCbPicker('result')"><span>Result</span><span class="cbi-val" id="cbi-result">Pending <i class="fa-solid fa-chevron-right"></i></span></button>
       </div>
       <div class="track-form-note">Custom bets show on your own tracking. They are not added to the verified leaderboard.</div>
-      <button class="track-submit" id="cf-submit" onclick="submitCustomBet()">Track bet</button>
+      <button class="track-submit cb-submit" id="cf-submit" onclick="submitCustomBet()">Track Custom Bet</button>
       <div class="form-error" id="cf-error" style="margin-top:8px;font-size:12px;"></div>
     </div>`;
+}
+
+// Keep Risk / To Win / Odds in sync with the odds held fixed (mirror of the
+// verified confirm slide) and refresh the slip card's odds preview.
+export function onCustomField(which) {
+  const oddsEl = document.getElementById('cf-odds');
+  const riskEl = document.getElementById('cf-stake');
+  const winEl  = document.getElementById('cf-towin');
+  const odds = parseFloat(oddsEl?.value);
+  const risk = parseFloat(riskEl?.value);
+  const win  = parseFloat(winEl?.value);
+  const perDollar = (isFinite(odds) && odds !== 0) ? (odds < 0 ? 100 / Math.abs(odds) : odds / 100) : null;
+  if (which === 'towin') {
+    if (perDollar && perDollar > 0 && isFinite(win) && win >= 0 && riskEl) riskEl.value = (win / perDollar).toFixed(2);
+  } else {
+    if (perDollar && isFinite(risk) && risk > 0 && winEl) winEl.value = (risk * perDollar).toFixed(2);
+  }
+  const prev = document.getElementById('cb-odds-preview');
+  if (prev) prev.textContent = (isFinite(odds) && odds !== 0) ? (odds > 0 ? '+' + odds : String(odds)) : '';
+}
+
+export function syncCustomTitle() {
+  const v = (document.getElementById('cf-selection')?.value || '').trim();
+  const prev = document.getElementById('cb-title-preview');
+  if (prev) prev.textContent = v || 'Custom Pick';
+}
+
+export function toggleCustomBook() {
+  const area = document.getElementById('cb-book-area');
+  if (area) area.style.display = area.style.display === 'none' ? '' : 'none';
+}
+export function toggleCustomNote() {
+  const area = document.getElementById('cb-note-area');
+  if (!area) return;
+  const open = area.style.display === 'none';
+  area.style.display = open ? '' : 'none';
+  if (open) document.getElementById('cf-notes')?.focus();
+}
+function setCustomBook(book) {
+  _form.book = book || '';
+  const btn = document.getElementById('cb-book-btn');
+  if (btn) btn.innerHTML = `${_form.book || 'Book'} <i class="fa-solid fa-chevron-down"></i>`;
+  document.querySelectorAll('#cb-book-area .bet-seg').forEach(b => b.classList.toggle('active', b.textContent === _form.book));
+}
+
+// Refresh the Bet Info row values from _form.
+function updateCbiRows() {
+  const chev = ' <i class="fa-solid fa-chevron-right"></i>';
+  const setVal = (id, html, isSet) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = html + chev;
+    el.classList.toggle('set', !!isSet);
+  };
+  setVal('cbi-league', esc(_form.sport) || 'Not Selected', !!_form.sport);
+  setVal('cbi-game',   esc(_form.game) || 'Not Selected', !!_form.game);
+  setVal('cbi-player', esc(_form.player) || 'Not Selected', !!_form.player);
+  setVal('cbi-time',   eventDateLabel(_form.eventDate), true);
+  const rm = RESULT_META[_form.result] || RESULT_META.pending;
+  setVal('cbi-result', `<span class="cbp-ic" style="background:${rm.bg};color:${rm.col};"><i class="${rm.ic}"></i></span>${rm.label}`, _form.result !== 'pending');
+}
+
+// ── Bet Info bottom-sheet pickers ─────────────────────────────────────────────
+let _cbGames = null;   // games offered by the Game/Match search (today's slate)
+let _cbFiltered = [];
+let _cbQuery = '';
+
+async function ensureCbGames() {
+  if (_cbGames) return _cbGames;
+  let games = _trackGames.length ? _trackGames.slice() : [];
+  if (!games.length) {
+    try {
+      const res = await fetch('/api/games?board=1');
+      games = res.ok ? await res.json() : [];
+    } catch (_) { games = []; }
+    try {
+      const r = await fetch(`/api/track/schedule?date=${ymd(new Date())}`);
+      const d = r.ok ? await r.json() : null;
+      if (d && Array.isArray(d.games)) {
+        const have = new Set(games.map(g => String(g.espn_game_id)));
+        games = games.concat(d.games.filter(g => !have.has(String(g.espn_game_id))));
+      }
+    } catch (_) {}
+  }
+  games.sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+  _cbGames = games;
+  return games;
+}
+
+export function closeCbPicker() {
+  document.getElementById('cb-picker-veil')?.remove();
+  const p = document.getElementById('cb-picker');
+  if (!p) return;
+  p.classList.remove('open');
+  setTimeout(() => p.remove(), 200);
+}
+
+function mountCbPicker(title, bodyHtml, applyHandler) {
+  closeCbPicker();
+  const host = document.getElementById('track-sheet-host') || document.body;
+  const veil = document.createElement('div');
+  veil.id = 'cb-picker-veil';
+  veil.onclick = closeCbPicker;
+  const p = document.createElement('div');
+  p.id = 'cb-picker';
+  p.className = 'cb-picker';
+  p.innerHTML = `
+    <div class="cb-picker-grab"></div>
+    <div class="cb-picker-head">
+      <button type="button" class="cbp-cancel" onclick="closeCbPicker()">Cancel</button>
+      <span class="cbp-title">${title}</span>
+      ${applyHandler ? `<button type="button" class="cbp-apply" onclick="${applyHandler}">Apply</button>` : '<span></span>'}
+    </div>
+    <div class="cb-picker-body" id="cb-picker-body">${bodyHtml}</div>`;
+  host.appendChild(veil);
+  host.appendChild(p);
+  requestAnimationFrame(() => p.classList.add('open'));
+}
+
+export function openCbPicker(kind) {
+  if (kind === 'league') {
+    const rows = SPORTS.map(s => `
+      <button type="button" class="cbp-row${_form.sport === s ? ' sel' : ''}" onclick="cbPickLeague('${s}')">
+        <span>${LEAGUE_NAMES[s] || s}</span>${_form.sport === s ? '<i class="fa-solid fa-check"></i>' : ''}
+      </button>`).join('');
+    mountCbPicker('League', rows);
+  } else if (kind === 'game') {
+    _cbQuery = '';
+    mountCbPicker('Game/Match', `
+      <input type="search" class="cbp-search" id="cbp-search" placeholder="Search Games/Matches" autocomplete="off" oninput="cbPickerSearch(this.value)" />
+      <div id="cbp-list"><div style="padding:14px 2px;color:var(--muted);font-size:13px;">Loading games...</div></div>`);
+    ensureCbGames().then(() => renderCbGameList());
+  } else if (kind === 'player') {
+    _cbQuery = '';
+    mountCbPicker('Player', `
+      <input type="search" class="cbp-search" id="cbp-search" placeholder="Search Players" autocomplete="off" oninput="cbPickerSearch(this.value)" />
+      <div id="cbp-list"><div style="padding:14px 2px;color:var(--muted);font-size:13px;">Type a player's name.</div></div>`);
+    ensureCbGames();
+  } else if (kind === 'time') {
+    mountCbPicker('Time', `
+      <input type="date" class="cbp-date" id="cbp-date" value="${_form.eventDate || etYmd()}" />`, 'cbApplyTime()');
+  } else if (kind === 'result') {
+    const rows = Object.entries(RESULT_META).map(([k, m]) => `
+      <button type="button" class="cbp-row${_form.result === k ? ' sel' : ''}" onclick="cbPickResult('${k}')">
+        <span style="display:inline-flex;align-items:center;gap:10px;"><span class="cbp-ic" style="background:${m.bg};color:${m.col};"><i class="${m.ic}"></i></span>${m.label}</span>
+        ${_form.result === k ? '<i class="fa-solid fa-check"></i>' : ''}
+      </button>`).join('');
+    mountCbPicker('Result', rows);
+  }
+  const s = document.getElementById('cbp-search');
+  if (s) setTimeout(() => s.focus(), 220);
+}
+
+export function cbPickerSearch(q) {
+  _cbQuery = (q || '').trim().toLowerCase();
+  const title = document.querySelector('#cb-picker .cbp-title')?.textContent || '';
+  if (title === 'Player') renderCbPlayerList();
+  else renderCbGameList();
+}
+
+function renderCbGameList() {
+  const el = document.getElementById('cbp-list');
+  if (!el) return;
+  const games = _cbGames || [];
+  _cbFiltered = (_cbQuery
+    ? games.filter(g => `${g.away_team} ${g.home_team} ${g.sport}`.toLowerCase().includes(_cbQuery))
+    : games.slice()).slice(0, 40);
+  if (!_cbFiltered.length) {
+    el.innerHTML = `<div style="padding:14px 2px;color:var(--muted);font-size:13px;">${games.length ? 'No games match.' : 'No games found for today.'}</div>`;
+    return;
+  }
+  el.innerHTML = _cbFiltered.map((g, i) => {
+    const m = g.away_team ? `${g.away_team} @ ${g.home_team}` : (g.home_team || '');
+    const t = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
+    return `<button type="button" class="cbp-row" onclick="cbPickGame(${i})"><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(m)}</span><span class="cbp-sub">${(g.sport || '').toUpperCase()}${t ? ' · ' + t : ''}</span></button>`;
+  }).join('');
+}
+
+// Individual-sport rows (tennis, fights) carry real people as home/away — those
+// are the suggestions. Team-sport players come in as free text via the Use row.
+function renderCbPlayerList() {
+  const el = document.getElementById('cbp-list');
+  if (!el) return;
+  const q = _cbQuery;
+  if (!q) { el.innerHTML = `<div style="padding:14px 2px;color:var(--muted);font-size:13px;">Type a player's name.</div>`; return; }
+  const PEOPLE_SPORTS = new Set(['ATP', 'WTA', 'UFC', 'MMA', 'BOXING']);
+  const names = new Set();
+  for (const g of (_cbGames || [])) {
+    if (!PEOPLE_SPORTS.has((g.sport || '').toUpperCase())) continue;
+    if (g.home_team) names.add(g.home_team);
+    if (g.away_team) names.add(g.away_team);
+  }
+  const hits = [...names].filter(n => n.toLowerCase().includes(q)).sort().slice(0, 12);
+  const typed = (document.getElementById('cbp-search')?.value || '').trim();
+  const useRow = `<button type="button" class="cbp-row" onclick="cbPickPlayer(null)"><span>Use "${esc(typed)}"</span><i class="fa-solid fa-plus"></i></button>`;
+  el.innerHTML = hits.map(n => `<button type="button" class="cbp-row" onclick="cbPickPlayer('${n.replace(/'/g, "\\'")}')"><span>${esc(n)}</span></button>`).join('') + useRow;
+}
+
+export function cbPickLeague(s) {
+  _form.sport = s;
+  updateCbiRows();
+  closeCbPicker();
+}
+export function cbPickGame(i) {
+  const g = _cbFiltered[i];
+  if (!g) { closeCbPicker(); return; }
+  const m = g.away_team ? `${g.away_team} @ ${g.home_team}` : (g.home_team || '');
+  _form.game = m;
+  const label = SPORTS.find(s => s.toUpperCase() === (g.sport || '').toUpperCase());
+  if (label) _form.sport = label;
+  if (g.start_time) _form.eventDate = etYmd(new Date(g.start_time));
+  const sel = document.getElementById('cf-selection');
+  if (sel && !sel.value) sel.placeholder = `Your pick for ${m}`;
+  updateCbiRows();
+  closeCbPicker();
+  loadKalshiEventStrip(g.sport, m);
+}
+export function cbPickPlayer(name) {
+  const typed = (document.getElementById('cbp-search')?.value || '').trim();
+  const v = name || typed;
+  if (v) {
+    _form.player = v;
+    // The player usually IS the bet ("Alcaraz ML", "Judge 2+ HR") — start the
+    // title with the name when the user hasn't typed one yet.
+    const sel = document.getElementById('cf-selection');
+    if (sel && !sel.value.trim()) { sel.value = v + ' '; syncCustomTitle(); }
+  }
+  updateCbiRows();
+  closeCbPicker();
+  if (v) document.getElementById('cf-selection')?.focus();
+}
+export function cbApplyTime() {
+  const v = document.getElementById('cbp-date')?.value;
+  if (v) _form.eventDate = v;
+  updateCbiRows();
+  closeCbPicker();
+}
+export function cbPickResult(r) {
+  _form.result = r;
+  updateCbiRows();
+  closeCbPicker();
 }
 
 export function setFormField(name, value) {
@@ -1905,53 +2201,39 @@ export function setFormField(name, value) {
   if (name === 'bet_type') {
     const wrap = document.getElementById('cf-line-wrap');
     if (wrap) wrap.style.display = (value === 'spread' || value === 'total') ? '' : 'none';
+    const leg = document.getElementById('cf-line-leg');
+    if (leg) leg.textContent = value === 'total' ? 'Total' : 'Line';
     const ou = document.getElementById('cf-ou-wrap');
     if (ou) ou.style.display = (value === 'total') ? '' : 'none';
   }
-  if (name === 'result') updatePayoutPreview(); // hide "to win" when Lost/Void
   // Re-highlight the segmented group this control belongs to.
   document.querySelectorAll(`.bet-seg[onclick*="'${name}'"]`).forEach(b => {
     b.classList.toggle('active', b.getAttribute('onclick').includes(`'${value}'`));
   });
 }
 
-export function setFormBook(book, btn) {
-  const on = _form.book === book;
-  _form.book = on ? '' : book;
-  // Toggle just the book chips (the row after the Book label).
-  const row = btn.parentElement;
-  row.querySelectorAll('.bet-seg').forEach(b => b.classList.remove('active'));
-  if (!on) btn.classList.add('active');
+export function setFormBook(book) {
+  setCustomBook(_form.book === book ? '' : book);
 }
 
-export function updatePayoutPreview() {
-  const odds  = parseFloat(document.getElementById('cf-odds')?.value);
-  const stake = parseFloat(document.getElementById('cf-stake')?.value) || 0;
-  const el = document.getElementById('cf-payout');
-  if (!el) return;
-  // Flag a $0 stake — it tracks the result but contributes nothing to P/L (Backlog P2 #30).
-  if (!stake) { el.innerHTML = `<span style="color:var(--muted);">No stake set, so this won't affect your P/L.</span>`; return; }
-  // Respect the chosen result (Backlog P0 #5): don't show a "to win" for a Lost/Void bet.
-  if (_form.result === 'loss') { el.innerHTML = `Risk <strong>$${stake.toFixed(2)}</strong> · marked Lost (−$${stake.toFixed(2)})`; return; }
-  if (_form.result === 'push' || _form.result === 'void') { el.innerHTML = `Stake returned · $0.00`; return; }
-  const win = americanProfit(odds, stake);
-  el.innerHTML = `Risk <strong>$${stake.toFixed(2)}</strong> to win <strong>$${win.toFixed(2)}</strong> · returns <strong>$${(win + stake).toFixed(2)}</strong>`;
-}
+// Back-compat alias — the betslip scan + Kalshi fill call this to refresh math.
+export function updatePayoutPreview() { onCustomField('odds'); }
 
 export async function submitCustomBet() {
   const errEl = document.getElementById('cf-error');
   const btn   = document.getElementById('cf-submit');
   if (errEl) errEl.textContent = '';
-  const selection = (document.getElementById('cf-selection')?.value || '').trim();
+  // AN-style: an empty Title falls back to what the Bet Info rows describe.
+  let selection = (document.getElementById('cf-selection')?.value || '').trim();
+  if (!selection) selection = _form.player || _form.game || '';
   const odds  = parseFloat(document.getElementById('cf-odds')?.value);
   const stake = parseFloat(document.getElementById('cf-stake')?.value) || 0;
-  const sport = document.getElementById('cf-sport')?.value || '';
   const lineV = document.getElementById('cf-line')?.value;
   // DB enum has over/under, not "total". A self-settled custom total is stored in the
   // 'over' bucket (the selection text carries "Over 8.5" / "Under 8.5"); the breakdown
   // labels over/under as "Total".
   const bet_type = _form.bet_type === 'total' ? (_form.totalSide === 'under' ? 'under' : 'over') : _form.bet_type;
-  if (!selection) { if (errEl) errEl.textContent = 'Add what you bet on.'; return; }
+  if (!selection) { if (errEl) errEl.textContent = 'Add a title, or pick a game or player below.'; return; }
   if (!Number.isFinite(odds) || odds === 0) { if (errEl) errEl.textContent = 'Enter valid odds (e.g. -110).'; return; }
 
   if (btn) btn.disabled = true;
@@ -1961,11 +2243,12 @@ export async function submitCustomBet() {
     const res = await fetch('/api/bets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        bet_type, selection, sport,
+        bet_type, selection, sport: _form.sport || '',
         line: (lineV === '' || lineV == null) ? null : Number(lineV),
         odds, stake, book: _form.book || null,
         notes: (document.getElementById('cf-notes')?.value || '').trim() || null,
         result: _form.result || 'pending',
+        game_date: _form.eventDate || null,
       }),
     });
     const data = await res.json();
@@ -1982,6 +2265,9 @@ export async function submitCustomBet() {
 Object.assign(window, {
   openTrackSheet, closeTrackSheet, trackFromGame, showCustomForm,
   setFormField, setFormBook, updatePayoutPreview, submitCustomBet,
+  onCustomField, syncCustomTitle, toggleCustomBook, toggleCustomNote,
+  openCbPicker, closeCbPicker, cbPickerSearch, cbPickLeague, cbPickGame,
+  cbPickPlayer, cbApplyTime, cbPickResult,
   setBetFilter, clearBetFilters, loadMoreBets, settleBetUI, deleteBetUI, loadUserBets,
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet, shareBet,
@@ -2002,7 +2288,11 @@ document.addEventListener('click', (e) => {
 // arrow keys walk the sport dropdown (Backlog P2 #24 + the mobile/a11y pass).
 document.addEventListener('keydown', (e) => {
   const overlay = document.getElementById('track-overlay');
-  if (e.key === 'Escape' && overlay) { closeTrackSheet(); return; }
+  if (e.key === 'Escape' && overlay) {
+    // A Bet Info picker on top of the sheet closes first; the sheet stays put.
+    if (document.getElementById('cb-picker')) { closeCbPicker(); return; }
+    closeTrackSheet(); return;
+  }
   if (e.key === 'Tab' && overlay) {
     const list = [...overlay.querySelectorAll('button, input, select, [tabindex]:not([tabindex="-1"])')]
       .filter(el => !el.disabled && el.offsetParent !== null);

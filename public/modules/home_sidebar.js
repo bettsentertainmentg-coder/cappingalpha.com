@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn } from './utils.js?v=5';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn } from './utils.js?v=6';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -403,8 +403,15 @@ function _renderSidebarGames(sport) {
       home = homeFull.split(' ').slice(0, -1).join(' ') || home;
     }
 
+    // Tennis rows get each player's country flag chip (fields ride /api/games).
+    const sUp = (g.sport || '').toUpperCase();
+    const f = url => url ? `<img src="${url}" alt="" style="width:13px;height:9px;border-radius:2px;object-fit:cover;vertical-align:-1px;margin-right:3px;" onerror="this.style.display='none'" />` : '';
+    const matchupHtml = (sUp === 'ATP' || sUp === 'WTA')
+      ? `${f(g.away_flag)}${away} @ ${f(g.home_flag)}${home}`
+      : `${away} @ ${home}`;
+
     return `<div class="ca-sidebar-game-row" onclick="window.location.href='/game/${g.espn_game_id}'">
-      <span class="ca-sidebar-game-matchup">${away} @ ${home}</span>
+      <span class="ca-sidebar-game-matchup">${matchupHtml}</span>
       <span class="ca-sidebar-game-time">${timeOrScore}</span>
     </div>`;
   }).join('');
