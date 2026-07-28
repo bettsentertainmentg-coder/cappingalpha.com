@@ -653,10 +653,10 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=9"></script>
+<script type="module" src="/game-detail.js?v=10"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=50"></script>
+<script type="module" src="/modules/track.js?v=51"></script>
 </body>
 </html>`;
 }

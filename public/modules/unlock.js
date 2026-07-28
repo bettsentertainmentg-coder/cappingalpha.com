@@ -7,7 +7,7 @@
 import { state } from './state.js';
 import { isViewer, isPaying, googleAuthSubmit } from './auth.js';
 import { startCheckout } from './paywall.js';
-import { flatUnitReturn } from './utils.js?v=6';
+import { flatUnitReturn } from './utils.js?v=7';
 
 const YES = '<span class="uc-yes">&#10003;</span>';
 const NO  = '<span class="uc-no">&#8211;</span>';

@@ -7,7 +7,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=6';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots, tennisDisplayName } from './utils.js?v=7';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer', 'Tennis', 'Golf'];
@@ -169,7 +169,9 @@ function _teamRow(g, isHome) {
   // if the image is missing/broken.
   let chip;
   if (_isTennis(g) && flag) {
-    chip = `<span class="ca-tg-flag"><img src="${flag}" alt="" loading="lazy" onerror="this.style.display='none'">${_abbr(full, short, abbr)}</span>`;
+    // Flag only — the 3-letter monogram next to it read as a fake team logo
+    // ("SHE" for Shelton). The name column carries the identity instead.
+    chip = `<span class="ca-tg-flag"><img src="${flag}" alt="" loading="lazy" onerror="this.style.display='none'"></span>`;
   } else {
     const tc = _teamColor(g.sport, abbr || short);
     const abbrStyle = (tc && tc.primary)
@@ -196,7 +198,8 @@ function _teamRow(g, isHome) {
   // score columns stay right-aligned across both rows).
   const mark = `<span class="ca-tg-win-mark${won ? '' : ' ca-tg-win-mark-empty'}">◀</span>`;
 
-  return `<div class="${cls}">${chip}<span class="ca-tg-tname">${_shortName(full, short)}</span>${scoreArea}${mark}</div>`;
+  const dispName = _isTennis(g) ? (tennisDisplayName(full) || _shortName(full, short)) : _shortName(full, short);
+  return `<div class="${cls}">${chip}<span class="ca-tg-tname">${dispName}</span>${scoreArea}${mark}</div>`;
 }
 
 // ESPN-style scoreboard tile: gradient sport badge + CA chip, two stacked teams
