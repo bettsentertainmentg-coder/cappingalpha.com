@@ -387,7 +387,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           ${row(bd.insport ? 'Best backer (sport pool)' : 'Best backer', bd.resume, bd.advocate
             ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}${bd.insport && bd.advocate_sport_decisions != null ? ` · ${bd.advocate_sport_decisions} sport dec` : ''}]</span>` : ''}`
             : '· untracked capper (flat)')}
-          ${row(bd.insport ? 'Backer stack (eighth-peak, qualified only)' : 'Backer stack', bd.consensus)}
+          ${row(bd.insport ? 'Backer stack (quality-weighted, qualified only)' : 'Backer stack', bd.consensus)}
           ${joinRows}
           ${(bd.sport_pct && bd.sport_pct.pts) ? row('Sport rank bonus', bd.sport_pct.pts, bd.sport_pct.rank ? `· #${bd.sport_pct.rank} in sport` : '') : ''}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
@@ -1057,6 +1057,20 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const winPct = decided > 0 ? Math.round((sRec.wins / decided) * 100) : null;
         const r = ratingsMap.get(name) || null;
         const srcUnion = new Set([...(c.srcs || []), ...(r?.sources ? r.sources.split(',') : [])]);
+        // What this capper would ADD to a pick in this sport: as best backer
+        // (their ladder pts) and as a joiner (the quality-weighted chip).
+        const insSport = insportSportsSet.has(lbSport.toUpperCase());
+        const sPts = sr?.pts ?? null;
+        const qualified = insSport ? ((sr?.decisions ?? 0) >= 20 && (sPts ?? 0) > 0) : ((r?.decisions ?? 0) >= 12 && (r?.pts ?? 0) > 0);
+        let chipIn = 0;
+        if (qualified) {
+          if (insSport) {
+            chipIn = (sPts ?? 0) * Math.pow(Math.max(0, Math.min(sPts ?? 0, 80)) / 80, 3);
+          } else {
+            const oShrunk = (r?.wins != null && r?.decisions) ? (r.wins + 12.5) / (r.decisions + 25) : 0.5;
+            chipIn = ((r?.pts ?? 0) / 2) * Math.max(0, Math.min(1, (oShrunk - 0.50) / 0.08));
+          }
+        }
         return { name, sports: c.sports, pending: c.pending,
                  wins: sRec.wins, losses: sRec.losses, pushes: sRec.pushes, money: sRec.money,
                  total, winPct, units: sRec.wins - sRec.losses,
@@ -1064,7 +1078,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
                  tier: r?.tier ?? null, fade: r?.fade ?? null,
                  wilson: sr?.wilson ?? null, wrank: sr?.wilson_rank ?? null,
                  pctile: sr?.percentile ?? null, band: sr?.band ?? 'new',
-                 pts: sr?.pts ?? null, stackAdd: sr?.stack_add ?? null,
+                 pts: sPts, stackAdd: sr?.stack_add ?? null,
+                 chipIn: Math.round(chipIn * 10) / 10,
                  sportBonus: sr?.sport_bonus_pts ?? 0,
                  decisionsR: sr?.decisions ?? decided,
                  srcList: [...srcUnion].sort() };
@@ -1088,9 +1103,15 @@ router.get('/dashboard', requireAuth, (req, res) => {
     })
     .filter(Boolean)
     .filter(c => c.total > 0 || c.pending > 0)
-    .sort((a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
-      || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
-      || (b.winPct ?? -1) - (a.winPct ?? -1));
+    .sort(lbSport
+      // Sport-ladder view: sort by what a pick actually collects from them —
+      // ladder Pts/Pick first (the capped, gate-applied value), rank as tiebreak.
+      ? (a, b) => (b.pts ?? -1) - (a.pts ?? -1)
+        || (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
+        || (b.winPct ?? -1) - (a.winPct ?? -1)
+      : (a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
+        || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
+        || (b.winPct ?? -1) - (a.winPct ?? -1));
 
   // ── Suggested merges: fuzzy-match similar capper names for one-click aliasing ─
   function _normCap(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -1250,7 +1271,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     .concat(ladderSports.map(s => {
       const active = lbSport === s;
       const ins = insportSportsSet.has(s.toUpperCase());
-      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool (points capped by each capper\'s own shrunk win rate), 20+ sport decisions required, eighth-peak stack, no sport rank bonus.">IN-SPORT</span>' : ''}</a>`;
+      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool (points capped by each capper\'s own shrunk win rate), 20+ sport decisions required, quality-weighted chip-ins, no sport rank bonus.">IN-SPORT</span>' : ''}</a>`;
     })).join(' ');
   // Pool summary (sport mode): the readout for judging in-sport / shrinkage moves.
   const poolSummaryHtml = lbSport ? (() => {
@@ -1265,7 +1286,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${ranked} clear the gates (worth more than the flat 10) ·
       <span style="color:${qual >= 10 ? '#16a34a' : '#f59e0b'};">${qual} fully qualified (20+ ${escHtml(lbSport)} decisions + gates)</span> ·
       median ${med} decisions
-      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; Pts/Pick is capped by each capper's own shrunk win rate (break-even caps near 31, 55% near 54, full 80 needs 58%+); stack is eighth-peak, qualified backers only; no sport rank bonus.</span>` : ''}
+      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; Pts/Pick is capped by each capper's own shrunk win rate (break-even caps near 31, 55% near 54, full 80 needs 58%+); chip-ins are quality-weighted (an 80 chips 80, a 54 chips ~17 — see the Chip-in column); no sport rank bonus.</span>` : ''}
     </div>`;
   })() : '';
 
@@ -1297,7 +1318,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -1333,6 +1354,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <td data-sv="${c.wilson ?? -1}" style="color:#b7c0d0;font-size:12px;">${c.wilson != null ? c.wilson.toFixed(3) : '—'}</td>
           <td data-sv="${escHtml(c.band || 'new')}" style="white-space:nowrap;">${bandChip(c.band)}</td>
           <td data-sv="${c.pts ?? -1}" style="color:${ptsColor};font-weight:700;white-space:nowrap;">${c.pts != null ? Math.round(c.pts) : '—'}${capNote}</td>
+          ${lbSport ? `<td data-sv="${c.chipIn ?? 0}" style="color:${(c.chipIn ?? 0) >= 40 ? '#FFD700' : (c.chipIn ?? 0) >= 15 ? '#16a34a' : (c.chipIn ?? 0) > 0 ? '#8892a4' : '#3b4560'};font-weight:600;">${c.chipIn > 0 ? '+' + Math.round(c.chipIn) : '0'}</td>` : ''}
           <td data-sv="${c.fade ? (c.fade === 'active' ? 4 : 3) : (c.tier === 'proven' ? 2 : c.tier === 'rated' ? 1 : 0)}" style="white-space:nowrap;">${statusChips(c)}</td>
           <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>

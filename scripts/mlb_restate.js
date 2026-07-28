@@ -112,7 +112,8 @@ function replayScore(backerNames, date) {
     if (b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
     if (b.decisions < INSPORT_MIN_DECISIONS) continue;
     const k = bandSeen[b.band] || 0;
-    consensus += b.pts / Math.pow(2, Math.floor(k / 2) + 3); // eighth-peak (insport, 2026-07-28)
+    // quality-weighted chip (insport, 2026-07-28): pts * (pts/80)^3, pair-tapered
+    consensus += (b.pts * Math.pow(Math.max(0, Math.min(b.pts, 80)) / 80, 3)) / Math.pow(2, Math.floor(k / 2));
     bandSeen[b.band] = k + 1;
   }
   const bonus = best?.bonus ?? 0;

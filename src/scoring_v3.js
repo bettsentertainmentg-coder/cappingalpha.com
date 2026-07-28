@@ -118,6 +118,7 @@ function backerLadder(name, insportSport = null) {
       pctile: s.percentile ?? null,
       fade: null,
       insport: true,
+      shrunk: (s.wins != null && s.decisions) ? (s.wins + 12.5) / (s.decisions + 25) : 0.5,
     };
   }
   return {
@@ -128,7 +129,30 @@ function backerLadder(name, insportSport = null) {
     rank: o.wilson_rank ?? null,
     pctile: o.percentile ?? null,
     fade: null,
+    shrunk: (o.wins != null && o.decisions) ? (o.wins + 12.5) / (o.decisions + 25) : 0.5,
   };
+}
+
+// ── QUALITY-WEIGHTED CHIP-INS (Jack 2026-07-28) ───────────────────────────────
+// A joiner's chip scales with THEIR OWN proven quality, not a flat divisor.
+// Why: the flat eighth-peak made two proven 58%+ cappers agreeing worth 90
+// (barely gold), the same as one of them plus a grinder — agreement of ELITE
+// records is the strongest signal we track and was priced like noise. And the
+// crowd inversion isn't MLB-only: WNBA golds with 8+ mentions ran 52% vs 65%
+// lightly backed, so weak joiners get trimmed everywhere.
+//   In-sport sports: chip = pts * (pts/80)^3, pair-tapered (2^floor(k/2)).
+//     The quality-capped pts already encode shrunk win%, and the cube gives
+//     the sharp knee: an 80 (58%+ proven) chips 80, a 54 (55%) chips ~17, a
+//     36 (53%) chips ~3. Two 58s = ~168; three 55% grinders = ~87 (silver).
+//   All other sports: the half-peak pair taper stays, multiplied by
+//     f = clamp((overall shrunk win% - 0.50) / 0.08, 0, 1) — elite joiners
+//     (58%+ shrunk) are UNCHANGED from before, break-even joiners trim toward
+//     zero. Reduce-only for healthy sports by construction.
+function insportChip(pts) {
+  return pts * Math.pow(Math.max(0, Math.min(pts, 80)) / 80, 3);
+}
+function overallChipFactor(shrunk) {
+  return Math.max(0, Math.min(1, ((shrunk ?? 0.5) - 0.50) / 0.08));
 }
 
 // ── Opposite slot (fade target) ───────────────────────────────────────────────
@@ -285,11 +309,10 @@ function backerAggregate(cappers, sport = null) {
   const best = backers[0] ?? null;
   const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
 
-  // In-sport sports: EIGHTH-peak stack (two extra halvings — Jack 2026-07-28,
-  // quarter-peak still let 36 qualified daily posters mint 26-28 golds/day)
-  // and a sport-scoped chip-in floor — only backers with a real record IN THIS
-  // SPORT can boost.
-  const stackDiv = insport ? 2 : 0; // extra halving steps
+  // Chip-ins are QUALITY-WEIGHTED (see insportChip/overallChipFactor above).
+  // In-sport: sport-scoped floor — only backers with a real record IN THIS
+  // SPORT can boost, and their chip follows the cubic quality curve at full
+  // pair value (two proven 58%+ records agreeing should blow past gold).
   const stackMinDec = insport ? INSPORT_MIN_DECISIONS : STACK_MIN_DECISIONS;
 
   let consensus = 0;
@@ -302,7 +325,10 @@ function backerAggregate(cappers, sport = null) {
       continue;
     }
     const k = bandSeen[b.band] || 0;
-    const add = b.pts / Math.pow(2, Math.floor(k / 2) + 1 + stackDiv);
+    const taper = Math.pow(2, Math.floor(k / 2));
+    const add = insport
+      ? insportChip(b.pts) / taper
+      : (b.pts / 2) * overallChipFactor(b.shrunk) / taper;
     bandSeen[b.band] = k + 1;
     consensus += add;
     joinLog.push({ name: b.name, pts: b.pts, applied: +add.toFixed(1) });

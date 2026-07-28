@@ -3150,7 +3150,11 @@ app.listen(PORT, () => {
   //   gen 6 = the MLB tightening (2026-07-28): absolute quality cap on in-sport
   //           ladder points, eighth-peak stack, in-sport rank bonus retired —
   //           trues up today's board + record the moment this deploy boots
-  const RECORD_SYNC_GEN = 6;
+  //   gen 7 = quality-weighted chip-ins (2026-07-28, same day): in-sport chips
+  //           follow the cubic quality curve (two 58%+ records agreeing ~168,
+  //           crowds of grinders stay silver); other sports' chips scale by the
+  //           joiner's overall shrunk win% (reduce-only for healthy sports)
+  const RECORD_SYNC_GEN = 7;
   try {
     const syncedGen = parseInt(db.getSetting('v4_record_sync_gen', db.getSetting('v4_record_sync') ? '1' : '0'), 10);
     if (db.getSetting('scoring_version', 'v2') === 'v3' && syncedGen < RECORD_SYNC_GEN) {

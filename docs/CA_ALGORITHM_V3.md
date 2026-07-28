@@ -62,9 +62,17 @@ qualified daily posters still minted crowd golds. Current rules:
    few MLB golds; if ten cappers sustain 58%+, the day grows with them (Jack's
    explicit intent). Applied at materialization (capper_ratings) so the admin
    ladder shows the same capped pts the scorer pays.
-4. EIGHTH-PEAK STACK (2026-07-28, was quarter): each qualified joiner adds
-   their worth /8 for the band's first pair, /16 the next; only sport-qualified
-   backers (20+ sport decisions, gates cleared) chip in.
+4. QUALITY-WEIGHTED CHIP-INS (2026-07-28 evening, replaces the flat eighth-peak
+   which priced two proven 58%+ records agreeing at 90 — barely gold — the
+   same as elite+grinder): an in-sport joiner adds pts * (pts/80)^3, pair
+   tapered (2^floor(k/2)). The quality-capped pts encode shrunk win%, so the
+   cube gives the knee: an 80 (58%+ proven) chips a full 80, a 54 (55%) chips
+   ~17, a 36 (53%) chips ~3. Two 58s = ~168 total; three 55% grinders = ~87
+   (silver). Only sport-qualified backers (20+ sport decisions, gates) chip.
+   GLOBAL SPILLOVER (same ship): every OTHER sport's chip-in is now
+   half-peak * clamp((overall shrunk win% - 0.50)/0.08, 0, 1) — elite joiners
+   unchanged, break-even joiners trim toward zero. Reduce-only; motivated by
+   WNBA's own crowd inversion (8+ mention golds 52% vs 65% light).
 5. IN-SPORT RANK BONUS RETIRED for in-sport sports (2026-07-28): sportPctPts
    is 0 when the ladder is already sport-scoped (pure double-count). Other
    sports keep the +20/+10.
