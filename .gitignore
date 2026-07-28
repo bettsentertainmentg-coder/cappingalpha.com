@@ -13,3 +13,5 @@ CLAUDE.md
 
 # Local security audit reports (may reference file paths / findings)
 security-audits/
+node_modules/
+node_modules
