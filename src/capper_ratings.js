@@ -327,6 +327,25 @@ function recomputeCapperRatings() {
       sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w, u: s.u });
     }
   }
+  // THE ABSOLUTE QUALITY CAP (Jack 2026-07-28, in-sport sports only): pool
+  // percentile is RELATIVE — in a weak pool, a 55% volume grinder ranks top-1%
+  // and prices like an elite. For sports scored in-sport (v3_insport_sports),
+  // a capper's ladder points are additionally capped by what their own shrunk
+  // win% supports in absolute terms: 10 + (shrunk - 0.50) * 875, clamped to
+  // [10, 80]. Break-even (~52.4%) caps near 31, 55% near 54, and only a
+  // genuinely proven 58%+ shrunk record reaches the full 80. Points must be
+  // earned against the coin flip, not against the pool.
+  const INSPORT_QC_BASE = 10, INSPORT_QC_SLOPE = 875;
+  const insportQualityCap = (w, dec) => {
+    const shrunk = (w + GATE_K / 2) / (dec + GATE_K);
+    return Math.max(UNRANKED_PTS, Math.min(80, INSPORT_QC_BASE + (shrunk - 0.50) * INSPORT_QC_SLOPE));
+  };
+  let insportSet = new Set(['MLB']);
+  try {
+    const arr = JSON.parse(db.getSetting('v3_insport_sports', '["MLB"]'));
+    insportSet = new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toUpperCase()));
+  } catch (_) {}
+
   const sinfo = new Map(); // `${canonical}|${sport}` -> the sport wilson record
   for (const [sport, poolArr] of sportPools) {
     rankPool(poolArr);
@@ -350,13 +369,15 @@ function recomputeCapperRatings() {
       const sSlid = sBand.key === 'bottom25' ? 0 : ladderPts(m.pctile);
       const sZero = m.winPct <= HARD_ZERO_WIN;
       const sT = Math.min(gateT(m.w, m.decisions), moneyGateT(m.u, m.decisions), moneyT.get(m.key) ?? 1);
+      // In-sport sports: the absolute quality cap binds on top of the pool math.
+      const qcap = insportSet.has(String(sport).toUpperCase()) ? insportQualityCap(m.w, m.decisions) : Infinity;
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),
         band: sBand.key,
         pts: (sZero || sBand.key === 'bottom25') ? 0
-           : +(UNRANKED_PTS + sT * (Math.min(sSlid, sCap) - UNRANKED_PTS)).toFixed(1),
-        stackAdd: (sZero || sBand.key === 'bottom25') ? 0 : +(sT * Math.min(sBand.peak, sCap) / 2).toFixed(1),
+           : +Math.min(UNRANKED_PTS + sT * (Math.min(sSlid, sCap) - UNRANKED_PTS), qcap).toFixed(1),
+        stackAdd: (sZero || sBand.key === 'bottom25') ? 0 : +Math.min(sT * Math.min(sBand.peak, sCap) / 2, qcap / 2).toFixed(1),
       });
     }
   }

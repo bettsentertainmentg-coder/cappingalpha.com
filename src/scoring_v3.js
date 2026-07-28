@@ -285,9 +285,11 @@ function backerAggregate(cappers, sport = null) {
   const best = backers[0] ?? null;
   const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
 
-  // In-sport sports: quarter-peak stack (one more halving) and a sport-scoped
-  // chip-in floor — only backers with a real record IN THIS SPORT can boost.
-  const stackDiv = insport ? 1 : 0; // extra halving steps
+  // In-sport sports: EIGHTH-peak stack (two extra halvings — Jack 2026-07-28,
+  // quarter-peak still let 36 qualified daily posters mint 26-28 golds/day)
+  // and a sport-scoped chip-in floor — only backers with a real record IN THIS
+  // SPORT can boost.
+  const stackDiv = insport ? 2 : 0; // extra halving steps
   const stackMinDec = insport ? INSPORT_MIN_DECISIONS : STACK_MIN_DECISIONS;
 
   let consensus = 0;
@@ -356,8 +358,11 @@ function computeV3(pickId) {
 
   // In-sport bonus: the best backer's standing inside THIS sport's Wilson pool
   // (+20 for the sport's #1 or top 5%, +10 for top 25%). No volume cap.
+  // RETIRED for in-sport sports (Jack 2026-07-28): once the ladder itself is
+  // sport-scoped, this bonus double-counts the same pool position — it was
+  // handing the MLB pool's top names 20 free points on every pick.
   const bestSport = best?.name ? sportRow(best.name, sport) : null;
-  const sportPctPts = bestSport?.sport_bonus_pts ?? 0;
+  const sportPctPts = insport ? 0 : (bestSport?.sport_bonus_pts ?? 0);
 
   // Market signals
   const mkt = marketSignals(pick, game);

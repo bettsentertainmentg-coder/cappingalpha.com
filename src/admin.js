@@ -387,7 +387,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           ${row(bd.insport ? 'Best backer (sport pool)' : 'Best backer', bd.resume, bd.advocate
             ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}${bd.insport && bd.advocate_sport_decisions != null ? ` · ${bd.advocate_sport_decisions} sport dec` : ''}]</span>` : ''}`
             : '· untracked capper (flat)')}
-          ${row(bd.insport ? 'Backer stack (quarter-peak, qualified only)' : 'Backer stack', bd.consensus)}
+          ${row(bd.insport ? 'Backer stack (eighth-peak, qualified only)' : 'Backer stack', bd.consensus)}
           ${joinRows}
           ${(bd.sport_pct && bd.sport_pct.pts) ? row('Sport rank bonus', bd.sport_pct.pts, bd.sport_pct.rank ? `· #${bd.sport_pct.rank} in sport` : '') : ''}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
@@ -1250,7 +1250,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     .concat(ladderSports.map(s => {
       const active = lbSport === s;
       const ins = insportSportsSet.has(s.toUpperCase());
-      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool, 20+ sport decisions required, quarter-peak stack.">IN-SPORT</span>' : ''}</a>`;
+      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool (points capped by each capper\'s own shrunk win rate), 20+ sport decisions required, eighth-peak stack, no sport rank bonus.">IN-SPORT</span>' : ''}</a>`;
     })).join(' ');
   // Pool summary (sport mode): the readout for judging in-sport / shrinkage moves.
   const poolSummaryHtml = lbSport ? (() => {
@@ -1265,7 +1265,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${ranked} clear the gates (worth more than the flat 10) ·
       <span style="color:${qual >= 10 ? '#16a34a' : '#f59e0b'};">${qual} fully qualified (20+ ${escHtml(lbSport)} decisions + gates)</span> ·
       median ${med} decisions
-      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; stack is quarter-peak, qualified backers only.</span>` : ''}
+      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; Pts/Pick is capped by each capper's own shrunk win rate (break-even caps near 31, 55% near 54, full 80 needs 58%+); stack is eighth-peak, qualified backers only; no sport rank bonus.</span>` : ''}
     </div>`;
   })() : '';
 

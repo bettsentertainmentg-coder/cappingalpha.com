@@ -39,6 +39,12 @@ MLB golds minted on peak days. The data said why:
 
 ## The mechanics (sports listed in the `v3_insport_sports` setting; MLB only at launch)
 
+TIGHTENED 2026-07-28 after five live days: the qualified pool matured fast (36
+cappers cleared the floor by Jul 27) and volume re-flooded to 26-28 golds/day.
+Root causes: the in-sport rank bonus double-counted the same pool the ladder
+now prices (top names were worth 86-97 solo), and quarter-peak across dozens of
+qualified daily posters still minted crowd golds. Current rules:
+
 1. IN-SPORT LADDER: a backer's ladder points on an in-sport pick come from the
    SPORT pool's Wilson ranking (capper_ratings scope 'sport:X', which now
    materializes the full ladder: band, pts, stack_add), not the overall pool.
@@ -47,15 +53,34 @@ MLB golds minted on peak days. The data said why:
 2. DECISION FLOOR: fewer than 20 graded decisions IN THE SPORT = flat
    UNRANKED 10, whatever their overall band. Thin backers can never stack
    (band 'untracked').
-3. QUARTER-PEAK STACK: the stack divisor doubles for in-sport picks (each
-   joiner adds their worth /4 for the band's first pair, /8 the next, ...) and
-   only sport-qualified backers (20+ sport decisions, gates cleared) chip in.
-4. Everything else is UNCHANGED: in-sport rank bonus (+20/+10), market signals,
-   side lean, fade routing, totals gate, gold at 100. MLB totals hard-blocks
-   and the line-move (CLV) gate were researched and deliberately held back
-   (docs/MLB_SCORING_RESEARCH.md sections 5 and 7a) — no record-based totals
-   gate tested positive, and the market-threshold version needs the closing
-   archive backtest first.
+3. THE ABSOLUTE QUALITY CAP (2026-07-28): pool percentile is relative, so a
+   55% volume grinder can rank top-1% of a weak pool and price like an elite.
+   In-sport ladder points are additionally capped by the capper's OWN shrunk
+   win%: pts <= 10 + (shrunk - 0.50) * 875, clamped [10, 80]. Break-even caps
+   near 31, 55% near 54, and the full 80 requires a 58%+ shrunk record. Gold
+   volume therefore scales with genuinely proven records: today that means very
+   few MLB golds; if ten cappers sustain 58%+, the day grows with them (Jack's
+   explicit intent). Applied at materialization (capper_ratings) so the admin
+   ladder shows the same capped pts the scorer pays.
+4. EIGHTH-PEAK STACK (2026-07-28, was quarter): each qualified joiner adds
+   their worth /8 for the band's first pair, /16 the next; only sport-qualified
+   backers (20+ sport decisions, gates cleared) chip in.
+5. IN-SPORT RANK BONUS RETIRED for in-sport sports (2026-07-28): sportPctPts
+   is 0 when the ladder is already sport-scoped (pure double-count). Other
+   sports keep the +20/+10.
+6. Everything else is UNCHANGED: market signals, side lean, fade routing,
+   totals gate, gold at 100. MLB totals hard-blocks and the line-move (CLV)
+   gate remain researched-but-held (docs/MLB_SCORING_RESEARCH.md sections 5
+   and 7a) — no record-based totals gate tested positive, and the market
+   version needs forward capture of open-to-lock movement.
+
+KNOWN TRADE (accepted by Jack 2026-07-28): the no-lookahead replay of these
+rules over the v4 era keeps very few golds and the small kept sample did not
+show a win-rate gain — record-based selection is a volume dial, not a proven
+accuracy dial, at current sample sizes. The bet is philosophical: gold means
+"proven people are on this", and volume must be earned by 58%+ records.
+Forward-only from 2026-07-28 (RECORD_SYNC_GEN 6 trues up that day's board at
+boot); the Jul 9-27 record was NOT re-restated under these tighter rules.
 
 Replayed no-lookahead over the v4 era (scripts/mlb_restate.js, the engine's own
 ladder math via capper_ratings exports): the new rules keep 92 of 166 tracked

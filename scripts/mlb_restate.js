@@ -9,10 +9,12 @@
 //
 // Engine parity: the ladder/band/gate/cap math is imported from
 // src/capper_ratings.js and the stack/floor constants mirror src/scoring_v3.js
-// in-sport mode (20+ sport decisions to rank, quarter-peak stack). Market
-// signals and side lean score 0 (their inputs are wiped daily — conservative:
-// only makes the retro bar harder). Fade points also 0 (cap 8, rare, and the
-// fade roster can't be rebuilt as-of).
+// in-sport mode. Since 2026-07-28 that means: 20+ sport decisions to rank,
+// EIGHTH-peak stack, NO in-sport rank bonus, and the ABSOLUTE QUALITY CAP
+// (pts <= 10 + (shrunk - 0.50) * 875, clamped [10, 80]). Market signals and
+// side lean score 0 (their inputs are wiped daily — conservative: only makes
+// the retro bar harder). Fade points also 0 (cap 8, rare, and the fade roster
+// can't be rebuilt as-of).
 //
 // Usage:
 //   node scripts/mlb_restate.js                 # dry run: table + summary
@@ -79,13 +81,14 @@ function poolAsOf(date) {
     const slid = band.key === 'bottom25' ? 0 : ratings.ladderPts(m.pctile);
     const zero = m.winPct <= ratings.HARD_ZERO_WIN;
     const t = Math.min(ratings.gateT(m.w, m.decisions), ratings.moneyGateT(m.u, m.decisions));
+    // absolute quality cap (2026-07-28): pts can't exceed what the shrunk win% supports
+    const shrunk = (m.w + 12.5) / (m.decisions + 25);
+    const qcap = Math.max(ratings.UNRANKED_PTS, Math.min(80, 10 + (shrunk - 0.50) * 875));
     const pts = (zero || band.key === 'bottom25') ? 0
-      : ratings.UNRANKED_PTS + t * (Math.min(slid, cap) - ratings.UNRANKED_PTS);
-    const bonusRaw = m.wilson > 0 && (m.rank === 1 || m.pctile <= 0.05) ? SPORT_TOP_PTS
-                   : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
+      : Math.min(ratings.UNRANKED_PTS + t * (Math.min(slid, cap) - ratings.UNRANKED_PTS), qcap);
     out.set(m.key, {
       pts: +pts.toFixed(1), band: band.key, rank: m.rank, decisions: m.decisions,
-      bonus: zero ? 0 : Math.round(t * bonusRaw),
+      bonus: 0, // in-sport rank bonus retired for in-sport sports (2026-07-28)
     });
   }
   poolCache.set(date, out);
@@ -109,7 +112,7 @@ function replayScore(backerNames, date) {
     if (b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
     if (b.decisions < INSPORT_MIN_DECISIONS) continue;
     const k = bandSeen[b.band] || 0;
-    consensus += b.pts / Math.pow(2, Math.floor(k / 2) + 2); // quarter-peak (insport)
+    consensus += b.pts / Math.pow(2, Math.floor(k / 2) + 3); // eighth-peak (insport, 2026-07-28)
     bandSeen[b.band] = k + 1;
   }
   const bonus = best?.bonus ?? 0;

@@ -3147,7 +3147,10 @@ app.listen(PORT, () => {
   //   gen 5 = MLB in-sport ladder + quarter-peak stack (2026-07-23) — MLB picks
   //           rescore from the MLB pool; ratings recompute (line ~3005) runs
   //           first so the sport ladders exist before this rescore reads them
-  const RECORD_SYNC_GEN = 5;
+  //   gen 6 = the MLB tightening (2026-07-28): absolute quality cap on in-sport
+  //           ladder points, eighth-peak stack, in-sport rank bonus retired —
+  //           trues up today's board + record the moment this deploy boots
+  const RECORD_SYNC_GEN = 6;
   try {
     const syncedGen = parseInt(db.getSetting('v4_record_sync_gen', db.getSetting('v4_record_sync') ? '1' : '0'), 10);
     if (db.getSetting('scoring_version', 'v2') === 'v3' && syncedGen < RECORD_SYNC_GEN) {
