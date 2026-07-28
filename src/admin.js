@@ -3337,6 +3337,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
           // sport rank bonus a pick gets when this capper is its best backer).
           const sportRatingMap = {};
           for (const sr of (data.sportRatings || [])) sportRatingMap[sr.sport] = sr;
+          // Sports scored in-sport (v3_insport_sports): the rank bonus is retired
+          // there — the sport-scoped ladder pays instead, so show Pts/Pick.
+          const insportSports = ${JSON.stringify([...insportSportsSet])};
           const sportRows = Object.entries(sportAgg)
             .filter(([s]) => s !== 'Unknown')
             .sort((a, b) => (b[1].wins + b[1].losses + b[1].pushes) - (a[1].wins + a[1].losses + a[1].pushes))
@@ -3345,19 +3348,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const rankStr = sr && sr.wilson_rank != null
                 ? '#' + sr.wilson_rank + (sr.percentile != null ? ' <span style="color:#8892a4;font-size:10px;">(top ' + Math.max(1, Math.round(sr.percentile * 100)) + '%)</span>' : '')
                 : '—';
+              const isIns = insportSports.includes(String(s).toUpperCase());
               const bonus = sr ? (sr.sport_bonus_pts || 0) : 0;
               const bColor = bonus >= 20 ? '#FFD700' : bonus >= 10 ? '#16a34a' : '#3b4560';
+              // In-sport sports: the rank bonus is retired (the sport ladder pays
+              // instead), so this cell shows their ladder Pts/Pick there.
+              const lastCell = isIns
+                ? '<td style="text-align:right;font-weight:700;color:' + ((sr && sr.pts >= 61) ? '#FFD700' : (sr && sr.pts > 10) ? '#16a34a' : '#8892a4') + ';" title="' + s + ' scores in-sport: no rank bonus; this is their ladder Pts/Pick from the ' + s + ' pool (quality-capped by their own shrunk win rate).">' + (sr && sr.pts != null ? Math.round(sr.pts) + ' pts' : '—') + '</td>'
+                : '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>';
               return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
               + '<td style="text-align:right;font-weight:700;">' + rankStr + '</td>'
-              + '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>'
+              + lastCell
               + '</tr>';
             }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%">Bonus</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
