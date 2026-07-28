@@ -35,6 +35,31 @@ const MARKET_CAP = 8;
 const FADE_CAP = 8;
 const NO_VENUE_SPORTS = new Set(['ATP', 'WTA', 'GOLF']);
 
+// ── IN-SPORT SCORING (Jack 2026-07-23, the MLB rework) ────────────────────────
+// Sports in v3_insport_sports score from the SPORT pool's ladder, not the
+// overall one. Why: over 21 days of MLB golds, overall-ranked cappers hit only
+// 55.1% inside MLB (61.7% elsewhere) while backers with real MLB records went
+// 60.5%; and 10+ mention MLB swarms won 43.9%. So for these sports:
+//   - a backer's ladder points come from capper_ratings scope 'sport:X'
+//     (sport percentile, sport volume cap, gates on the sport ledger)
+//   - fewer than INSPORT_MIN_DECISIONS graded decisions IN THE SPORT = the
+//     flat UNRANKED_PTS, no matter how high their overall band is
+//   - the stack halves again (quarter-peak) and only sport-qualified backers
+//     chip in — crowd swarms can no longer mint golds on volume alone
+// Everything else (in-sport bonus, market, lean, fade, totals gate) unchanged.
+// MLB only at launch; other sports can join via the setting once their pools
+// show the same non-transfer pattern.
+const INSPORT_MIN_DECISIONS = 20;
+function insportSet() {
+  try {
+    const arr = JSON.parse(db.getSetting('v3_insport_sports', '["MLB"]'));
+    return new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toUpperCase()));
+  } catch (_) { return new Set(['MLB']); }
+}
+function isInsportSport(sport) {
+  return insportSet().has(String(sport || '').toUpperCase());
+}
+
 // ── Small odds helpers ─────────────────────────────────────────────────────────
 function impliedProb(american) {
   const o = parseFloat(american);
@@ -69,10 +94,33 @@ function mentionsFor(pickId) {
 // contribute 0 (their negativity routes to the opposite slot instead). A capper
 // with no row or no decisions is 'unranked': worth the flat UNRANKED_PTS as the
 // best backer, nothing as a joiner.
-function backerLadder(name) {
+//
+// In-sport mode (insportSport set, e.g. MLB): the ladder standing comes from
+// the SPORT scope row instead — and a backer without INSPORT_MIN_DECISIONS
+// graded decisions in that sport is flat UNRANKED_PTS regardless of overall
+// band (band 'untracked' so they can never stack). Overall fade still zeroes.
+function backerLadder(name, insportSport = null) {
   const o = overallRow(name);
   if (!o || o.band === 'entity') return { name, pts: UNRANKED_PTS, decisions: 0, band: 'untracked', rank: null, pctile: null, fade: null };
   if (o.fade) return { name, pts: 0, decisions: o.decisions ?? 0, band: o.band, rank: o.wilson_rank, pctile: o.percentile, fade: o.fade };
+  if (insportSport) {
+    const s = sportRow(name, insportSport);
+    const sportDec = s?.decisions ?? 0;
+    if (!s || s.pts == null || sportDec < INSPORT_MIN_DECISIONS) {
+      return { name, pts: UNRANKED_PTS, decisions: sportDec, band: 'untracked', rank: s?.wilson_rank ?? null, pctile: s?.percentile ?? null, fade: null, insport_thin: true };
+    }
+    return {
+      name,
+      pts: s.pts,
+      decisions: sportDec,
+      band: s.band ?? 'new',
+      rank: s.wilson_rank ?? null,
+      pctile: s.percentile ?? null,
+      fade: null,
+      insport: true,
+      shrunk: (s.wins != null && s.decisions) ? (s.wins + 12.5) / (s.decisions + 25) : 0.5,
+    };
+  }
   return {
     name,
     pts: o.pts != null ? o.pts : UNRANKED_PTS,
@@ -81,7 +129,30 @@ function backerLadder(name) {
     rank: o.wilson_rank ?? null,
     pctile: o.percentile ?? null,
     fade: null,
+    shrunk: (o.wins != null && o.decisions) ? (o.wins + 12.5) / (o.decisions + 25) : 0.5,
   };
+}
+
+// ── QUALITY-WEIGHTED CHIP-INS (Jack 2026-07-28) ───────────────────────────────
+// A joiner's chip scales with THEIR OWN proven quality, not a flat divisor.
+// Why: the flat eighth-peak made two proven 58%+ cappers agreeing worth 90
+// (barely gold), the same as one of them plus a grinder — agreement of ELITE
+// records is the strongest signal we track and was priced like noise. And the
+// crowd inversion isn't MLB-only: WNBA golds with 8+ mentions ran 52% vs 65%
+// lightly backed, so weak joiners get trimmed everywhere.
+//   In-sport sports: chip = pts * (pts/80)^3, pair-tapered (2^floor(k/2)).
+//     The quality-capped pts already encode shrunk win%, and the cube gives
+//     the sharp knee: an 80 (58%+ proven) chips 80, a 54 (55%) chips ~17, a
+//     36 (53%) chips ~3. Two 58s = ~168; three 55% grinders = ~87 (silver).
+//   All other sports: the half-peak pair taper stays, multiplied by
+//     f = clamp((overall shrunk win% - 0.50) / 0.08, 0, 1) — elite joiners
+//     (58%+ shrunk) are UNCHANGED from before, break-even joiners trim toward
+//     zero. Reduce-only for healthy sports by construction.
+function insportChip(pts) {
+  return pts * Math.pow(Math.max(0, Math.min(pts, 80)) / 80, 3);
+}
+function overallChipFactor(shrunk) {
+  return Math.max(0, Math.min(1, ((shrunk ?? 0.5) - 0.50) / 0.08));
 }
 
 // ── Opposite slot (fade target) ───────────────────────────────────────────────
@@ -232,27 +303,37 @@ function marketSignals(pick, game) {
 // can boost someone else's pick at all (their own picks score regardless) —
 // without it, piles of thin 5-1 wallets minted 200-point crowd golds.
 // Unranked, bottom-band, and fade backers never stack.
-function backerAggregate(cappers) {
-  const backers = (cappers || []).filter(Boolean).map(backerLadder).sort((a, b) => b.pts - a.pts);
+function backerAggregate(cappers, sport = null) {
+  const insport = sport && isInsportSport(sport) ? sport : null;
+  const backers = (cappers || []).filter(Boolean).map(n => backerLadder(n, insport)).sort((a, b) => b.pts - a.pts);
   const best = backers[0] ?? null;
   const advocate = best ? { name: best.name, pts: best.pts } : { name: null, pts: UNRANKED_PTS };
+
+  // Chip-ins are QUALITY-WEIGHTED (see insportChip/overallChipFactor above).
+  // In-sport: sport-scoped floor — only backers with a real record IN THIS
+  // SPORT can boost, and their chip follows the cubic quality curve at full
+  // pair value (two proven 58%+ records agreeing should blow past gold).
+  const stackMinDec = insport ? INSPORT_MIN_DECISIONS : STACK_MIN_DECISIONS;
 
   let consensus = 0;
   const joinLog = [];
   const bandSeen = {};
   for (const b of backers.slice(1)) {
     if (b.fade || b.pts <= 0 || ['untracked', 'new', 'bottom25'].includes(b.band)) continue;
-    if (b.decisions < STACK_MIN_DECISIONS) {
+    if (b.decisions < stackMinDec) {
       joinLog.push({ name: b.name, pts: b.pts, applied: 0, floored: true });
       continue;
     }
     const k = bandSeen[b.band] || 0;
-    const add = b.pts / Math.pow(2, Math.floor(k / 2) + 1);
+    const taper = Math.pow(2, Math.floor(k / 2));
+    const add = insport
+      ? insportChip(b.pts) / taper
+      : (b.pts / 2) * overallChipFactor(b.shrunk) / taper;
     bandSeen[b.band] = k + 1;
     consensus += add;
     joinLog.push({ name: b.name, pts: b.pts, applied: +add.toFixed(1) });
   }
-  return { backers, best, advocate, resume: advocate.pts, consensus: Math.round(consensus), joiners: joinLog };
+  return { backers, best, advocate, resume: advocate.pts, consensus: Math.round(consensus), joiners: joinLog, insport: !!insport };
 }
 
 // Conflict offset (shared): if THIS slot has a fade-active mention (it generated
@@ -274,7 +355,7 @@ function conflictOffset(pick, sport, backers, ownCappers) {
 // conviction curve steps through mentions with this, so the curve's math is
 // computeV3's math by construction — same helpers, never a fork.
 function replaySubtotal(pick, sport, ownCappers, oppCappers, oppPickType) {
-  const agg = backerAggregate(ownCappers);
+  const agg = backerAggregate(ownCappers, sport);
   const fadeIn = fadeFromCappers(oppCappers, oppPickType, sport);
   const offset = conflictOffset(pick, sport, agg.backers, ownCappers);
   return { pts: agg.resume + agg.consensus + fadeIn.pts + offset, agg, fadeIn, offset };
@@ -299,12 +380,15 @@ function computeV3(pickId) {
   if (!mentions.length && pick.capper_name) cappers.push(pick.capper_name);
   if (!channels.length && pick.channel) channels.push(pick.channel);
 
-  const { backers, best, advocate, resume: resumePts, consensus, joiners: joinLog } = backerAggregate(cappers);
+  const { backers, best, advocate, resume: resumePts, consensus, joiners: joinLog, insport } = backerAggregate(cappers, sport);
 
   // In-sport bonus: the best backer's standing inside THIS sport's Wilson pool
   // (+20 for the sport's #1 or top 5%, +10 for top 25%). No volume cap.
+  // RETIRED for in-sport sports (Jack 2026-07-28): once the ladder itself is
+  // sport-scoped, this bonus double-counts the same pool position — it was
+  // handing the MLB pool's top names 20 free points on every pick.
   const bestSport = best?.name ? sportRow(best.name, sport) : null;
-  const sportPctPts = bestSport?.sport_bonus_pts ?? 0;
+  const sportPctPts = insport ? 0 : (bestSport?.sport_bonus_pts ?? 0);
 
   // Market signals
   const mkt = marketSignals(pick, game);
@@ -352,6 +436,8 @@ function computeV3(pickId) {
       advocate_band: best?.band ?? 'untracked',
       advocate_rank: best?.rank ?? null,
       advocate_pctile: best?.pctile ?? null,
+      insport: !!insport, // ladder+stack read from the sport pool (v3_insport_sports)
+      advocate_sport_decisions: insport ? (best?.decisions ?? 0) : undefined,
       consensus,
       joiners: joinLog,
       sport_pct: { pts: sportPctPts, rank: bestSport?.wilson_rank ?? null, pctile: bestSport?.percentile ?? null },

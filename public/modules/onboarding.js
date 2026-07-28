@@ -20,7 +20,7 @@
 import { state } from './state.js';
 import { isPaying, checkAuth } from './auth.js';
 import { startCheckout, resumePendingCheckout } from './paywall.js';
-import * as native from './native.js?v=1';
+import * as native from './native.js?v=2';
 
 // ── Local storage (safe wrappers; private browsing can throw) ─────────────────
 const LS = {

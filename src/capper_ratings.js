@@ -309,15 +309,43 @@ function recomputeCapperRatings() {
 
   // Per-sport pools: same ranking inside each sport; feeds the in-sport bonus
   // (+20 for the sport's #1 or top 5%, +10 for top 25%; needs at least one win).
+  //
+  // IN-SPORT LADDERS (Jack 2026-07-23, the MLB rework): every sport pool now
+  // also materializes the FULL ladder — band, pts, stack_add — computed exactly
+  // like the overall ladder but on the sport record alone (sport percentile,
+  // sport volume cap, win%+money gates on the sport ledger, sport hard zero).
+  // Two readers: the scorer (sports listed in v3_insport_sports collect ladder
+  // points from THEIR SPORT'S pool, not the overall one — MLB first: overall
+  // rank transferred at 55% inside MLB vs 62% elsewhere while real MLB records
+  // hit 60.5%) and the admin Cappers tab's per-sport ladder view.
   const sportPools = new Map();
   for (const [name, c] of cappers) {
     for (const [sport, s] of c.sports) {
       const dec = s.w + s.l;
       if (dec < 1) continue;
       if (!sportPools.has(sport)) sportPools.set(sport, []);
-      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w });
+      sportPools.get(sport).push({ key: name, wilson: wilsonLower(s.w, dec), winPct: (100 * s.w) / dec, decisions: dec, w: s.w, u: s.u });
     }
   }
+  // THE ABSOLUTE QUALITY CAP (Jack 2026-07-28, in-sport sports only): pool
+  // percentile is RELATIVE — in a weak pool, a 55% volume grinder ranks top-1%
+  // and prices like an elite. For sports scored in-sport (v3_insport_sports),
+  // a capper's ladder points are additionally capped by what their own shrunk
+  // win% supports in absolute terms: 10 + (shrunk - 0.50) * 875, clamped to
+  // [10, 80]. Break-even (~52.4%) caps near 31, 55% near 54, and only a
+  // genuinely proven 58%+ shrunk record reaches the full 80. Points must be
+  // earned against the coin flip, not against the pool.
+  const INSPORT_QC_BASE = 10, INSPORT_QC_SLOPE = 875;
+  const insportQualityCap = (w, dec) => {
+    const shrunk = (w + GATE_K / 2) / (dec + GATE_K);
+    return Math.max(UNRANKED_PTS, Math.min(80, INSPORT_QC_BASE + (shrunk - 0.50) * INSPORT_QC_SLOPE));
+  };
+  let insportSet = new Set(['MLB']);
+  try {
+    const arr = JSON.parse(db.getSetting('v3_insport_sports', '["MLB"]'));
+    insportSet = new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toUpperCase()));
+  } catch (_) {}
+
   const sinfo = new Map(); // `${canonical}|${sport}` -> the sport wilson record
   for (const [sport, poolArr] of sportPools) {
     rankPool(poolArr);
@@ -332,9 +360,24 @@ function recomputeCapperRatings() {
                 : m.wilson > 0 && m.pctile <= 0.25 ? SPORT_GOOD_PTS : 0;
       const bonus = hardZero.has(m.key) ? 0
         : Math.round(Math.min(gateT(m.w, m.decisions), moneyT.get(m.key) ?? 1) * raw);
+      // The sport-scoped ladder: identical math to the overall pool, every input
+      // swapped for the sport record. Sport hard zero (raw sport win% <= 49)
+      // and the overall money position both zero it — a capper down bad overall
+      // hands out nothing, even inside their best sport.
+      const sBand = bandFor(m.pctile);
+      const sCap = capForDecisions(m.decisions);
+      const sSlid = sBand.key === 'bottom25' ? 0 : ladderPts(m.pctile);
+      const sZero = m.winPct <= HARD_ZERO_WIN;
+      const sT = Math.min(gateT(m.w, m.decisions), moneyGateT(m.u, m.decisions), moneyT.get(m.key) ?? 1);
+      // In-sport sports: the absolute quality cap binds on top of the pool math.
+      const qcap = insportSet.has(String(sport).toUpperCase()) ? insportQualityCap(m.w, m.decisions) : Infinity;
       sinfo.set(`${m.key}|${sport}`, {
         wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4),
         bonus, decisions: m.decisions, winPct: +m.winPct.toFixed(1),
+        band: sBand.key,
+        pts: (sZero || sBand.key === 'bottom25') ? 0
+           : +Math.min(UNRANKED_PTS + sT * (Math.min(sSlid, sCap) - UNRANKED_PTS), qcap).toFixed(1),
+        stackAdd: (sZero || sBand.key === 'bottom25') ? 0 : +Math.min(sT * Math.min(sBand.peak, sCap) / 2, qcap / 2).toFixed(1),
       });
     }
   }
@@ -443,7 +486,8 @@ function recomputeCapperRatings() {
         insert.run(
           name, `sport:${sport}`, sport, null, s.n, s.w, s.l, s.p, +s.u.toFixed(3),
           +sBlend.toFixed(4), resumePoints(sBlend, s.n, oBlend), null, null, null,
-          si?.wilson ?? 0, si?.rank ?? null, si?.pctile ?? null, null, null, null,
+          si?.wilson ?? 0, si?.rank ?? null, si?.pctile ?? null, si?.band ?? null,
+          si?.pts ?? null, si?.stackAdd ?? null,
           si?.decisions ?? 0, si?.winPct ?? null, si?.bonus ?? 0,
         );
       }
@@ -492,6 +536,9 @@ module.exports = {
   recomputeCapperRatings, getOverall, getSportRating, getTypeRating, getFadeList,
   resumePoints, overallRating, profit, effOdds,
   wilsonLower, LADDER, UNRANKED_PTS, WILSON_Z,
+  // ladder internals exported for the no-lookahead replay (scripts/mlb_restate.js)
+  // so the restatement runs the REAL math, never a fork
+  bandFor, ladderPts, gateT, moneyGateT, capForDecisions, rankPool, HARD_ZERO_WIN,
 };
 
 // CLI: node src/capper_ratings.js

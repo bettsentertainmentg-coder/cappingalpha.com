@@ -3,7 +3,7 @@
 import { state } from './state.js';
 import { isViewer, isAccount, isPaying } from './auth.js';
 import { LOCK_SVG } from './utils.js?v=5';
-import { isNative, openExternal, noteCheckoutOpened, haptic } from './native.js?v=1';
+import { isNative, openExternal, noteCheckoutOpened, haptic } from './native.js?v=2';
 
 const PRICE_IDS = {
   day:  'price_1TMhkAB0ohior8iouVKseqmk',

@@ -2,6 +2,7 @@
 // MVP pick history — reads and updates mvp_picks table.
 
 const db = require('./db');
+const { getCycleDate, cycleDateForInstant } = require('./cycle');
 
 // Get last 50 MVP picks ordered by saved_at desc, enriched with matchup.
 // Includes voided picks so annotations are visible in history.
@@ -15,7 +16,7 @@ function getRecentMvpPicks(threshold = 50) {
            COALESCE(m.away_team, tg.away_team) AS away_team
     FROM mvp_picks m
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
-    WHERE m.score >= ?
+    WHERE m.score >= ? AND COALESCE(m.retired, 0) = 0
     ORDER BY m.saved_at DESC
   `).all(threshold);
 }
@@ -26,6 +27,7 @@ function getAllTimeRecord(threshold = 50) {
     SELECT result, COUNT(*) as count FROM mvp_picks
     WHERE score >= ? AND (result IS NULL OR result != 'void')
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      AND COALESCE(retired, 0) = 0
     GROUP BY result
   `).all(threshold);
 
@@ -140,6 +142,27 @@ const DIMENSIONS = [
 ];
 
 function resolveConflictingMvpPicks() {
+  // ── Board-day drift heal ────────────────────────────────────────────────────
+  // ESPN's tennis start times are placeholders (tomorrow's matches list today,
+  // corrected later), so saveMvpPick can stamp a game_date a day AHEAD of when
+  // the match actually goes off. Once the pick grades, the truth is known: a
+  // decided game can't sit under a future board day. Re-file it under the board
+  // day of its grade moment. (Jul 20: a Badosa row stamped Jul 21 became the 1D
+  // anchor and collapsed the whole "today" P/L graph to that one pick.)
+  // Pending rows are left alone — a future game_date is legitimate pregame.
+  try {
+    const today = getCycleDate();
+    const drifted = db.prepare(`
+      SELECT id, resolved_at FROM mvp_picks
+      WHERE result IN ('win','loss','push','void') AND game_date > ?
+    `).all(today);
+    if (drifted.length) {
+      const fix = db.prepare(`UPDATE mvp_picks SET game_date = ? WHERE id = ?`);
+      for (const r of drifted) fix.run(cycleDateForInstant(r.resolved_at) || today, r.id);
+      console.log(`[MVP] re-filed ${drifted.length} graded pick(s) stamped under a future board day`);
+    }
+  } catch (e) { console.error('[MVP] board-day drift heal failed:', e.message); }
+
   // ── Pregame demotion sweep (Wilson era) ─────────────────────────────────────
   // Ranks and stacks can move all day (new grades, merges, new backers), so a
   // pick tracked at gold can fall back under the line BEFORE its game starts.

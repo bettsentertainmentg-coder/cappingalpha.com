@@ -308,6 +308,49 @@ export function calcVoteReturn(v, unit) {
   return +(unit * (odds / 100)).toFixed(2);
 }
 
+// ── Pick payout math — single source of truth ─────────────────────────────────
+// The ONE place every CA P/L surface turns a graded pick into a flat-unit return:
+// the sport score cards' per-pick money + ROI (sport_cards.js), the Rankings P/L
+// chart + its tooltip + the history money column (mvp.js), the home #1 mini chart
+// (home_sidebar.js), and the unlock preview (unlock.js). Each of these used to
+// carry its OWN copy and read `p.ml_odds` — a column the live-board rows do NOT
+// have (board odds live in captured_ml / original_ml) — so every ML win silently
+// defaulted to -115: a flat +$8.70 at a $10 unit, on every winner. Routing them
+// all through here is what stops the cards, the chart, and the odds shown on a
+// row from ever disagreeing again.
+//
+// Odds come from whichever column the row carries, in trust order:
+//   MVP rows   → ml_odds / ou_odds            (captured at save = the locked CA line)
+//   board rows → captured_ml / captured_ou_odds (the T-60 locked CA line), then
+//                original_ml                   (the 5am line, pre-lock placeholder)
+// original_ou is the TOTAL line (e.g. 8.5), never juice, so it is never read here.
+// Spreads settle at standard -115 (no spread juice ships to the client).
+export function pickOddsAmerican(p) {
+  const type = (p.pick_type || '').toLowerCase();
+  const firstNum = (...vals) => {
+    for (const v of vals) {
+      if (v == null || v === '') continue;
+      const n = Number(v);
+      if (Number.isFinite(n) && n !== 0) return n;
+    }
+    return null;
+  };
+  if (type === 'ml') return firstNum(p.ml_odds, p.captured_ml, p.original_ml) ?? -115;
+  if (type === 'over' || type === 'under') return firstNum(p.ou_odds, p.captured_ou_odds) ?? -115;
+  return -115; // spreads (and anything unlabeled) grade at standard juice
+}
+
+// Signed flat-unit return for a graded pick at `unit` stake. Win pays by the
+// pick's odds; loss returns -unit; push / void / pending / ungraded return 0.
+export function flatUnitReturn(p, unit = 1) {
+  const r = (p.result || '').toLowerCase();
+  if (r === 'loss') return -unit;
+  if (r !== 'win')  return 0;         // push / void / pending / '' => no P/L
+  const odds = pickOddsAmerican(p);
+  return odds < 0 ? +(unit * (100 / Math.abs(odds))).toFixed(2)
+                  : +(unit * (odds / 100)).toFixed(2);
+}
+
 // The canonical "selected side" key for a pick/game row. Every clickable surface
 // (picks board, modal, sports schedule, Track-Bet) maps to one of the 6 vote slots
 // via this single helper, so they all agree. ML/spread need the home/away flag.

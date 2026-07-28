@@ -83,6 +83,7 @@ function buildOgSvg(g) {
       const mvp = db.prepare(`
         SELECT team, pick_type, spread, result FROM mvp_picks
         WHERE espn_game_id = ? AND result IN ('win', 'loss', 'push')
+          AND COALESCE(retired, 0) = 0
         ORDER BY score DESC LIMIT 1
       `).get(g.espn_game_id);
       if (mvp) {

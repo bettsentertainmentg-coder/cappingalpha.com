@@ -8,7 +8,113 @@ forward unchanged. The v3 LEAK RULE (chunked display ramp) was RETIRED 2026-07-1
 in favor of the reveal plan (see the v4 "Score display" section). CLAUDE.md
 carries the operational summary; this doc is the source of truth for the
 algorithm.
-Owner: Jack. Last updated: 2026-07-16.
+Owner: Jack. Last updated: 2026-07-23.
+
+---
+
+# v4.1: IN-SPORT SCORING for MLB (Jack 2026-07-23)
+
+MLB was the engine's only bleeding sport: 21 days of tracked golds ran 77-83-3
+(48.1%, -18.8u) while every other sport combined ran ~63.5% (+19u), with 24-32
+MLB golds minted on peak days. The data said why:
+
+- Overall Wilson rank does NOT transfer to baseball: overall-ranked cappers hit
+  61.7% outside MLB but 55.1% inside it. Backers with a real MLB record (15+
+  decisions, 55%+) went 60.5% (+71u) on MLB in the same window; everyone else
+  backing MLB ran 46-49% across ~3,500 picks.
+- Consensus stacking INVERTS in MLB: 10+ mention MLB golds won 43.9% (non-MLB
+  light-consensus golds: 66-68%). Fifteen games a day of Covers/AN crowd flow
+  through the half-peak stack was the gold mint.
+- The score axis itself was noise inside MLB: MLB 140+ golds won 53.3%, BELOW
+  non-MLB's 100-119 bucket (65.0%). Tested and rejected on that basis: daily
+  top-N by score (41.7%) and a raised MLB gold bar alone (51.2%).
+- Polymarket wallets (the strongest source) have ZERO MLB picks all-time, so
+  the MLB board is fed entirely by the weakest sources (Covers 47.7%, AN 48.8%
+  over the window).
+- External literature agrees: MLB closing lines are among the most efficient
+  betting markets studied, MLB is one of the two most random sports per game
+  (Lopez/Matthews/Baumer 2018), and tipster persistence in baseball is
+  statistically indistinguishable from zero. See docs/MLB_SCORING_RESEARCH.md
+  for the full internal + external evidence file.
+
+## The mechanics (sports listed in the `v3_insport_sports` setting; MLB only at launch)
+
+TIGHTENED 2026-07-28 after five live days: the qualified pool matured fast (36
+cappers cleared the floor by Jul 27) and volume re-flooded to 26-28 golds/day.
+Root causes: the in-sport rank bonus double-counted the same pool the ladder
+now prices (top names were worth 86-97 solo), and quarter-peak across dozens of
+qualified daily posters still minted crowd golds. Current rules:
+
+1. IN-SPORT LADDER: a backer's ladder points on an in-sport pick come from the
+   SPORT pool's Wilson ranking (capper_ratings scope 'sport:X', which now
+   materializes the full ladder: band, pts, stack_add), not the overall pool.
+   Same band math, sport percentile, sport volume caps, win%+money gates on the
+   sport ledger, sport hard zero.
+2. DECISION FLOOR: fewer than 20 graded decisions IN THE SPORT = flat
+   UNRANKED 10, whatever their overall band. Thin backers can never stack
+   (band 'untracked').
+3. THE ABSOLUTE QUALITY CAP (2026-07-28): pool percentile is relative, so a
+   55% volume grinder can rank top-1% of a weak pool and price like an elite.
+   In-sport ladder points are additionally capped by the capper's OWN shrunk
+   win%: pts <= 10 + (shrunk - 0.50) * 875, clamped [10, 80]. Break-even caps
+   near 31, 55% near 54, and the full 80 requires a 58%+ shrunk record. Gold
+   volume therefore scales with genuinely proven records: today that means very
+   few MLB golds; if ten cappers sustain 58%+, the day grows with them (Jack's
+   explicit intent). Applied at materialization (capper_ratings) so the admin
+   ladder shows the same capped pts the scorer pays.
+4. QUALITY-WEIGHTED CHIP-INS (2026-07-28 evening, replaces the flat eighth-peak
+   which priced two proven 58%+ records agreeing at 90 — barely gold — the
+   same as elite+grinder): an in-sport joiner adds pts * (pts/80)^3, pair
+   tapered (2^floor(k/2)). The quality-capped pts encode shrunk win%, so the
+   cube gives the knee: an 80 (58%+ proven) chips a full 80, a 54 (55%) chips
+   ~17, a 36 (53%) chips ~3. Two 58s = ~168 total; three 55% grinders = ~87
+   (silver). Only sport-qualified backers (20+ sport decisions, gates) chip.
+   GLOBAL SPILLOVER (same ship): every OTHER sport's chip-in is now
+   half-peak * clamp((overall shrunk win% - 0.50)/0.08, 0, 1) — elite joiners
+   unchanged, break-even joiners trim toward zero. Reduce-only; motivated by
+   WNBA's own crowd inversion (8+ mention golds 52% vs 65% light).
+5. IN-SPORT RANK BONUS RETIRED for in-sport sports (2026-07-28): sportPctPts
+   is 0 when the ladder is already sport-scoped (pure double-count). Other
+   sports keep the +20/+10.
+6. Everything else is UNCHANGED: market signals, side lean, fade routing,
+   totals gate, gold at 100. MLB totals hard-blocks and the line-move (CLV)
+   gate remain researched-but-held (docs/MLB_SCORING_RESEARCH.md sections 5
+   and 7a) — no record-based totals gate tested positive, and the market
+   version needs forward capture of open-to-lock movement.
+
+KNOWN TRADE (accepted by Jack 2026-07-28): the no-lookahead replay of these
+rules over the v4 era keeps very few golds and the small kept sample did not
+show a win-rate gain — record-based selection is a volume dial, not a proven
+accuracy dial, at current sample sizes. The bet is philosophical: gold means
+"proven people are on this", and volume must be earned by 58%+ records.
+Forward-only from 2026-07-28 (RECORD_SYNC_GEN 6 trues up that day's board at
+boot); the Jul 9-27 record was NOT re-restated under these tighter rules.
+
+Replayed no-lookahead over the v4 era (scripts/mlb_restate.js, the engine's own
+ladder math via capper_ratings exports): the new rules keep 92 of 166 tracked
+MLB picks. Volume drops from ~11-14/day (peak 32) to ~6/day.
+
+## The restatement (2026-07-23)
+
+Jack's call: the v4-era MLB record (2026-07-09 onward) was restated under the
+new rules while the product is in beta. The replay's 74 non-survivors were
+marked mvp_picks.retired=1 (POST /admin/api/retire-mvp, applied by
+scripts/mlb_restate.js --apply): rows are KEPT, never deleted, excluded from
+every record surface (lists, W-L, P/L graphs, sport cards, /results, og
+cards), visible in the admin MVP panel with a RETIRED badge. Reversible by
+re-posting with retired: 0. Pre-v4 rows (v2-rescaled era) untouched.
+
+## Admin surfaces
+
+- Cappers tab LADDER chips: Overall + one per sport pool. A sport view
+  re-renders the whole leaderboard from that sport's pool (rank, band,
+  pts/pick, sport-only record/win%/units/money) with a pool-health summary
+  line (pool size, gate-clearers, fully qualified count, median decisions).
+  This is the readout for deciding which sport joins v3_insport_sports next,
+  or whether per-sport empirical-Bayes shrinkage (researched, back pocket)
+  is needed.
+- Today's Picks drill-down labels in-sport picks ("MLB IN-SPORT LADDER",
+  best backer's sport decisions, quarter-peak stack row).
 
 ---
 

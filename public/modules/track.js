@@ -8,7 +8,7 @@
 
 import { state } from './state.js';
 import { sportBadge } from './utils.js?v=5';
-import { haptic } from './native.js?v=1';
+import { haptic } from './native.js?v=2';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';

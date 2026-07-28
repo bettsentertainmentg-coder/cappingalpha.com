@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { avatarFor } from './utils.js?v=5';
-import { isNative, appleSignIn, setToken, deregisterPush, haptic } from './native.js?v=1';
+import { isNative, appleSignIn, setToken, deregisterPush, haptic } from './native.js?v=2';
 
 // Inside the app shell the auth endpoints return a bearer token when the body
 // carries client:'app'. Store it (Capacitor Preferences) before reloading so the

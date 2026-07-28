@@ -182,12 +182,13 @@ function mvpForSports(sports) {
   // must not render to logged-out visitors (mirrors /api/mvp/public + /api/mvp).
   const picks = db.prepare(
     `SELECT * FROM mvp_picks WHERE sport COLLATE NOCASE IN (${ph})
-     AND result IN ('win', 'loss', 'push')
+     AND result IN ('win', 'loss', 'push') AND COALESCE(retired, 0) = 0
      ORDER BY game_date DESC, saved_at DESC LIMIT 8`
   ).all(...sports);
   const rows = db.prepare(
     `SELECT result, COUNT(*) AS c FROM mvp_picks
      WHERE sport COLLATE NOCASE IN (${ph}) AND result IN ('win', 'loss', 'push')
+       AND COALESCE(retired, 0) = 0
      GROUP BY result`
   ).all(...sports);
   const record = { win: 0, loss: 0, push: 0 };

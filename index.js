@@ -43,6 +43,8 @@ const { recomputeCapperRatings } = require('./src/capper_ratings');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
 const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
+const { refreshCappertekRoster, pollCappertekPicks } = require('./src/cappertek');
+const { pollWagerTalk } = require('./src/wagertalk');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -403,6 +405,7 @@ app.get('/results', (req, res) => {
       LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
       WHERE m.result IN ('win', 'loss', 'push') AND m.score >= ?
         AND (m.annotation IS NULL OR m.annotation NOT LIKE '%not counted%')
+        AND COALESCE(m.retired, 0) = 0
       ORDER BY m.saved_at DESC
     `).all(threshold);
 
@@ -410,6 +413,7 @@ app.get('/results', (req, res) => {
       SELECT result, COUNT(*) as count FROM mvp_picks
       WHERE result IN ('win', 'loss', 'push') AND score >= ?
         AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+        AND COALESCE(retired, 0) = 0
       GROUP BY result
     `).all(threshold);
     const counts = { win: 0, loss: 0, push: 0 };
@@ -870,6 +874,7 @@ app.get('/api/mvp/public', (req, res) => {
     FROM mvp_picks m
     LEFT JOIN today_games tg ON m.home_team IS NULL AND tg.espn_game_id = m.espn_game_id
     WHERE m.result IN ('win', 'loss', 'push', 'void') AND m.score >= ?
+      AND COALESCE(m.retired, 0) = 0
     ORDER BY m.saved_at DESC
   `).all(threshold);
 
@@ -877,6 +882,7 @@ app.get('/api/mvp/public', (req, res) => {
     SELECT result, COUNT(*) as count FROM mvp_picks
     WHERE result IN ('win', 'loss', 'push') AND score >= ?
       AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+      AND COALESCE(retired, 0) = 0
     GROUP BY result
   `).all(threshold);
   const counts = { win: 0, loss: 0, push: 0 };
@@ -3092,9 +3098,12 @@ app.listen(PORT, () => {
     await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
     await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
     await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
+    await refreshCappertekRoster().catch(err => console.error('[startup] refreshCappertekRoster error:', err.message));
     pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
+    pollCappertekPicks().catch(err => console.error('[startup] pollCappertekPicks error:', err.message));
+    pollWagerTalk().catch(err => console.error('[startup] pollWagerTalk error:', err.message));
   }
 
   // Seed slots for every game in today_games (including forward games) — INSERT OR
@@ -3226,7 +3235,17 @@ app.listen(PORT, () => {
   //   gen 2 = the hard zero: win% <= 49 contributes nothing (2026-07-09 night)
   //   gen 3 = chip-in floor 20 -> 12 decisions (2026-07-09 night)
   //   gen 4 = top-1% band trimmed 95-76 -> 80-70 (2026-07-09 late night)
-  const RECORD_SYNC_GEN = 4;
+  //   gen 5 = MLB in-sport ladder + quarter-peak stack (2026-07-23) — MLB picks
+  //           rescore from the MLB pool; ratings recompute (line ~3005) runs
+  //           first so the sport ladders exist before this rescore reads them
+  //   gen 6 = the MLB tightening (2026-07-28): absolute quality cap on in-sport
+  //           ladder points, eighth-peak stack, in-sport rank bonus retired —
+  //           trues up today's board + record the moment this deploy boots
+  //   gen 7 = quality-weighted chip-ins (2026-07-28, same day): in-sport chips
+  //           follow the cubic quality curve (two 58%+ records agreeing ~168,
+  //           crowds of grinders stay silver); other sports' chips scale by the
+  //           joiner's overall shrunk win% (reduce-only for healthy sports)
+  const RECORD_SYNC_GEN = 7;
   try {
     const syncedGen = parseInt(db.getSetting('v4_record_sync_gen', db.getSetting('v4_record_sync') ? '1' : '0'), 10);
     if (db.getSetting('scoring_version', 'v2') === 'v3' && syncedGen < RECORD_SYNC_GEN) {
@@ -3458,6 +3477,7 @@ if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
   await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
   await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
   await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
+  await refreshCappertekRoster().catch(err => console.error('[cron] refreshCappertekRoster error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // AN picks: every 10 min active hours, every 30 min overnight (median pick posts
@@ -3481,6 +3501,19 @@ if (!UI_ONLY) cron.schedule('*/30 8-23 * * *', () => {
 }, { timezone: 'America/New_York' });
 if (!UI_ONLY) cron.schedule('5 16 * * *', () => {
   refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants (4pm) error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// CapperTek per-capper feeds: every 30 min active hours, offset from the Covers
+// sweep. Picks reveal 30 min AFTER start (free tier), so these rows build the
+// capper record only — the live flag keeps them off the board automatically.
+if (!UI_ONLY) cron.schedule('10,40 8-23 * * *', () => {
+  pollCappertekPicks().catch(err => console.error('[cron] pollCappertekPicks error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// WagerTalk free-picks page: one cheap fetch every 30 min active hours. Pregame
+// picks from named pros — full board path through the normal source gates.
+if (!UI_ONLY) cron.schedule('15,45 8-23 * * *', () => {
+  pollWagerTalk().catch(err => console.error('[cron] pollWagerTalk error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on

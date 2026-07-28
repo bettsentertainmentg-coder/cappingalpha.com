@@ -6,7 +6,7 @@ import { doRedeemCode } from './paywall.js';
 import { loadUserBets, setBetsData } from './track.js?v=51';
 // Full sportsbook catalog + the "My sportsbooks" picker modal live in books.js.
 import { bookLabel, openBookPicker } from './books.js?v=2';
-import { isNative } from './native.js?v=1';
+import { isNative } from './native.js?v=2';
 
 const ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
 

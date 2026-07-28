@@ -12,7 +12,7 @@
 import { state } from './state.js';
 import { avatarFor, fmtOdds, fmtSpread, teamNickname, skelRows } from './utils.js?v=5';
 import { loadLeaderboard } from './leaderboard.js?v=16';
-import { haptic } from './native.js?v=1';
+import { haptic } from './native.js?v=2';
 
 // ── small helpers ─────────────────────────────────────────────────────────────
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }

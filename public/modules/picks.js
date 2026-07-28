@@ -4,7 +4,7 @@ import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey, skelRows } from './utils.js?v=5';
 import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { haptic } from './native.js?v=1';
+import { haptic } from './native.js?v=2';
 
 export async function loadPicks() {
   try {

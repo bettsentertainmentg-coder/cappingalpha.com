@@ -391,13 +391,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
       const fadeFrom = (bd.fade_in && bd.fade_in.from || []).map(f => `${capperLink(f.capper)} +${f.pts}`).join(', ');
       return `
       <div style="padding:8px 12px;background:#12151d;border-radius:6px;margin-bottom:8px;">
-        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}</div>
+        <div style="font-size:11px;color:#8892a4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">v3 score aggregation → <b style="color:${isGold ? '#FFD700' : isSilver ? '#c0c0c0' : '#e5e9f0'};">${v3score}</b> ${isGold ? 'GOLD' : isSilver ? 'silver' : ''}${bd.insport ? ` <span style="color:#FFD700;font-weight:800;" title="In-sport scoring: backer ladder + stack read from this sport's own Wilson pool (20+ sport decisions required to rank; quarter-peak stack). Sports listed in the v3_insport_sports setting.">· ${escHtml(String(p.sport || 'sport').toUpperCase())} IN-SPORT LADDER</span>` : ''}</div>
         <table style="width:auto;margin:0;border:none;font-size:12px;">
           ${(bd.base || 0) > 0 ? row('Base (legacy)', bd.base) : ''}
-          ${row('Best backer', bd.resume, bd.advocate
-            ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}]</span>` : ''}`
+          ${row(bd.insport ? 'Best backer (sport pool)' : 'Best backer', bd.resume, bd.advocate
+            ? `· ${capperLink(bd.advocate)}${bd.advocate_band ? ` <span style="color:#6b7488;">[${escHtml(String(bd.advocate_band))}${bd.advocate_rank ? ` · #${bd.advocate_rank}` : ''}${bd.insport && bd.advocate_sport_decisions != null ? ` · ${bd.advocate_sport_decisions} sport dec` : ''}]</span>` : ''}`
             : '· untracked capper (flat)')}
-          ${row('Backer stack', bd.consensus)}
+          ${row(bd.insport ? 'Backer stack (quality-weighted, qualified only)' : 'Backer stack', bd.consensus)}
           ${joinRows}
           ${(bd.sport_pct && bd.sport_pct.pts) ? row('Sport rank bonus', bd.sport_pct.pts, bd.sport_pct.rank ? `· #${bd.sport_pct.rank} in sport` : '') : ''}
           ${row('Market signals', (bd.market && bd.market.pts) || 0, mktExtra)}
@@ -656,14 +656,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
       : (m.spread != null ? m.spread : '');
     const scoreStr  = m.home_score != null ? `${m.away_score}–${m.home_score}` : '—';
     const savedDate = m.saved_at ? m.saved_at.slice(0, 10) : m.game_date || '—';
-    return `<tr class="mvp-row" style="cursor:pointer;" onclick="openMvp(${m.id})"
+    const retired = !!m.retired;
+    return `<tr class="mvp-row" style="cursor:pointer;${retired ? 'opacity:0.45;' : ''}" onclick="openMvp(${m.id})"
       data-date="${savedDate}" data-sport="${escHtml((m.sport||'').toLowerCase())}"
       data-pick-type="${escHtml(pt)}" data-result="${escHtml((m.result||'pending').toLowerCase())}"
       data-score="${m.score ?? 0}">
       <td>${m.id}</td><td>${matchup}</td>
       <td>${escHtml(m.sport || '—')}</td>
       <td>${escHtml(m.pick_type || '—')} <span style="color:#8892a4;">${sp}</span></td>
-      <td>${m.score ?? '—'} <span class="badge mvp">MVP</span></td>
+      <td>${m.score ?? '—'} ${retired
+        ? '<span class="badge" title="Restated out of the record by the MLB in-sport rework (2026-07-23 replay). Kept for audit; excluded from every public record surface." style="background:#3a3f4b;color:#8892a4;">RETIRED</span>'
+        : '<span class="badge mvp">MVP</span>'}</td>
       <td>${scoreStr}</td>
       <td>${resultBadge(m.result)}</td>
       <td style="color:#8892a4;font-size:12px;">${savedDate}</td>
@@ -688,6 +691,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     SELECT id, team, sport, pick_type, spread, game_date, saved_at, score, result,
            ml_odds, ou_odds, home_team, away_team
     FROM mvp_picks
+    WHERE COALESCE(retired, 0) = 0
   `).all()) {
     const day = m.game_date || (m.saved_at || '').slice(0, 10);
     if (!day) continue;
@@ -1001,6 +1005,36 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }
   } catch (_) {}
 
+  // ── IN-SPORT LADDER VIEW (Jack 2026-07-23, the MLB rework) ──────────────────
+  // ?lb_sport=MLB re-renders the leaderboard from that sport's Wilson pool:
+  // rank/band/pts come from the capper_ratings 'sport:X' rows (materialized with
+  // the full ladder since the rework) and record/win%/units/money become the
+  // sport record. This is the insight surface for judging which sports need
+  // in-sport scoring (v3_insport_sports) or per-sport shrinkage next.
+  let ladderSports = [];
+  try {
+    ladderSports = db.prepare(`
+      SELECT sport, COUNT(*) AS n FROM capper_ratings
+      WHERE scope LIKE 'sport:%' AND sport IS NOT NULL AND sport != 'Unknown' AND band IS NOT NULL
+      GROUP BY sport ORDER BY n DESC
+    `).all().map(r => r.sport);
+  } catch (_) {}
+  const lbSport = ladderSports.includes(String(req.query.lb_sport || '').trim())
+    ? String(req.query.lb_sport).trim() : null;
+  const sportRatingsMap = new Map();
+  if (lbSport) {
+    try {
+      for (const r of db.prepare(`SELECT * FROM capper_ratings WHERE scope = ?`).all(`sport:${lbSport}`)) {
+        sportRatingsMap.set(r.canonical_name, r);
+      }
+    } catch (_) {}
+  }
+  let insportSportsSet = new Set(['MLB']);
+  try {
+    const arr = JSON.parse(db.getSetting('v3_insport_sports', '["MLB"]'));
+    insportSportsSet = new Set((Array.isArray(arr) ? arr : []).map(s => String(s).toUpperCase()));
+  } catch (_) {}
+
   // Source Feed: every pick recorded by the wave-1 scrapers (no message scanner),
   // newest first. Provenance meta (units, notional, live, contest) rides in
   // sources_json. today_games enriches the matchup while the game is still on board.
@@ -1021,6 +1055,45 @@ router.get('/dashboard', requireAuth, (req, res) => {
   // picks are worth, so the default view is that ranking.
   const sortedCappers = [...capperMap.entries()]
     .map(([name, c]) => {
+      // Sport-ladder mode: every column becomes sport-scoped — the sport pool's
+      // rank/band/pts plus the sport record itself. Cappers with no graded
+      // decisions in the sport drop out of the view.
+      if (lbSport) {
+        const sr = sportRatingsMap.get(name) || null;
+        const sRec = c.sports[lbSport] || { wins: 0, losses: 0, pushes: 0, money: 0 };
+        const total = sRec.wins + sRec.losses + sRec.pushes;
+        if (!sr && !total) return null;
+        const decided = sRec.wins + sRec.losses;
+        const winPct = decided > 0 ? Math.round((sRec.wins / decided) * 100) : null;
+        const r = ratingsMap.get(name) || null;
+        const srcUnion = new Set([...(c.srcs || []), ...(r?.sources ? r.sources.split(',') : [])]);
+        // What this capper would ADD to a pick in this sport: as best backer
+        // (their ladder pts) and as a joiner (the quality-weighted chip).
+        const insSport = insportSportsSet.has(lbSport.toUpperCase());
+        const sPts = sr?.pts ?? null;
+        const qualified = insSport ? ((sr?.decisions ?? 0) >= 20 && (sPts ?? 0) > 0) : ((r?.decisions ?? 0) >= 12 && (r?.pts ?? 0) > 0);
+        let chipIn = 0;
+        if (qualified) {
+          if (insSport) {
+            chipIn = (sPts ?? 0) * Math.pow(Math.max(0, Math.min(sPts ?? 0, 80)) / 80, 3);
+          } else {
+            const oShrunk = (r?.wins != null && r?.decisions) ? (r.wins + 12.5) / (r.decisions + 25) : 0.5;
+            chipIn = ((r?.pts ?? 0) / 2) * Math.max(0, Math.min(1, (oShrunk - 0.50) / 0.08));
+          }
+        }
+        return { name, sports: c.sports, pending: c.pending,
+                 wins: sRec.wins, losses: sRec.losses, pushes: sRec.pushes, money: sRec.money,
+                 total, winPct, units: sRec.wins - sRec.losses,
+                 rating: r ? (r.resume_points ?? 0) : null,
+                 tier: r?.tier ?? null, fade: r?.fade ?? null,
+                 wilson: sr?.wilson ?? null, wrank: sr?.wilson_rank ?? null,
+                 pctile: sr?.percentile ?? null, band: sr?.band ?? 'new',
+                 pts: sPts, stackAdd: sr?.stack_add ?? null,
+                 chipIn: Math.round(chipIn * 10) / 10,
+                 sportBonus: sr?.sport_bonus_pts ?? 0,
+                 decisionsR: sr?.decisions ?? decided,
+                 srcList: [...srcUnion].sort() };
+      }
       const total = c.wins + c.losses + c.pushes;
       // Win% is over decided picks only (pushes excluded) — the same convention as
       // the member leaderboard, capper ratings, and the public record pages.
@@ -1038,10 +1111,17 @@ router.get('/dashboard', requireAuth, (req, res) => {
                decisionsR: r?.decisions ?? decided,
                srcList: [...srcUnion].sort() };
     })
+    .filter(Boolean)
     .filter(c => c.total > 0 || c.pending > 0)
-    .sort((a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
-      || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
-      || (b.winPct ?? -1) - (a.winPct ?? -1));
+    .sort(lbSport
+      // Sport-ladder view: sort by what a pick actually collects from them —
+      // ladder Pts/Pick first (the capped, gate-applied value), rank as tiebreak.
+      ? (a, b) => (b.pts ?? -1) - (a.pts ?? -1)
+        || (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
+        || (b.winPct ?? -1) - (a.winPct ?? -1)
+      : (a, b) => (a.wrank ?? 1e9) - (b.wrank ?? 1e9)
+        || (b.wins + b.losses + b.pushes) - (a.wins + a.losses + a.pushes)
+        || (b.winPct ?? -1) - (a.winPct ?? -1));
 
   // ── Suggested merges: fuzzy-match similar capper names for one-click aliasing ─
   function _normCap(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -1119,6 +1199,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
     actionnetwork: ['AN', '#16a34a', 'Action Network expert. Picks pulled from their public feed, graded by us. Pregame picks join the board through the normal resume scoring.'],
     polymarket:    ['PM', '#8b5cf6', 'Polymarket pro wallet. Real positions from a top-P/L trader; entries before game start count as picks.'],
     covers:        ['CV', '#f59e0b', 'Covers.com contest player. Contest picks are platform-graded and lock at game start.'],
+    cappertek:     ['CT', '#ef4444', 'CapperTek handicapper. Free tier reveals pick details 30 min after game start, so their picks build the record only and never earn board points.'],
+    wagertalk:     ['WT', '#14b8a6', 'WagerTalk pro. Free picks from their public page, graded by us; pregame picks join the board through normal scoring.'],
     telegram:      ['TG', '#0ea5e9', 'Telegram channel (wave 2, not live yet)'],
     reddit:        ['RD', '#f97316', 'Reddit (wave 2, not live yet)'],
   };
@@ -1196,8 +1278,39 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }).join(' ');
   const fadeCount = sortedCappers.filter(c => c.fade).length;
 
+  // Ladder scope chips: Overall + one per sport pool with a materialized ladder.
+  const ladderChips = [`<a href="/admin/dashboard?tab=cappers" class="btn-sm" style="text-decoration:none;${!lbSport ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">Overall</a>`]
+    .concat(ladderSports.map(s => {
+      const active = lbSport === s;
+      const ins = insportSportsSet.has(s.toUpperCase());
+      return `<a href="/admin/dashboard?tab=cappers&lb_sport=${encodeURIComponent(s)}" class="btn-sm" title="${ins ? escHtml(s + ' picks score from this sport ladder (in-sport scoring is ON for ' + s + ')') : escHtml('View the ' + s + ' Wilson pool ladder')}" style="text-decoration:none;${active ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">${escHtml(s)}${ins ? ' <span style="color:#FFD700;font-size:9px;font-weight:800;" title="In-sport scoring active: picks in this sport collect ladder points from THIS pool (points capped by each capper\'s own shrunk win rate), 20+ sport decisions required, quality-weighted chip-ins, no sport rank bonus.">IN-SPORT</span>' : ''}</a>`;
+    })).join(' ');
+  // Pool summary (sport mode): the readout for judging in-sport / shrinkage moves.
+  const poolSummaryHtml = lbSport ? (() => {
+    const pool = [...sportRatingsMap.values()].filter(r => r.band != null);
+    const dec = pool.map(r => r.decisions || 0).sort((a, b) => a - b);
+    const med = dec.length ? dec[Math.floor(dec.length / 2)] : 0;
+    const ranked = pool.filter(r => (r.pts ?? 0) > 10).length;
+    const qual = pool.filter(r => (r.decisions || 0) >= 20 && (r.pts ?? 0) > 10).length;
+    const ins = insportSportsSet.has(lbSport.toUpperCase());
+    return `<div style="margin-bottom:10px;padding:8px 12px;background:#12151d;border:1px solid #2a3142;border-radius:6px;font-size:12px;color:#b7c0d0;">
+      <b style="color:#e5e9f0;">${escHtml(lbSport)} pool:</b> ${pool.length} cappers ·
+      ${ranked} clear the gates (worth more than the flat 10) ·
+      <span style="color:${qual >= 10 ? '#16a34a' : '#f59e0b'};">${qual} fully qualified (20+ ${escHtml(lbSport)} decisions + gates)</span> ·
+      median ${med} decisions
+      ${ins ? `<span style="color:#FFD700;font-weight:700;"> · IN-SPORT SCORING ON: ${escHtml(lbSport)} picks collect ladder points from this pool only. Under 20 ${escHtml(lbSport)} decisions = flat 10 regardless of overall band; Pts/Pick is capped by each capper's own shrunk win rate (break-even caps near 31, 55% near 54, full 80 needs 58%+); chip-ins are quality-weighted (an 80 chips 80, a 54 chips ~17 — see the Chip-in column); no sport rank bonus.</span>` : ''}
+    </div>`;
+  })() : '';
+
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper's picks are worth. Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">${lbSport
+      ? `Ranked by the <b style="color:#e5e9f0;">${escHtml(lbSport)}</b> pool's Wilson interval (99% lower bound on the ${escHtml(lbSport)} record only). Record, win%, units, and money below are ${escHtml(lbSport)}-only.`
+      : 'Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper\'s picks are worth.'} Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">LADDER</span>
+      ${ladderChips}
+    </div>
+    ${poolSummaryHtml}
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">SOURCE</span>
       <button class="btn-sm src-filter-btn active" data-src="all" onclick="filterCapperSrc('all', this)"
@@ -1217,7 +1330,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -1253,6 +1366,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           <td data-sv="${c.wilson ?? -1}" style="color:#b7c0d0;font-size:12px;">${c.wilson != null ? c.wilson.toFixed(3) : '—'}</td>
           <td data-sv="${escHtml(c.band || 'new')}" style="white-space:nowrap;">${bandChip(c.band)}</td>
           <td data-sv="${c.pts ?? -1}" style="color:${ptsColor};font-weight:700;white-space:nowrap;">${c.pts != null ? Math.round(c.pts) : '—'}${capNote}</td>
+          ${lbSport ? `<td data-sv="${c.chipIn ?? 0}" style="color:${(c.chipIn ?? 0) >= 40 ? '#FFD700' : (c.chipIn ?? 0) >= 15 ? '#16a34a' : (c.chipIn ?? 0) > 0 ? '#8892a4' : '#3b4560'};font-weight:600;">${c.chipIn > 0 ? '+' + Math.round(c.chipIn) : '0'}</td>` : ''}
           <td data-sv="${c.fade ? (c.fade === 'active' ? 4 : 3) : (c.tier === 'proven' ? 2 : c.tier === 'rated' ? 1 : 0)}" style="white-space:nowrap;">${statusChips(c)}</td>
           <td data-sv="${c.wins}"><span style="color:#16a34a;font-weight:700;">${c.wins}</span>-<span style="color:#ef4444;font-weight:700;">${c.losses}</span>${pushStr}</td>
           <td data-sv="${c.winPct ?? -1}" style="color:${wpColor};font-weight:700;">${c.winPct !== null ? c.winPct + '%' : '—'}</td>
@@ -1687,7 +1801,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <tbody>
           ${sourceFeed.map(r => {
             const ts = (r.saved_at || '').slice(0, 16).replace('T', ' ');
-            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'] };
+            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'], cappertek: ['CT', '#ef4444'], wagertalk: ['WT', '#14b8a6'] };
             const [srcLabel, srcColor] = SRC[r.source] || [r.source, '#8892a4'];
             const srcChip = `<span style="background:${srcColor}22;color:${srcColor};border:1px solid ${srcColor}44;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;">${srcLabel}</span>`;
             const pt = (r.pick_type || '').toUpperCase();
@@ -2859,7 +2973,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           if (v3.total != null && m.score != null && Math.round(v3.total) !== Math.round(m.score)) notes.push('Board total now. The tracked bet froze at ' + Math.round(m.score) + ' when the game started.');
           capperHtml = \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-size:13px;">\${rows.join('')}\${notes.length ? '<div style="color:#64748b;font-size:11px;margin-top:8px;">' + esc(notes.join(' ')) + '</div>' : ''}</div>\`;
         } else if (capperRows.length) {
-          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], cappertek:['CT','#ef4444'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const bySrc = new Map();
           for (const r of capperRows) {
             if (!r.capper_name) continue;
@@ -3235,6 +3349,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
           // sport rank bonus a pick gets when this capper is its best backer).
           const sportRatingMap = {};
           for (const sr of (data.sportRatings || [])) sportRatingMap[sr.sport] = sr;
+          // Sports scored in-sport (v3_insport_sports): the rank bonus is retired
+          // there — the sport-scoped ladder pays instead, so show Pts/Pick.
+          const insportSports = ${JSON.stringify([...insportSportsSet])};
           const sportRows = Object.entries(sportAgg)
             .filter(([s]) => s !== 'Unknown')
             .sort((a, b) => (b[1].wins + b[1].losses + b[1].pushes) - (a[1].wins + a[1].losses + a[1].pushes))
@@ -3243,19 +3360,25 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const rankStr = sr && sr.wilson_rank != null
                 ? '#' + sr.wilson_rank + (sr.percentile != null ? ' <span style="color:#8892a4;font-size:10px;">(top ' + Math.max(1, Math.round(sr.percentile * 100)) + '%)</span>' : '')
                 : '—';
+              const isIns = insportSports.includes(String(s).toUpperCase());
               const bonus = sr ? (sr.sport_bonus_pts || 0) : 0;
               const bColor = bonus >= 20 ? '#FFD700' : bonus >= 10 ? '#16a34a' : '#3b4560';
+              // In-sport sports: the rank bonus is retired (the sport ladder pays
+              // instead), so this cell shows their ladder Pts/Pick there.
+              const lastCell = isIns
+                ? '<td style="text-align:right;font-weight:700;color:' + ((sr && sr.pts >= 61) ? '#FFD700' : (sr && sr.pts > 10) ? '#16a34a' : '#8892a4') + ';" title="' + s + ' scores in-sport: no rank bonus; this is their ladder Pts/Pick from the ' + s + ' pool (quality-capped by their own shrunk win rate).">' + (sr && sr.pts != null ? Math.round(sr.pts) + ' pts' : '—') + '</td>'
+                : '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>';
               return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
               + '<td style="text-align:right;font-weight:700;">' + rankStr + '</td>'
-              + '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>'
+              + lastCell
               + '</tr>';
             }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%">Bonus</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
@@ -3300,7 +3423,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
           // ── v3 profile extensions: ratings, chips, equity curve, type table, fade ──
           const rating = data.rating || null;
-          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], cappertek:['CT','#ef4444'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const chip = (label, color) => '<span style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:800;">' + label + '</span>';
           let headerChips = '';
           if (rating) {
@@ -4399,7 +4522,7 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
     `);
     // A source that has never written a row must still show up (as zero) — an
     // absent line is exactly how the AN discovery block went unnoticed.
-    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers'];
+    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers', 'cappertek', 'wagertalk'];
     const sources = [
       ...sourceRows,
       ...EXPECTED_SOURCES.filter(s => !sourceRows.some(r => r.source === s))
@@ -4447,6 +4570,41 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── POST /admin/api/retire-mvp — the MLB restatement applier (Jack 2026-07-23) ─
+// Marks tracked picks retired=1 (restated OUT of the record by the in-sport MLB
+// rework replay) or back to 0. Rows are never deleted: the flag is reversible
+// and retired rows stay visible in the admin MVP panel with a RETIRED badge.
+// Body: { ids: [mvp id, ...], retired: 1|0, note: 'optional annotation suffix' }
+// Header-auth so scripts/mlb_restate.js can apply from the Mac. Idempotent.
+router.post('/api/retire-mvp', adminLoginRateLimit, express.json({ limit: '1mb' }), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt(n, 10)).filter(Number.isFinite) : [];
+  if (!ids.length) return res.status(400).send('Expected { ids: [...] }');
+  const flag = req.body?.retired === 0 ? 0 : 1;
+  const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : null;
+  let changed = 0;
+  const upd = db.prepare(`
+    UPDATE mvp_picks SET retired = ?,
+      annotation = CASE
+        WHEN ? IS NULL THEN annotation
+        WHEN annotation IS NULL OR annotation = '' THEN ?
+        WHEN annotation LIKE '%' || ? || '%' THEN annotation
+        ELSE annotation || ' | ' || ?
+      END
+    WHERE id = ?
+  `);
+  const tx = db.transaction(() => {
+    for (const id of ids) changed += upd.run(flag, note, note, note, note, id).changes;
+  });
+  try { tx(); } catch (e) { return res.status(500).send('retire failed: ' + e.message); }
+  const totals = db.prepare(`SELECT COALESCE(SUM(CASE WHEN retired = 1 THEN 1 ELSE 0 END), 0) AS retired, COUNT(*) AS total FROM mvp_picks`).get();
+  console.log(`[restate] retire-mvp: ${changed} rows set retired=${flag} (${totals.retired}/${totals.total} retired total)`);
+  res.json({ changed, retired_total: totals.retired, table_total: totals.total });
 });
 
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
