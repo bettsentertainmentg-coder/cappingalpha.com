@@ -170,7 +170,9 @@ function render() {
   }
   if (_filter !== 'All' && !order.includes(_filter)) _filter = 'All';
   const chips = ['All', ...order].map(gr =>
-    `<button class="hs-chip${_filter === gr ? ' on' : ''}" onclick="hsFilter('${gr}')">${gr === 'All' ? 'All' : (LABEL[gr] || gr)}</button>`).join('');
+    `<button class="hs-chip${_filter === gr ? ' on' : ''}" onclick="hsFilter('${gr}')">${gr === 'All' ? 'All' : (LABEL[gr] || gr)}</button>`).join('')
+    // "+ Add" opens the My Sports picker (guests land on sign-up).
+    + `<button class="hs-chip hs-chip-add" onclick="(window.openMySportsPicker || (() => {}))()">Add +</button>`;
   const picks = pickMap();
   const sections = (_filter === 'All' ? order : [_filter])
     .map(gr => sectionHtml(gr, picks, _filter !== 'All')).join('');
@@ -180,3 +182,5 @@ function render() {
 window.hsFilter = (f) => { _filter = f; render(); };
 // Re-render the CA bubbles when the ranked board refreshes.
 window.addEventListener('picksUpdated', () => { if (_games.length) render(); });
+// My Sports changed (picker save): re-pull favorites so section order follows.
+document.addEventListener('mySportsChanged', () => { _favs = null; loadHomeScores(); });

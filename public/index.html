@@ -744,6 +744,7 @@
       font-family: inherit; font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 7px 14px; cursor: pointer;
     }
     .hs-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .hs-chip-add { border-style: dashed; color: var(--accent); }
     .hs-sec { margin-bottom: 18px; }
     .hs-sec-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 8px; }
     .hs-sec-title { font-size: 14px; font-weight: 800; letter-spacing: .02em; }
@@ -816,6 +817,56 @@
     }
     .as-sportchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
     .as-foot { text-align: center; color: var(--muted); font-size: 11.5px; line-height: 1.6; margin: 24px 0 8px; }
+    /* Profile leaf */
+    .as-profile-hero { text-align: center; padding: 20px 16px 16px; }
+    .as-avatar-edit { position: relative; display: inline-block; cursor: pointer; }
+    .as-avatar-badge {
+      position: absolute; right: -2px; bottom: -2px; width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); color: #fff; font-size: 11px;
+      display: inline-flex; align-items: center; justify-content: center; border: 2px solid var(--surface);
+    }
+    .as-profile-hero-name { font-size: 17px; font-weight: 800; margin-top: 10px; }
+    .as-profile-hero-bio { font-size: 13px; color: var(--muted); margin-top: 5px; line-height: 1.45; }
+    .as-profile-hero-chips { display: flex; gap: 7px; justify-content: center; margin-top: 9px; flex-wrap: wrap; }
+    .as-mini-chip {
+      font-size: 11px; font-weight: 700; color: var(--text); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .as-bio {
+      width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text); font-family: inherit; font-size: 14px; padding: 10px 12px; resize: vertical;
+    }
+    /* Referral leaf hero */
+    .as-refhero { text-align: center; padding: 22px 18px; }
+    .as-refhero-days { font-size: 40px; font-weight: 800; color: var(--gold); line-height: 1; }
+    .as-refhero-days span { font-size: 16px; font-weight: 700; color: var(--muted); }
+    .as-refhero-line { font-size: 13px; color: var(--muted); line-height: 1.55; margin-top: 10px; }
+
+    /* ── Built-in calculators sheet (modules/calcs.js) ── */
+    .cx-chips { display: flex; gap: 7px; overflow-x: auto; padding: 8px 0 12px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+    .cx-chips::-webkit-scrollbar { display: none; }
+    .cx-chip {
+      flex: 0 0 auto; background: var(--surface2); border: 1px solid var(--border); color: var(--muted);
+      font-family: inherit; font-size: 12.5px; font-weight: 700; border-radius: 999px; padding: 7px 13px; cursor: pointer;
+    }
+    .cx-chip.on { background: var(--gold); border-color: var(--gold); color: #1a1205; }
+    .cx-title { font-size: 17px; font-weight: 800; }
+    .cx-blurb { font-size: 12.5px; color: var(--muted); margin: 3px 0 12px; line-height: 1.45; }
+    .cx-form { display: flex; flex-direction: column; gap: 10px; }
+    .cx-form label { font-size: 12px; font-weight: 700; color: var(--muted); display: flex; flex-direction: column; gap: 5px; }
+    .cx-form input {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px; color: var(--text);
+      font-family: inherit; font-size: 16px; padding: 10px 12px;
+    }
+    .cx-addleg { background: none; border: 1px dashed var(--border); color: var(--accent); border-radius: 10px; padding: 9px; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+    .cx-out { margin-top: 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 4px 14px; }
+    .cx-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 13px; color: var(--muted); }
+    .cx-row + .cx-row { border-top: 1px solid var(--border); }
+    .cx-row b { font-size: 14px; color: var(--text); }
+    .cx-row b.pos { color: var(--green, #4ade80); }
+    .cx-row b.neg { color: #f87171; }
+    .cx-need { font-size: 12.5px; color: var(--muted); padding: 12px 0; line-height: 1.5; }
 
     /* ── First-visit coach marks (one-time tooltip above the tab bar) ── */
     .ca-coach { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom) + 8px); z-index: 145; pointer-events: none; }
@@ -4364,7 +4415,7 @@
     <button class="ca-tabbar-item"        data-tabbar="sports"   onclick="switchTab('sports')"><i class="fa-solid fa-football"></i><span>Sports</span></button>
     <button class="ca-tabbar-item"        data-tabbar="mvp"      onclick="switchTab('mvp')"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></button>
     <button class="ca-tabbar-item"        data-tabbar="socials"  onclick="switchTab('socials')"><i class="fa-solid fa-user-group"></i><span>Socials</span></button>
-    <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-user"></i><span>Account</span></button>
+    <button class="ca-tabbar-item"        data-tabbar="tracking" onclick="switchTab('tracking')"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></button>
   </nav>
 
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
@@ -4376,6 +4427,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=123"></script>
+  <script type="module" src="app.js?v=125"></script>
 </body>
 </html>

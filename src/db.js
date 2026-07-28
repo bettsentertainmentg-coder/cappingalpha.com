@@ -485,6 +485,8 @@ try { db.exec(`ALTER TABLE user_preferences ADD COLUMN notify_prefs TEXT NOT NUL
 // Socials two-ledger rule: rankings always count verified picks at a flat 1 unit;
 // the profile's TRUE history shows real stakes unless the member hides amounts.
 try { db.exec(`ALTER TABLE user_preferences ADD COLUMN hide_stakes INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+// Public profile extras (app profile build-out): { bio, fav_sport, style }.
+try { db.exec(`ALTER TABLE user_preferences ADD COLUMN profile_json TEXT NOT NULL DEFAULT '{}'`); } catch (_) {}
 
 // ── user_bets (Phase B) — free-entry + game-linked personal bet tracking ──────
 // The MANUAL counterpart to game_votes. A bet may be game-linked (espn_game_id set

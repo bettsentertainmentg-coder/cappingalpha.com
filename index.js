@@ -1527,7 +1527,7 @@ app.get('/api/account', (req, res) => {
   const user = db.prepare(`SELECT id, email, username, username_changed_at, subscription_tier, subscription_expires, created_at, avatar_path FROM users WHERE id = ?`).get(userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes FROM user_preferences WHERE user_id = ?`).get(userId);
+  const prefs = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, profile_json FROM user_preferences WHERE user_id = ?`).get(userId);
   const favoriteSports = prefs ? JSON.parse(prefs.favorite_sports || '[]') : [];
   const isPublic = prefs ? (prefs.is_public == null ? 1 : prefs.is_public) : 1;
   const unitSize = prefs && prefs.unit_size != null ? prefs.unit_size : 20;
@@ -1579,13 +1579,16 @@ app.get('/api/account', (req, res) => {
     const code = auth.ensureReferralCode(userId);
     if (code) {
       const redemptions = db.prepare(`SELECT COUNT(*) AS n FROM referral_redemptions WHERE referrer_id = ?`).get(userId).n;
-      referral = { code, redemptions, days_earned: Math.min(redemptions * 3, 30) };
+      referral = { code, redemptions, days_earned: redemptions * 3 };
     }
   } catch (_) {}
 
+  // Public profile extras (bio, showcase sport, betting style).
+  const profile = prefs ? (() => { try { return JSON.parse(prefs.profile_json || '{}'); } catch (_) { return {}; } })() : {};
+
   res.json({
     user, favoriteSports, isPublic, unitSize, startingBankroll, defaultOdds, myBooks,
-    notifyPrefs, hideStakes: !!(prefs && prefs.hide_stakes), isPaid: auth.isPaid(req), avatarUrl, votes, referral,
+    notifyPrefs, hideStakes: !!(prefs && prefs.hide_stakes), isPaid: auth.isPaid(req), avatarUrl, votes, referral, profile,
   });
 });
 
@@ -1712,7 +1715,7 @@ app.delete('/api/push/device', (req, res) => {
 app.put('/api/account/preferences', (req, res) => {
   if (!auth.userOf(req)) return res.status(401).json({ error: 'Login required' });
   const userId = auth.userOf(req).id;
-  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes } = req.body || {};
+  const { favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, profile } = req.body || {};
 
   const valid = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'ATP', 'WTA', 'Golf', 'Soccer'];
   const ODDS_SOURCES = ['consensus', 'draftkings', 'fanduel', 'kalshi', 'polymarket'];
@@ -1726,7 +1729,7 @@ app.put('/api/account/preferences', (req, res) => {
                      'prizepicks', 'underdog', 'fliff', 'other'];
 
   // Read the current row so a partial update preserves the untouched fields.
-  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes FROM user_preferences WHERE user_id = ?`).get(userId);
+  const cur = db.prepare(`SELECT favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, profile_json FROM user_preferences WHERE user_id = ?`).get(userId);
 
   const sports = favorite_sports !== undefined
     ? (Array.isArray(favorite_sports) ? favorite_sports.filter(s => valid.includes(s)) : [])
@@ -1804,9 +1807,25 @@ app.put('/api/account/preferences', (req, res) => {
       })()
     : (cur ? (() => { try { return JSON.parse(cur.notify_prefs || '{}'); } catch (_) { return {}; } })() : {});
 
+  // Public profile extras: { bio, fav_sport, style }. Strict allowlists; bio is
+  // plain text (rendered escaped), capped at 160 chars.
+  const PROFILE_SPORTS = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'Soccer', 'Tennis', 'Golf'];
+  const PROFILE_STYLES = ['Spreads', 'Moneylines', 'Totals', 'Parlays', 'Props', 'Live', 'A bit of everything'];
+  const profileOut = profile !== undefined
+    ? (() => {
+        const out = {};
+        if (profile && typeof profile === 'object' && !Array.isArray(profile)) {
+          if (typeof profile.bio === 'string') out.bio = profile.bio.replace(/\s+/g, ' ').trim().slice(0, 160);
+          if (PROFILE_SPORTS.includes(profile.fav_sport)) out.fav_sport = profile.fav_sport;
+          if (PROFILE_STYLES.includes(profile.style)) out.style = profile.style;
+        }
+        return out;
+      })()
+    : (cur ? (() => { try { return JSON.parse(cur.profile_json || '{}'); } catch (_) { return {}; } })() : {});
+
   db.prepare(`
-    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    INSERT INTO user_preferences (user_id, favorite_sports, is_public, unit_size, starting_bankroll, default_odds, my_books, notify_prefs, hide_stakes, profile_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       favorite_sports   = excluded.favorite_sports,
       is_public         = excluded.is_public,
@@ -1816,10 +1835,11 @@ app.put('/api/account/preferences', (req, res) => {
       my_books          = excluded.my_books,
       notify_prefs      = excluded.notify_prefs,
       hide_stakes       = excluded.hide_stakes,
+      profile_json      = excluded.profile_json,
       updated_at        = datetime('now')
-  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds, JSON.stringify(books), JSON.stringify(notify), hideStakes);
+  `).run(userId, JSON.stringify(sports), pub, unitSize, bankroll, odds, JSON.stringify(books), JSON.stringify(notify), hideStakes, JSON.stringify(profileOut));
 
-  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds, myBooks: books, notifyPrefs: notify, hideStakes: !!hideStakes });
+  res.json({ ok: true, favoriteSports: sports, is_public: pub, unitSize, startingBankroll: bankroll, defaultOdds: odds, myBooks: books, notifyPrefs: notify, hideStakes: !!hideStakes, profile: profileOut });
 });
 
 // POST /api/account/avatar — upload a profile photo as a base64 data URL.

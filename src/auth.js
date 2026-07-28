@@ -522,7 +522,10 @@ router.post('/redeem-code', express.json(), (req, res) => {
 // of throwaway accounts can't mint unlimited access). The referred side always
 // gets its 3 days; only the referrer's reward is capped.
 const REFERRAL_GRANT_DAYS   = 3;
-const REFERRAL_EARN_CAP     = 30;   // max DAYS a referrer can earn, lifetime (~10 referrals)
+// Referrer earning is UNCAPPED for now (Jack 2026-07-28): every friend who
+// joins earns the referrer another grant, no lifetime ceiling. Revisit if the
+// loop gets gamed (multi-account farming is the risk to watch).
+const REFERRAL_EARN_CAP     = Infinity;
 
 function grantAccessDays(userId, days) {
   const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();

@@ -10,7 +10,7 @@ import { loadSports } from './modules/sports.js?v=2';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=16';
 import { loadSocials } from './modules/socials.js?v=6';
-import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=64';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=66';
 import './modules/track.js?v=51';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=8';
@@ -18,7 +18,8 @@ import './modules/member_profile.js?v=24';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=10';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
-import { loadHomeScores } from './modules/home_scores.js?v=2';
+import { loadHomeScores } from './modules/home_scores.js?v=3';
+import './modules/calcs.js?v=1';
 import { renderUnlock } from './modules/unlock.js';
 import { maybeStartOnboarding } from './modules/onboarding.js?v=2';
 

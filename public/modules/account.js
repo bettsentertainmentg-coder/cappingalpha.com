@@ -1829,7 +1829,7 @@ function renderTracking(data) {
         <span>Verified picks (a side tracked on a real game) are graded automatically and count on the <span class="ca-link" onclick="showLeaderboardInfo()">leaderboard</span>. Custom bets are personal only.</span>
       </div>
       <button class="track-submit" style="width:auto;white-space:nowrap;padding:11px 18px;" onclick="openTrackSheet()"><i class="fa-solid fa-plus" style="margin-right:7px;"></i>Track a Bet</button>
-      <button class="ca-link" style="background:none;border:none;font-family:inherit;font-size:12.5px;padding:0;" onclick="openPage('/tools')" title="No vig, EV, parlay, hedge, and more"><i class="fa-solid fa-calculator" style="margin-right:5px;"></i>Calculators</button>
+      <button class="ca-link" style="background:none;border:none;font-family:inherit;font-size:12.5px;padding:0;" onclick="openCalcs()" title="No vig, EV, parlay, hedge, and more"><i class="fa-solid fa-calculator" style="margin-right:5px;"></i>Calculators</button>
     </div>
 
     <div class="track-stats track-extra-grid account-reveal" id="track-extra">${trackExtraHtml(items, clvOf(votes))}</div>
@@ -1958,6 +1958,108 @@ function toggleMuteSport(sport) {
   }).catch(() => {});
   if (_appSetScreen === 'notifs') settingsGo('notifs');
 }
+// Profile extras: chip fields toggle (tap again clears), bio saves as typed.
+// Saves are serialized: two quick chip taps must not read-modify-write over
+// each other (the second would rebuild from a stale snapshot and drop the first).
+let _profileSaveChain = Promise.resolve();
+function saveProfileField(field, value) {
+  _profileSaveChain = _profileSaveChain.then(async () => {
+    const cur = (_appSetData && _appSetData.profile) || {};
+    const next = { ...cur };
+    if (field === 'bio') next.bio = String(value || '').trim();
+    else next[field] = cur[field] === value ? '' : value;   // '' fails the allowlist server-side = cleared
+    try {
+      const res = await fetch('/api/account/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile: next }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        if (_appSetData) _appSetData.profile = d.profile || next;
+      }
+    } catch (_) {}
+    if (_appSetScreen === 'profile') settingsGo('profile');
+  });
+  return _profileSaveChain;
+}
+
+// ── My Sports picker (bottom sheet; opened from Settings and the home "+ Add"
+//    bubble). Tennis is one chip that maps to the ATP + WTA pair on the server.
+const MS_PICK_LABELS = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'Soccer', 'Tennis', 'Golf'];
+let _msSel = null;   // Set of display labels
+function msFromServer(list) {
+  const out = new Set();
+  for (const s of (list || [])) {
+    const u = String(s).toUpperCase();
+    out.add(u === 'ATP' || u === 'WTA' ? 'Tennis' : MS_PICK_LABELS.find(l => l.toUpperCase() === u) || null);
+  }
+  out.delete(null);
+  return out;
+}
+function msToServer(sel) {
+  const out = [];
+  for (const l of sel) { if (l === 'Tennis') out.push('ATP', 'WTA'); else out.push(l); }
+  return out;
+}
+function msPickerChipsHtml() {
+  return MS_PICK_LABELS.map(l =>
+    `<button class="as-sportchip${_msSel.has(l) ? ' on' : ''}" onclick="msPickerToggle('${l}')">${l}</button>`).join('');
+}
+function msPickerToggle(label) {
+  if (!_msSel) return;
+  if (_msSel.has(label)) _msSel.delete(label); else _msSel.add(label);
+  const box = document.getElementById('ms-picker-chips');
+  if (box) box.innerHTML = msPickerChipsHtml();
+}
+export async function openMySportsPicker() {
+  if (!state.currentUser) { (window.openSignup || window.openLogin || (() => {}))(); return; }
+  let host = document.getElementById('ms-picker-host');
+  if (!host) { host = document.createElement('div'); host.id = 'ms-picker-host'; document.body.appendChild(host); }
+  let favs = _appSetData && _appSetData.favoriteSports;
+  if (!favs) {
+    try { favs = (await (await fetch('/api/account')).json()).favoriteSports || []; } catch (_) { favs = []; }
+  }
+  _msSel = msFromServer(favs);
+  host.innerHTML = `
+    <div class="track-overlay open" onclick="if(event.target===this)closeMySportsPicker()">
+      <div class="track-sheet" role="dialog" aria-modal="true" aria-label="My sports">
+        <div class="track-sheet-grab"></div>
+        <div class="track-sheet-head"><span>My sports</span><button class="track-sheet-x" onclick="closeMySportsPicker()" aria-label="Close">✕</button></div>
+        <div style="padding:4px 16px calc(18px + env(safe-area-inset-bottom));">
+          <div class="as-row-sub" style="margin-bottom:10px;">Pick the sports you follow. They lead your home screen and shape your alerts.</div>
+          <div class="as-sportchips" style="padding:0;" id="ms-picker-chips">${msPickerChipsHtml()}</div>
+          <button class="track-submit" style="margin-top:16px;" onclick="saveMySportsPicker(this)">Save my sports</button>
+        </div>
+      </div>
+    </div>`;
+}
+function closeMySportsPicker() {
+  const h = document.getElementById('ms-picker-host');
+  if (h) h.innerHTML = '';
+}
+async function saveMySportsPicker(btn) {
+  if (!_msSel) return;
+  const sports = msToServer(_msSel);
+  if (btn) btn.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/account/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorite_sports: sports }),
+    });
+    if (res.ok) {
+      if (_appSetData) _appSetData.favoriteSports = sports;
+      closeMySportsPicker();
+      window.showToast && showToast('My sports saved');
+      document.dispatchEvent(new CustomEvent('mySportsChanged'));
+      if (_appSetScreen === 'root' && document.getElementById('panel-settings')?.classList.contains('active')) settingsGo('root');
+      return;
+    }
+  } catch (_) {}
+  if (btn) btn.textContent = 'Save my sports';
+}
+
 function setRow(label, sub, action, opts = {}) {
   const right = opts.toggle !== undefined
     ? `<label class="as-switch"><input type="checkbox" ${opts.toggle ? 'checked' : ''} onchange="${action}"><span></span></label>`
@@ -2026,6 +2128,159 @@ function renderSettingsApp(data) {
     return;
   }
 
+  if (_appSetScreen === 'profile') {
+    const p = data.profile || {};
+    const styleChip = (s) => `<button class="as-sportchip${p.style === s ? ' on' : ''}" onclick="saveProfileField('style', '${s}')">${s}</button>`;
+    const sportChip = (s) => `<button class="as-sportchip${p.fav_sport === s ? ' on' : ''}" onclick="saveProfileField('fav_sport', '${s}')">${s}</button>`;
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">My profile</span><span></span></div>
+      <div class="as-group as-profile-hero">
+        <label class="as-avatar-edit" title="Change photo">
+          ${avatarFor(user.username || user.email || 'me', 74, avatarUrl)}
+          <span class="as-avatar-badge"><i class="fa-solid fa-camera"></i></span>
+          <input type="file" accept="image/png,image/jpeg,image/webp" style="display:none;" onchange="uploadAvatar(this)">
+        </label>
+        <div class="as-profile-hero-name">@${user.username || 'me'} ${tierChip}</div>
+        ${p.bio ? `<div class="as-profile-hero-bio">${escRec(p.bio)}</div>` : ''}
+        <div class="as-profile-hero-chips">
+          ${p.fav_sport ? `<span class="as-mini-chip"><i class="fa-solid fa-star" style="color:var(--gold);"></i> ${p.fav_sport}</span>` : ''}
+          ${p.style ? `<span class="as-mini-chip">${p.style}</span>` : ''}
+        </div>
+        <div class="form-error" id="avatar-error" style="margin-top:6px;"></div>
+      </div>
+      <div class="as-group-title">About you</div>
+      <div class="as-group" style="padding:13px 14px;">
+        <div class="as-row-sub" style="margin-bottom:7px;">A short line for your public profile. Keep it you.</div>
+        <textarea id="as-bio" class="as-bio" maxlength="160" rows="3" placeholder="Say a little about how you bet.">${escRec(p.bio || '')}</textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:9px;">
+          <button class="sport-pill-save" onclick="saveProfileField('bio', document.getElementById('as-bio').value, this)">Save bio</button>
+          <span class="sport-pill-saved" id="as-bio-saved" style="display:none;">Saved!</span>
+        </div>
+      </div>
+      <div class="as-group-title">Favorite sport</div>
+      <div class="as-group as-sportwrap">
+        <div class="as-row-sub" style="padding:10px 14px 0;">The one you follow closest. It rides on your profile.</div>
+        <div class="as-sportchips">${APP_SET_SPORTS.map(sportChip).join('')}</div>
+      </div>
+      <div class="as-group-title">How I like to bet</div>
+      <div class="as-group as-sportwrap">
+        <div class="as-sportchips">${['Spreads', 'Moneylines', 'Totals', 'Parlays', 'Props', 'Live', 'A bit of everything'].map(styleChip).join('')}</div>
+      </div>
+      <div class="as-group-title">Username</div>
+      <div class="as-group" style="padding:13px 14px;">
+        <div class="as-row-sub" style="margin-bottom:8px;">3 to 20 characters. Changing it has a 30 day cooldown.</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="change-username-input" maxlength="20" value="${user.username || ''}" style="flex:1;">
+          <button class="sport-pill-save" onclick="changeUsername(this)">Update</button>
+        </div>
+        <div class="form-error" id="change-username-error" style="margin-top:6px;"></div>
+        <span class="sport-pill-saved" id="change-username-ok" style="display:none;margin-top:6px;">Updated!</span>
+      </div>
+      ${setGroup('Privacy', [
+        setRow('Public profile', 'Your record and picks show on the leaderboard. Turning this off hides them.',
+          `toggleAccountPrivacy(${data.isPublic ? 'false' : 'true'})`, { toggle: !!data.isPublic }),
+      ])}
+      ${setGroup('Security', [
+        setRow('Send a password reset email', '', 'sendPasswordReset()'),
+      ])}`;
+    return;
+  }
+
+  if (_appSetScreen === 'referral') {
+    const r = referral || {};
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Free days</span><span></span></div>
+      <div class="as-group as-refhero">
+        <div class="as-refhero-days">+3 <span>days</span></div>
+        <div class="as-refhero-line">Give 3 days, get 3 days. Every friend who joins with your code gets 3 free days of full access, and so do you. No limit on friends right now.</div>
+      </div>
+      <div class="as-group-title">Your code</div>
+      <div class="as-group" style="padding:13px 14px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" readonly value="${r.code || ''}" id="referral-code-input"
+                 style="flex:1;font-size:15px;font-weight:800;letter-spacing:.1em;text-align:center;" onclick="this.select()">
+          <button class="sport-pill-save" onclick="copyReferral(this)">Share</button>
+        </div>
+        <div class="as-row-sub" style="margin-top:9px;">${(r.redemptions || 0) > 0
+          ? `${r.redemptions} friend${r.redemptions === 1 ? '' : 's'} joined so far. ${r.days_earned || 0} free day${(r.days_earned || 0) === 1 ? '' : 's'} earned.`
+          : 'Nobody has used it yet. Send it to a friend to get started.'}</div>
+      </div>
+      <div class="as-group-title">Have a code?</div>
+      <div class="as-group" style="padding:13px 14px;">
+        <div class="as-row-sub" style="margin-bottom:8px;">Redeem an access code or a friend's referral code here.</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="as-code-input" placeholder="Enter code" style="flex:1;text-transform:uppercase;">
+          <button class="sport-pill-save" onclick="doRedeemCode('as-code-input', 'as-code-error')">Redeem</button>
+        </div>
+        <div class="form-error" id="as-code-error" style="margin-top:6px;"></div>
+      </div>`;
+    return;
+  }
+
+  if (_appSetScreen === 'bets') {
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Bet settings</span><span></span></div>
+      <div class="as-group-title">Bankroll and units</div>
+      <div class="as-group" style="padding:13px 14px;">
+        <div class="as-row-sub" style="margin-bottom:10px;">Set what one unit is worth so your tracking shows real dollars.</div>
+        <div class="settings-field">
+          <label for="settings-unit-size">Unit size (1 unit =)</label>
+          <div class="field-prefix-wrap"><span class="field-prefix">$</span>
+            <input type="number" id="settings-unit-size" value="${data.unitSize || 20}" min="1" max="100000" step="1"></div>
+        </div>
+        <div class="settings-field">
+          <label for="settings-bankroll">Starting bankroll (optional)</label>
+          <div class="field-prefix-wrap"><span class="field-prefix">$</span>
+            <input type="number" id="settings-bankroll" value="${data.startingBankroll || 0}" min="0" step="1"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
+          <button class="sport-pill-save" onclick="saveBankroll(this)">Save</button>
+          <span class="sport-pill-saved" id="bankroll-saved" style="display:none;">Saved!</span>
+        </div>
+      </div>
+      <div class="as-group-title">Default odds source</div>
+      <div class="as-group" style="padding:6px 14px 13px;">
+        <div class="as-row-sub" style="padding-top:7px;">Which odds show first across the app.</div>
+        <div class="odds-source-list" style="margin-top:9px;">
+          ${[['consensus', 'Consensus'], ['draftkings', 'DraftKings'], ['fanduel', 'FanDuel'], ['kalshi', 'Kalshi'], ['polymarket', 'Polymarket']].map(([v, lbl]) => `
+            <button class="odds-source${(data.defaultOdds || 'consensus') === v ? ' active' : ''}" onclick="saveDefaultOdds('${v}'); settingsGo('bets')">
+              <span>${lbl}</span><span class="odds-check">${(data.defaultOdds || 'consensus') === v ? '✓' : ''}</span>
+            </button>`).join('')}
+        </div>
+      </div>
+      ${setGroup('My sportsbooks', [
+        setRow('Manage my books', 'The books you bet with show first on the betslip and game pages.', 'openBookPicker()'),
+      ])}`;
+    return;
+  }
+
+  if (_appSetScreen === 'appearance') {
+    const theme = (window.getTheme && window.getTheme()) || 'dark';
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Appearance</span><span></span></div>
+      <div class="as-group" style="padding:14px;">
+        <div class="as-row-sub" style="margin-bottom:12px;">Choose how CappingAlpha looks on this device. Dark is the default.</div>
+        <div class="theme-toggle">
+          <button class="theme-opt${theme === 'dark' ? ' active' : ''}" data-theme-opt="dark" onclick="setTheme('dark'); settingsGo('appearance')">Dark</button>
+          <button class="theme-opt${theme === 'light' ? ' active' : ''}" data-theme-opt="light" onclick="setTheme('light'); settingsGo('appearance')">Light</button>
+        </div>
+      </div>`;
+    return;
+  }
+
+  if (_appSetScreen === 'membership') {
+    el.innerHTML = `
+      <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Membership</span><span></span></div>
+      <div class="as-group" style="padding:14px;">${accessStatusWidget(user)}</div>
+      ${isPaid ? '' : setGroup('Unlock', [
+        setRow('See the full ranked board', 'Three days free on the weekly plan for first timers.', "switchTab('unlock')"),
+      ])}
+      ${setGroup('Codes and free days', [
+        setRow('Referral and access codes', 'Share your code or redeem one.', "settingsGo('referral')"),
+      ])}`;
+    return;
+  }
+
   if (_appSetScreen === 'legal') {
     el.innerHTML = `
       <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">About and legal</span><span></span></div>
@@ -2044,32 +2299,33 @@ function renderSettingsApp(data) {
   }
 
   // Root menu.
+  const p = data.profile || {};
   el.innerHTML = `
-    <div class="as-profile" onclick="settingsGo('classic')">
+    <div class="as-profile" onclick="settingsGo('profile')">
       ${avatarFor(user.username || user.email || 'me', 46, avatarUrl)}
       <div class="as-profile-main">
         <div class="as-profile-name">@${user.username || 'me'} ${tierChip}</div>
-        <div class="as-row-sub">Edit profile, username, and photo</div>
+        <div class="as-row-sub">${p.bio ? escRec(p.bio) : 'Add a bio, photo, and your favorite sport'}</div>
       </div>
       <i class="fa-solid fa-chevron-right as-chev" aria-hidden="true"></i>
     </div>
     ${setGroup('Membership', [
       isPaid
-        ? setRow('Manage membership', 'Plan, billing, and access details.', "settingsGo('classic')")
+        ? setRow('Manage membership', 'Plan, billing, and access details.', "settingsGo('membership')")
         : setRow('Unlock CappingAlpha', 'The full ranked board, top to bottom.', "switchTab('unlock')"),
-      setRow('Referral code', referral ? `Share it and you both get a free day. ${referral.redemptions || 0} joined so far.` : 'Share it and you both get a free day.', "settingsGo('classic')"),
+      setRow('Free days', referral ? `Give 3, get 3. ${referral.redemptions || 0} friend${(referral.redemptions || 0) === 1 ? '' : 's'} joined so far.` : 'Share your code and you both get 3 free days.', "settingsGo('referral')"),
     ])}
     ${setGroup('Preferences', [
       setRow('Notifications', 'Alerts for picks, rankings, and your games.', "settingsGo('notifs')"),
-      setRow('My sports', 'Pick the sports you follow.', "settingsGo('classic')"),
+      setRow('My sports', 'Pick the sports you follow.', 'openMySportsPicker()'),
       setRow('My sportsbooks', 'The books you bet with.', 'openBookPicker()'),
-      setRow('Bet settings', 'Unit size, bankroll, default odds.', "settingsGo('classic')"),
-      setRow('Appearance', 'Dark or light.', "settingsGo('classic')"),
+      setRow('Bet settings', 'Unit size, bankroll, default odds.', "settingsGo('bets')"),
+      setRow('Appearance', 'Dark or light.', "settingsGo('appearance')"),
     ])}
     ${setGroup('Support', [
       setRow('Help and FAQ', '', "openPage('/faq')"),
       setRow('Contact support', '', 'goSupport()'),
-      setRow('Betting calculators', 'No vig, EV, parlay, hedge, and more.', "openPage('/tools')"),
+      setRow('Betting calculators', 'No vig, EV, parlay, hedge, and more, built in.', 'openCalcs()'),
     ])}
     ${setGroup('About and legal', [
       setRow('About, terms, and privacy', 'Everything about the platform in one place.', "settingsGo('legal')"),
@@ -2083,17 +2339,13 @@ function renderSettingsApp(data) {
 
 function renderSettings(data) {
   _appSetData = data;
-  if (document.documentElement.classList.contains('ca-app') && _appSetScreen !== 'classic') {
+  // The app shell has exactly ONE settings surface: the native IA. The card
+  // layout below stays web-only.
+  if (document.documentElement.classList.contains('ca-app')) {
     _notifyPrefs = data.notifyPrefs || {};
     return renderSettingsApp(data);
   }
   renderSettingsWeb(data);
-  // Classic leaf inside the app: keep a way back to the native menu.
-  if (document.documentElement.classList.contains('ca-app')) {
-    const el = document.getElementById('settings-content');
-    if (el) el.insertAdjacentHTML('afterbegin',
-      `<div class="as-head" style="margin-bottom:14px;"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">All settings</span><span></span></div>`);
-  }
 }
 
 function renderSettingsWeb(data) {
@@ -2581,4 +2833,5 @@ Object.assign(window, {
   showLeaderboardInfo, setTrackFilter, togglePush, toggleSetupMore,
   openRecordView, closeRecordView, recSetWindow, recToggleFilters, recSetFilter, shareRecord,
   copyReferral, saveNotifyPref, saveQuietHours, settingsGo, toggleMuteSport, openPage,
+  saveProfileField, openMySportsPicker, closeMySportsPicker, msPickerToggle, saveMySportsPicker,
 });
