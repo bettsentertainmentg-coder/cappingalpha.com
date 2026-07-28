@@ -10,7 +10,7 @@
 // verified vote records the tail.
 
 import { state } from './state.js';
-import { avatarFor, fmtOdds, fmtSpread, teamNickname, skelRows } from './utils.js?v=5';
+import { avatarFor, fmtOdds, fmtSpread, teamNickname, skelRows } from './utils.js?v=6';
 import { loadLeaderboard } from './leaderboard.js?v=16';
 import { haptic } from './native.js?v=2';
 

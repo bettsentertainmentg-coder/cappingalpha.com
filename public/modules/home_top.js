@@ -7,7 +7,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=5';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots } from './utils.js?v=6';
 import { haptic } from './native.js?v=2';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.

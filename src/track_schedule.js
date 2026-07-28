@@ -24,8 +24,8 @@ const SPORT_FEEDS = [
   { sport: 'NBA',    path: 'basketball/nba' },
   { sport: 'WNBA',   path: 'basketball/wnba' },
   { sport: 'NHL',    path: 'hockey/nhl' },
-  { sport: 'NFL',    path: 'americanfootball/nfl' },
-  { sport: 'NCAAF',  path: 'americanfootball/college-football' },
+  { sport: 'NFL',    path: 'football/nfl' },
+  { sport: 'NCAAF',  path: 'football/college-football' },
   { sport: 'CBB',    path: 'basketball/mens-college-basketball' },
   { sport: 'WCBB',   path: 'basketball/womens-college-basketball' },
   { sport: 'UFC',    path: 'mma/ufc' },
@@ -154,9 +154,15 @@ function engineEventsFor(yyyymmdd) {
     const { ET_OFFSET_MS } = require('./cycle');
     const startUtc = new Date(Date.parse(`${dayIso}T00:00:00Z`) + ET_OFFSET_MS).toISOString();
     const endUtc   = new Date(Date.parse(`${dayIso}T00:00:00Z`) + ET_OFFSET_MS + 24 * 3600 * 1000).toISOString();
+    // Only offer engine events we actually have odds for (Jack 2026-07-28): a
+    // niche event with no line has nothing to track against, and the no-line
+    // rows were flooding the betslip with table-tennis/esports filler. Lines are
+    // keyed by (sport, home, away) — idx_engine_event_lines_ev covers the probe.
     return db.prepare(
-      `SELECT id, sport, home_team, away_team, start_time FROM engine_events
-       WHERE start_time >= ? AND start_time < ?`
+      `SELECT id, sport, home_team, away_team, start_time FROM engine_events e
+       WHERE start_time >= ? AND start_time < ?
+         AND EXISTS (SELECT 1 FROM engine_event_lines l
+                     WHERE l.sport = e.sport AND l.home_team = e.home_team AND l.away_team = e.away_team)`
     ).all(startUtc, endUtc).map(e => ({
       espn_game_id: `eng-${e.id}`,
       sport: e.sport,

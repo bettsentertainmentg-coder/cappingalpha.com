@@ -43,7 +43,6 @@ const { recomputeCapperRatings } = require('./src/capper_ratings');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
 const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
-const { refreshCappertekRoster, pollCappertekPicks } = require('./src/cappertek');
 const { pollWagerTalk } = require('./src/wagertalk');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
@@ -958,7 +957,7 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
-  const cols = `espn_game_id, sport, home_team, away_team, home_abbr, away_abbr, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds`;
+  const cols = `espn_game_id, sport, home_team, away_team, home_abbr, away_abbr, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
@@ -3185,11 +3184,9 @@ app.listen(PORT, () => {
     await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
     await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
     await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
-    await refreshCappertekRoster().catch(err => console.error('[startup] refreshCappertekRoster error:', err.message));
     pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
-    pollCappertekPicks().catch(err => console.error('[startup] pollCappertekPicks error:', err.message));
     pollWagerTalk().catch(err => console.error('[startup] pollWagerTalk error:', err.message));
   }
 
@@ -3564,7 +3561,6 @@ if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
   await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
   await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
   await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
-  await refreshCappertekRoster().catch(err => console.error('[cron] refreshCappertekRoster error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // AN picks: every 10 min active hours, every 30 min overnight (median pick posts
@@ -3588,13 +3584,6 @@ if (!UI_ONLY) cron.schedule('*/30 8-23 * * *', () => {
 }, { timezone: 'America/New_York' });
 if (!UI_ONLY) cron.schedule('5 16 * * *', () => {
   refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants (4pm) error:', err.message));
-}, { timezone: 'America/New_York' });
-
-// CapperTek per-capper feeds: every 30 min active hours, offset from the Covers
-// sweep. Picks reveal 30 min AFTER start (free tier), so these rows build the
-// capper record only — the live flag keeps them off the board automatically.
-if (!UI_ONLY) cron.schedule('10,40 8-23 * * *', () => {
-  pollCappertekPicks().catch(err => console.error('[cron] pollCappertekPicks error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // WagerTalk free-picks page: one cheap fetch every 30 min active hours. Pregame

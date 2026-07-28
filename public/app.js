@@ -1,22 +1,22 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
-import { setHeatScale } from './modules/utils.js?v=5';
+import { setHeatScale } from './modules/utils.js?v=6';
 import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './modules/native.js?v=2';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=42';
-import { loadSports } from './modules/sports.js?v=2';
+import { loadSports } from './modules/sports.js?v=3';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=16';
 import { loadSocials } from './modules/socials.js?v=6';
-import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=67';
-import './modules/track.js?v=51';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=68';
+import './modules/track.js?v=52';
 import './modules/books.js?v=2';
-import './modules/modal.js?v=8';
+import './modules/modal.js?v=9';
 import './modules/member_profile.js?v=24';
 import { resumePendingCheckout } from './modules/paywall.js';
-import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=10';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=11';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { loadHomeScores } from './modules/home_scores.js?v=3';
 import './modules/calcs.js?v=1';

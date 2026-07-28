@@ -7,7 +7,7 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { gameTime, fmtOdds, liveStateHtml, teamNickname } from './utils.js?v=5';
+import { gameTime, fmtOdds, liveStateHtml, teamNickname } from './utils.js?v=6';
 
 const GROUP_OF = (s) => { s = (s || '').toUpperCase(); return (s === 'ATP' || s === 'WTA') ? 'Tennis' : s; };
 const DEFAULT_ORDER = ['MLB', 'NFL', 'WNBA', 'NBA', 'NHL', 'SOCCER', 'Tennis', 'NCAAF', 'CBB', 'GOLF'];

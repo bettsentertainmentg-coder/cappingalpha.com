@@ -15,10 +15,10 @@
 import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
-  onBoardForSport, currentBoardDate, teamNickname,
-} from './utils.js?v=5';
+  onBoardForSport, currentBoardDate, teamNickname, countryColor,
+} from './utils.js?v=6';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=8';
+import { TEAM_COLORS } from './modal.js?v=9';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).
@@ -137,8 +137,13 @@ function teamPrimary(name) {
 }
 
 function bandStyle(g) {
-  const a = teamPrimary(g.away_team) || '#31435f';
-  const h = teamPrimary(g.home_team) || '#233043';
+  // Tennis players have no TEAM_COLORS entry, so every match banded the same two
+  // defaults. Country colors (home/away_country ride /api/games) feed the exact
+  // same gradient instead, so no two matchups read alike (2026-07-28).
+  const sp = (g.sport || '').toUpperCase();
+  const tennis = sp === 'ATP' || sp === 'WTA';
+  const a = teamPrimary(g.away_team) || (tennis ? countryColor(g.away_country) : null) || '#31435f';
+  const h = teamPrimary(g.home_team) || (tennis ? countryColor(g.home_country) : null) || '#233043';
   let ta = 0.42, th = 0.42;
   const live = g.status === 'in', post = g.status === 'post';
   if ((live || post) && typeof g.away_score === 'number' && typeof g.home_score === 'number') {
@@ -218,10 +223,28 @@ function stateHtml(g) {
 }
 
 // ── Card pieces (mock DOM shapes) ─────────────────────────────────────────────
+// Tile content: tennis shows the player's face (photo -> country flag -> the
+// monogram letters) inside the same 28px tile; team sports keep the monogram.
+// Photos/flags ride /api/games (home/away_photo, home/away_flag).
+function tileInner(g, side, name) {
+  const sp = (g.sport || '').toUpperCase();
+  if (sp === 'ATP' || sp === 'WTA') {
+    const photo = g[side + '_photo'], flag = g[side + '_flag'];
+    const letters = mono(name, g.sport); // alnum only, safe inside the handler
+    const toLetters = `this.onerror=null;var p=this.parentNode;this.remove();if(p)p.textContent='${letters}';`;
+    if (photo) {
+      const fall = flag ? `this.onerror=null;this.src='${esc(flag)}';` : toLetters;
+      return `<img class="nx-lgi" src="${esc(photo)}" alt="" loading="lazy" onerror="${fall}">`;
+    }
+    if (flag) return `<img class="nx-lgi" src="${esc(flag)}" alt="" loading="lazy" onerror="${toLetters}">`;
+  }
+  return esc(mono(name, g.sport));
+}
+
 function bandTeam(g, side) {
   const name = side === 'home' ? g.home_team : g.away_team;
   return `<div class="nx-bt ${side === 'home' ? 'h' : 'a'}">` +
-    `<span class="nx-lg">${esc(mono(name, g.sport))}</span>` +
+    `<span class="nx-lg">${tileInner(g, side, name)}</span>` +
     `<span class="nx-bn">${esc(displayName(name))}</span></div>`;
 }
 

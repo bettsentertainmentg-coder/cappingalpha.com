@@ -431,9 +431,9 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta name="twitter:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=3" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
-  <link rel="stylesheet" href="/track-sheet.css?v=3" />
+  <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -463,7 +463,9 @@ ${buildNav(payload.user)}
   <div class="ca-gh-matchup">
     <div class="ca-gh-team ca-gh-away">
       <div class="ca-team-logo-circle" id="ca-logo-away" style="background:${awayBg};">
-        ${game.away_flag
+        ${game.away_photo
+          ? `<img class="ca-headshot-img" src="${esc(game.away_photo)}" alt="${esc(away || '')}" loading="lazy" onerror="this.remove()">`
+          : game.away_flag
           ? `<img class="ca-flag-img" src="${esc(game.away_flag)}" alt="${esc(game.away_country || '')}" loading="lazy">`
           : `<span>${esc((game.away_abbr || game.away_short || away || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
@@ -475,7 +477,9 @@ ${buildNav(payload.user)}
     <div class="ca-gh-at">@</div>
     <div class="ca-gh-team ca-gh-home">
       <div class="ca-team-logo-circle" id="ca-logo-home" style="background:${homeBg};">
-        ${game.home_flag
+        ${game.home_photo
+          ? `<img class="ca-headshot-img" src="${esc(game.home_photo)}" alt="${esc(home || '')}" loading="lazy" onerror="this.remove()">`
+          : game.home_flag
           ? `<img class="ca-flag-img" src="${esc(game.home_flag)}" alt="${esc(game.home_country || '')}" loading="lazy">`
           : `<span>${esc((game.home_abbr || game.home_short || home || '?').slice(0,3).toUpperCase())}</span>`}
       </div>
@@ -650,7 +654,7 @@ ${buildAuthModals()}
 <script type="module" src="/game-detail.js?v=9"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=50"></script>
+<script type="module" src="/modules/track.js?v=52"></script>
 </body>
 </html>`;
 }

@@ -1,7 +1,7 @@
 // modules/auth.js — Auth state, tier helpers, login/signup/logout
 
 import { state } from './state.js';
-import { avatarFor } from './utils.js?v=5';
+import { avatarFor } from './utils.js?v=6';
 import { isNative, appleSignIn, setToken, deregisterPush, haptic } from './native.js?v=2';
 
 // Inside the app shell the auth endpoints return a bearer token when the body
