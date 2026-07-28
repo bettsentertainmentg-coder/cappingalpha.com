@@ -6,7 +6,7 @@ import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './m
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=42';
-import { loadSports } from './modules/sports.js';
+import { loadSports } from './modules/sports.js?v=2';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=16';
 import { loadSocials } from './modules/socials.js?v=6';

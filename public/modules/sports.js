@@ -508,7 +508,9 @@ function renderDays() {
     const sub = i === 0
       ? d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '')
       : d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-    const ct = i === 0 ? `<span class="nx-ct n">${boardGames().length + _golfTournaments.length}</span>` : '';
+    const ct = i === 0
+      ? `<span class="nx-ct n">${boardGames().length + _golfTournaments.length}</span>`
+      : (_futureCache.has(futureKey(i)) ? `<span class="nx-ct n">${_futureCache.get(futureKey(i)).length}</span>` : '');
     const on = i === _curDay;
     h += `<button type="button" class="nx-day${on ? ' on' : ''}" data-day="${i}" aria-pressed="${on}">` +
          `<span class="nx-dl">${esc(label)}${ct}</span><span class="nx-ds">${esc(sub)}</span></button>`;
@@ -544,6 +546,60 @@ function renderLedger() {
     `<a href="#" id="nx-ledger-link">Full record &rsaquo;</a>`;
 }
 
+// ── Future-day slates (display-only schedule previews) ────────────────────────
+// today_games only holds today's board, so the Tue/Wed/Thu tabs pull that day's
+// slate from GET /api/games/future (a cached server-side pass over ESPN's free
+// scoreboards; the page CSP blocks calling ESPN directly). Rows render through
+// the same card renderer: matchup + time, no lines, no picks. The board itself
+// still posts the morning of each slate.
+const _futureCache = new Map();   // 'YYYYMMDD' -> pseudo-game rows
+const _futureLoads = new Set();
+function futureKey(dayIdx) {
+  const d = new Date(Date.now() + dayIdx * 86400000);
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, '');
+}
+async function loadFutureDay(dayIdx) {
+  const key = futureKey(dayIdx);
+  if (_futureCache.has(key) || _futureLoads.has(key)) return;
+  _futureLoads.add(key);
+  try {
+    const res = await fetch(`/api/games/future?date=${key}`);
+    _futureCache.set(key, res.ok ? await res.json() : []);
+  } catch (_) {
+    _futureCache.set(key, []);
+  } finally { _futureLoads.delete(key); }
+  // Still looking at this day: paint the slate + the day-strip count.
+  // (Day taps are delegated, so re-rendering the strip keeps them working.)
+  if (_curDay === dayIdx) { renderDays(); renderSections(); }
+}
+function renderFutureDay(host) {
+  const key = futureKey(_curDay);
+  if (!_futureCache.has(key)) {
+    host.innerHTML = `<div class="nx-postnote">Loading the slate...</div>`;
+    loadFutureDay(_curDay);
+    return;
+  }
+  const all = _futureCache.get(key);
+  const rows = all.filter(g => _selSports.size === 0 || _selSports.has(sportKey(g.sport)));
+  if (!rows.length) {
+    host.innerHTML = `<div class="nx-postnote">No games scheduled here yet. The board for each day posts in the morning.</div>`;
+    return;
+  }
+  const ctx = { member: isPaying(), byGame: new Map(), rankedBySport: new Map(), top: null };
+  const byStart = (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));
+  const bySport = new Map();
+  for (const g of rows.sort(byStart)) {
+    const k = sportKey(g.sport);
+    if (!bySport.has(k)) bySport.set(k, []);
+    bySport.get(k).push(g);
+  }
+  let h = `<div class="nx-notice">Schedule preview. Lines and rankings post the morning of each slate.</div>`;
+  for (const [k, list] of bySport) {
+    h += sectionHtml(k, list.map(g => cardHtml(g, ctx)));
+  }
+  host.innerHTML = `<div class="nx-fwrap">${h}</div>`;
+}
+
 // ── Sections (mock section() eyebrow pattern) ─────────────────────────────────
 function searchActive() { return _query.length >= 2; }
 
@@ -562,10 +618,7 @@ function renderSections() {
   if (days) days.classList.toggle('dim', searchActive());
   if (searchActive()) { renderSearch(host); return; }
 
-  if (_curDay !== 0) {
-    host.innerHTML = `<div class="nx-postnote">The board for each day posts in the morning.</div>`;
-    return;
-  }
+  if (_curDay !== 0) { renderFutureDay(host); return; }
 
   const ctx = renderCtx();
   const byStart = (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));

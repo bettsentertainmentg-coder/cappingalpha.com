@@ -2255,6 +2255,9 @@
 
     /* notices, ledger */
     #panel-sports .nx-postnote { margin: 14px 2px 2px; padding: 9px 13px; border: 1px dashed var(--border); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 12px; }
+    /* Future-day schedule previews render through the normal cards but are
+       display-only: no expand, no navigation, until that day's board posts. */
+    #panel-sports .nx-fwrap .nx-card { pointer-events: none; }
     #panel-sports .nx-notice { display: flex; align-items: center; gap: 10px; padding: 14px 16px; margin-top: 14px; border: 1px dashed var(--border); border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 13px; }
     #panel-sports .nx-notice b { color: var(--text); }
     #panel-sports .nx-ledger { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-size: 12px; color: var(--muted); flex-wrap: wrap; }
@@ -4333,6 +4336,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=119"></script>
+  <script type="module" src="app.js?v=121"></script>
 </body>
 </html>

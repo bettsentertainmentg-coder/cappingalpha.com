@@ -317,7 +317,7 @@ if (MIRROR_URL) {
     // game handler already pulls its PICK context from the mirror internally, so
     // local pages get local lines + prod picks. /api/games/top stays mirrored
     // (it ranks by public-betting volume, which only prod accumulates).
-    if (req.path === '/api/games' || /^\/api\/game\/[^/]+/.test(req.path)) return next();
+    if (req.path === '/api/games' || req.path === '/api/games/future' || /^\/api\/game\/[^/]+/.test(req.path)) return next();
     // Local mock live game (dev only): serve Top Games + its detail/pick data
     // locally so the mock surfaces and the real prod top games aren't needed.
     if (mockActive() && (req.path === '/api/games/top' || req.path.startsWith('/api/game/' + MOCK_ID))) return next();
@@ -984,6 +984,61 @@ app.get('/api/games', (req, res) => {
     });
   }
   res.json(rows);
+});
+
+// GET /api/games/future?date=YYYYMMDD — schedule preview for an upcoming day.
+// Server-side fan-out to ESPN's free scoreboard (page CSP blocks the client from
+// calling ESPN directly), cached 30 min per date. Display-only rows: the board
+// itself still posts the morning of each slate. Zero cost (ESPN is free).
+const FUTURE_SPORT_PATHS = [
+  ['MLB',   'baseball/mlb',                       ''],
+  ['NFL',   'football/nfl',                       ''],
+  ['NBA',   'basketball/nba',                     ''],
+  ['WNBA',  'basketball/wnba',                    ''],
+  ['NHL',   'hockey/nhl',                         ''],
+  ['NCAAF', 'football/college-football',          '&groups=80&limit=400'],
+  ['CBB',   'basketball/mens-college-basketball', '&groups=50&limit=400'],
+];
+const _futureDayCache = new Map();   // 'YYYYMMDD' -> { at, rows }
+app.get('/api/games/future', async (req, res) => {
+  const date = String(req.query.date || '');
+  if (!/^\d{8}$/.test(date)) return res.status(400).json({ error: 'date=YYYYMMDD required' });
+  const cached = _futureDayCache.get(date);
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) return res.json(cached.rows);
+  try {
+    const lists = await Promise.all(FUTURE_SPORT_PATHS.map(async ([sport, path, extra]) => {
+      try {
+        const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${path}/scoreboard?dates=${date}${extra}`);
+        if (!r.ok) return [];
+        const data = await r.json();
+        return (data.events || []).map((ev) => {
+          const comp = ev.competitions && ev.competitions[0];
+          if (!comp || !Array.isArray(comp.competitors)) return null;
+          const home = comp.competitors.find(c => c.homeAway === 'home');
+          const away = comp.competitors.find(c => c.homeAway === 'away');
+          if (!home?.team || !away?.team) return null;
+          return {
+            espn_game_id: 'future-' + ev.id, sport, status: 'pre', start_time: ev.date,
+            home_team: home.team.displayName, away_team: away.team.displayName,
+            home_abbr: home.team.abbreviation, away_abbr: away.team.abbreviation,
+            home_short: home.team.shortDisplayName, away_short: away.team.shortDisplayName,
+            home_score: null, away_score: null,
+            ml_home: null, ml_away: null, spread_home: null, spread_away: null, over_under: null,
+          };
+        }).filter(Boolean);
+      } catch (_) { return []; }
+    }));
+    const rows = lists.flat();
+    _futureDayCache.set(date, { at: Date.now(), rows });
+    // Keep the cache tiny: only a handful of upcoming dates ever get asked for.
+    if (_futureDayCache.size > 12) {
+      const oldest = [..._futureDayCache.keys()].sort()[0];
+      _futureDayCache.delete(oldest);
+    }
+    res.json(rows);
+  } catch (err) {
+    res.status(502).json({ error: 'future slate unavailable' });
+  }
 });
 
 // GET /api/games/top — hottest games of the day, ranked by prediction-market
