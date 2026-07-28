@@ -43,6 +43,8 @@ const { recomputeCapperRatings } = require('./src/capper_ratings');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
 const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
+const { refreshCappertekRoster, pollCappertekPicks } = require('./src/cappertek');
+const { pollWagerTalk } = require('./src/wagertalk');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -3010,9 +3012,12 @@ app.listen(PORT, () => {
     await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
     await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
     await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
+    await refreshCappertekRoster().catch(err => console.error('[startup] refreshCappertekRoster error:', err.message));
     pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
+    pollCappertekPicks().catch(err => console.error('[startup] pollCappertekPicks error:', err.message));
+    pollWagerTalk().catch(err => console.error('[startup] pollWagerTalk error:', err.message));
   }
 
   // Seed slots for every game in today_games (including forward games) — INSERT OR
@@ -3386,6 +3391,7 @@ if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
   await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
   await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
   await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
+  await refreshCappertekRoster().catch(err => console.error('[cron] refreshCappertekRoster error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // AN picks: every 10 min active hours, every 30 min overnight (median pick posts
@@ -3409,6 +3415,19 @@ if (!UI_ONLY) cron.schedule('*/30 8-23 * * *', () => {
 }, { timezone: 'America/New_York' });
 if (!UI_ONLY) cron.schedule('5 16 * * *', () => {
   refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants (4pm) error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// CapperTek per-capper feeds: every 30 min active hours, offset from the Covers
+// sweep. Picks reveal 30 min AFTER start (free tier), so these rows build the
+// capper record only — the live flag keeps them off the board automatically.
+if (!UI_ONLY) cron.schedule('10,40 8-23 * * *', () => {
+  pollCappertekPicks().catch(err => console.error('[cron] pollCappertekPicks error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// WagerTalk free-picks page: one cheap fetch every 30 min active hours. Pregame
+// picks from named pros — full board path through the normal source gates.
+if (!UI_ONLY) cron.schedule('15,45 8-23 * * *', () => {
+  pollWagerTalk().catch(err => console.error('[cron] pollWagerTalk error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on
