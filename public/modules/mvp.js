@@ -2,11 +2,11 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican, skelRows } from './utils.js?v=6';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican, skelRows } from './utils.js?v=7';
 import { renderPicks } from './picks.js';
 import { haptic } from './native.js?v=2';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=25';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=26';
 
 let mvpChart  = null;
 let homeChart = null;

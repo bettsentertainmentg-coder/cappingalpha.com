@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
-import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime, countryColorPair } from './utils.js?v=6';
+import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime, countryColorPair } from './utils.js?v=7';
 import { cappingGauge } from './gauge.js';
 
 // Escape any value that reaches innerHTML. Golf player/capper names come from

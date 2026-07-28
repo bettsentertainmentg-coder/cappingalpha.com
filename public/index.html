@@ -762,6 +762,9 @@
     .hs-team { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .hs-abbr { width: 34px; flex: none; text-align: center; font-size: 10.5px; font-weight: 800; border-radius: 6px; padding: 3px 0; }
     .hs-abbr-plain { background: var(--surface2); color: var(--muted); }
+    /* Tennis: country flag where the monogram chip sits, same footprint */
+    .hs-flag { width: 34px; flex: none; display: flex; align-items: center; justify-content: center; }
+    .hs-flag img { width: 24px; height: 16px; border-radius: 3px; object-fit: cover; display: block; }
     .hs-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
     .hs-team.dim .hs-name, .hs-team.dim .hs-pts { color: var(--muted); font-weight: 600; }
     .hs-pts { font-size: 15px; font-weight: 800; min-width: 20px; text-align: right; }
@@ -4483,6 +4486,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=128"></script>
+  <script type="module" src="app.js?v=129"></script>
 </body>
 </html>

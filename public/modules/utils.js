@@ -472,6 +472,14 @@ export function tennisAvatar(g, side, size = 20) {
   return `<span class="tp-av" style="width:${px};height:${px};border-radius:50%;background:${col};color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:${Math.round(size * 0.5)}px;font-weight:800;flex-shrink:0;">${initial}</span>`;
 }
 
+// Scoreboard-style tennis name: "Ben Shelton" -> "B. Shelton". Single-word
+// names pass through; multi-word surnames keep every word after the first.
+export function tennisDisplayName(full) {
+  const parts = String(full || '').trim().split(/\s+/);
+  if (parts.length < 2) return String(full || '').trim();
+  return `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+}
+
 // Subtle two-sided row wash: the left-rendered player's country color bleeds in
 // from the left edge, the other side's from the right. leftSide names which side
 // renders first ('home' for the Sports tab's "home vs away" rows).

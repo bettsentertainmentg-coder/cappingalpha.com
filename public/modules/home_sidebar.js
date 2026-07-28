@@ -3,7 +3,7 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn } from './utils.js?v=6';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=7';
 import { unlockCtaHtml } from './paywall.js';
 import { state } from './state.js';
 
@@ -407,7 +407,7 @@ function _renderSidebarGames(sport) {
     const sUp = (g.sport || '').toUpperCase();
     const f = url => url ? `<img src="${url}" alt="" style="width:13px;height:9px;border-radius:2px;object-fit:cover;vertical-align:-1px;margin-right:3px;" onerror="this.style.display='none'" />` : '';
     const matchupHtml = (sUp === 'ATP' || sUp === 'WTA')
-      ? `${f(g.away_flag)}${away} @ ${f(g.home_flag)}${home}`
+      ? `${f(g.away_flag)}${tennisDisplayName(g.away_team) || away} @ ${f(g.home_flag)}${tennisDisplayName(g.home_team) || home}`
       : `${away} @ ${home}`;
 
     return `<div class="ca-sidebar-game-row" onclick="window.location.href='/game/${g.espn_game_id}'">

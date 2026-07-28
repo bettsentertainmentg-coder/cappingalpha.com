@@ -7,7 +7,7 @@
 
 import { state } from './state.js';
 import { isPaying } from './auth.js';
-import { gameTime, fmtOdds, liveStateHtml, teamNickname } from './utils.js?v=6';
+import { gameTime, fmtOdds, liveStateHtml, teamNickname, tennisDisplayName } from './utils.js?v=7';
 
 const GROUP_OF = (s) => { s = (s || '').toUpperCase(); return (s === 'ATP' || s === 'WTA') ? 'Tennis' : s; };
 const DEFAULT_ORDER = ['MLB', 'NFL', 'WNBA', 'NBA', 'NHL', 'SOCCER', 'Tennis', 'NCAAF', 'CBB', 'GOLF'];
@@ -114,10 +114,15 @@ function teamLine(g, side, dim, winner) {
   // ESPN-style short display name: nickname for team sports (opponent-aware so
   // two same-nickname sides keep their lead word), last name for tennis.
   const last = full.trim().split(/\s+/).pop() || full;
-  const name = tennis ? (short || last) : (short || teamNickname(full, opp) || full);
+  // Tennis: "B. Shelton" + the country flag where the monogram chip sat (the
+  // 3-letter chip read as a fake team logo). Flagless rows keep the plain chip.
+  const name = tennis ? (tennisDisplayName(full) || short || last) : (short || teamNickname(full, opp) || full);
   if (tennis && !abbr) abbr = last.slice(0, 3).toUpperCase();
+  const flag = side === 'home' ? g.home_flag : g.away_flag;
   const col  = tennis ? '' : teamColor(g.sport, abbr);
-  const chip = col
+  const chip = (tennis && flag)
+    ? `<span class="hs-flag"><img src="${flag}" alt="" loading="lazy" onerror="this.style.display='none'"></span>`
+    : col
     ? `<span class="hs-abbr" style="background:${col};color:${chipText(col)};">${abbr}</span>`
     : `<span class="hs-abbr hs-abbr-plain">${(abbr || name).slice(0, 3).toUpperCase()}</span>`;
   const pts = (g.status === 'pre' || score == null) ? '' : `<span class="hs-pts">${score}</span>`;
