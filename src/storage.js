@@ -754,6 +754,14 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       if (type === 'under') ou_odds = game.ou_under_odds ?? null;
     }
   }
+  // The heavy-price gate judges "the odds right then" (Jack 2026-07-28), so
+  // remember the FRESH canonical price before the cap override below replaces
+  // it with the 50-cross capture — the capture freezes at first archive cross
+  // and would make the gate re-judge a stale number every promotion pass
+  // (blocked-at--320 could never re-admit on a softening, and a steamed -350
+  // could slip in on a stale -280). Fresh price order: today_games (current
+  // market pre-lock, the locked CA line post-lock) then freshest book_lines.
+  let freshMl = ml_odds;
   // Prefer the live line locked the moment the pick crossed 35 (Jack: that's THE tracked
   // line, on the graph + MVP). Fall back to the today_games opening line if the free DK
   // feed had nothing at capture time.
@@ -763,16 +771,21 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
   }
   // Last resort for an ML price: any book the engine stored for this game
   // (Bovada carries tennis matches the DK/Odds-API feeds skip). Freshest first.
-  if ((pick_type || '').toLowerCase() === 'ml' && ml_odds == null && espn_game_id) {
+  if ((pick_type || '').toLowerCase() === 'ml' && (ml_odds == null || freshMl == null) && espn_game_id) {
     try {
       const isHome = (home_team || '').toLowerCase() === (team || '').toLowerCase();
       const col = isHome ? 'ml_home' : 'ml_away';
       const bl = db.prepare(
         `SELECT ${col} AS ml FROM book_lines WHERE espn_game_id = ? AND ${col} IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
       ).get(espn_game_id);
-      if (bl && bl.ml != null) ml_odds = bl.ml;
+      if (bl && bl.ml != null) { if (ml_odds == null) ml_odds = bl.ml; if (freshMl == null) freshMl = bl.ml; }
     } catch (_) {}
   }
+  // What the gate judges: the fresh price when we have one, else whatever
+  // price the row would store. Stamped onto the row as gate_ml_odds so the
+  // audit (R7) and any autopsy can always see the tracking-time price — the
+  // T-60 lock later overwrites ml_odds with the locked line by design.
+  const gateMl = freshMl ?? ml_odds;
   const capSpread = cap ? cap.spread : null;
   const capTotal  = cap ? cap.total  : null;
   const capAt     = cap ? cap.at     : null;
@@ -801,20 +814,22 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     }
     // Heavy-price gate: an ML at or past settings heavy_ml_gate never becomes a
     // tracked bet unless a backer's heavy-bracket record has earned the price
-    // (see heavyBracketUnlocked above). Evaluated ONCE, right here, with the
-    // odds at tracking time (Jack 2026-07-28): a row tracked at -250 that
-    // drifts to -320 by evening RIDES — "that's a risk I'll allow" — and an
-    // untracked heavy pick whose price softens pregame gets re-attempted by
-    // the promotion sweep and passes the moment the market lets it.
-    if ((pick_type || '').toLowerCase() === 'ml' && ml_odds != null && ml_odds <= heavyMlGateOdds()
+    // (see heavyBracketUnlocked above). Evaluated ONCE, right here, on the
+    // FRESH price (gateMl, never the frozen 50-cross capture) at tracking time
+    // (Jack 2026-07-28): a row tracked at -250 that drifts to -320 by evening
+    // RIDES — "that's a risk I'll allow" — and an untracked heavy pick whose
+    // price softens pregame gets re-attempted by the promotion sweep and
+    // passes the moment the market lets it.
+    if ((pick_type || '').toLowerCase() === 'ml' && gateMl != null && gateMl <= heavyMlGateOdds()
         && !heavyBracketUnlocked(espn_game_id, team, pick_type)) {
-      console.log(`[mvp] not tracking ${team} ML at ${ml_odds} — heavier than the ${heavyMlGateOdds()} price gate`);
+      console.log(`[mvp] not tracking ${team} ML at ${gateMl} — heavier than the ${heavyMlGateOdds()} price gate`);
       return;
     }
     db.prepare(`
-      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale);
+      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version, gate_ml_odds)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale,
+           (pick_type || '').toLowerCase() === 'ml' ? gateMl : null);
   } else {
     // Score LOCKS once the row is decided (win/loss/push/void) or the game has
     // started. Post-decision mentions used to keep bumping the number, so a

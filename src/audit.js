@@ -165,8 +165,12 @@ function runGradingAudit() {
   } catch (_) {}
 
   // ── R7: no tracked ML bet priced past the heavy gate (Jack 2026-07-28) ─────
-  // Current cycle only (today_games join) so restated history never re-flags;
-  // a row here means the saveMvpPick gate or the pregame sweep let a heavy
+  // Judged on gate_ml_odds, the TRACKING-TIME price saveMvpPick stamped at
+  // insert — never ml_odds, which the T-60 lock overwrites with the locked
+  // line by design, so a blessed drift-ride (tracked -270, locks -320) would
+  // false-flag forever if we read it. NULL gate_ml_odds = a pre-gate-era row,
+  // skipped. Current cycle only (today_games join) so restated history never
+  // re-flags; a row here means the saveMvpPick gate let a heavy tracking-time
   // price through without a bracket unlock — a regression, not a judgment call.
   try {
     const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage');
@@ -174,13 +178,13 @@ function runGradingAudit() {
     const rows = db.prepare(`
       SELECT m.* FROM mvp_picks m
       JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
-      WHERE LOWER(m.pick_type) = 'ml' AND m.ml_odds IS NOT NULL AND m.ml_odds <= ?
+      WHERE LOWER(m.pick_type) = 'ml' AND m.gate_ml_odds IS NOT NULL AND m.gate_ml_odds <= ?
         AND COALESCE(m.retired, 0) = 0 AND COALESCE(m.result, '') != 'void'
     `).all(gateOdds);
     for (const r of rows) {
       if (heavyBracketUnlocked(r.espn_game_id, r.team, r.pick_type)) continue;
       _flag(found, 'price_gate', 'mvp_picks', r.id, r.espn_game_id,
-        `tracked ML at ${r.ml_odds} — past the ${gateOdds} heavy-price gate with no bracket unlock`, r);
+        `tracked ML judged at ${r.gate_ml_odds} — past the ${gateOdds} heavy-price gate with no bracket unlock`, r);
     }
   } catch (_) {}
 

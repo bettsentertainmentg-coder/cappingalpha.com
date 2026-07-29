@@ -1641,6 +1641,11 @@ try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN edge_shrunk       REAL`); }
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_n           INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_edge_shrunk REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN price_gated       INTEGER`); } catch (_) {}
+// The tracking-time ML price the heavy gate judged (storage.saveMvpPick).
+// ml_odds gets overwritten by the T-60 lock (ca_line.js _updMvp, by design:
+// the bet is PRICED at the lock), so this stamp is the only surviving record
+// of the price the gate saw — audit R7 judges it, never ml_odds.
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN gate_ml_odds REAL`); } catch (_) {}
 
 // ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
 // AN experts registry (discovered from public expert pages; picks land in

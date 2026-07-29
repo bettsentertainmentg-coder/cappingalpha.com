@@ -56,8 +56,12 @@ violation (with a full row snapshot that survives the daily wipe) to
   -300) stays on the board and rankings but never becomes a tracked bet. A
   flat-unit record cannot survive extreme favorites: the v4-era ledger's whole
   deficit traced to MLs at -300 or worse (37-13, 74% wins, -6.29u).
-- Judged ONCE, at tracking time, with the canonical odds right then. Tracked
-  at -250 in the morning and -320 by evening rides (accepted risk). Blocked at
+- Judged ONCE, at tracking time, on the FRESH canonical price right then
+  (today_games, then freshest book_lines — never the frozen 50-cross capture).
+  The judged price is stamped as mvp_picks.gate_ml_odds; ml_odds is later
+  overwritten by the T-60 lock by design, so the stamp is the only surviving
+  record of what the gate saw, and the audit judges the stamp. Tracked at
+  -250 in the morning and -320 by evening rides (accepted risk). Blocked at
   -320 and softened to -280 pregame gets in on the next promotion pass.
 - The gate erodes only with evidence, never by fiat: a backer with 30+ graded
   heavy-bracket decisions (implied 75%+) and positive shrunk price edge
