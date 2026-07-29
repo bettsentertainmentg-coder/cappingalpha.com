@@ -297,13 +297,18 @@ function bandHtml(g) {
   const spChip = theme
     ? `<span class="nx-bsport chip" style="background:${theme.grad}">${esc(spLabel)}</span>`
     : `<span class="nx-bsport">${esc((g.sport || '').toUpperCase())}</span>`;
+  // The mid is absolutely centered on the card (not flexed between the sides),
+  // so the sport chip sits at the same x on every card in the column (Jack:
+  // "the icon jumps around left and right"). Sides are wrapped so left and
+  // right clusters hug their edges.
   const mid = `<div class="nx-bmid">${spChip}${stateHtml(g)}</div>`;
   return `<div class="nx-band" style="${bandStyle(g)}">` +
-    bandTeam(g, 'away') +
-    (hasScore ? `<span class="nx-bs n${aLose}">${g.away_score ?? 0}</span>` : '') +
+    `<div class="nx-bside a">` + bandTeam(g, 'away') +
+    (hasScore ? `<span class="nx-bs n${aLose}">${g.away_score ?? 0}</span>` : '') + `</div>` +
     mid +
+    `<div class="nx-bside h">` +
     (hasScore ? `<span class="nx-bs n${hLose}">${g.home_score ?? 0}</span>` : '') +
-    bandTeam(g, 'home') + chevBtn(g) + `</div>`;
+    bandTeam(g, 'home') + `</div>` + chevBtn(g) + `</div>`;
 }
 
 function hasLines(g) {
@@ -562,7 +567,7 @@ function renderVitals() {
     `<span class="nx-v"><b>Upcoming</b><span class="n">${upCt}</span></span>` +
     (finCt ? `<span class="nx-v"><b>Finals</b><span class="n">${finCt}</span></span>` : '') +
     `<span class="nx-vsp"></span>` +
-    `<button type="button" class="nx-carec n" data-nav="mvp" title="The tracked CA record"><img src="/ca-logo.png" alt="" onerror="this.style.display='none'">Full record &rsaquo;</button>`;
+    `<button type="button" class="nx-carec n" data-nav="mvp" title="The tracked CA record"><img src="/ca-logo.png" alt="" onerror="this.style.display='none'">CA Scores</button>`;
 }
 
 function renderBubbles() {
