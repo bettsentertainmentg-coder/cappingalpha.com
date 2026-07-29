@@ -436,6 +436,16 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="stylesheet" href="/gauge.css?v=1" />
   <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
+  <script>
+    // App-only styling hook (mirror of index.html): Capacitor injects its bridge
+    // before page scripts, so html.ca-app CSS applies only inside the native
+    // shell, never on the website.
+    try {
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+        document.documentElement.classList.add('ca-app');
+      }
+    } catch (e) {}
+  </script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
 <body>
