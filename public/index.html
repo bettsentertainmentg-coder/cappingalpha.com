@@ -720,6 +720,9 @@
     }
     html.ca-app .soc-subnav { top: calc(50px + env(safe-area-inset-top)); }
     html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
+    /* Modal cards (golf popup) sit below the status bar; the close button was
+       under the clock and unreachable. */
+    html.ca-app .modal-overlay { padding-top: calc(env(safe-area-inset-top) + 8px); }
     /* App: no website footer, no hamburger drawer. Their contents live in
        Settings (About, FAQ, calculators, legal) and the tab bar. */
     html.ca-app footer { display: none !important; }
@@ -4502,6 +4505,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=131"></script>
+  <script type="module" src="app.js?v=132"></script>
 </body>
 </html>
