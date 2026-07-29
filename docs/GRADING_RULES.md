@@ -64,9 +64,16 @@ violation (with a full row snapshot that survives the daily wipe) to
   -250 in the morning and -320 by evening rides (accepted risk). Blocked at
   -320 and softened to -280 pregame gets in on the next promotion pass.
 - The gate erodes only with evidence, never by fiat: a backer with 30+ graded
-  heavy-bracket decisions (implied 75%+) and positive shrunk price edge
-  unlocks tracking for their own heavy-priced golds
-  (storage.heavyBracketUnlocked, capper_ratings heavy_n/heavy_edge_shrunk).
+  heavy-bracket decisions (implied 75%+), positive shrunk price edge, AND a
+  top-15% overall rank ("leading the charge", Jack 2026-07-29) unlocks the
+  pick (storage.heavyBracketUnlocked). Once one qualifying backer opens it,
+  the whole pick counts: tracked, gold-badged, and every joiner's consensus
+  points included whether or not those joiners are approved (scoring was
+  never gated). A proven-but-mid-pack backer does not open it.
+- Pre-gate leftovers: rows tracked before the gate existed carry no
+  gate_ml_odds stamp. The 5-minute sweep judges each pending PREGAME one once
+  at the current price (heavy = removed, else stamped to ride); graded
+  leftovers are retired by re-running scripts/heavy_restate.js.
 - DISPLAY CAP (Jack 2026-07-29): a pick the gate keeps off the record must not
   wear the tracked tier either. An untracked, un-unlocked ML currently priced
   past the gate shows at most 95 (silver) on every public surface, curve

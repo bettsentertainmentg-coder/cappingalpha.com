@@ -230,6 +230,42 @@ function resolveConflictingMvpPicks() {
         }
       }
       if (demoted) console.log(`[mvp] pregame demotion sweep removed ${demoted} no-longer-gold row(s)`);
+
+      // Pre-gate leftovers (Jack 2026-07-29, the Volynets leak): rows tracked
+      // BEFORE the heavy gate deployed carry no gate_ml_odds stamp — they were
+      // never judged, and pending rows are invisible to the public API, so the
+      // restatement could not see them either. Judge each pending PREGAME one
+      // exactly once at the current canonical price: heavy with no unlock
+      // comes off the record (the ride rule protects JUDGED rows only);
+      // everything else gets stamped with the price judged here and rides
+      // like every post-gate row. No-ops once no unstamped rows remain.
+      try {
+        const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage');
+        const gateOdds = heavyMlGateOdds();
+        const unjudged = db.prepare(`
+          SELECT m.id, m.espn_game_id, m.team, m.pick_type,
+                 tg.home_team AS tg_home, tg.ml_home, tg.ml_away
+          FROM mvp_picks m
+          JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+          WHERE tg.status = 'pre' AND LOWER(m.pick_type) = 'ml' AND m.gate_ml_odds IS NULL
+            AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
+        `).all();
+        const stampStmt = db.prepare(`UPDATE mvp_picks SET gate_ml_odds = ? WHERE id = ?`);
+        let judged = 0, removed = 0;
+        for (const m of unjudged) {
+          const isHome = (m.tg_home || '').toLowerCase() === (m.team || '').toLowerCase();
+          const ml = isHome ? m.ml_home : m.ml_away;
+          if (ml == null) continue; // no price yet — judge on a later pass
+          if (ml <= gateOdds && !heavyBracketUnlocked(m.espn_game_id, m.team, m.pick_type)) {
+            delStmt.run(m.id); removed++;
+          } else {
+            stampStmt.run(ml, m.id); judged++;
+          }
+        }
+        if (removed || judged) console.log(`[mvp] pre-gate judgment: ${removed} heavy row(s) removed, ${judged} stamped to ride`);
+      } catch (err) {
+        console.warn('[mvp] pre-gate judgment failed:', err.message);
+      }
       if (synced)  console.log(`[mvp] pregame score sync refreshed ${synced} tracked row(s)`);
       if (linesSynced) console.log(`[mvp] pregame line sync refreshed ${linesSynced} tracked row(s)`);
 

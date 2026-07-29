@@ -34,9 +34,16 @@ wholesale gate swap did not clear the ship bar. What did survive:
   morning track that closes -320 rides; a blocked -320 that softens to -280
   gets in on the next promotion pass). Never re-litigated at T-60.
 - THE UNLOCK (the gate must erode with evidence, never fiat): a backer with
-  30+ heavy-bracket decisions (implied >= the gate's break-even, 75% at -300)
-  and positive shrunk heavy edge re-opens tracking for their own heavy golds
+  30+ heavy-bracket decisions (implied >= the gate's break-even, 75% at -300),
+  positive shrunk heavy edge, AND top-15% overall percentile (the leader rule,
+  Jack 2026-07-29) opens the pick fully — tracking, gold badge, and every
+  joiner's consensus points count whether or not those joiners are approved
   (storage.heavyBracketUnlocked; HEAVY_UNLOCK_N in capper_ratings.js).
+- PRE-GATE LEFTOVERS (the Volynets leak, 2026-07-29): rows tracked before the
+  gate deployed have NULL gate_ml_odds and were invisible to the restatement
+  while pending. The 5-min sweep (mvp.js) judges each pending pregame one once
+  at the current price: heavy+no-unlock = deleted, else stamped to ride.
+  Graded leftovers: re-run scripts/heavy_restate.js.
 - History restated to v4 launch 2026-07-09 (scripts/heavy_restate.js, retire
   mechanism, reversible): actual -0.93u becomes +5.36u; removed rows WON 74%,
   the honest direction for a restatement. Applied to prod 2026-07-29: 57 rows.
