@@ -1896,7 +1896,7 @@
     #panel-sports button { font: inherit; color: inherit; }
 
     /* vitals */
-    #panel-sports .nx-vitals { display: flex; align-items: center; gap: 18px; height: 48px; padding: 0 4px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+    #panel-sports .nx-vitals { display: flex; align-items: center; gap: 16px; height: 48px; padding: 0 4px; border-bottom: 1px solid var(--border); overflow: hidden; flex-wrap: nowrap; }
     #panel-sports .nx-vitals::-webkit-scrollbar { display: none; }
     #panel-sports .nx-vdate { flex-shrink: 0; font-size: 12px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
     #panel-sports .nx-v { display: flex; flex-direction: column; line-height: 1.1; flex-shrink: 0; }
@@ -1940,7 +1940,7 @@
     #panel-sports .nx-card:active { transform: scale(.995); }
 
     /* the Cinema band: thin two-tone gradient header */
-    #panel-sports .nx-band { position: relative; display: flex; align-items: center; gap: 9px; padding: 9px 44px 9px 12px; min-height: 58px; }
+    #panel-sports .nx-band { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 9px 44px 9px 12px; min-height: 58px; }
     #panel-sports .nx-bt { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; }
     #panel-sports .nx-bt.h { align-items: flex-end; }
     #panel-sports .nx-lg { width: 28px; height: 28px; border-radius: 8px; background: rgba(0,0,0,.34); border: 1px solid rgba(255,255,255,.16); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; color: #fff; flex-shrink: 0; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
@@ -1949,7 +1949,9 @@
     #panel-sports .nx-bn { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: rgba(255,255,255,.94); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
     #panel-sports .nx-bs { font-size: 25px; font-weight: 800; letter-spacing: -.5px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.5); flex-shrink: 0; }
     #panel-sports .nx-bs.lose { opacity: .55; font-weight: 600; }
-    #panel-sports .nx-bmid { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
+    #panel-sports .nx-bmid { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: 42%; text-align: center; z-index: 1; }
+    #panel-sports .nx-bside { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: calc(50% - 52px); }
+    #panel-sports .nx-bside.h { justify-content: flex-end; }
     #panel-sports .nx-bsport { font-size: 8px; font-weight: 800; letter-spacing: .14em; color: rgba(255,255,255,.75); text-shadow: 0 1px 2px rgba(0,0,0,.5); }
     #panel-sports .nx-bsport.chip { font-size: 10px; letter-spacing: .09em; color: #fff; padding: 2.5px 9px; border-radius: 5px; text-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
     #panel-sports .nx-xinfo { margin-bottom: 4px; }
@@ -2079,7 +2081,12 @@
     #panel-sports .nx-bub:focus-visible, #panel-sports .nx-day:focus-visible, #panel-sports .nx-chev:focus-visible, #panel-sports .nx-xbtn:focus-visible, #panel-sports .nx-lockchip:focus-visible, #panel-sports .nx-cluster:focus-visible, #panel-sports .nx-cac:focus-visible, #panel-sports .nx-sbtn:focus-visible, #panel-sports .nx-sx:focus-visible, #panel-sports .nx-caline:focus-visible, #panel-sports .nx-ledger a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     @media (max-width: 640px) {
       #panel-sports .nx-grid { grid-template-columns: 1fr; }
-      #panel-sports .nx-vitals { gap: 13px; }
+      #panel-sports .nx-vitals { gap: 8px; }
+      #panel-sports .nx-vdate { font-size: 10.5px; }
+      #panel-sports .nx-v b { font-size: 7.5px; letter-spacing: .05em; }
+      #panel-sports .nx-v span { font-size: 13px; }
+      #panel-sports .nx-carec { padding: 4px 9px; font-size: 10px; gap: 5px; }
+      #panel-sports .nx-carec img { height: 12px; }
       #panel-sports .nx-cols { grid-template-columns: 1fr; }
       #panel-sports .nx-bn { max-width: 80px; }
       #panel-sports .nx-search.open input { font-size: 16px; width: 120px; }
