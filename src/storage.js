@@ -720,17 +720,16 @@ function heavyBracketUnlocked(espn_game_id, team, pick_type) {
     for (const raw of names) {
       const canonical = resolveCapperName(raw)?.name || raw;
       const r = db.prepare(`
-        SELECT heavy_n, heavy_edge_shrunk, percentile FROM capper_ratings
+        SELECT heavy_n, heavy_edge_shrunk FROM capper_ratings
         WHERE canonical_name = ? AND scope = 'overall'
       `).get(canonical);
-      // The approving backer must be LEADING THE CHARGE (Jack 2026-07-29):
-      // bracket-proven (30+ heavy decisions, positive shrunk heavy edge) AND
-      // top 15% of the overall ranking. A proven-but-mid-pack name does not
-      // open the pick. Once one qualifying backer opens it, the whole pick
-      // counts — tracking, gold display, and every joiner's consensus points
-      // (which the gate never touched in the first place).
-      if (r && (r.heavy_n || 0) >= HEAVY_UNLOCK_N && (r.heavy_edge_shrunk || 0) > 0
-          && r.percentile != null && r.percentile <= 0.15) return true;
+      // Bracket proof alone opens the pick (Jack 2026-07-29 evening: the
+      // top-15% leader requirement was tried for a few hours and reverted —
+      // 30+ heavy decisions at positive shrunk edge is already a hard enough
+      // bar to filter that bracket). Once one qualifying backer opens it, the
+      // whole pick counts — tracking, gold display, and every joiner's
+      // consensus points (which the gate never touched in the first place).
+      if (r && (r.heavy_n || 0) >= HEAVY_UNLOCK_N && (r.heavy_edge_shrunk || 0) > 0) return true;
     }
   } catch (_) {}
   return false;
