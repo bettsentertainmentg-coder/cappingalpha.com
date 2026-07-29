@@ -1,6 +1,6 @@
 # CappingAlpha Grading Rules
 
-One page. Six rules. Every surface (rankings, history, tracked bets, capper
+One page. Seven rules. Every surface (rankings, history, tracked bets, capper
 records) must agree with these. If one disagrees, that is a bug: the self-audit
 (src/audit.js) re-verifies every graded row every 5 minutes and files a
 violation (with a full row snapshot that survives the daily wipe) to
@@ -51,4 +51,20 @@ violation (with a full row snapshot that survives the daily wipe) to
   by R1-R5. The two can legitimately disagree on a line; they can never
   disagree on what the final score was.
 
-Current as of 2026-07-16.
+## R7. Heavy prices require proven backers (2026-07-28)
+- An ML gold priced at or past the heavy gate (settings heavy_ml_gate, default
+  -300) stays on the board and rankings but never becomes a tracked bet. A
+  flat-unit record cannot survive extreme favorites: the v4-era ledger's whole
+  deficit traced to MLs at -300 or worse (37-13, 74% wins, -6.29u).
+- Judged ONCE, at tracking time, with the canonical odds right then. Tracked
+  at -250 in the morning and -320 by evening rides (accepted risk). Blocked at
+  -320 and softened to -280 pregame gets in on the next promotion pass.
+- The gate erodes only with evidence, never by fiat: a backer with 30+ graded
+  heavy-bracket decisions (implied 75%+) and positive shrunk price edge
+  unlocks tracking for their own heavy-priced golds
+  (storage.heavyBracketUnlocked, capper_ratings heavy_n/heavy_edge_shrunk).
+- History restated to v4 launch (2026-07-09) via the retire mechanism
+  (scripts/heavy_restate.js) so the record reads as if the rule existed from
+  v4 day one. Retired rows are never deleted and stay reversible.
+
+Current as of 2026-07-28.

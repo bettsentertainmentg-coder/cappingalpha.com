@@ -1631,6 +1631,16 @@ try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN stack_add       REAL`); } c
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN decisions       INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN win_pct         REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN sport_bonus_pts INTEGER`); } catch (_) {}
+// Price-beaten edge columns (Jack 2026-07-28): needed_pct = avg break-even the
+// capper's own odds required; edge_shrunk = win rate minus that bar, shrunk by
+// +25 decisions (the edge-gate shadow log); heavy_* = the -300-or-worse ML
+// bracket record that can unlock tracking past the heavy price gate;
+// price_gated = the reduce-only gate flag (100+ decisions, clearly negative).
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN needed_pct        REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN edge_shrunk       REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_n           INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_edge_shrunk REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN price_gated       INTEGER`); } catch (_) {}
 
 // ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
 // AN experts registry (discovered from public expert pages; picks land in

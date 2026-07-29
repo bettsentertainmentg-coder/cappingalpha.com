@@ -1082,6 +1082,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
                  chipIn: Math.round(chipIn * 10) / 10,
                  sportBonus: sr?.sport_bonus_pts ?? 0,
                  decisionsR: sr?.decisions ?? decided,
+                 neededPct: sr?.needed_pct ?? null, edgeShrunk: sr?.edge_shrunk ?? null,
+                 priceGated: !!(r?.price_gated),
                  srcList: [...srcUnion].sort() };
       }
       const total = c.wins + c.losses + c.pushes;
@@ -1099,6 +1101,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
                pctile: r?.percentile ?? null, band: r?.band ?? 'new',
                pts: r?.pts ?? null, stackAdd: r?.stack_add ?? null,
                decisionsR: r?.decisions ?? decided,
+               neededPct: r?.needed_pct ?? null, edgeShrunk: r?.edge_shrunk ?? null,
+               priceGated: !!(r?.price_gated),
                srcList: [...srcUnion].sort() };
     })
     .filter(Boolean)
@@ -1239,6 +1243,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
       const f = FADE_TIPS[c.fade];
       chips.push(`<span title="${escHtml(f[2])}" style="background:${f[1]}22;color:${f[1]};border:1px solid ${f[1]}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${f[0]}</span>`);
     }
+    if (c.priceGated) {
+      chips.push(`<span title="PRICE GATE: over 100+ graded decisions this capper wins less often than their own odds required (shrunk edge -2% or worse). Their backing pays the flat 10 regardless of rank — winning a lot at prices that demand even more is a losing record in disguise." style="background:#ef444422;color:#ef4444;border:1px solid #ef444444;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">PRICE GATE</span>`);
+    }
     if (!chips.length && t) {
       chips.push(`<span title="${escHtml(t[2])}" style="color:${t[1]};font-size:9px;font-weight:700;">${t[0]}</span>`);
     }
@@ -1319,7 +1326,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     <div style="overflow-x:auto;">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below. Hover a rank for the raw Wilson value.')}${sortable('Needed%', 'num', 'The average win rate their own odds REQUIRED. Heavy favorites push it up (-1000 needs 90.9%), dogs pull it down (+150 needs 40%). Compare with Win%: winning a lot means nothing if the prices demanded more.')}${sortable('Edge', 'num', 'Win rate minus Needed%, shrunk by 25 phantom decisions so thin samples sit near zero. Positive = beats their own prices. At -2 or worse with 100+ decisions the PRICE GATE fires and their backing pays the flat 10.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide, the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped), and the gates (win%, money, price).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -1351,8 +1358,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <div style="white-space:nowrap;">${escHtml(c.name)}</div>
             <div style="margin-top:2px;line-height:1;">${srcChips(c.srcList)}</div>
           </td>
-          <td data-sv="${c.wrank != null ? -c.wrank : -99999}" style="color:${c.wrank != null && c.wrank <= 10 ? '#FFD700' : '#8892a4'};font-weight:700;">${c.wrank != null ? '#' + c.wrank : '—'}</td>
-          <td data-sv="${c.wilson ?? -1}" style="color:#b7c0d0;font-size:12px;">${c.wilson != null ? c.wilson.toFixed(3) : '—'}</td>
+          <td data-sv="${c.wrank != null ? -c.wrank : -99999}" title="${c.wilson != null ? 'Wilson lower bound: ' + c.wilson.toFixed(3) : ''}" style="color:${c.wrank != null && c.wrank <= 10 ? '#FFD700' : '#8892a4'};font-weight:700;">${c.wrank != null ? '#' + c.wrank : '—'}</td>
+          <td data-sv="${c.neededPct ?? -1}" style="color:${c.neededPct == null ? '#3b4560' : c.neededPct >= 65 ? '#f59e0b' : '#8892a4'};font-size:12px;">${c.neededPct != null ? c.neededPct.toFixed(0) + '%' : '—'}</td>
+          <td data-sv="${c.edgeShrunk ?? -9}" style="color:${c.edgeShrunk == null ? '#3b4560' : c.edgeShrunk > 0.005 ? '#16a34a' : c.edgeShrunk < -0.005 ? '#ef4444' : '#8892a4'};font-weight:700;font-size:12px;">${c.edgeShrunk != null ? (c.edgeShrunk >= 0 ? '+' : '') + (c.edgeShrunk * 100).toFixed(1) : '—'}</td>
           <td data-sv="${escHtml(c.band || 'new')}" style="white-space:nowrap;">${bandChip(c.band)}</td>
           <td data-sv="${c.pts ?? -1}" style="color:${ptsColor};font-weight:700;white-space:nowrap;">${c.pts != null ? Math.round(c.pts) : '—'}${capNote}</td>
           ${lbSport ? `<td data-sv="${c.chipIn ?? 0}" style="color:${(c.chipIn ?? 0) >= 40 ? '#FFD700' : (c.chipIn ?? 0) >= 15 ? '#16a34a' : (c.chipIn ?? 0) > 0 ? '#8892a4' : '#3b4560'};font-weight:600;">${c.chipIn > 0 ? '+' + Math.round(c.chipIn) : '0'}</td>` : ''}
@@ -3357,17 +3365,22 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const lastCell = isIns
                 ? '<td style="text-align:right;font-weight:700;color:' + ((sr && sr.pts >= 61) ? '#FFD700' : (sr && sr.pts > 10) ? '#16a34a' : '#8892a4') + ';" title="' + s + ' scores in-sport: no rank bonus; this is their ladder Pts/Pick from the ' + s + ' pool (quality-capped by their own shrunk win rate).">' + (sr && sr.pts != null ? Math.round(sr.pts) + ' pts' : '—') + '</td>'
                 : '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>';
+              const sNeeded = sr && sr.needed_pct != null ? sr.needed_pct.toFixed(0) + '%' : '—';
+              const sEdge = sr && sr.edge_shrunk != null ? sr.edge_shrunk * 100 : null;
+              const sEdgeColor = sEdge == null ? '#3b4560' : sEdge > 0.5 ? '#16a34a' : sEdge < -0.5 ? '#ef4444' : '#8892a4';
               return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
+              + '<td style="text-align:right;color:#8892a4;font-size:12px;">' + sNeeded + '</td>'
+              + '<td style="text-align:right;color:' + sEdgeColor + ';font-weight:700;font-size:12px;">' + (sEdge != null ? (sEdge >= 0 ? '+' : '') + sEdge.toFixed(1) : '—') + '</td>'
               + '<td style="text-align:right;font-weight:700;">' + rankStr + '</td>'
               + lastCell
               + '</tr>';
             }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Average win rate their own odds required in this sport">Needed%</th><th style="text-align:right;" title="Win rate minus Needed%, shrunk (+25 phantom decisions). Positive = beats their prices in this sport. Display only — the price gate judges the overall ledger.">Edge</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
@@ -3429,6 +3442,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
             const pv = rating.pts != null ? Math.round(rating.pts) : 10;
             headerChips += ' ' + chip('PTS/PICK ' + pv, pv >= 76 ? '#FFD700' : pv >= 51 ? '#16a34a' : '#8892a4');
             if (rating.wilson != null) headerChips += ' ' + chip('WILSON ' + Number(rating.wilson).toFixed(3), '#8892a4');
+            // Price-beaten verdict: win% vs the win% their own odds required.
+            if (rating.edge_shrunk != null) {
+              const ev = rating.edge_shrunk * 100;
+              const ec = ev > 0.5 ? '#16a34a' : ev < -0.5 ? '#ef4444' : '#8892a4';
+              headerChips += ' ' + chip('EDGE ' + (ev >= 0 ? '+' : '') + ev.toFixed(1), ec);
+            }
+            if (rating.price_gated) headerChips += ' ' + chip('PRICE GATE', '#ef4444');
             for (const s of (rating.sources || '').split(',').filter(Boolean)) {
               const sc = SRC_COLORS[s] || [s.slice(0,2).toUpperCase(), '#8892a4'];
               headerChips += ' ' + chip(sc[0], sc[1]);
@@ -3520,6 +3540,42 @@ router.get('/dashboard', requireAuth, (req, res) => {
               + (badTypes ? '<br>Bleeding spots: ' + badTypes : '') + '</div></div>';
           }
 
+          // The points pipeline: how this capper's Pts/Pick is actually made.
+          // Band value -> volume cap -> the three gates -> what a pick collects.
+          // Mirrors capper_ratings.js constants; the failing stage shows in red.
+          let pipelineHtml = '';
+          if (rating && rating.decisions > 0) {
+            const dec = rating.decisions, w = rating.wins || 0, u = rating.units || 0;
+            const shrunkWin = (w + 12.5) / (dec + 25);
+            const shrunkRoi = u / (dec + 25);
+            const cap = dec >= 30 ? null : dec >= 10 ? 70 : 50;
+            const winOk   = shrunkWin > 0.50 && (rating.win_pct ?? 100) > 49;
+            const moneyOk = shrunkRoi > -0.05;
+            const priceOk = !rating.price_gated;
+            const stage = (label, ok, detail) =>
+              '<span title="' + detail.replace(/"/g, '&quot;') + '" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;'
+              + (ok ? 'background:#16a34a18;color:#16a34a;border:1px solid #16a34a44;' : 'background:#ef444418;color:#ef4444;border:1px solid #ef444444;')
+              + '">' + label + (ok ? ' ✓' : ' ✗') + '</span>';
+            const needed = rating.needed_pct != null ? rating.needed_pct.toFixed(0) : null;
+            const heavy = (rating.heavy_n || 0) > 0
+              ? '<div style="font-size:11px;color:#8892a4;margin-top:5px;">Heavy favorites (past the tracked-bet price gate): ' + rating.heavy_n + ' decisions, edge '
+                + (rating.heavy_edge_shrunk != null ? ((rating.heavy_edge_shrunk >= 0 ? '+' : '') + (rating.heavy_edge_shrunk * 100).toFixed(1)) : '—')
+                + (rating.heavy_n >= 30 && (rating.heavy_edge_shrunk || 0) > 0
+                  ? ' — <span style="color:#16a34a;font-weight:700;">UNLOCKED: their heavy-priced golds track as bets</span>'
+                  : ' — needs 30+ decisions and positive edge to unlock heavy-price tracking') + '</div>'
+              : '';
+            pipelineHtml = '<div style="margin-bottom:18px;padding:10px 12px;border:1px solid #2a3142;border-radius:8px;background:#12151d;">'
+              + '<div style="font-size:11px;font-weight:800;color:#8892a4;letter-spacing:0.5px;margin-bottom:6px;">HOW THEIR POINTS ARE MADE</div>'
+              + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:#b7c0d0;">'
+              + '<span>Band <b style="color:#e5e9f0;">' + (rating.band || 'new') + '</b></span><span style="color:#3b4560;">→</span>'
+              + '<span>volume cap <b style="color:' + (cap ? '#f59e0b' : '#16a34a') + ';">' + (cap ? cap : 'none') + '</b></span><span style="color:#3b4560;">→</span>'
+              + stage('WIN% GATE', winOk, 'Shrunk win rate ' + (100 * shrunkWin).toFixed(1) + '% must clear 50% (full value at 53%), and raw win% must beat 49.')
+              + stage('MONEY GATE', moneyOk, 'Shrunk flat-stake ROI ' + (100 * shrunkRoi).toFixed(1) + '% must stay above -5% (full value at 0%).')
+              + stage('PRICE GATE', priceOk, 'Wins ' + (rating.win_pct != null ? rating.win_pct : '—') + '% vs the ' + (needed ? needed + '%' : '—') + ' their own odds required. 100+ decisions with shrunk edge at -2% or worse pins their backing to the flat 10.')
+              + '<span style="color:#3b4560;">→</span><span>pays <b style="color:' + ((rating.pts ?? 10) >= 51 ? '#16a34a' : '#e5e9f0') + ';">' + (rating.pts != null ? Math.round(rating.pts) : 10) + '/pick</b></span>'
+              + '</div>' + heavy + '</div>';
+          }
+
           content.innerHTML =
             '<div style="margin-bottom:20px;">'
             + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;">'
@@ -3536,6 +3592,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             + pendingStr
             + '</div></div>'
             + fadePanelHtml
+            + pipelineHtml
             + equityCurveSvg()
             + monthlyBarsSvg()
             + mvpSectionHtml

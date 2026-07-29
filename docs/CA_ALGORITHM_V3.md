@@ -8,7 +8,62 @@ forward unchanged. The v3 LEAK RULE (chunked display ramp) was RETIRED 2026-07-1
 in favor of the reveal plan (see the v4 "Score display" section). CLAUDE.md
 carries the operational summary; this doc is the source of truth for the
 algorithm.
-Owner: Jack. Last updated: 2026-07-23.
+Owner: Jack. Last updated: 2026-07-28.
+
+---
+
+# v4.2: PRICE-BEATEN EDGE — the heavy-price gate + the capper price gate (Jack 2026-07-28)
+
+Win rate ignores what the odds required. A -1250 favorite winning counts the
+same as a +140 dog in the Wilson ladder, so heavy-favorite backers climb on
+wins the price already promised, while the flat-unit ledger pays +0.08u a win
+and -1u a loss. Every graded decision now also logs its PRICE-BEATEN EDGE:
+(won ? 1 - q : -q) where q is the break-even probability the decision's own
+odds implied (-1000 needs 90.9%, +150 needs 40%). Backtested 2026-07-28 on 17k
+decisions with a no-lookahead replay and an adversarial audit
+(scratchpad edge-wilson study): re-sorting the ladder BY edge lost to the
+Wilson sort in every configuration (REJECTED — never re-propose), and a
+wholesale gate swap did not clear the ship bar. What did survive:
+
+## 1. The heavy-price gate on tracked bets (docs/GRADING_RULES.md R7)
+- An ML gold priced at or past `heavy_ml_gate` (settings, default -300) never
+  becomes a tracked bet; board and rankings untouched. The v4-era ledger's
+  entire deficit was these bets: 37-13 (74% wins), -6.29u, and the whole-
+  history bucket table is monotone (everything -150 or worse bleeds).
+- Judged ONCE at tracking time with the odds right then (Jack's call: a -250
+  morning track that closes -320 rides; a blocked -320 that softens to -280
+  gets in on the next promotion pass). Never re-litigated at T-60.
+- THE UNLOCK (the gate must erode with evidence, never fiat): a backer with
+  30+ heavy-bracket decisions (implied >= the gate's break-even, 75% at -300)
+  and positive shrunk heavy edge re-opens tracking for their own heavy golds
+  (storage.heavyBracketUnlocked; HEAVY_UNLOCK_N in capper_ratings.js).
+- History restated to v4 launch 2026-07-09 (scripts/heavy_restate.js, retire
+  mechanism, reversible): actual -0.93u becomes +5.36u; removed rows WON 74%,
+  the honest direction for a restatement.
+
+## 2. The capper PRICE GATE (reduce-only, capper_ratings.js)
+- Third gate in the chain, folded into the stored money-gate factor so the
+  in-sport bonus and sport ladders inherit it: 100+ decisions AND shrunk edge
+  (sum edge / (decisions + 25)) at or below -2% pins the capper's backing to
+  the flat 10. Rank and band untouched. Catches the .Sisyphus. shape (90.5%
+  win rate, NEGATIVE units at .998 avg implied) that the win% and money gates
+  cannot see. Thin records are structurally untouchable (the shrink keeps
+  them near zero, which is not "clearly negative").
+- The FULL edge gate (edgeShrunk > 0 required for any value) stays SHADOW
+  ONLY: `edge_shrunk` on every ratings row is the nightly would-be log;
+  forward data decides if it ever earns scoring power. Known blocker: the
+  rescue side is dead while HARD_ZERO stands (a 46.7%-win dog specialist at
+  +14.9u is still zeroed by the raw-49 rule) — Jack's open decision.
+
+## Surfaces
+- Cappers tab: Needed% (avg break-even their odds required) + Edge columns,
+  PRICE GATE status chip; Wilson value moved into the Rank tooltip.
+- Capper profile: EDGE header chip, "HOW THEIR POINTS ARE MADE" pipeline strip
+  (band -> volume cap -> win%/money/price gates -> pays N/pick) with the heavy-
+  bracket unlock progress line, Needed%/Edge per sport (display only).
+- capper_ratings columns: needed_pct, edge_shrunk, heavy_n, heavy_edge_shrunk,
+  price_gated (overall scope; needed_pct/edge_shrunk on sport scopes too).
+- Audit R7 flags any current-cycle tracked ML stored past the gate.
 
 ---
 

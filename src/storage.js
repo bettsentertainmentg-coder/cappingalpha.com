@@ -688,6 +688,47 @@ function recomputePickFromMentions(pickId) {
   return { v2: scored.total, v3: v3 ? v3.total : null, mentions: rows.length };
 }
 
+// ── THE HEAVY-PRICE GATE on tracked bets (Jack 2026-07-28) ───────────────────
+// A flat-unit record cannot survive extreme favorites: at -1250 one loss
+// erases twelve wins, and the v4-era ledger's entire deficit traced to ML bets
+// at -300 or worse (37-13, -6.29u — winning 74% and still bleeding). A gold at
+// a heavier price than settings heavy_ml_gate (default -300, judged on the
+// canonical line AT TRACKING TIME, never re-litigated at T-60) stays on the
+// board and rankings but never
+// becomes a tracked bet — UNLESS a backer has EARNED the price: 30+ graded
+// decisions in the heavy bracket with positive shrunk edge (capper_ratings
+// heavy_n / heavy_edge_shrunk, nightly). The gate is scaffolding that erodes
+// only with evidence, never by fiat: the first capper who proves they beat
+// heavy prices re-opens tracking for their own picks automatically.
+function heavyMlGateOdds() {
+  try {
+    const v = parseFloat(db.getSetting('heavy_ml_gate', '-300'));
+    return Number.isFinite(v) && v < 0 ? v : -300;
+  } catch (_) { return -300; }
+}
+
+function heavyBracketUnlocked(espn_game_id, team, pick_type) {
+  if (!espn_game_id) return false;
+  try {
+    const HEAVY_UNLOCK_N = require('./capper_ratings').HEAVY_UNLOCK_N;
+    const names = db.prepare(`
+      SELECT DISTINCT rm.capper_name FROM raw_messages rm
+      JOIN picks p ON p.id = rm.pick_id
+      WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
+        AND rm.capper_name IS NOT NULL AND rm.capper_name != ''
+    `).all(espn_game_id, team || '', pick_type || 'ML').map(r => r.capper_name);
+    for (const raw of names) {
+      const canonical = resolveCapperName(raw)?.name || raw;
+      const r = db.prepare(`
+        SELECT heavy_n, heavy_edge_shrunk FROM capper_ratings
+        WHERE canonical_name = ? AND scope = 'overall'
+      `).get(canonical);
+      if (r && (r.heavy_n || 0) >= HEAVY_UNLOCK_N && (r.heavy_edge_shrunk || 0) > 0) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null, scale = 'v2' }) {
   // today_games gives team names + the opening line (used as a fallback only).
   let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false;
@@ -756,6 +797,18 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     // settle at standard juice, so only ML is gated.
     if ((pick_type || '').toLowerCase() === 'ml' && ml_odds == null) {
       console.log(`[mvp] not tracking ${team} ML — no betting line available yet`);
+      return;
+    }
+    // Heavy-price gate: an ML at or past settings heavy_ml_gate never becomes a
+    // tracked bet unless a backer's heavy-bracket record has earned the price
+    // (see heavyBracketUnlocked above). Evaluated ONCE, right here, with the
+    // odds at tracking time (Jack 2026-07-28): a row tracked at -250 that
+    // drifts to -320 by evening RIDES — "that's a risk I'll allow" — and an
+    // untracked heavy pick whose price softens pregame gets re-attempted by
+    // the promotion sweep and passes the moment the market lets it.
+    if ((pick_type || '').toLowerCase() === 'ml' && ml_odds != null && ml_odds <= heavyMlGateOdds()
+        && !heavyBracketUnlocked(espn_game_id, team, pick_type)) {
+      console.log(`[mvp] not tracking ${team} ML at ${ml_odds} — heavier than the ${heavyMlGateOdds()} price gate`);
       return;
     }
     db.prepare(`
@@ -847,4 +900,4 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked };

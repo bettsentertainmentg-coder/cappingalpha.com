@@ -160,6 +160,48 @@ function effOdds(row) {
   return (pt === 'over' || pt === 'under') ? -115 : -110;
 }
 
+// ── PRICE-BEATEN EDGE (Jack 2026-07-28) ──────────────────────────────────────
+// Win% ignores what the odds REQUIRED. Every graded decision carries its own
+// bar: the break-even probability its price implied (-1000 needs 90.9%, +150
+// needs 40%). edgeContrib credits a win by how much it beat that bar and
+// debits a loss by the full bar, so a capper's summed edge is positive exactly
+// when they win more often than their prices demanded. Backtested 2026-07-28
+// (17k decisions, adversarially audited): NOT strong enough to replace the
+// ladder sort or the win%/money gates wholesale — but decisive for the two
+// uses below: (1) the reduce-only PRICE GATE on proven price-bleeders, and
+// (2) the heavy-bracket unlock that lets a proven heavy-favorite specialist
+// re-open tracking past the ML odds gate (storage.heavyBracketUnlocked).
+function impliedProb(row) {
+  const o = effOdds(row);
+  return o < 0 ? Math.abs(o) / (Math.abs(o) + 100) : 100 / (o + 100);
+}
+function edgeContrib(row) {
+  const r = (row.result || '').toLowerCase();
+  if (r === 'win')  return 1 - impliedProb(row);
+  if (r === 'loss') return -impliedProb(row);
+  return 0; // pushes stay out, same as everywhere else
+}
+
+// The reduce-only price gate: applied ONLY where the evidence is overwhelming —
+// 100+ decisions AND shrunk edge clearly negative. Thin records are untouched
+// (the +25-decision shrink keeps them near zero, which is not "clearly
+// negative"), so no capper is ever punished for a small sample. Reduce-only by
+// construction: it can pin a proven price-bleeder to the flat UNRANKED_PTS, it
+// never boosts anyone (the full edge gate stays shadow-logged until forward
+// data earns it — see edge_shrunk on every ratings row).
+const PRICE_GATE_MIN_N = 100, PRICE_GATE_EDGE = -0.02;
+
+// Heavy-favorite bracket: decisions whose implied break-even is at or past the
+// tracked-bet ML odds gate (settings heavy_ml_gate, default -300 = 75%). A
+// capper with HEAVY_UNLOCK_N+ heavy decisions and positive shrunk heavy edge
+// has EARNED tracking at prices the gate otherwise blocks.
+const HEAVY_UNLOCK_N = 30;
+function heavyGateOdds() {
+  const v = parseFloat(db.getSetting('heavy_ml_gate', '-300'));
+  return Number.isFinite(v) && v < 0 ? v : -300;
+}
+const heavyImpliedFloor = () => { const g = Math.abs(heavyGateOdds()); return g / (g + 100); };
+
 function profit(row) {
   const r = (row.result || '').toLowerCase();
   if (r === 'push') return 0;
@@ -235,11 +277,12 @@ function recomputeCapperRatings() {
 
   const resolve = buildResolver();
   const cappers = new Map(); // canonical -> { n,w,l,p,u, sources:Set, sports:Map, types:Map }
+  const heavyFloor = heavyImpliedFloor();
 
   for (const row of rows) {
     const name = resolve(row.capper_name, row.source);
     if (!cappers.has(name)) {
-      cappers.set(name, { n: 0, w: 0, l: 0, p: 0, u: 0, sources: new Set(), sports: new Map(), types: new Map() });
+      cappers.set(name, { n: 0, w: 0, l: 0, p: 0, u: 0, e: 0, imp: 0, impN: 0, hn: 0, he: 0, sources: new Set(), sports: new Map(), types: new Map() });
     }
     const c = cappers.get(name);
     const u = profit(row);
@@ -247,12 +290,20 @@ function recomputeCapperRatings() {
     c.n++; c.u += u;
     if (res === 'win') c.w++; else if (res === 'loss') c.l++; else c.p++;
     c.sources.add(row.source || 'discord');
+    // Price-beaten edge: decided rows only (pushes contribute 0 and are not a
+    // decision anywhere else either).
+    if (res === 'win' || res === 'loss') {
+      const q = impliedProb(row);
+      c.e += edgeContrib(row); c.imp += q; c.impN++;
+      if (q >= heavyFloor) { c.hn++; c.he += edgeContrib(row); }
+    }
 
     const sport = row.sport || 'Unknown';
-    if (!c.sports.has(sport)) c.sports.set(sport, { n: 0, w: 0, l: 0, p: 0, u: 0 });
+    if (!c.sports.has(sport)) c.sports.set(sport, { n: 0, w: 0, l: 0, p: 0, u: 0, e: 0, imp: 0, impN: 0 });
     const s = c.sports.get(sport);
     s.n++; s.u += u;
     if (res === 'win') s.w++; else if (res === 'loss') s.l++; else s.p++;
+    if (res === 'win' || res === 'loss') { s.e += edgeContrib(row); s.imp += impliedProb(row); s.impN++; }
 
     const tKey = `${sport}/${(row.pick_type || '?').toLowerCase()}`;
     if (!c.types.has(tKey)) c.types.set(tKey, { n: 0, w: 0, l: 0, p: 0, u: 0, sport, pick_type: (row.pick_type || '?').toLowerCase() });
@@ -278,7 +329,7 @@ function recomputeCapperRatings() {
   for (const [name, c] of cappers) {
     const decisions = c.w + c.l;
     if (decisions >= 1) {
-      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions, w: c.w, u: c.u });
+      overallPool.push({ key: name, wilson: wilsonLower(c.w, decisions), winPct: (100 * c.w) / decisions, decisions, w: c.w, u: c.u, e: c.e });
     }
   }
   rankPool(overallPool);
@@ -296,14 +347,25 @@ function recomputeCapperRatings() {
     if (zero) hardZero.add(m.key);
     // Both gates must pass in full for full value — the stricter one binds.
     const mt = moneyGateT(m.u, m.decisions);
-    moneyT.set(m.key, mt);
-    const t = Math.min(gateT(m.w, m.decisions), mt); // win% gate x money gate
+    // THE PRICE GATE (Jack 2026-07-28, reduce-only): a capper whose 100+
+    // decision record shows a clearly negative price-beaten edge (wins less
+    // often than their own odds required, shrunk edge <= -2%) hands out the
+    // flat UNRANKED_PTS no matter where win-rate volume ranked them — the
+    // .Sisyphus. failure (90.5% win rate, NEGATIVE units at .998 avg implied)
+    // is exactly what win% gates cannot see. Folded into the stored moneyT so
+    // the in-sport bonus and sport ladders inherit it (down bad on price
+    // overall = nothing extra anywhere, same rule as the money gate).
+    const edgeShrunk = m.e / (m.decisions + GATE_K);
+    const priceGated = m.decisions >= PRICE_GATE_MIN_N && edgeShrunk <= PRICE_GATE_EDGE;
+    moneyT.set(m.key, Math.min(mt, priceGated ? 0 : 1));
+    const t = Math.min(gateT(m.w, m.decisions), mt, priceGated ? 0 : 1); // win% x money x price
     winfo.set(m.key, {
       wilson: +m.wilson.toFixed(4), rank: m.rank, pctile: +m.pctile.toFixed(4), band: band.key,
       pts: (zero || fade || band.key === 'bottom25') ? 0
          : +(UNRANKED_PTS + t * (Math.min(slid, cap) - UNRANKED_PTS)).toFixed(1),
       stackAdd: (zero || fade || band.key === 'bottom25') ? 0 : +(t * Math.min(band.peak, cap) / 2).toFixed(1),
       decisions: m.decisions, winPct: +m.winPct.toFixed(1), fade,
+      edgeShrunk: +edgeShrunk.toFixed(4), priceGated,
     });
   }
 
@@ -506,6 +568,40 @@ function recomputeCapperRatings() {
   });
   tx();
 
+  // Price-beaten columns (edge display + the price gate flag + the heavy-bracket
+  // unlock stats). Written as an UPDATE pass so the positional insert above
+  // stays untouched. edge_shrunk on every row IS the edge-gate shadow log:
+  // the full gate never scores until forward data earns it, but every nightly
+  // recompute records what it would have said.
+  const edgeUpd = db.transaction(() => {
+    const uo = db.prepare(`
+      UPDATE capper_ratings SET needed_pct = ?, edge_shrunk = ?, heavy_n = ?, heavy_edge_shrunk = ?, price_gated = ?
+      WHERE canonical_name = ? AND scope = 'overall'
+    `);
+    const us = db.prepare(`
+      UPDATE capper_ratings SET needed_pct = ?, edge_shrunk = ? WHERE canonical_name = ? AND scope = ?
+    `);
+    for (const [name, c] of cappers) {
+      const dec = c.w + c.l;
+      const wi = winfo.get(name);
+      uo.run(
+        c.impN ? +(100 * c.imp / c.impN).toFixed(1) : null,
+        dec ? +(c.e / (dec + GATE_K)).toFixed(4) : null,
+        c.hn, c.hn ? +(c.he / (c.hn + GATE_K)).toFixed(4) : null,
+        wi?.priceGated ? 1 : 0, name,
+      );
+      for (const [sport, s] of c.sports) {
+        const sdec = s.w + s.l;
+        us.run(
+          s.impN ? +(100 * s.imp / s.impN).toFixed(1) : null,
+          sdec ? +(s.e / (sdec + GATE_K)).toFixed(4) : null,
+          name, `sport:${sport}`,
+        );
+      }
+    }
+  });
+  edgeUpd();
+
   const summary = {
     cappers: cappers.size,
     rated: db.prepare(`SELECT COUNT(*) n FROM capper_ratings WHERE scope='overall' AND tier IN ('rated','proven')`).get().n,
@@ -539,6 +635,8 @@ module.exports = {
   // ladder internals exported for the no-lookahead replay (scripts/mlb_restate.js)
   // so the restatement runs the REAL math, never a fork
   bandFor, ladderPts, gateT, moneyGateT, capForDecisions, rankPool, HARD_ZERO_WIN,
+  impliedProb, edgeContrib, heavyGateOdds, heavyImpliedFloor,
+  PRICE_GATE_MIN_N, PRICE_GATE_EDGE, HEAVY_UNLOCK_N,
 };
 
 // CLI: node src/capper_ratings.js

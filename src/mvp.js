@@ -184,6 +184,12 @@ function resolveConflictingMvpPicks() {
       const delStmt  = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
       const syncStmt = db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`);
       const lineStmt = db.prepare(`UPDATE mvp_picks SET spread = ? WHERE id = ?`);
+      // NOTE (heavy-price gate, Jack 2026-07-28): the gate is evaluated ONCE, at
+      // tracking time with the odds right then (saveMvpPick). A tracked row
+      // whose price later drifts past the gate RIDES — "tracked at -250 in the
+      // morning, -300 by the end of the day is a risk I'll allow." This sweep
+      // deliberately does NOT re-check price. An untracked heavy pick whose
+      // price softens pregame gets its chance on every promotion pass below.
       let demoted = 0, synced = 0, linesSynced = 0;
       for (const m of pendingRows) {
         const cur = curStmt.get(m.espn_game_id, m.team || '', m.pick_type || '');
