@@ -214,7 +214,19 @@ function getPickTimeline(pickId) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
   if (!pick) return [];
   try {
-    if (db.getSetting('scoring_version', 'v2') === 'v3') return buildV3Timeline(pick);
+    if (db.getSetting('scoring_version', 'v2') === 'v3') {
+      const events = buildV3Timeline(pick);
+      // Heavy display cap (Jack 2026-07-29): the curve must end where the list
+      // does. A heavy-priced untracked ML shows at most 95 everywhere, so the
+      // replayed series plateaus at the cap instead of climbing past it.
+      try {
+        const cap = require('./scoring_v3').heavyDisplayCapFor(pick);
+        if (Number.isFinite(cap) && Array.isArray(events)) {
+          return events.map(e => (e && typeof e.score === 'number' && e.score > cap) ? { ...e, score: cap } : e);
+        }
+      } catch (_) {}
+      return events;
+    }
   } catch (_) { /* fall through to v2 on any error */ }
   return buildV2Timeline(pick);
 }

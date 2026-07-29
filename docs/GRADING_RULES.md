@@ -67,6 +67,12 @@ violation (with a full row snapshot that survives the daily wipe) to
   heavy-bracket decisions (implied 75%+) and positive shrunk price edge
   unlocks tracking for their own heavy-priced golds
   (storage.heavyBracketUnlocked, capper_ratings heavy_n/heavy_edge_shrunk).
+- DISPLAY CAP (Jack 2026-07-29): a pick the gate keeps off the record must not
+  wear the tracked tier either. An untracked, un-unlocked ML currently priced
+  past the gate shows at most 95 (silver) on every public surface, curve
+  included (scoring_v3.heavyDisplayCapFor). True total untouched; a tracked
+  drift-ride keeps its gold (it IS a bet). Cap follows the live price: softens
+  under the gate, or gets tracked, and the cap lifts.
 - History restated to v4 launch (2026-07-09) via the retire mechanism
   (scripts/heavy_restate.js) so the record reads as if the rule existed from
   v4 day one. Retired rows are never deleted and stay reversible.

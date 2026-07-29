@@ -39,7 +39,14 @@ wholesale gate swap did not clear the ship bar. What did survive:
   (storage.heavyBracketUnlocked; HEAVY_UNLOCK_N in capper_ratings.js).
 - History restated to v4 launch 2026-07-09 (scripts/heavy_restate.js, retire
   mechanism, reversible): actual -0.93u becomes +5.36u; removed rows WON 74%,
-  the honest direction for a restatement.
+  the honest direction for a restatement. Applied to prod 2026-07-29: 57 rows.
+- THE DISPLAY CAP (Jack 2026-07-29): gold styling is publicly "the tracked
+  tier", so an untracked heavy ML must not wear it — effectiveDisplayScore
+  clamps such picks at 95 (silver range) via heavyDisplayCapFor, the
+  conviction curve plateaus at the cap (pick_timeline), and the cap lifts the
+  moment the price softens under the gate, a bracket unlock applies, or the
+  pick actually tracks (a drift-riding tracked gold keeps gold). True v3
+  totals, capper credit, conflict logic, and admin views are untouched.
 
 ## 2. The capper PRICE GATE (reduce-only, capper_ratings.js)
 - Third gate in the chain, folded into the stored money-gate factor so the

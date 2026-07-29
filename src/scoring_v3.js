@@ -576,6 +576,39 @@ function bonusRevealEvents(pickId, ctx = null) {
   return out;
 }
 
+// THE HEAVY DISPLAY CAP (Jack 2026-07-29): a pick the heavy-price gate keeps
+// off the bet record must not WEAR the tracked tier either — gold styling is
+// publicly synonymous with "we tracked this bet". An ML board pick whose
+// current canonical price sits at or past the heavy gate, with no bracket
+// unlock and no live tracked row, shows at most 95 (silver range) on every
+// public surface. The TRUE total is untouched (capper credit, conflict logic,
+// admin views all keep the real number); a drift-riding tracked gold keeps its
+// gold — it IS a bet, so the badge is honest. Returns the cap or Infinity.
+const HEAVY_DISPLAY_CAP = 95;
+function heavyDisplayCapFor(pickRow) {
+  try {
+    let team = pickRow?.team, pt = pickRow?.pick_type, gid = pickRow?.espn_game_id;
+    if ((team == null || pt == null || gid === undefined) && pickRow?.id != null) {
+      const p = db.prepare(`SELECT team, pick_type, espn_game_id FROM picks WHERE id = ?`).get(pickRow.id);
+      if (p) { team = p.team; pt = p.pick_type; gid = p.espn_game_id; }
+    }
+    if ((pt || '').toLowerCase() !== 'ml' || !gid) return Infinity;
+    const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage'); // lazy: avoids a load cycle
+    const g = db.prepare(`SELECT home_team, ml_home, ml_away FROM today_games WHERE espn_game_id = ?`).get(gid);
+    if (!g) return Infinity;
+    const isHome = (g.home_team || '').toLowerCase() === (team || '').toLowerCase();
+    const ml = isHome ? g.ml_home : g.ml_away;
+    if (ml == null || ml > heavyMlGateOdds()) return Infinity;
+    const tracked = db.prepare(`
+      SELECT 1 FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ?
+        AND COALESCE(retired, 0) = 0 AND COALESCE(result, '') != 'void' LIMIT 1
+    `).get(gid, team, pt);
+    if (tracked) return Infinity;
+    if (heavyBracketUnlocked(gid, team, pt)) return Infinity;
+    return HEAVY_DISPLAY_CAP;
+  } catch (_) { return Infinity; }
+}
+
 // Read-side: the score any public surface should show right now — the true v3
 // total minus every bonus component whose reveal moment is still ahead. Backer,
 // fade, and offset points are always fully included (they surface in real time).
@@ -584,10 +617,11 @@ function effectiveDisplayScore(pickRow, nowMs = Date.now()) {
   const trueTotal = Math.round(
     pickRow?.v3_total ?? ctx?.v3_total ?? pickRow?.leak_target ?? pickRow?.display_score ?? pickRow?.score ?? 0
   );
-  if (!ctx || !ctx.bd) return trueTotal;
+  const cap = heavyDisplayCapFor(pickRow);
+  if (!ctx || !ctx.bd) return Math.min(trueTotal, cap);
   let pending = 0;
   for (const ev of bonusRevealEvents(pickRow.id, ctx)) if (ev.ts > nowMs) pending += ev.pts;
-  return Math.max(0, trueTotal - pending);
+  return Math.min(Math.max(0, trueTotal - pending), cap);
 }
 
 // The single, canonical "score to show right now" for a pick under v3. EVERY
@@ -601,7 +635,7 @@ function v3DisplayScore(p) {
 }
 
 module.exports = {
-  computeV3, computeAndLogV3, effectiveDisplayScore, v3DisplayScore,
+  computeV3, computeAndLogV3, effectiveDisplayScore, v3DisplayScore, heavyDisplayCapFor,
   backerAggregate, replaySubtotal, fadeFromCappers, oppositeSlot,
   bonusRevealEvents, revealContext, parseDbMs,
 };
