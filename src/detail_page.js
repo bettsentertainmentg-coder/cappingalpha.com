@@ -234,8 +234,9 @@ function buildNav(user) {
   <!-- Mobile bottom tab bar (same items as the index.html tab bar) -->
   <nav class="ca-tabbar" aria-label="Primary">
     <a class="ca-tabbar-item" href="/"><i class="fa-solid fa-house"></i><span>Home</span></a>
+    <a class="ca-tabbar-item active" href="/#sports"><i class="fa-solid fa-football"></i><span>Sports</span></a>
     <a class="ca-tabbar-item" href="/#mvp"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></a>
-    <button class="ca-tabbar-item" onclick="caOpenDrawerSports()"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <a class="ca-tabbar-item" href="/#socials"><i class="fa-solid fa-user-group"></i><span>Socials</span></a>
     <a class="ca-tabbar-item" href="/#tracking"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></a>
   </nav>
   <script>
@@ -431,7 +432,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta name="twitter:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=3" />
+  <link rel="stylesheet" href="/game-detail.css?v=4" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
   <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
