@@ -6,14 +6,14 @@ import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './m
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=43';
-import { loadSports } from './modules/sports.js?v=4';
+import { loadSports } from './modules/sports.js?v=5';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=7';
 import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=69';
 import './modules/track.js?v=53';
 import './modules/books.js?v=2';
-import './modules/modal.js?v=10';
+import './modules/modal.js?v=11';
 import './modules/member_profile.js?v=25';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=12';
