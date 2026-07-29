@@ -19,7 +19,7 @@ import {
   SPORT_THEMES,
 } from './utils.js?v=7';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=11';
+import { TEAM_COLORS } from './modal.js?v=12';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).

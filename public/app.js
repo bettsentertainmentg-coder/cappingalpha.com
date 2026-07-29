@@ -12,7 +12,7 @@ import { loadSocials } from './modules/socials.js?v=7';
 import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=62';
 import './modules/track.js?v=51';
 import './modules/books.js?v=2';
-import './modules/modal.js?v=11';
+import './modules/modal.js?v=12';
 import './modules/member_profile.js?v=25';
 import { resumePendingCheckout } from './modules/paywall.js';
 import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=12';

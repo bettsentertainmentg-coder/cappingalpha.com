@@ -228,6 +228,14 @@ function buildPickBySlot(picks) {
 }
 
 export function openGameModal(espn_game_id, clickedType = null, clickedTeam = null) {
+  // The popup is a website surface. Inside the app shell EVERY game tap goes to
+  // the standalone game page (proper app chrome, Back button): the popup's close
+  // button sat under the status bar and could trap the user (Jack 2026-07-28).
+  if (document.documentElement.classList.contains('ca-app')) {
+    const slot = clickedType ? `?slot=${encodeURIComponent(clickedType)}` : '';
+    window.location.href = `/game/${encodeURIComponent(espn_game_id)}${slot}`;
+    return;
+  }
   if (window.posthog) {
     try { posthog.capture('game_opened', { espn_game_id, slot: clickedType || null }); } catch (e) {}
   }
