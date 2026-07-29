@@ -103,6 +103,54 @@
   .win { color: var(--win); font-weight: 700; }
   .loss { color: var(--loss); font-weight: 700; }
 
+  /* diagram components (2026-07-29 audit): pure HTML/CSS, CSS-var themed,
+     no JS (the file is also served raw from the admin panel) */
+  .changelog { list-style: none; margin: 10px 0 0; padding: 0; max-width: 66ch; }
+  .changelog li { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .changelog .d { color: var(--gold); font-weight: 700; min-width: 52px; white-space: nowrap; }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 22px 0; }
+  .flow .step { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; flex: 1 1 100px; min-width: 96px; }
+  .flow .step b { font-family: var(--cond); font-size: 15px; display: block; }
+  .flow .step span { font-size: 12.5px; color: var(--muted); line-height: 1.35; display: block; }
+  .flow .arr { align-self: center; color: var(--gold); font-family: var(--mono); font-weight: 700; }
+  .flow .tiers { flex: 1 1 130px; min-width: 120px; display: flex; flex-direction: column; gap: 4px; }
+  .flow .tiers div { border: 1px solid var(--line); border-radius: 5px; padding: 5px 9px; font-family: var(--cond); font-size: 13px; }
+  .needbars { margin: 18px 0 8px; max-width: 560px; }
+  .needrow { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .needrow .lbl { font-family: var(--mono); font-size: 12px; min-width: 52px; text-align: right; color: var(--ink); }
+  .needrow .track { flex: 1; height: 10px; background: var(--panel2); border-radius: 5px; position: relative; overflow: visible; }
+  .needrow .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--gold); border-radius: 5px; }
+  .needrow .tick { position: absolute; top: -3px; bottom: -3px; width: 3px; background: var(--loss); }
+  .needrow .val { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 92px; }
+  .coinrule { position: relative; max-width: 560px; margin: 0 0 4px; height: 0; }
+  .diagram-cap { font-size: 13px; color: var(--muted); max-width: 62ch; margin: 6px 0 18px; }
+  .wilsontrack { position: relative; max-width: 560px; margin: 16px 0 4px; }
+  .wilsontrack .row { position: relative; height: 34px; margin: 10px 0; }
+  .wilsontrack .rowlbl { font-family: var(--cond); font-size: 13px; color: var(--ink); margin-bottom: 2px; }
+  .wilsontrack .band { position: absolute; top: 8px; height: 14px; background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; }
+  .wilsontrack .floorm { position: absolute; top: 4px; height: 22px; width: 3px; background: var(--gold); }
+  .wilsontrack .dot { position: absolute; top: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .wilsontrack .mlbl { position: absolute; top: 28px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+  .gatechain { margin: 20px 0; max-width: 470px; }
+  .gatechain .g { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; }
+  .gatechain .g b { font-family: var(--cond); font-size: 15px; display: block; }
+  .gatechain .g span { font-size: 12.5px; color: var(--muted); display: block; line-height: 1.4; }
+  .gatechain .g .chip { position: absolute; top: 7px; right: 9px; font-family: var(--mono); font-size: 9px; font-weight: 700; color: var(--loss); border: 1px solid var(--loss); border-radius: 3px; padding: 0 4px; }
+  .gatechain .g.pay { background: var(--gold-soft); border-color: var(--gold); }
+  .gatechain .dn { text-align: center; color: var(--muted); font-family: var(--mono); line-height: 1.1; padding: 2px 0; }
+  .betline { display: flex; gap: 6px; margin: 20px 0 6px; }
+  .betline .stop { flex: 1; min-width: 90px; border-top: 2px solid var(--line); padding-top: 8px; position: relative; }
+  .betline .stop::before { content: ""; position: absolute; top: -6px; left: 0; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); }
+  .betline .stop b { font-family: var(--cond); font-size: 14px; display: block; }
+  .betline .stop span { font-size: 12px; color: var(--muted); display: block; line-height: 1.4; }
+  .betline-pre { max-width: 100%; background: var(--gold-soft); border-radius: 4px; font-family: var(--mono); font-size: 10.5px; color: var(--gold); padding: 2px 8px; margin: 0 0 14px; display: inline-block; }
+  .taper { display: flex; gap: 4px; align-items: flex-end; margin: 12px 0 4px; max-width: 420px; }
+  .taper div { background: var(--gold); border-radius: 3px 3px 0 0; font-family: var(--mono); font-size: 10px; color: var(--bg); text-align: center; padding: 2px 0; }
+  @media (max-width: 640px) {
+    .betline { flex-direction: column; }
+    .betline .stop { border-top: none; border-left: 2px solid var(--line); padding: 0 0 10px 12px; }
+    .betline .stop::before { top: 2px; left: -6px; }
+  }
   @media (max-width: 860px) {
     .wrap { flex-direction: column; gap: 0; }
     nav.toc { position: static; width: 100%; max-height: none; padding-bottom: 0; }
@@ -136,7 +184,17 @@
   <div class="kicker">Owner's Playbook · Algorithm v4, the Wilson engine</div>
   <h1>How a pick earns its number</h1>
   <p class="dek">A pick's score is the credibility of the people standing behind it: 10 for an unknown name, up past 100 when ranked winners lead the way. This is the complete story of where that number comes from, in plain betting language.</p>
-  <div class="meta">Current as of July 28, 2026 · reflects the price gate and the heavy-favorite rule (chapter 4c and chapter 7: every graded bet logs its edge over the win rate its own odds required; a capper with 100+ bets clearly below that bar pins to the flat 10 whatever their rank; moneyline golds at -300 or heavier stay on the board but never become tracked bets, judged once at tracking time with the odds right then, and the first capper with 30+ proven heavy-favorite bets at positive edge unlocks their own; the record restated to the July 9 v4 launch, removing 50 bets that won 74 percent and still lost six units), the new WagerTalk system (chapter 2: their free-picks pros join as a normal pregame board source; a CapperTek tracker shipped the same day and was removed within hours because that site only reveals pick sides 30 minutes after start, and a pick we cannot read pregame is not a pick), the tightened MLB rule with quality-weighted chip-ins (chapter 3: baseball picks are scored from the MLB-only capper ranking with 20 graded MLB bets required to rank, points capped by each capper's own proven win rate so being the best of a weak pool is not enough, each joiner chips in according to their own proven quality so two 58 percent records agreeing land near 170 while a crowd of grinders stays silver, and the sport rank bonus no longer applies to baseball; in every other sport a joiner's chip now also scales with their own win rate, elite joiners unchanged; the July 24 restatement retired 77 v4-era picks), plus the real conviction curve (chapter 6: the chunked reveal is retired; backer and fade points show at their true timestamps with netted best-backer steps, and only the four bonus components surface at seeded random moments, at least 3 hours before start), plus the Covers tracking expansion (consensus pick leaders join the contest players, roughly the top 300 members by units), plus the Wilson percentile rework (capper rank drives every point, the flat base and flat sport bonus are gone, sources no longer score, full influence reserved for the top 1 percent of the ranking), the break-even gate and the hard zero (a win rate of 49 percent or below contributes nothing at all), the money gate (a ledger clearly below breakeven at flat stakes pins a capper to the flat 10 until it recovers), instant grading (every backer's record and the rankings update the moment games go final), the CA line lock at T-60 (the official line locks 1 hour before start, the bet-placed moment; the old reach-gold lock is retired), the pregame flip (until a game actually begins, the tracked bet follows whichever side leads, swapping at the locked line), a spelled-out answer to when a bet is tracked (chapter 7), and the true-start freeze (a tracked score follows the board until the game actually goes live, so listed start times that run late, tennis especially, cannot freeze or void a bet early)</div>
+  <div class="meta">Current as of July 29, 2026. What changed lately, newest first:</div>
+  <ul class="changelog">
+    <li><span class="d">Jul 28</span><span>Price gate: every graded bet logs its edge over the win rate its own odds required. 100 or more bets clearly below that bar pins a capper to the flat 10, whatever their rank (chapter 4c).</span></li>
+    <li><span class="d">Jul 28</span><span>Heavy favorites: moneyline golds at -300 or heavier stay on the board but are never tracked as bets, judged once at tracking time. The record was restated to the July 9 v4 launch (chapter 7).</span></li>
+    <li><span class="d">Jul 28</span><span>MLB tightened: points capped by each capper's own proven win rate, quality-weighted chip-ins, sport rank bonus off for baseball (chapter 3).</span></li>
+    <li><span class="d">Jul 28</span><span>WagerTalk added as a source. A CapperTek tracker shipped the same day and was removed within hours: that site reveals sides 30 minutes after start, and a pick we cannot read pregame is not a pick (chapter 2).</span></li>
+    <li><span class="d">Jul 24</span><span>77 v4-era MLB picks retired in the first restatement.</span></li>
+    <li><span class="d">Jul 16</span><span>The real conviction curve replaced the chunked reveal (chapter 6).</span></li>
+    <li><span class="d">Jul 14</span><span>T-60 line lock (the bet is priced 1 hour before start) and the pregame flip (the tracked bet follows whichever side leads until the true start) (chapter 7).</span></li>
+    <li><span class="d">Jul 9</span><span>The Wilson percentile engine: capper rank drives every point, the flat base is gone, sources no longer score, plus the break-even gate, the hard zero, and instant grading (chapter 4). The money gate followed July 13.</span></li>
+  </ul>
 </header>
 
 <section id="big-picture">
@@ -150,6 +208,25 @@
     <tr><td><b>One scale everywhere</b></td><td>The picks list, the game popup, the detail page, and the history archive all show the same number for the same pick. 100 or more is gold. 75 to 99 is silver.</td></tr>
   </table>
   <div class="note"><b>There is no base anymore.</b> The old flat 45 that every pick started with is gone. It never carried information, and worse, it let weak picks sit closer to the tiers than they deserved. Now a pick from a nobody is worth 10, and everything above that has to be earned by the ranked people backing it. A number can only be big because somebody credible made it big.</div>
+  <h3>The whole machine, one line</h3>
+  <div class="flow">
+    <div class="step"><b>Pick posted</b><span>any of the five sources, pregame only</span></div>
+    <div class="arr">&#8594;</div>
+    <div class="step"><b>Backers gather</b><span>every tracked capper on this side</span></div>
+    <div class="arr">&#8594;</div>
+    <div class="step"><b>Best backer</b><span>strongest record sets the foundation, 0 to 80</span></div>
+    <div class="arr">&#8594;</div>
+    <div class="step"><b>Chip-ins</b><span>other proven backers add a share of their worth</span></div>
+    <div class="arr">&#8594;</div>
+    <div class="step"><b>Bonuses</b><span>sport rank, market signals, side lean, fade points</span></div>
+    <div class="arr">&#8594;</div>
+    <div class="tiers">
+      <div style="background:var(--gold-soft);border-color:var(--gold);color:var(--gold);font-weight:800;">100+ GOLD, tracked</div>
+      <div style="color:var(--muted);">75 to 99 SILVER, styled</div>
+      <div style="color:var(--muted);">below 75, board only</div>
+    </div>
+  </div>
+  <p class="diagram-cap">Chapters 3 to 5 zoom in on the middle boxes; chapter 7 covers what "tracked" means.</p>
 </section>
 
 <section id="sources">
@@ -159,7 +236,7 @@
   <table>
     <tr><th>Source</th><th>Who</th><th>How often we check</th><th>Notes</th></tr>
     <tr><td><b>Discord</b></td><td>Cappers posting in the tracked channels</td><td>Instantly, the moment a message posts</td><td>An AI reader extracts the pick, the team, and the capper name from each message.</td></tr>
-    <tr><td><b>Action Network</b></td><td>About 52 public experts</td><td>Every 10 minutes during the day</td><td>Their site record is shown on profiles for context but never counts toward scoring.</td></tr>
+    <tr><td><b>Action Network</b></td><td>About 50 public experts</td><td>Every 10 minutes during the day</td><td>Their site record is shown on profiles for context but never counts toward scoring.</td></tr>
     <tr><td><b>Polymarket</b></td><td>Top 50 traders by lifetime profit</td><td>Every 15 minutes</td><td>Real money positions of 200 dollars or more on game markets count as picks. Bet size versus their usual is logged for future study.</td></tr>
     <tr><td><b>Covers</b></td><td>King of Covers contest players plus the top of the all-time consensus pick leaders board (roughly the top 300 members by units)</td><td>Every 30 minutes</td><td>Contest picks lock at game start, so pending picks are provably pregame. Leaders' site records are shown for context but never count toward scoring.</td></tr>
     <tr><td><b>WagerTalk</b></td><td>The pros posting on the free picks page (a handful a day, more in football season)</td><td>Every 30 minutes</td><td>Added July 28. Named professional handicappers posting free plays before start; these are full pregame picks and join the board like any other source.</td></tr>
@@ -172,31 +249,31 @@
 
 <section id="recipe">
   <div class="chap"><span class="num">03</span><h2>The score recipe</h2></div>
-  <p>Seven ingredients, all additive. The width of each bar shows how much of the total that ingredient can contribute at most.</p>
+  <p>Six ingredients, all additive. The width of each bar shows how much of the total that ingredient can contribute at most. (An old seventh, a flat +5 for being a major sport, was retired on July 9: every listed sport got it, so it was five free points on essentially every pick.)</p>
 
   <div class="ing">
     <div class="ing-head"><span class="ing-name">Best backer</span><span class="ing-range">0 to 80</span></div>
     <div class="meter"><i style="width:80%"></i></div>
-    <p>The engine. Every capper is ranked on one board by the Wilson score (chapter 4), and their percentile position decides what their picks are worth: the #1 capper delivers 80 points just by posting, a top 1 percent capper 70 to 80, a mid-pack capper around 15, a bottom-quarter capper nothing. The strongest ranked person on the pick sets this number. Even the very best name cannot reach gold alone; a gold needs corroboration.</p>
+    <p>The engine. Every capper is ranked on one board by the Wilson score (chapter 4), and their percentile position decides what their picks are worth: the #1 capper delivers close to 80 points just by posting, a top 1 percent capper 70 to 80, a mid-pack capper around 15, a bottom-quarter capper nothing. The strongest ranked person on the pick sets this number. Even the very best name cannot reach gold alone; a gold needs corroboration.</p>
     <p>A pick whose capper we cannot identify, or whose capper has no graded record yet, is worth a flat 10. Sources are not people: the Action Network pipe, the Discord rooms, the Polymarket firehose earn nothing as entities anymore. Only the individuals inside them do.</p>
   </div>
 
   <div class="ing">
-    <div class="ing-head"><span class="ing-name">Backer stack</span><span class="ing-range">open, tapered hard</span></div>
+    <div class="ing-head"><span class="ing-name">Backer stack</span><span class="ing-range">no cap, tapered hard</span></div>
     <div class="meter"><i style="width:40%"></i></div>
-    <p>What the <i>other</i> backers chip in: half of their own worth scaled by their own proven win rate (elite joiners chip the full half, break-even joiners chip almost nothing), tapering by pairs, and only if they have 12 or more graded bets with us. MLB is stricter still: chips follow a sharper quality curve and only backers with 20 or more graded MLB bets count (see The MLB rule below). Full detail in chapter 5.</p>
+    <p>What the <i>other</i> backers chip in. Each extra backer adds half of their own worth, scaled by how well they actually win: an elite record chips the full half, a break-even record chips almost nothing. Chips also shrink in pairs, so a crowd never snowballs. A backer needs 12 graded bets with us before their chip counts at all. MLB is stricter still: 20 graded MLB bets and a sharper quality curve (see The MLB rule below). Full detail in chapter 5.</p>
   </div>
 
   <div class="ing">
     <div class="ing-head"><span class="ing-name">Sport rank bonus</span><span class="ing-range">0, 10, or 20</span></div>
     <div class="meter"><i style="width:20%"></i></div>
-    <p>Specialists get extra. Each sport keeps its own Wilson ranking, and when the pick's best backer is that sport's #1 or top 5 percent, the pick gets +20. Top 25 percent gets +10. This one has no volume cap by design: a 5-0 tennis specialist sitting on top of the tennis board collects the full bonus.</p>
+    <p>Specialists get extra. Each sport keeps its own Wilson ranking, and when the pick's best backer is that sport's #1 or top 5 percent, the pick gets +20. Top 25 percent gets +10. This one has no volume cap by design: a 5-0 tennis specialist sitting on top of the tennis board collects the full bonus. One exception: baseball no longer gets this bonus at all, because MLB picks are already priced from the MLB-only ladder and paying the same standing twice handed the top names 20 free points per pick (see The MLB rule below).</p>
   </div>
 
   <div class="ing">
     <div class="ing-head"><span class="ing-name">Market signals</span><span class="ing-range">0 to 8</span></div>
     <div class="meter"><i style="width:8%"></i></div>
-    <p>Three small, independent checks against real markets: prediction markets pricing this side higher than the sportsbook implies (up to 5), the betting line having moved toward this side since morning (2), and 65 percent or more of public tickets sitting on the <i>other</i> side (1). Deliberately small caps for now. The full values are logged so their weights can be re-fit on evidence later.</p>
+    <p>Three small, independent checks against real markets: prediction markets pricing this side higher than the sportsbook implies (moneylines only for now, up to 5), the betting line having moved toward this side since our first line snapshot (2), and 65 percent or more of public tickets sitting on the <i>other</i> side (1). Deliberately small caps for now. The full values are logged so their weights can be re-fit on evidence later.</p>
   </div>
 
   <div class="ing">
@@ -206,23 +283,49 @@
   </div>
 
   <div class="ing">
-    <div class="ing-head"><span class="ing-name">Fade points</span><span class="ing-range">0 to 8, plus offset</span></div>
+    <div class="ing-head"><span class="ing-name">Fade points</span><span class="ing-range">0 to 8</span></div>
     <div class="meter"><i style="width:8%"></i></div>
     <p>When a capper on the official fade list (chapter 4) backs one side, the <i>opposite</i> side receives 3 to 8 bonus points. Scaled by how much we have seen that capper in this sport, so a losing MLB record fades MLB picks but says almost nothing about their rare NBA pick. If a proven capper is standing on the faded side, that side gets an offsetting bonus too. Nothing is ever taken away from anyone.</p>
   </div>
 
-  <div class="note"><b>The totals gate.</b> One extra check for over/under picks only: a pick cannot be tracked as gold if its best backer has a losing record specifically on totals. Board totals have historically bled money, so gold totals require a backer who has actually won them.</div>
+  <div class="note"><b>The totals gate.</b> One extra check for over/under picks only: a pick cannot be tracked as gold if its best backer's own ledger on that sport's totals is in the red (no totals history at all passes; the gate only blocks demonstrated bleeding). Board totals have historically bled money, so gold totals require a backer who has not lost them.</div>
 
-  <div class="note"><b>The MLB rule (July 23, tightened July 28).</b> Baseball gets its own, much stricter version of the first two ingredients, because the data demanded it twice. Over 21 days MLB golds went 77-83 while every other sport combined won over 63 percent, and the reason was structural: a good record in other sports simply did not carry into baseball, while the people with a real MLB track record were winning 60.5 percent. So baseball points come <b>from the MLB-only ranking</b>: fewer than 20 graded MLB bets means the flat 10, no matter how good their tennis record looks. Five days in, a second leak showed: the MLB ranking is relative, so 55-percent volume grinders sat at the top of a weak pool and priced like elites, and baseball flooded again at 26 to 28 golds a day. The July 28 tightening closes it three ways. <b>Points are capped by the capper's own proven win rate</b>: a record shrunk to break-even caps near 31 points, 55 percent caps near 54, and only a genuinely proven 58 percent record collects the full 80. Being the best of a weak pool is no longer enough; you have to beat the coin flip on your own ledger. <b>Joiners chip in by their own quality</b>: a proven 58-percent record joining adds its full worth (two of them agreeing lands near 170, the strongest signal we track priced like it), a 55-percent record adds about 17, and a break-even record adds almost nothing, so elite agreement soars while a crowd of grinders stays silver. And <b>the sport rank bonus no longer applies to baseball</b>, since the ladder already prices MLB standing and paying it twice handed the top names 20 free points per pick. Expect gold baseball picks to be genuinely rare until cappers prove those records, and to grow exactly as fast as proven 58-percent cappers do. The quality idea spilled over everywhere: in every sport, a joiner's chip now scales with their own win rate too, with elite joiners unchanged and break-even joiners trimmed toward zero (crowded WNBA golds were winning 52 percent while lightly backed ones won 65). Other sports can move onto this rule later if their numbers show the same pattern; the admin Cappers tab shows every sport's own ladder for exactly that call.</div>
+  <div class="note"><b>The MLB rule (July 23, tightened July 28).</b> Baseball gets its own, much stricter version of the first two ingredients, because the data demanded it twice.
+  <p style="margin-top:10px;"><b>Why.</b> Over 21 days MLB golds went 77-83 while every other sport combined won over 63 percent. A good record in other sports simply did not carry into baseball, while the people with a real MLB track record were winning 60.5 percent.</p>
+  <p><b>MLB record or nothing.</b> Baseball points come from the MLB-only ranking. Fewer than 20 graded MLB bets means the flat 10, no matter how good the tennis record looks.</p>
+  <p><b>Your win rate caps your points.</b> Being the best of a weak pool is not enough; the cap follows the capper's own proven win rate:</p>
+  <div class="needbars" style="max-width:440px;">
+    <div class="needrow"><span class="lbl" style="min-width:120px;">break-even record</span><div class="track"><div class="fill" style="width:39%"></div></div><span class="val">caps at ~31 of 80</span></div>
+    <div class="needrow"><span class="lbl" style="min-width:120px;">proven 55%</span><div class="track"><div class="fill" style="width:67%"></div></div><span class="val">caps at ~54 of 80</span></div>
+    <div class="needrow"><span class="lbl" style="min-width:120px;">proven 58%+</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">the full 80</span></div>
+  </div>
+  <p><b>Joiners chip by their own quality.</b> Two proven 58 percent records agreeing land near 170, the strongest signal we track priced like it. A 55 percent record adds about 17, and a break-even record adds almost nothing, so elite agreement soars while a crowd of grinders stays silver.</p>
+  <p><b>No sport rank bonus for baseball.</b> The ladder already prices MLB standing; paying it twice handed the top names 20 free points per pick.</p>
+  <p style="margin-bottom:0;"><b>What to expect.</b> Gold baseball picks stay genuinely rare until cappers prove those records. The quality idea also spilled over everywhere: in every sport a joiner's chip scales with their own win rate (crowded WNBA golds were winning 52 percent while lightly backed ones won 65). Other sports can move onto the full rule if their numbers show the same pattern; the admin Cappers tab shows every sport's own ladder for exactly that call.</p></div>
 </section>
 
 <section id="ratings">
   <div class="chap"><span class="num">04</span><h2>How a capper earns points</h2></div>
-  <p>Every graded pick lands in a permanent ledger that survives the daily reset, for every backer on the pick, the moment the game goes final. The re-rank happens right then too: profiles, the leaderboard, and every pick scored from that moment use the current record (with a full sweep each night at 5:20am as the backstop). The ranking is one number with a long pedigree: the <b>Wilson score</b>, the same math Reddit uses to rank comments so that 900 upvotes out of 1,000 beats 3 out of 3.</p>
+  <p>The moment a game goes final, the result lands on the permanent ledger of every backer who was on the pick, and the rankings recompute right then. The daily board reset never touches this ledger; a full sweep at 5:20am each night is the backstop. The ranking is one number with a long pedigree: the <b>Wilson score</b>, the same math Reddit uses to rank comments so that 900 upvotes out of 1,000 beats 3 out of 3.</p>
   <h3>1. The worst-case win rate</h3>
-  <p>The Wilson score asks: given this record, what is the LOWEST the capper's true win rate could plausibly be? We use the cautious 99 percent version. A 7-0 heater has a great face but a thin file, so its worst case is modest. An 85-49 grind over 134 bets has a worst case that is genuinely strong. That is why MidwestMike ranks #1 overall while perfect little records sit below him. Volume is not a bonus; it is the proof that makes the number trustworthy.</p>
+  <p>The Wilson score asks: given this record, what is the LOWEST the capper's true win rate could plausibly be? We use the cautious 99 percent version. A 7-0 heater has a great face but a thin file, so its worst case is modest. An 85-49 grind over 134 bets has a worst case that is genuinely strong, which is why a long grind can rank #1 overall while perfect little records sit below it. Volume is not a bonus; it is the proof that makes the number trustworthy.</p>
+  <div class="wilsontrack">
+    <div class="row"><div class="rowlbl">7-0 heater</div>
+      <div class="band" style="left:18%;right:0;"></div>
+      <div class="floorm" style="left:18%;"></div><div class="mlbl" style="left:12%;">worst case ~51%</div>
+      <div class="dot" style="right:2px;"></div><div class="mlbl" style="right:0;">record says 100%</div>
+    </div>
+    <div class="row" style="margin-top:26px;"><div class="rowlbl">85-49 grinder</div>
+      <div class="band" style="left:20%;width:18%;"></div>
+      <div class="floorm" style="left:20%;"></div><div class="mlbl" style="left:14%;">worst case ~52%</div>
+      <div class="dot" style="left:37%;"></div><div class="mlbl" style="left:34%;">record says 63%</div>
+    </div>
+    <div style="position:absolute;top:0;bottom:14px;left:16.7%;border-left:1px dashed var(--muted);"></div>
+    <div class="mlbl" style="position:static;display:block;margin-top:18px;">dashed line = the coin flip (50%). Track runs 40% to 100%.</div>
+  </div>
+  <p class="diagram-cap">The engine ranks everyone on the left edge of their band, the worst case. The big file's floor is higher, so it ranks higher. That is the whole trick.</p>
   <h3>2. One board, every capper</h3>
-  <p>Everyone with at least one graded decision goes into a single ranking: Discord cappers, Action Network experts, Polymarket wallets, Covers contest players, all treated identically. Your percentile position on that board maps to points through the ladder:</p>
+  <p>Everyone with at least one graded decision goes into a single ranking: Discord cappers, Action Network experts, Polymarket wallets, Covers contest players, WagerTalk pros, all treated identically. Your percentile position on that board maps to points through the ladder:</p>
   <div class="tablewrap">
   <table>
     <tr><th>Where you rank</th><th class="num">Your picks are worth</th></tr>
@@ -238,18 +341,40 @@
     <tr><td>No graded record / unknown name</td><td class="num">10 flat</td></tr>
   </table>
   </div>
-  <p>Points slide inside each band, so the top of the 5-15 band is worth 60 and the bottom of it 51. Higher rank always means more points. There is one deliberate cliff: the bottom of the top 1 percent band is 76, and the band below it starts at 67. Full influence is reserved for the very top of the board.</p>
+  <p>Points slide inside each band, so the top of the 5-15 band is worth 60 and the bottom of it 51. Higher rank always means more points. There is one deliberate cliff: the bottom of the top 1 percent band is 70, and the band below it starts at 67. Full influence is reserved for the very top of the board.</p>
   <h3>3. Thin records are capped, not banned</h3>
   <p>A hot 7-0 can rank high on the board, but what its picks can <i>collect</i> is capped until the sample earns trust: under 10 graded decisions caps at 50 points, 10 to 29 caps at 70, and 30 or more collects the full ladder value. Nobody golds a pick off a lucky week.</p>
   <h3>4. The break-even gate</h3>
-  <p>Ranking high is evidence you exist; handing out points also requires evidence you win. The Wilson score rewards volume, so a capper with a long losing record can still out-rank a crowd of thin ones. The gate stops that from mattering: a capper's win rate (shrunk toward the coin flip on small samples) must clear 50 percent for their backing to be worth more than the unknown-name 10, and full value returns at 53 percent, roughly break-even at standard juice. Between the two it scales smoothly.</p>
+  <p>Ranking high is evidence you exist; handing out points also requires evidence you win. The Wilson score rewards volume, so a capper with a long losing record can still out-rank a crowd of thin ones. The gate stops that from mattering: a capper's win rate (shrunk toward the coin flip on small samples, meaning a short record gets pulled toward 50 percent so a lucky 4-1 start cannot fake a proven winner) must clear 50 percent for their backing to be worth more than the unknown-name 10, and full value returns at 53 percent, roughly break-even at standard juice. Between the two it scales smoothly.</p>
   <p>And below the gate sits the hard zero: a raw win rate of 49 percent or under contributes <b>nothing</b>. Not the 10, no chip-in, and no sport rank bonus even where that capper tops a sport board. A demonstrated loser is worth less than an unknown name; the flat 10 is reserved for records we have not seen yet, not records we have seen lose.</p>
   <h3>4b. The money gate (July 13)</h3>
-  <p>Win rate ignores price. A capper who lives on heavy favorites can hit 61 percent and still lose money at flat stakes, because favorites pay little when they win and cost full price when they lose. The win-rate gate cannot see that person, so a second gate reads the ledger itself: a capper's smoothed flat-stake ROI (their total units, steadied the same way the win-rate gate steadies small samples) must be at breakeven or better for full value.</p>
+  <p>Win rate ignores price. A capper who lives on heavy favorites can hit 61 percent and still lose money at flat stakes, because favorites pay little when they win and cost full price when they lose. So a second gate asks the ledger a blunt question: if you had bet one flat unit on every pick this capper ever posted, are you at breakeven or better? Small records are steadied the same way the win-rate gate steadies them, so a cold week cannot trip it.</p>
   <p>Below breakeven their value slides down smoothly, and once the hole is deep enough (about minus five percent smoothed) they pin to the flat 10: no chip-ins onto other picks, no sport rank bonus, nothing above what an unknown name gets, until wins pull the ledger back up. The scale is deliberate. Being $40 down over 200 picks is normal variance and keeps most of its value, while a ledger down ten percent of everything it ever staked pins hard. Whichever gate is stricter, the win-rate one or the money one, is the one that binds. Rankings and bands stay untouched, and the fade rules stay on win rate; the money gate only controls what a capper's backing is worth. Release is automatic, since every graded slate recomputes the ledger.</p>
   <h3>4c. The price gate (July 28)</h3>
-  <p>The money gate reads the ledger; this one reads the prices themselves. Every graded bet now logs its edge over price: how often the capper wins minus how often their own odds said they had to. A bet at -1000 has to win 90.9 percent of the time just to break even, a +150 dog only 40 percent. So a capper living on huge favorites can post a 90 percent win rate and still be losing money, and the win-rate machinery can even rank them highly while it happens. We watched exactly that: one name went 19-2 and finished in the red.</p>
-  <p>When a capper has 100 or more graded bets and their smoothed edge over price sits at minus two percent or worse, the price gate fires: their backing pins to the flat 10 that an unknown name gets, no chip-ins, no sport bonus, until the edge recovers. Rankings and bands stay untouched, and thin records cannot trip it, because small samples are smoothed toward zero and zero is not clearly negative. The Cappers tab now shows the whole story in two columns: Needed percent, the win rate their own odds demanded, and Edge, how far above or below that bar they actually run.</p>
+  <p>The money gate reads the ledger; this one reads the prices themselves. Every graded bet now logs its edge over price: how often the capper wins minus how often their own odds said they had to. So a capper living on huge favorites can post a 90 percent win rate and still be losing money, and the win-rate machinery can even rank them highly while it happens. We watched exactly that: one name went 19-2 and finished in the red.</p>
+  <div class="needbars">
+    <div class="needrow"><span class="lbl">+150</span><div class="track"><div class="fill" style="width:40%"></div></div><span class="val">needs 40.0%</span></div>
+    <div class="needrow"><span class="lbl">-110</span><div class="track"><div class="fill" style="width:52.4%"></div></div><span class="val">needs 52.4%</span></div>
+    <div class="needrow"><span class="lbl">-300</span><div class="track"><div class="fill" style="width:75%"></div><div class="tick" style="left:74%" title="our heavy golds won 74% here and still lost units"></div></div><span class="val">needs 75.0%</span></div>
+    <div class="needrow"><span class="lbl">-1000</span><div class="track"><div class="fill" style="width:90.9%"></div></div><span class="val">needs 90.9%</span></div>
+  </div>
+  <p class="diagram-cap">Needed is the win rate the price demands just to break even. The red tick on the -300 row is us: our heavy-favorite golds won 74 percent right there and still lost units. Edge is how far above or below the bar a capper actually runs; both are now columns on the Cappers tab.</p>
+  <p>When a capper has 100 or more graded bets and their smoothed edge over price sits at minus two percent or worse, the price gate fires: their backing pins to the flat 10 that an unknown name gets, no chip-ins, no sport bonus, until the edge recovers. Rankings and bands stay untouched, and thin records cannot trip it, because small samples are smoothed toward zero and zero is not clearly negative.</p>
+  <h3>The full chain: from record to what a pick pays</h3>
+  <div class="gatechain">
+    <div class="g"><b>Wilson rank sets band points</b><span>#1 pays close to 80, mid-pack around 15, bottom quarter 0</span></div>
+    <div class="dn">&#8595;</div>
+    <div class="g"><span class="chip">GATE</span><b>Volume cap</b><span>under 10 bets: max 50 &middot; 10 to 29: max 70 &middot; 30+: uncapped</span></div>
+    <div class="dn">&#8595;</div>
+    <div class="g"><span class="chip">GATE</span><b>Break-even gate</b><span>shrunk win% must clear 50, full value at 53 &middot; raw 49% or under: hard zero</span></div>
+    <div class="dn">&#8595;</div>
+    <div class="g"><span class="chip">GATE</span><b>Money gate</b><span>flat-stake ledger clearly underwater: pinned to the flat 10</span></div>
+    <div class="dn">&#8595;</div>
+    <div class="g"><span class="chip">GATE</span><b>Price gate</b><span>100+ bets and edge over price at -2% or worse: pinned to the flat 10</span></div>
+    <div class="dn">&#8595;</div>
+    <div class="g pay"><b>What this capper's backing pays per pick</b><span>the strictest gate is the one that binds</span></div>
+  </div>
+  <p class="diagram-cap">Gates change what a backing pays, never the rank or band. The fade list is a separate track below.</p>
   <h3>5. The fade list</h3>
   <p>Being ranked low is not enough to get faded; a thin record and a bad record are different things. Fading requires both a bottom-quarter rank and a genuinely losing win rate:</p>
   <div class="tablewrap">
@@ -269,16 +394,26 @@
   <h3>The rule</h3>
   <p>The strongest backer counts in full. Every other backer <b>chips in half of their own worth, scaled by their own proven win rate</b> (July 28: a joiner whose shrunk win rate sits at 58 percent or better chips the full half, 54 percent chips about a quarter of it, break-even chips almost nothing), with two further brakes:</p>
   <p><b>The pair taper.</b> Within each ranking band, the first two extra backers chip in half their worth, the next two a quarter, the two after that an eighth. Agreement is worth something; an echo chamber is not worth an echo chamber's size.</p>
+  <div class="taper">
+    <div style="flex:4;opacity:1;">1 &middot; &frac12;</div>
+    <div style="flex:4;opacity:1;">2 &middot; &frac12;</div>
+    <div style="flex:2;opacity:.55;">3 &middot; &frac14;</div>
+    <div style="flex:2;opacity:.55;">4 &middot; &frac14;</div>
+    <div style="flex:1;opacity:.3;">5</div>
+    <div style="flex:1;opacity:.3;">6</div>
+  </div>
+  <p class="diagram-cap">Within one band, agreement pays, echo does not.</p>
   <p><b>The 12-bet floor.</b> A backer needs 12 or more graded bets with us before their chip-in counts at all. Their own picks still score and they still rank; they just cannot boost anyone else's pick until they have a real file. This one rule is what separates "three proven winners agree" from "a dozen anonymous wallets piled on". (It launched at 20; lowered to 12 the same week so a strong 11-3 name is not silenced as a joiner.)</p>
   <table>
     <tr><th>Case</th><th>Chip-in</th></tr>
-    <tr><td>A 70-point capper with 40 graded bets joins</td><td class="num">+35</td></tr>
+    <tr><td>A 70-point capper with 40 graded bets and a proven win rate joins</td><td class="num">+35</td></tr>
     <tr><td>A second 70-point capper from the same band joins</td><td class="num">+35, then the band tapers</td></tr>
-    <tr><td>A hot 6-1 wallet joins (under 20 bets)</td><td class="num">0 until they hit 20</td></tr>
+    <tr><td>A hot 6-1 wallet joins (7 bets, under the 12-bet floor)</td><td class="num">0 until they reach 12</td></tr>
+    <tr><td>A 15-bet MLB record joins an MLB pick</td><td class="num">0 until 20 graded MLB bets</td></tr>
     <tr><td>An unknown or bottom-quarter capper joins</td><td class="num">0</td></tr>
     <tr><td>A fade-list capper joins</td><td class="num">0, always (and may fade the pick's opposite side)</td></tr>
   </table>
-  <div class="note"><b>Why the floor exists.</b> The first Wilson rescore on July 9 let any ranked backer chip in. Within the hour a tennis pick had collected 22 backers, most of them thin Polymarket wallets riding 5-1 style records, and hit 349 points; the board carried 13 golds, more than the crowding this rework was built to kill. With the pair taper and the 20-bet floor the same board settled to roughly 6 golds, every one led by a top-band capper. Verified on the live data before it shipped.</div>
+  <div class="note"><b>Why the floor exists.</b> The first Wilson rescore on July 9 let any ranked backer chip in. Within the hour a tennis pick had collected 22 backers, most of them thin Polymarket wallets riding 5-1 style records, and hit 349 points; the board carried 13 golds, more than the crowding this rework was built to kill. With the pair taper and the 20-bet floor (the floor that first day; it is 12 now) the same board settled to five golds, every one led by a top-band capper. Verified on the live data before it shipped.</div>
 </section>
 
 <section id="reveal">
@@ -287,8 +422,8 @@
   <h3>What still stays hidden</h3>
   <p>Two layers of protection remain, and they are enough:</p>
   <ul class="timeline" style="list-style:none">
-    <li><span class="t">Bonus timing</span><span>The four formula-shaped components (sport rank bonus, market signals, side lean, sport bonus) each surface at one random moment per pick, always at least 3 hours before game start. A +6 market step at 11:23am cannot be matched to the line move that earned it. The moments are seeded per pick, so the board, the popup, and the curve always agree, and a moment never changes once dealt. A pick born inside the final 3 hours trickles them out within about 20 minutes of arriving, still finishing before start.</span></li>
-    <li><span class="t">Backer netting</span><span>When a stronger backer overtakes, the old best backer folds into the stack at half value, so the curve shows one combined step. A 50-point capper opens the pick at +50; a 90-point capper landing later shows as +65 (their 90, plus the 50 halved to 25, minus the 50 already showing). Nobody can read a single capper's worth off a join.</span></li>
+    <li><span class="t">Bonus timing</span><span>The three formula-shaped components (sport rank bonus, market signals, side lean) each surface at one random moment per pick, always at least 3 hours before game start. A +6 market step at 11:23am cannot be matched to the line move that earned it. The moments are seeded per pick, so the board, the popup, and the curve always agree, and a moment never changes once dealt. A pick born inside the final 3 hours trickles them out within about 20 minutes of arriving, still finishing before start.</span></li>
+    <li><span class="t">Backer netting</span><span>When a stronger backer overtakes, the old best backer folds into the stack at half value scaled by their own win rate, so the curve shows one combined step. A 45-point capper opens the pick at +45; an 80-point capper landing later shows one combined step of about +57 (their 80, plus the 45 folded in at roughly 22, minus the 45 already showing). Nobody can read a single capper's worth off a join.</span></li>
   </ul>
   <p>The public number is simply the true score minus any bonus moments still ahead, so it always reaches the full true score before first pitch, tip, or kick.</p>
   <p><b>Why it changed:</b> the synthetic climb hid the real story and could drift from how the points actually accrued. The real replay is honest about timing where honesty is safe (who backed it, and when), and random only where the timing itself would leak the formula (the bonus components).</p>
@@ -302,19 +437,23 @@
     <tr><td><span class="silver-badge">Silver</span></td><td class="num">75 to 99</td><td>Styled on the board so strong picks stand out. Never tracked, never part of the public record.</td></tr>
     <tr><td>Archive</td><td class="num">50+</td><td>Quietly saved into the permanent pick history for research and capper grading. Not a public tier.</td></tr>
   </table>
-  <p>Gold is intentionally hard, and under the Wilson engine it takes a top name PLUS corroboration: the #1 capper alone is 80, so even the best record we track needs the sport rank bonus or real chip-ins from other ranked winners to cross 100. A crowd of strangers cannot do it, and neither can one name on its own. In practice that means a handful of golds on a full slate, every one led by a top-band capper with company.</p>
+  <p>Gold is intentionally hard, and under the Wilson engine it takes a top name PLUS corroboration: the #1 capper alone is just under 80, so even the best record we track needs the sport rank bonus or real chip-ins from other ranked winners to cross 100. A crowd of strangers cannot do it, and neither can one name on its own. In practice that means a handful of golds on a full slate, every one led by a top-band capper with company.</p>
 
   <h3>The moment a bet is tracked</h3>
-  <p>A pick becomes a tracked bet the instant its true score crosses 100 (a total also has to clear the totals gate). Not when it posts, not when the reveal finishes, not at game start. The crossing puts the bet on the record and stamps its day:</p>
-  <ul class="timeline">
-    <li><span class="t">Bet recorded</span><span>The pick lands in the permanent gold record. Its price is the game's official line, which is settled separately at the 1-hour mark below; a pick that crosses earlier tracks the market until then, and a pick that crosses later inherits the already-locked number.</span></li>
-    <li><span class="t">Day stamped</span><span>The bet files under the day the game is actually played. The game's own start time decides the board day, so an overnight post about tomorrow's tennis lands on tomorrow's record, not tonight's.</span></li>
-  </ul>
-  <p><b>The bet is priced 1 hour before the game.</b> The game's CA line locks exactly 60 minutes before the listed start (the old reach-gold lock is retired). Whatever the freshest book shows at that moment becomes the official line everywhere, and every tracked bet on that game is priced at it, as if the bet were placed right there. Grading and the P/L math use this frozen number no matter where the market moves afterward. The 1-hour mark follows the real start time, so a schedule slip moves it too.</p>
-  <p><b>The score can keep climbing; the price cannot move.</b> Backers who arrive after the crossing still raise the recorded score, right up to the moment the game actually goes live. The listed start time is only an estimate (tennis especially runs late), so the freeze keys on the real first pitch or first serve, and the tracked score follows the board the whole way there. Once the game is live the score is frozen, and once a result is on the row nothing changes it again.</p>
+  <p>A pick becomes a tracked bet the instant its true score crosses 100 (a total also has to clear the totals gate). Not when it posts, not when the reveal finishes, not at game start. The whole life of a tracked bet:</p>
+  <div class="betline">
+    <div class="stop"><b>Crosses 100</b><span>bet recorded, filed under the day the game is played &middot; totals need the totals gate &middot; heavy check: an ML at -300 or worse stays board-only</span></div>
+    <div class="stop"><b>T-60</b><span>the CA line locks about 1 hour before start &middot; the bet is priced here, wherever the score is</span></div>
+    <div class="stop"><b>True start</b><span>first pitch or first serve, not the listed time &middot; score freezes, flips end</span></div>
+    <div class="stop"><b>Final</b><span>graded &middot; every backer's ledger updated &middot; rankings recompute on the spot</span></div>
+  </div>
+  <div class="betline-pre">pregame: the score keeps climbing, and the tracked side can still flip to the leader</div>
+  <p class="diagram-cap">A pick can cross 100 before or after T-60. Earlier crossings track the market until the lock; later ones inherit the locked line. An overnight post about tomorrow's tennis files under tomorrow's record, not tonight's.</p>
+  <p><b>The bet is priced 1 hour before the game.</b> The game's CA line locks within minutes of the 1-hour mark before the listed start (the old reach-gold lock is retired). Whatever the freshest book shows at that moment becomes the official line everywhere, and every tracked bet on that game is priced at it, as if the bet were placed right there. Grading and the P/L math use this frozen number no matter where the market moves afterward. A schedule change announced before the lock moves the mark with it; once locked, the line never re-opens.</p>
+  <p><b>The score can keep climbing; the price cannot move.</b> Backers who arrive after the crossing still raise the recorded score, right up to the moment the game actually goes live. The listed start time is only an estimate (tennis especially runs late), so the freeze keys on the real first pitch or first serve, and the tracked score follows the board the whole way there. Once the game is live the score is frozen, and once a result is on the row, only a conflict void can ever touch it again: a graded win or loss never changes, but a later-discovered same-game conflict can still mark it void.</p>
   <p><b>No price, no bet.</b> A moneyline pick with no betting line available from any book is not tracked yet, because there is no P/L truth without a price. The row is written the moment a line shows up, and a pick whose line never materializes is never tracked. Spreads and totals settle at standard juice, so only moneylines wait.</p>
-  <p><b>Huge favorites do not get tracked (July 28).</b> A moneyline gold priced -300 or heavier stays on the board and in the rankings, but no bet goes on the record. The math is unforgiving: at -1250 one loss erases twelve wins, and our own heavy-favorite bets went 37-13, winning 74 percent of the time, while losing more than six units. The check happens once, at the moment the pick would be tracked, using whatever the odds are right then. Tracked at -250 in the morning and drifting to -320 by evening rides; blocked at -320 and softening to -280 gets in on the next pass. The rule is scaffolding, not a belief about sports: the first capper who proves they beat heavy prices, 30 or more graded heavy-favorite bets with a positive edge over price, unlocks tracking for their own heavy picks automatically. The record was restated back to the v4 launch on July 9 under this rule, and the removed bets mostly won, which is the honest direction for a restatement: the shown win rate drops, the P/L stops paying juice it could never earn back.</p>
-  <p><b>One bet per game, and it follows the leader.</b> If the other side of a game overtakes the tracked pick while the game is still pregame, the bet flips: the old hypothetical bet is removed from the record (pending pregame bets are never public, so nothing visible disappears) and one flat unit goes on the new leader at the same locked 1-hour line. This can happen any time before the real start, however late. If both sides are dead even when the game goes live, both are voided (rare). After the start, nothing flips. For the future real-money mirror, a flip after a position is already open is the case that needs a hedge calculation on the prediction market side to cover the original stake; for the hypothetical P/L it is a clean swap.</p>
+  <p><b>Huge favorites do not get tracked (July 28).</b> A moneyline gold priced -300 or heavier stays on the board and in the rankings, but no bet goes on the record. The math is unforgiving: at -1250 one loss erases twelve wins, and our own heavy-favorite bets went 41-14, winning 74 percent of the time, while losing almost seven units. The needed-win-rate chart in chapter 4c shows the trap: -300 demands 75 percent, and 74 is not 75. The check happens once, at the moment the pick would be tracked, using whatever the odds are right then. Tracked at -250 in the morning and drifting to -320 by evening rides; blocked at -320 and softening to -280 gets in on the next pass. The rule is scaffolding, not a belief about sports: the first capper who proves they beat heavy prices, 30 or more graded heavy-favorite bets with a positive edge over price, unlocks tracking for every heavy pick they back, automatically. The record was restated back to the v4 launch on July 9 under this rule, and the removed bets mostly won, which is the honest direction for a restatement: the shown win rate drops, the P/L stops paying juice it could never earn back.</p>
+  <p><b>One bet per direction, and it follows the leader.</b> A game answers two separate questions: who covers the margin (moneyline and spread together) and where the total lands (over or under). Each can carry its own tracked bet, and they settle independently, so a tracked spread and a tracked over on one game are routine. Within a direction, if the other side overtakes the tracked pick while the game is still pregame, the bet flips: the old hypothetical bet is removed from the record (pending pregame bets are never public, so nothing visible disappears) and one flat unit goes on the new leader at the same locked 1-hour line. Same-team moneyline and spread are the same opinion, not a conflict, so both can ride. If both sides are dead even when the game goes live, both are voided (rare). After the start, nothing flips. For the future real-money mirror, a flip after a position is already open is the case that needs a hedge calculation on the prediction market side to cover the original stake; for the hypothetical P/L it is a clean swap.</p>
   <p>The reveal has no say in any of this. Tracking keys on the true score, so a bet is often already recorded while members are still watching its public number climb.</p>
 
   <p>A standing alarm watches the gold tier's trailing 30-day record. If gold ever stops beating the old system's benchmark, that alarm is the signal to recalibrate, and it is checked on real results, not vibes.</p>
@@ -330,7 +469,7 @@
     <li><span class="t">5:20am</span><span>The nightly re-rank. Every capper's Wilson score, board position, ladder points, sport ranks, and fade flags recompute from the full graded ledger. This is the full nightly sweep; during the day the same re-rank also fires the moment any batch of games grades, so results become scoring power right away.</span></li>
     <li><span class="t">All day</span><span>Discord picks land instantly. Action Network polls every 10 minutes, Polymarket every 15, Covers and WagerTalk every 30. Every arrival rescores its pick slot and, if needed, starts a reveal.</span></li>
     <li><span class="t">4:00pm</span><span>Afternoon line refresh for evening games.</span></li>
-    <li><span class="t">T-60: the line lock</span><span>Each game's CA line locks 1 hour before it starts, and that is the moment the hypothetical bet is placed. Whatever the market shows then becomes the official line: the number the rankings display and every tracked bet is priced at and grades against. Before that a pick shows the morning line as a placeholder; once locked it never moves. The 1-hour mark follows the real start, so a schedule slip moves with it. The tracked side can still flip to the other side of the game any time before the real start (at this same locked line); the score itself keeps tallying until the game actually goes live.</span></li>
+    <li><span class="t">T-60: the line lock</span><span>Each game's CA line locks 1 hour before it starts, and that is the moment the hypothetical bet is placed. Whatever the market shows then becomes the official line: the number the rankings display and every tracked bet is priced at and grades against. Before that a pick shows the current market line as a preview; once locked it never moves. A schedule change announced before the lock moves the mark with it; once locked, the line never re-opens. The tracked side can still flip to the other side of the game any time before the real start (at this same locked line); the score itself keeps tallying until the game actually goes live.</span></li>
     <li><span class="t">Every 5 min</span><span>Live scores update and finished games get graded. Every backer on a graded pick gets the result on their ledger immediately, and the capper rankings recompute on the spot.</span></li>
   </ul>
 </section>
@@ -350,7 +489,7 @@
   </div>
   <p>The same evening, after the Wilson engine reranked everything, here is a pick that earned gold the new way. Every number traces to a person's record:</p>
   <div class="slip">
-    <div class="slip-head"><span>Coco Gauff ML <span class="win">(the new way)</span></span><span class="tag">ATP board · Jul 9, live</span></div>
+    <div class="slip-head"><span>Coco Gauff ML <span class="win">(the new way)</span></span><span class="tag">WTA board · Jul 9, live</span></div>
     <div class="slip-rows">
       <div class="slip-row"><span class="lbl">Best backer <b>Docs Sports, 1-5% band (#10 of 334 at the time)</b></span><span class="val">64</span></div>
       <div class="slip-row"><span class="lbl">Chip-ins <b>volume-proven joiners, halved and tapered</b></span><span class="val">+30</span></div>
@@ -375,13 +514,15 @@
     <dt>Band</dt><dd>Where a capper's rank falls on the points ladder (top 1%, 1-5%, 5-15%, and so on). The band plus the position inside it decides what their picks are worth.</dd>
     <dt>Volume cap</dt><dd>The lid on what a thin record can collect: under 10 graded decisions caps at 50 points, 10 to 29 at 70, 30 or more uncapped.</dd>
     <dt>Best backer</dt><dd>The strongest ranked capper on a pick. Their ladder points, in full, are the pick's foundation.</dd>
-    <dt>Chip-in</dt><dd>What each additional backer adds: half of their own worth, tapered in pairs per band, and only once they have 12 or more graded bets.</dd>
+    <dt>Chip-in</dt><dd>What each additional backer adds: half of their own worth scaled by their own proven win rate, tapered in pairs per band, and only once they have 12 or more graded bets (baseball: a sharper quality curve and 20 graded MLB bets required).</dd>
+    <dt>Needed win rate</dt><dd>The win rate a price demands just to break even. -110 needs 52.4 percent, -300 needs 75, +150 needs 40. Shown as the Needed column on the Cappers tab.</dd>
+    <dt>Edge (over price)</dt><dd>A capper's actual win rate minus the needed rate their own average odds demanded. Positive edge tends to make money at any price; a clearly negative edge over 100+ bets trips the price gate.</dd>
     <dt>Shrunk record (blend)</dt><dd>A capper's ROI after mixing in a skeptical baseline of imaginary break-even picks. Still used for the totals gate and fade routing details.</dd>
     <dt>Source entity</dt><dd>A pipe (Action Network as a whole, a Discord room) formerly tracked as a pseudo-capper. Retired from scoring on July 9; shown in ops tooling only.</dd>
     <dt>Fade</dt><dd>Betting against someone. A fade-active capper's picks add points to the opposite side of whatever they back.</dd>
     <dt>Slot</dt><dd>One of six bettable sides per game the board pre-creates: home ML, away ML, home spread, away spread, over, under. Picks attach to slots.</dd>
     <dt>Mention</dt><dd>One capper backing one slot, from any source. A slot's score recomputes on every new mention.</dd>
-    <dt>Reveal (formerly the leak rule)</dt><dd>Chapter 6. Backer and fade points show in real time; the four bonus components each surface at one seeded random moment, at least 3 hours before start. The public number is the true score minus moments still ahead. The old chunked climb is retired.</dd>
+    <dt>Reveal (formerly the leak rule)</dt><dd>Chapter 6. Backer and fade points show in real time; the three bonus components (sport rank, market signals, side lean) each surface at one seeded random moment, at least 3 hours before start. The public number is the true score minus moments still ahead. The old chunked climb is retired.</dd>
     <dt>Conviction curve</dt><dd>The score-over-time chart on a pick's detail page. A real replay: every step sits at the actual timestamp its points arrived (bonus components at their reveal moments), and it always ends on the exact number the board shows.</dd>
     <dt>Steam</dt><dd>The betting line moving toward a side since morning, usually meaning real money arrived on it.</dd>
     <dt>Contrarian</dt><dd>Backing the side most public tickets are against. Historically the public loses slightly more than it wins.</dd>
