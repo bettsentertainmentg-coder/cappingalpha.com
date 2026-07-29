@@ -16,9 +16,10 @@ import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
   onBoardForSport, currentBoardDate, teamNickname, countryColor,
+  SPORT_THEMES,
 } from './utils.js?v=7';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=10';
+import { TEAM_COLORS } from './modal.js?v=11';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).
@@ -131,9 +132,39 @@ function _rgb(c)       { return `rgb(${c[0]},${c[1]},${c[2]})`; }
 function _teamC(hex)   { let c = _hx(hex); if (_lum(c) < 64) c = _mix(c, _WHITE, 0.3); return c; }
 function _bandC(hex, t){ return _rgb(_mix(_BASE, _teamC(hex), t)); }
 
+function _chromaHex(hex) { const c = _hx(hex); return Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]); }
 function teamPrimary(name) {
   const c = TEAM_COLORS[name];
-  return (c && c[0]) || null;
+  if (!c || !c[0]) return null;
+  // Black/grey-primary teams (Steelers, Pirates) banded as lifted-grey "no
+  // color at all" (Jack 2026-07-28) — the livelier of primary/secondary
+  // carries the band instead, so Steelers band gold, Pirates band gold.
+  const p = c[0], s = c[1];
+  if (s && _chromaHex(s) > _chromaHex(p) + 20) return s;
+  return p;
+}
+
+// Band accents for flags whose primary maps to a dark navy that reads as grey
+// on the dark card (USA, GBR, AUS...): the flag's red carries the band instead.
+// Gauges elsewhere keep the shared COUNTRY_COLORS navy.
+const BAND_COUNTRY_ACCENT = {
+  usa: '#B22234', gbr: '#C8102E', aus: '#E4002B', nzl: '#CC142B', new: '#CC142B',
+  kor: '#CD2E3A', tha: '#A51931', isr: '#2E5FDF', tpe: '#FE0000', cze: '#D7141A',
+};
+function tennisBandPair(g) {
+  const cc = (code) => { const k = (code || '').toLowerCase(); return BAND_COUNTRY_ACCENT[k] || countryColor(code); };
+  let away = cc(g.away_country), home = cc(g.home_country);
+  if (!away && !home) return null;
+  away = away || '#8b5cf6';
+  home = home || '#3b82f6';
+  // Same-country matchups (two Americans) banded one flat color: pull the home
+  // side toward white so the band still reads as two sides.
+  const xa = _hx(away), xh = _hx(home);
+  if (Math.hypot(xa[0] - xh[0], xa[1] - xh[1], xa[2] - xh[2]) < 110) {
+    const c = _mix(xh, _WHITE, 0.45);
+    home = `#${c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+  }
+  return { away, home };
 }
 
 function bandStyle(g) {
@@ -142,9 +173,10 @@ function bandStyle(g) {
   // same gradient instead, so no two matchups read alike (2026-07-28).
   const sp = (g.sport || '').toUpperCase();
   const tennis = sp === 'ATP' || sp === 'WTA';
-  const a = teamPrimary(g.away_team) || (tennis ? countryColor(g.away_country) : null) || '#31435f';
-  const h = teamPrimary(g.home_team) || (tennis ? countryColor(g.home_country) : null) || '#233043';
-  let ta = 0.42, th = 0.42;
+  const pair = tennis ? tennisBandPair(g) : null;
+  const a = teamPrimary(g.away_team) || (pair ? pair.away : null) || '#31435f';
+  const h = teamPrimary(g.home_team) || (pair ? pair.home : null) || '#233043';
+  let ta = tennis ? 0.52 : 0.42, th = tennis ? 0.52 : 0.42;
   const live = g.status === 'in', post = g.status === 'post';
   if ((live || post) && typeof g.away_score === 'number' && typeof g.home_score === 'number') {
     if (g.away_score > g.home_score)      { ta = 0.5; th = 0.3; }
@@ -258,7 +290,14 @@ function bandHtml(g) {
   const hasScore = g.status === 'in' || g.status === 'post';
   const aLose = hasScore && (g.away_score ?? 0) < (g.home_score ?? 0) ? ' lose' : '';
   const hLose = hasScore && (g.home_score ?? 0) < (g.away_score ?? 0) ? ' lose' : '';
-  const mid = `<div class="nx-bmid"><span class="nx-bsport">${esc((g.sport || '').toUpperCase())}</span>${stateHtml(g)}</div>`;
+  // Sport identity chip: the tiny grey text was unreadable on the All tab
+  // (Jack 2026-07-28) — the site-wide sport gradient carries it instead.
+  const theme = SPORT_THEMES[g.sport] || SPORT_THEMES[(g.sport || '').toUpperCase()];
+  const spLabel = (theme && theme.label) || (g.sport || '').toUpperCase();
+  const spChip = theme
+    ? `<span class="nx-bsport chip" style="background:${theme.grad}">${esc(spLabel)}</span>`
+    : `<span class="nx-bsport">${esc((g.sport || '').toUpperCase())}</span>`;
+  const mid = `<div class="nx-bmid">${spChip}${stateHtml(g)}</div>`;
   return `<div class="nx-band" style="${bandStyle(g)}">` +
     bandTeam(g, 'away') +
     (hasScore ? `<span class="nx-bs n${aLose}">${g.away_score ?? 0}</span>` : '') +
@@ -360,34 +399,56 @@ function chipRow(g, ctx) {
   return `<div class="nx-chips">${h}</div>`;
 }
 
-// ── Expansion (mock xpHtml: mcell markets left, xrow context right, exits) ───
+// ── Expansion — context the card does NOT already show (Jack 2026-07-28: the
+// old panel restated the lines strip + band). Now: the live situation, tennis
+// set-by-set, time-to-start, and for members the actual ranked picks.
+// Per-set games for a tennis match, from the today_games JSON blob.
+function _tennisSets(g) {
+  try { return JSON.parse(g.tennis_score_detail || '[]') || []; } catch (_) { return []; }
+}
+
+function _relTime(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 function xpHtml(g, ctx) {
-  const hm = mono(g.home_team, g.sport), am = mono(g.away_team, g.sport);
-  let left = '';
-  if (hasLines(g)) {
-    if (g.spread_home != null || g.spread_away != null) {
-      left += `<div class="nx-mcell n"><b>SPREAD</b><span>${esc(am)} ${esc(fmtSpread(g.spread_away))} / ${esc(hm)} ${esc(fmtSpread(g.spread_home))}</span></div>`;
-    }
-    if (g.over_under != null) {
-      left += `<div class="nx-mcell n"><b>TOTAL</b><span>O ${esc(String(g.over_under))} ${esc(fmtOdds(g.ou_over_odds))} / U ${esc(String(g.over_under))} ${esc(fmtOdds(g.ou_under_odds))}</span></div>`;
-    }
-    if (g.ml_home != null || g.ml_away != null) {
-      left += `<div class="nx-mcell n"><b>ML</b><span>${esc(am)} ${esc(fmtOdds(g.ml_away))} / ${esc(hm)} ${esc(fmtOdds(g.ml_home))}</span></div>`;
-    }
-  } else {
-    left += `<div class="nx-xrow">Lines post closer to start</div>`;
+  const sp = (g.sport || '').toUpperCase();
+  const tennis = sp === 'ATP' || sp === 'WTA';
+  let rows = '';
+
+  if (g.status === 'in') {
+    rows += `<div class="nx-xrow"><b class="nx-xl">Now</b><b>${esc(liveShortText(g))}</b></div>`;
+  } else if (g.status === 'pre') {
+    const ms = startsInMs(g);
+    const rel = Number.isFinite(ms) && ms > 0 ? ` <span>· in ${esc(_relTime(ms))}</span>` : '';
+    rows += `<div class="nx-xrow"><b class="nx-xl">Starts</b><b>${esc(gameTime(g.start_time))} ET</b>${rel}</div>`;
   }
 
-  const sp = (g.sport || '').toUpperCase();
-  const joiner = (sp === 'ATP' || sp === 'WTA') ? 'vs' : 'at';
-  let right = `<div class="nx-xrow"><b>${esc(displayName(g.away_team))}</b>&nbsp;${joiner}&nbsp;<b>${esc(displayName(g.home_team))}</b></div>`;
-  if (g.status === 'pre')     right += `<div class="nx-xrow">Starts ${esc(gameTime(g.start_time))} ET</div>`;
-  else if (g.status === 'in') right += `<div class="nx-xrow">Live now, ${esc(String(g.away_score ?? 0))}-${esc(String(g.home_score ?? 0))}</div>`;
-  else                        right += `<div class="nx-xrow">Final, ${esc(String(g.away_score ?? 0))}-${esc(String(g.home_score ?? 0))}</div>`;
-  if (ctx.member) {
-    const cnt = (ctx.byGame.get(String(g.espn_game_id)) || []).length;
-    if (cnt) right += `<div class="nx-xrow"><b class="n">${cnt}</b>&nbsp;ranked ${cnt === 1 ? 'pick' : 'picks'} on this game</div>`;
+  // Tennis: the set-by-set board (the band only shows sets won). Away side
+  // first, matching the band's left-to-right order.
+  if (tennis) {
+    const sets = _tennisSets(g);
+    if (sets.length) {
+      rows += `<div class="nx-xrow"><b class="nx-xl">Sets</b><b>${esc(sets.map(s => `${s.away}-${s.home}`).join(', '))}</b></div>`;
+    }
   }
+
+  // Members: the ranked picks themselves, not just a count.
+  if (ctx.member) {
+    const picks = ctx.byGame.get(String(g.espn_game_id)) || [];
+    if (picks.length) {
+      rows += picks.slice(0, 3).map(p => {
+        const res = String(p.result || '').toLowerCase();
+        const dot = `<i class="nx-pdot${res === 'win' ? ' w' : res === 'loss' ? ' l' : ''}"></i>`;
+        return `<div class="nx-xrow nx-xpick">${dot}<b>${esc(pickLabel(p))}</b><span class="n">CA ${p.score}</span></div>`;
+      }).join('');
+      if (picks.length > 3) rows += `<div class="nx-xrow"><span>+${picks.length - 3} more on the Rankings tab</span></div>`;
+    }
+  }
+  if (!rows) rows = `<div class="nx-xrow"><span>Full recap on the game page.</span></div>`;
 
   const id = esc(String(g.espn_game_id));
   const bellOn = _bells.has(String(g.espn_game_id));
@@ -398,7 +459,7 @@ function xpHtml(g, ctx) {
     `<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path class="bfill" d="M12 3a6 6 0 0 0-6 6v3.6L4.4 16.6h15.2L18 12.6V9a6 6 0 0 0-6-6z"/><path class="bfill" d="M10 19.5a2 2 0 0 0 4 0"/></svg></button>`;
   exits += `</div>`;
 
-  return `<div class="nx-xp"><div><div class="nx-xpin"><div class="nx-cols"><div>${left}</div><div>${right}</div></div>${exits}</div></div></div>`;
+  return `<div class="nx-xp"><div><div class="nx-xpin"><div class="nx-xinfo">${rows}</div>${exits}</div></div></div>`;
 }
 
 function cardHtml(g, ctx, dayTag) {
@@ -482,26 +543,26 @@ function unitsHtml(u) {
   return `<span class="n" style="color:var(--red);font-weight:800">${fmtU(u)}</span>`;
 }
 
-// Mock renderVitals: date, Games, Live (sky), Tracked, spacer, caline button.
+// Vitals: the left side is all about the day's slate (date, games, live,
+// upcoming, finals); the right side is ONE deliberate CA-logo record button
+// (the old Tracked stat + settled-units line had no context here — Jack).
 function renderVitals() {
   const el = document.getElementById('nx-vitals');
   if (!el) return;
   const games = boardGames();
   const liveCt = games.filter(g => g.status === 'in').length + _golfTournaments.filter(t => t.status === 'in').length;
-  const total = games.length + _golfTournaments.length;
+  const finCt  = games.filter(g => g.status === 'post').length;
+  const upCt   = games.filter(g => g.status === 'pre').length;
+  const total  = games.length + _golfTournaments.length;
   const dateLabel = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '');
-  const todayRows = _rowsOn(currentBoardDate());
-  const settled = _settledOf(todayRows).filter(p => String(p.result).toLowerCase() !== 'push');
-  const caline = settled.length
-    ? `Board today <b class="n">${fmtU(_settledUnits(settled).units)}</b> settled, ${todayRows.length} tracked &rsaquo;`
-    : `Full record &rsaquo;`;
   el.innerHTML =
     `<span class="nx-vdate">${esc(dateLabel)}</span>` +
     `<span class="nx-v"><b>Games</b><span class="n">${total}</span></span>` +
     `<span class="nx-v"><b>Live</b><span class="n" style="color:var(--nx-live)">${liveCt}</span></span>` +
-    `<span class="nx-v"><b>Tracked</b><span class="n">${todayRows.length}</span></span>` +
+    `<span class="nx-v"><b>Upcoming</b><span class="n">${upCt}</span></span>` +
+    (finCt ? `<span class="nx-v"><b>Finals</b><span class="n">${finCt}</span></span>` : '') +
     `<span class="nx-vsp"></span>` +
-    `<button type="button" class="nx-caline n" data-nav="mvp">${caline}</button>`;
+    `<button type="button" class="nx-carec n" data-nav="mvp" title="The tracked CA record"><img src="/ca-logo.png" alt="" onerror="this.style.display='none'">Full record &rsaquo;</button>`;
 }
 
 function renderBubbles() {
@@ -698,7 +759,7 @@ function bindEvents() {
     }
 
     // Vitals caline + ledger link land on the Rankings tab.
-    if (e.target.closest('.nx-caline')) { if (window.switchTab) window.switchTab('mvp'); return; }
+    if (e.target.closest('.nx-caline, .nx-carec')) { if (window.switchTab) window.switchTab('mvp'); return; }
     const lg = e.target.closest('#nx-ledger-link');
     if (lg) { e.preventDefault(); if (window.switchTab) window.switchTab('mvp'); return; }
 

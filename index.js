@@ -901,7 +901,7 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
-  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
+  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();

@@ -1951,6 +1951,15 @@
     #panel-sports .nx-bs.lose { opacity: .55; font-weight: 600; }
     #panel-sports .nx-bmid { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
     #panel-sports .nx-bsport { font-size: 8px; font-weight: 800; letter-spacing: .14em; color: rgba(255,255,255,.75); text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+    #panel-sports .nx-bsport.chip { font-size: 10px; letter-spacing: .09em; color: #fff; padding: 2.5px 9px; border-radius: 5px; text-shadow: 0 1px 2px rgba(0,0,0,.45); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+    #panel-sports .nx-xinfo { margin-bottom: 4px; }
+    #panel-sports .nx-xl { font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); min-width: 42px; }
+    #panel-sports .nx-pdot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    #panel-sports .nx-pdot.w { background: var(--green); }
+    #panel-sports .nx-pdot.l { background: var(--red); }
+    #panel-sports .nx-carec { flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 5px 12px; font-size: 11px; font-weight: 800; color: var(--text); cursor: pointer; white-space: nowrap; }
+    #panel-sports .nx-carec img { height: 14px; display: block; }
+    #panel-sports .nx-carec:hover { border-color: var(--accent); }
     #panel-sports .nx-state { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
     #panel-sports .nx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nx-live); flex-shrink: 0; animation: nxpul 2s ease-in-out infinite; box-shadow: 0 0 0 1px rgba(0,0,0,.3); }
     #panel-sports .nx-state.pre { text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 11px; }
@@ -4124,6 +4133,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=120"></script>
+  <script type="module" src="app.js?v=121"></script>
 </body>
 </html>
