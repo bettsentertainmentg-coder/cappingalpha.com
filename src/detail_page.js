@@ -234,8 +234,9 @@ function buildNav(user) {
   <!-- Mobile bottom tab bar (same items as the index.html tab bar) -->
   <nav class="ca-tabbar" aria-label="Primary">
     <a class="ca-tabbar-item" href="/"><i class="fa-solid fa-house"></i><span>Home</span></a>
+    <a class="ca-tabbar-item active" href="/#sports"><i class="fa-solid fa-football"></i><span>Sports</span></a>
     <a class="ca-tabbar-item" href="/#mvp"><i class="fa-solid fa-ranking-star"></i><span>Rankings</span></a>
-    <button class="ca-tabbar-item" onclick="caOpenDrawerSports()"><i class="fa-solid fa-baseball"></i><span>Sports</span></button>
+    <a class="ca-tabbar-item" href="/#socials"><i class="fa-solid fa-user-group"></i><span>Socials</span></a>
     <a class="ca-tabbar-item" href="/#tracking"><i class="fa-solid fa-chart-line"></i><span>Tracking</span></a>
   </nav>
   <script>
@@ -433,10 +434,20 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=3" />
+  <link rel="stylesheet" href="/game-detail.css?v=4" />
   <link rel="stylesheet" href="/gauge.css" />
   <link rel="stylesheet" href="/track-sheet.css?v=3" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    // App-only styling hook (mirror of index.html): Capacitor injects its bridge
+    // before page scripts, so html.ca-app CSS applies only inside the native
+    // shell, never on the website.
+    try {
+      if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+        document.documentElement.classList.add('ca-app');
+      }
+    } catch (e) {}
+  </script>
   <script type="application/ld+json">${jsonLd}</script>
 </head>
 <body>

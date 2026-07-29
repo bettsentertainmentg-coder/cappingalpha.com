@@ -2280,3 +2280,13 @@ a, button { touch-action: manipulation; }
   input[type="password"], input[type="search"], input:not([type]),
   select, textarea { font-size: 16px !important; }
 }
+
+/* ── Native app chrome (html.ca-app, stamped pre-paint) — the detail page used
+   to show full web chrome inside the app: hamburger up top and the old 4-tab
+   bar. The bar markup now mirrors the SPA; these rules match the app shell. */
+html.ca-app nav:not(.ca-tabbar) { padding-top: env(safe-area-inset-top); height: calc(46px + env(safe-area-inset-top)); }
+html.ca-app .ca-hamburger { display: none !important; }
+html.ca-app footer { display: none !important; }
+html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
+html.ca-app { -webkit-tap-highlight-color: transparent; }
+html.ca-app nav, html.ca-app .ca-tabbar, html.ca-app .track-fab { -webkit-user-select: none; user-select: none; }
