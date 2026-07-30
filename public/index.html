@@ -118,6 +118,13 @@
       --gold-ink:  #FFD700;   /* gold as TEXT; equals --gold in dark so text remaps are a no-op here */
       --green:     #22c55e;
       --red:       #ef4444;
+      /* Soft yellow — the "graded but outscored" state: a pick that finished but
+         was beaten to the slot by a better-scored pick on the same game, so it
+         counts as neither a win nor a loss. Desaturated on purpose so it never
+         reads as --gold (MVP identity) or as a live/pending amber. */
+      --amber:      #f2c14e;
+      --amber-soft: rgba(242,193,78,0.13);
+      --amber-line: rgba(242,193,78,0.34);
       /* Socials "twist" accent — Sky. Used ONLY inside the Socials tab (sub-nav,
          Tail/Fade, Boost, avatar rings, streak flames, section eyebrows). Gold
          stays official/awards, green/red stay results, brand blue keeps Follow +
@@ -152,6 +159,11 @@
       --gold-ink:  #8B6914;   /* dark bronze for gold TEXT on white — clears WCAG AA (5.09:1) */
       --green:     #15803d;   /* darkened so small stat text clears WCAG AA (4.5:1) on white */
       --red:       #d12525;
+      /* Amber darkened for white grounds — the soft yellow reads as a wash in
+         the row tint but the text/ring color has to stay legible. */
+      --amber:      #9a6a06;
+      --amber-soft: rgba(217,164,6,0.16);
+      --amber-line: rgba(154,106,6,0.38);
       /* Sky darkened for white grounds: reads as a link/accent on white and takes
          white ink on its fill. Same role as the dark-theme --soc. */
       --soc:       #0284c7;
@@ -1095,6 +1107,7 @@
     .record-val.green { color: var(--green); }
     .record-val.red   { color: var(--red); }
     .record-val.gold  { color: var(--gold-ink); }
+    .record-val.amber { color: var(--amber); }
 
     .result-win    { color: var(--green); font-weight: 700; }
     .result-loss   { color: var(--red);   font-weight: 700; }
@@ -3162,6 +3175,7 @@
     .ca-corner-bar i { flex:1; border-radius:2px; background:var(--border); }
     .ca-corner-bar i.w { background:var(--green); }
     .ca-corner-bar i.l { background:var(--red); }
+    .ca-corner-bar i.o { background:var(--amber); }
     .ca-corner-bar i.lv { background:#38bdf8; animation:caLiveFlash 1.4s ease-in-out infinite; }
 
     .ca-rankbox { max-height:560px; overflow-y:auto; overscroll-behavior:contain; }
@@ -3180,6 +3194,8 @@
     .ca-row.g-win { background:rgba(74,222,128,0.09); border-color:rgba(74,222,128,0.22); }
     .ca-row.g-loss { background:rgba(248,113,113,0.09); border-color:rgba(248,113,113,0.22); }
     .ca-row.g-push { background:rgba(148,163,184,0.09); border-color:rgba(148,163,184,0.25); }
+    /* Graded but outscored on its game: soft yellow, not the push grey. */
+    .ca-row.g-out { background:var(--amber-soft); border-color:var(--amber-line); }
     .ca-row-rank { flex:0 0 auto; width:20px; text-align:center; font-size:11px; font-weight:800; color:var(--muted); font-variant-numeric:tabular-nums; }
     .ca-row-rank.rk1 { color:var(--gold-ink); }
     .ca-row-ring { flex:0 0 auto; width:40px; height:40px; border-radius:50%; border:2px solid var(--border); display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:13.5px; font-variant-numeric:tabular-nums; position:relative; }
@@ -3202,6 +3218,7 @@
     .ca-res-chip.w { color:var(--green); background:rgba(34,197,94,0.13); }
     .ca-res-chip.l { color:var(--red); background:rgba(239,68,68,0.13); }
     .ca-res-chip.p { color:#94a3b8; background:rgba(148,163,184,0.13); }
+    .ca-res-chip.v { color:var(--amber); background:var(--amber-soft); border:1px solid var(--amber-line); }
     .ca-res-chip.pnd { color:var(--muted); background:var(--overlay-1); border:1px solid var(--border); }
     .ca-row-money { font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; }
     .ca-row-money.pos { color:var(--green); }
@@ -3235,6 +3252,9 @@
     .ca-dayh b.neg { color:var(--red); }
     .ca-hrow { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border); }
     .ca-hrow.dim { opacity:.5; }
+    /* Graded but outscored: soft-yellow rail + a lighter dim so the color reads. */
+    .ca-hrow.out { border-left:2px solid var(--amber-line); padding-left:7px; }
+    .ca-hrow.dim.out { opacity:.72; }
     .ca-hrow .hsc { flex:0 0 34px; font-size:12px; font-weight:800; color:var(--gold-ink); font-variant-numeric:tabular-nums; }
     .ca-hrow .hpk { flex:1; min-width:0; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .ca-hrow .hmeta { color:var(--muted); font-weight:700; font-size:11px; margin-left:6px; }
@@ -3304,6 +3324,7 @@
     .ca-rail-row.graded-loss { background:rgba(248,113,113,0.10); border-color:rgba(248,113,113,0.22); }
     .ca-rail-row.graded-push { background:rgba(148,163,184,0.10); border-color:rgba(148,163,184,0.25); }
     .ca-rail-void-note { font-size:10.5px; color:var(--muted); font-style:italic; margin-top:2px; white-space:normal; line-height:1.35; }
+    .ca-rail-void-note.out { color:var(--amber); }
     .ca-push-chip { font-size:10px; font-weight:700; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:0 5px; color:var(--muted); margin-left:6px; vertical-align:middle; }
     .ca-rail-opp { font-size:10px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:92px; margin-left:auto; }
     .ca-rail-opp-under { font-size:10.5px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -4140,6 +4161,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=122"></script>
+  <script type="module" src="app.js?v=123"></script>
 </body>
 </html>

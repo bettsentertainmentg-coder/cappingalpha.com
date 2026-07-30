@@ -32,6 +32,22 @@ function isGraded(p) {
   return r === 'win' || r === 'loss' || r === 'push' || r === 'void';
 }
 
+// A graded pick that was voided because a higher-scored pick on the SAME game
+// took the slot (src/mvp.js noteLess / noteDup, plus the legacy "had less
+// points" wording on older rows). Those read SOFT YELLOW everywhere instead of
+// the push grey: the call was real, it just wasn't the one that got tracked.
+// True no-action voids stay neutral grey (a listed player was replaced, no line
+// was available, the rare equal-score tie) — nothing outscored those.
+const OUTSCORED_NOTE = /had more points|had less points|outscored/i;
+export function isVoidedPick(p) {
+  if (!p) return false;
+  const r = (p.result || '').toLowerCase();
+  return r === 'void' || String(p.annotation || '').toLowerCase().includes('not counted');
+}
+export function isOutscoredVoid(p) {
+  return isVoidedPick(p) && OUTSCORED_NOTE.test(String(p.annotation || ''));
+}
+
 // When a pick finished, for the graded list's most-recent-first order. Board
 // rows may not carry resolved_at; the game's start time is the fallback proxy.
 function _finishTs(p) {
@@ -89,22 +105,24 @@ export function caPickRowHtml(p, opts = {}) {
   const graded = isGraded(p);
   const live = !graded && p.game_status === 'in';
   const r = (p.result || '').toLowerCase();
-  const isVoid = r === 'void' || !!(p.annotation && p.annotation.toLowerCase().includes('not counted'));
+  const isVoid = isVoidedPick(p);
+  const outVoid = graded && isOutscoredVoid(p); // graded, beaten on its game → soft yellow
   const outscored = !!p._outscored;
   const heat = PICK_HEAT_COLOR(p.score || 0);
   const goldLine = state.CONFIG?.mvp_display_threshold || 100;
 
   const rowCls = 'ca-row'
     + (live ? ' live' : '')
-    + (graded ? (isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
+    + (graded ? (outVoid ? ' g-out' : isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
 
-  // Score ring: outcome color once graded, sky while live, heat color pre-game
-  // (grey when outscored), silver/dim tiers below the gold line.
+  // Score ring: outcome color once graded (soft yellow when the pick graded but
+  // was outscored on its game), sky while live, heat color pre-game (grey when
+  // currently outscored), silver/dim tiers below the gold line.
   let ringColor, numColor;
   if (opts.locked) { ringColor = '#3a4356'; numColor = '#64748b'; }
   else if (graded) {
-    ringColor = r === 'win' ? 'rgba(74,222,128,0.6)' : r === 'loss' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.55)';
-    numColor = r === 'win' ? '#4ade80' : r === 'loss' ? '#f87171' : '#94a3b8';
+    ringColor = outVoid ? 'var(--amber-line)' : r === 'win' ? 'rgba(74,222,128,0.6)' : r === 'loss' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.55)';
+    numColor = outVoid ? 'var(--amber)' : r === 'win' ? '#4ade80' : r === 'loss' ? '#f87171' : '#94a3b8';
   } else if (live) { ringColor = 'rgba(56,189,248,0.7)'; numColor = '#38bdf8'; }
   else if (outscored) { ringColor = 'rgba(148,163,184,0.5)'; numColor = 'var(--muted)'; }
   else if ((p.score || 0) < 75) { ringColor = '#39415a'; numColor = '#8892a4'; }
@@ -132,7 +150,7 @@ export function caPickRowHtml(p, opts = {}) {
   } else {
     context = oppFor(p);
   }
-  const voidNote = isVoid ? `<div class="ca-rail-void-note">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
+  const voidNote = isVoid ? `<div class="ca-rail-void-note${outVoid ? ' out' : ''}">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
   const outNote = outscored && !graded ? `<div class="ca-rail-void-note">Currently outscored</div>` : '';
   const main = opts.locked
     ? `<div class="ca-row-main"><div class="ca-row-l1 blurred">Members only</div><div class="ca-row-l2 blurred">${sportBadge(p.sport)}</div></div>`
@@ -158,7 +176,9 @@ export function caPickRowHtml(p, opts = {}) {
       <span class="lsc">${pair[1].a} ${pair[1].s}</span>
       <span class="lck"><span class="ca-live-dot ca-live-dot--flash"></span>${clock}</span></div>`;
   } else if (graded) {
-    const chip = (isVoid || r === 'push')
+    const chip = outVoid
+      ? `<span class="ca-res-chip v">VOID</span>`
+      : (isVoid || r === 'push')
       ? `<span class="ca-res-chip p">${isVoid ? 'VOID' : 'PUSH'}</span>`
       : r === 'win' ? `<span class="ca-res-chip w">WIN</span>` : `<span class="ca-res-chip l">LOSS</span>`;
     // Money only on tracked (gold) picks — untracked board picks aren't in the record.
@@ -214,7 +234,10 @@ function cornerMetaHtml(card) {
   const segs = [
     ...b.graded.map(p => {
       const r = (p.result || '').toLowerCase();
-      return `<i class="${r === 'win' ? 'w' : r === 'loss' ? 'l' : ''}"></i>`;
+      // Soft-yellow pip for a graded pick that got outscored on its game — it
+      // counts in neither column, and a grey pip read as "not started yet".
+      const cls = isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
+      return `<i class="${cls}"></i>`;
     }),
     ...b.live.map(() => '<i class="lv"></i>'),
     ...b.upcoming.map(() => '<i></i>'),
