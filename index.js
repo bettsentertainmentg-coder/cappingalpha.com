@@ -41,7 +41,7 @@ const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_
 const { resolveResults, resolveVotes } = require('./src/results');
 const { recomputeCapperRatings } = require('./src/capper_ratings');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
-const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
+const { refreshPmWallets, pollPmWallets, discoverPmHolders } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
 const { pollWagerTalk } = require('./src/wagertalk');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
@@ -3011,6 +3011,7 @@ app.listen(PORT, () => {
     await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
     await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
     await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
+    discoverPmHolders().catch(err => console.error('[startup] discoverPmHolders error:', err.message));
     pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
@@ -3387,6 +3388,7 @@ cron.schedule('20 5 * * *', () => {
 if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
   await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
   await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
+  await discoverPmHolders().catch(err => console.error('[cron] discoverPmHolders error:', err.message));
   await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
 }, { timezone: 'America/New_York' });
 
