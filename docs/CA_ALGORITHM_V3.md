@@ -199,9 +199,22 @@ from WHERE THE BACKER RANKS among all cappers, and pipes don't rank.
 
 ## The ranking
 
-Every capper with at least one graded DECISION (win or loss; pushes sit out) goes
-into ONE pool, ranked by the LOWER BOUND of the 99% Wilson score interval
-(z = 2.576) on their win rate. The worst-case win rate the record still supports:
+Every capper with at least one graded PREGAME decision (win or loss; pushes sit
+out) goes into ONE pool, ranked by the LOWER BOUND of the 99% Wilson score
+interval (z = 2.576) on their win rate.
+
+PREGAME ONLY (Jack 2026-07-29): in-play entries (live=true in sources_json —
+wallets/experts entering after the game started) are EXCLUDED from every
+ratings aggregate: the pool, win%, units, gates, edge, heavy-bracket stats, and
+the side lean. The board only ever scores pregame picks (source_ingest's gate),
+so ranks must be built on the same universe. Before the fix, in-play rows were
+7,787 of ~19k graded rows (WTA 82%, ATP 62% of their rows), ran ~6pts hotter on
+win% at short prices with worse ROI, and 9 of the 31 top-5% cappers had ZERO
+pregame decisions — ranks built entirely on bets the site never judges. Live
+rows stay in capper_history (provenance, future live product); they are simply
+not evidence of pregame skill. Rows with no provenance (Discord era) are
+pregame by construction. Historical tracked records were NOT restated; the fix
+changes ratings forward from deploy. The worst-case win rate the record still supports:
 big proven volume beats thin perfection (MidwestMike 85-49 outranks a 7-0; at 95%
 confidence that inverts, which is why 99% was chosen — verified on the 2026-07-09
 prod pull of 343 cappers). Ties on (wilson, win%, decisions) share a rank.

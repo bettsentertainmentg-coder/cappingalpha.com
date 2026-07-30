@@ -267,10 +267,31 @@ function buildResolver() {
   };
 }
 
+// ── PREGAME-ONLY RATINGS (Jack 2026-07-29) ────────────────────────────────────
+// The site scores PREGAME picks only (source_ingest's board gate), but this
+// recompute used to rank cappers on their FULL history — including in-play
+// entries, which source_ingest records with live=true provenance and never
+// places on the board. In-play rows are short-price heavy (win% inflated ~6pts
+// at worse ROI — buying a side already ahead), and the ladder ranks on the
+// Wilson bound of win%, exactly the number in-play betting inflates. At the
+// time of the fix, 61 of 640 ranked cappers had ZERO pregame decisions and 9
+// of the top-5% band ranked purely on bets we would never score. A capper is
+// judged on what we judge the site on: pregame picks. Live rows stay in
+// capper_history untouched (provenance + future live-lines work); they are
+// simply no longer evidence here. Rows with no provenance (Discord era) are
+// pregame by construction.
+function isLiveRow(row) {
+  if (!row.sources_json) return false;
+  try {
+    const arr = JSON.parse(row.sources_json);
+    return Array.isArray(arr) && arr.some((s) => s && (s.live === true || (s.meta && s.meta.is_live === true)));
+  } catch (_) { return false; }
+}
+
 // ── Recompute everything ──────────────────────────────────────────────────────
 function recomputeCapperRatings() {
   const rows = db.prepare(`
-    SELECT capper_name, sport, pick_type, result, odds, source
+    SELECT capper_name, sport, pick_type, result, odds, source, sources_json
     FROM capper_history
     WHERE result IN ('win', 'loss', 'push') AND capper_name IS NOT NULL
   `).all();
@@ -279,7 +300,9 @@ function recomputeCapperRatings() {
   const cappers = new Map(); // canonical -> { n,w,l,p,u, sources:Set, sports:Map, types:Map }
   const heavyFloor = heavyImpliedFloor();
 
+  let liveSkipped = 0;
   for (const row of rows) {
+    if (isLiveRow(row)) { liveSkipped++; continue; } // pregame picks only
     const name = resolve(row.capper_name, row.source);
     if (!cappers.has(name)) {
       cappers.set(name, { n: 0, w: 0, l: 0, p: 0, u: 0, e: 0, imp: 0, impN: 0, hn: 0, he: 0, sources: new Set(), sports: new Map(), types: new Map() });
@@ -482,11 +505,12 @@ function recomputeCapperRatings() {
   const leanAgg = new Map(); // sport -> { home:{n,u}, away:{n,u} }
   try {
     for (const r of db.prepare(`
-      SELECT sport, pick_type, result, odds, is_home_team FROM capper_history
+      SELECT sport, pick_type, result, odds, is_home_team, sources_json FROM capper_history
       WHERE result IN ('win','loss','push') AND is_home_team IS NOT NULL
         AND LOWER(pick_type) IN ('ml','spread')
         AND game_date >= date('now','-120 days')
     `).all()) {
+      if (isLiveRow(r)) continue; // pregame picks only — same rule as the pool above
       const sport = (r.sport || '').toUpperCase();
       if (!sport || NO_VENUE.has(sport)) continue;
       if (!leanAgg.has(sport)) leanAgg.set(sport, { home: { n: 0, u: 0 }, away: { n: 0, u: 0 } });
@@ -608,8 +632,9 @@ function recomputeCapperRatings() {
     proven: db.prepare(`SELECT COUNT(*) n FROM capper_ratings WHERE scope='overall' AND tier='proven'`).get().n,
     fadeWatch: db.prepare(`SELECT COUNT(*) n FROM capper_ratings WHERE scope='overall' AND fade='watch'`).get().n,
     fadeActive: db.prepare(`SELECT COUNT(*) n FROM capper_ratings WHERE scope='overall' AND fade='active'`).get().n,
+    liveSkipped,
   };
-  console.log(`[ratings] recomputed: ${summary.cappers} cappers, ${summary.rated} rated (${summary.proven} proven), fade watch ${summary.fadeWatch} / active ${summary.fadeActive}`);
+  console.log(`[ratings] recomputed: ${summary.cappers} cappers, ${summary.rated} rated (${summary.proven} proven), fade watch ${summary.fadeWatch} / active ${summary.fadeActive}, ${liveSkipped} in-play rows excluded`);
   return summary;
 }
 
@@ -636,7 +661,7 @@ module.exports = {
   // so the restatement runs the REAL math, never a fork
   bandFor, ladderPts, gateT, moneyGateT, capForDecisions, rankPool, HARD_ZERO_WIN,
   impliedProb, edgeContrib, heavyGateOdds, heavyImpliedFloor,
-  PRICE_GATE_MIN_N, PRICE_GATE_EDGE, HEAVY_UNLOCK_N,
+  PRICE_GATE_MIN_N, PRICE_GATE_EDGE, HEAVY_UNLOCK_N, isLiveRow,
 };
 
 // CLI: node src/capper_ratings.js
