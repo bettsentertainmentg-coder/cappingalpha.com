@@ -222,9 +222,23 @@ function _counted(graded) {
   });
 }
 
+// Win% color bands (Jack, 2026-07-29): 50 and below is red, 51-54 keeps the
+// gold/yellow, 55+ goes green. `pct` must be the ROUNDED number the surface
+// prints, so the color can never disagree with the digits. Nothing decided yet
+// reads neutral — a 0% on an empty record is no information, not a bad day.
+// Shared by every CA record readout (card heads, the Rankings record bar, the
+// home #1 card strip, the sport profile header) so one number, one color.
+export function winPctColor(pct) {
+  if (pct == null || Number.isNaN(pct)) return 'var(--muted)';
+  if (pct <= 50) return 'var(--red)';
+  if (pct < 55) return 'var(--gold-ink)';
+  return 'var(--green)';
+}
+
 // Card-head corner: the day's record line in the record-bar colors (wins green,
-// losses red, win% gold, ROI by sign) over a win/loss/live/pending segment bar.
-// Before anything grades it reads as a signal count.
+// losses red, win% banded by winPctColor, ROI by sign) over a
+// win/loss/live/pending segment bar. Before anything grades it reads as a
+// signal count.
 function cornerMetaHtml(card) {
   const b = viewBuckets(card);
   const counted = _counted(b.graded);
@@ -246,8 +260,9 @@ function cornerMetaHtml(card) {
   if (decided) {
     const profit = counted.reduce((s, p) => s + flatUnitReturn(p, 1), 0);
     const roi = 100 * profit / decided;
+    const wpct = Math.round(100 * wins / decided);
     line = `<b style="color:var(--green);">${wins}</b><span class="sep">-</span><b style="color:var(--red);">${losses}</b>`
-      + `<span class="sep"> · </span><b style="color:var(--gold-ink);">${Math.round(100 * wins / decided)}%</b>`
+      + `<span class="sep"> · </span><b style="color:${winPctColor(wpct)};">${wpct}%</b>`
       + `<span class="sep"> · </span><b style="color:${roi >= 0 ? 'var(--green)' : 'var(--red)'};">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% ROI</b>`;
   } else {
     const n = card.list.length;

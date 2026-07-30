@@ -5,7 +5,7 @@ import { isPaying, isAccount } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=7';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid } from './sport_cards.js?v=27';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=28';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -166,12 +166,15 @@ function _computeRecord(picks) {
   const losses = picks.filter(p => p.result === 'loss').length;
   const pushes = picks.filter(p => p.result === 'push').length;
   const total  = wins + losses;
-  const winRate = total > 0 ? `${Math.round(wins / total * 100)}%` : '0%';
+  // winPct is the numeric twin of winRate (null with nothing decided) — the
+  // record bar bands its color off it, so the digits and the color agree.
+  const winPct = total > 0 ? Math.round(wins / total * 100) : null;
+  const winRate = total > 0 ? `${winPct}%` : '0%';
   // ROI on money risked (decided bets, flat stakes) — unit size cancels out,
   // so a 1-unit pass matches the graph's P/L at any unit setting.
   const profit = picks.reduce((s, p) => s + calcReturn(p, 1), 0);
   const roi = total > 0 ? +(100 * profit / total).toFixed(1) : null;
-  return { wins, losses, pushes, winRate, roi };
+  return { wins, losses, pushes, winRate, winPct, roi };
 }
 
 // `full` = the CA Rankings tab bar only: keeps Pushes and adds the Voided count
@@ -185,7 +188,7 @@ function _recordBarHtml(rec, full = false) {
     <div class="record-item"><div class="record-val red">${rec.losses}</div><div class="record-label">Losses</div></div>
     ${full ? `<div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>` : ''}
     ${full ? `<div class="record-item" title="Tracked picks that were outscored by another pick on the same game and not counted in the record."><div class="record-val amber">${rec.voided ?? 0}</div><div class="record-label">Voided</div></div>` : ''}
-    <div class="record-item"><div class="record-val gold">${rec.winRate}</div><div class="record-label">Win%</div></div>
+    <div class="record-item"><div class="record-val" style="color:${winPctColor(rec.winPct)};">${rec.winRate}</div><div class="record-label">Win%</div></div>
     <div class="record-item"><div class="record-val ${roiCls}">${roiStr}</div><div class="record-label">ROI</div></div>
     <div style="margin-left:auto;font-size:10px;color:var(--muted);align-self:center;text-align:right;line-height:1.6;">$10 flat per pick<br>hypothetical</div>`;
 }

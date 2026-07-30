@@ -11,6 +11,7 @@
 
 import { state } from './state.js';
 import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=7';
+import { winPctColor } from './sport_cards.js?v=28';
 
 let _picks = [];           // recent picks for the open profile (for sport filtering)
 let _sportFilter = 'all';
@@ -177,12 +178,15 @@ function _mpWindowStats() {
 }
 
 // The 4 stat cells for the house profile header (Wins/Losses/Win%/ROI), same
-// colors as the #1 ranked pick record bar. Shared by render + timeframe change.
+// colors as the #1 ranked pick record bar — Win% banded red/gold/green by
+// winPctColor, so the CA's number reads the same here as on the sport card that
+// opened this popup. Shared by render + timeframe change.
 function houseStatsInner(s) {
+  const wpct = s.win_pct == null ? null : Math.round(s.win_pct);
   return `
     <div class="mp-hstat"><b style="color:var(--green);">${s.wins}</b><span>Wins</span></div>
     <div class="mp-hstat"><b style="color:var(--red);">${s.losses}</b><span>Losses</span></div>
-    <div class="mp-hstat"><b style="color:var(--gold-ink);">${s.win_pct == null ? '—' : Math.round(s.win_pct) + '%'}</b><span>Win%</span></div>
+    <div class="mp-hstat"><b style="color:${winPctColor(wpct)};">${wpct == null ? '—' : wpct + '%'}</b><span>Win%</span></div>
     <div class="mp-hstat"><b style="color:${(s.roi ?? 0) >= 0 ? 'var(--green)' : 'var(--red)'};">${s.roi == null ? '—' : (s.roi >= 0 ? '+' : '') + s.roi.toFixed(1) + '%'}</b><span>ROI</span></div>`;
 }
 

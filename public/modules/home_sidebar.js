@@ -5,6 +5,7 @@
 import { isViewer } from './auth.js';
 import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=7';
 import { unlockCtaHtml } from './paywall.js';
+import { winPctColor } from './sport_cards.js?v=28';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -99,7 +100,8 @@ async function _renderTopPick() {
       const s    = plSeries = _series(best.picks, betUnit);
       const sign = s.total >= 0 ? 'pos' : 'neg';
       const amt  = (s.total >= 0 ? '+' : '') + '$' + Math.abs(s.total).toFixed(2);
-      const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
+      const wrPct = best.decided ? Math.round(best.winRate * 100) : null;
+      const wr    = wrPct == null ? '—' : wrPct + '%';
       // ROI on money risked (decided bets, flat stakes) — same basis as the graph total.
       const roi    = best.decided ? 100 * s.total / (betUnit * best.decided) : null;
       const roiStr = roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%';
@@ -114,7 +116,7 @@ async function _renderTopPick() {
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>
-          <div><b class="gold">${wr}</b><span>Win%</span></div>
+          <div><b style="color:${winPctColor(wrPct)};">${wr}</b><span>Win%</span></div>
           <div><b class="${roiCls}">${roiStr}</b><span>ROI</span></div>
         </div>`;
     }
