@@ -285,6 +285,11 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_start_at TEXT`); } catc
 // prune to keep a finished game for a grace tail past its actual end. NULL until final.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_end_at TEXT`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_tg_status_end ON today_games (status, actual_end_at)`); } catch (_) {}
+// ESPN's raw status type name (STATUS_FINAL, STATUS_RETIRED, STATUS_WALKOVER...).
+// `status` is our own coarse pre/in/post and `clock` is display text; grading needs
+// the machine name to tell a match that FINISHED from one that merely STOPPED
+// (tennis retirement — see src/tennis_score.js). NULL for feeds that don't set it.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN status_detail TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ml REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ou REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN is_home_team INTEGER NOT NULL DEFAULT 0`); } catch (_) {}

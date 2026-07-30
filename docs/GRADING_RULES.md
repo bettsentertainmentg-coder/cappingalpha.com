@@ -38,7 +38,8 @@ violation (with a full row snapshot that survives the daily wipe) to
   (src/results.js evaluatePick).
 - Soccer ML is 3-way: a draw grades both ML sides as losses.
 - Tennis totals and game-spreads grade on GAMES, set markets on sets.
-- Voids: tennis player replacement, dimension-conflict voids. Nothing else.
+- Voids: tennis player replacement, tennis match ended early (R8),
+  dimension-conflict voids. Nothing else.
 
 ## R5. Voids never count
 - A voided bet is excluded from every W/L record and P/L figure. Its note names
@@ -85,4 +86,25 @@ violation (with a full row snapshot that survives the daily wipe) to
   (scripts/heavy_restate.js) so the record reads as if the rule existed from
   v4 day one. Retired rows are never deleted and stay reversible.
 
-Current as of 2026-07-28.
+## R8. A tennis match that stops early settles nothing (2026-07-30)
+- A retirement, walkover, default or withdrawal VOIDS every side market on the
+  match (ML, game spread, set handicap) and the under. That is how books settle
+  a match that did not play out, and now how we do.
+- The one exception is a market already decided by the play that DID happen: an
+  over whose total games were passed before the stoppage wins, and a set
+  moneyline on a set that finished before it grades normally.
+- A set belongs to nobody until it is COMPLETE (6+ games with a 2-game lead, or
+  7-6). One counter owns this rule for the whole codebase: src/tennis_score.js.
+  Never re-implement it locally.
+- Two independent triggers, so no single missed signal can mint a grade:
+  ESPN's status name (STATUS_RETIRED and friends), and the structural check
+  that a real final has a winner holding 2+ completed sets. The structural one
+  needs no status string, so an unrecognized status cannot slip through.
+- Why: on 2026-07-30 Darderi retired trailing 0-3 in set one of ATP 178921.
+  results.js carried its own naive set counter that credited the unfinished set
+  to Svrcina, read the match as a 1-0 final, and graded a tracked gold ML as a
+  LOSS. tennis_espn.js wrote the true 0-0 to the same row minutes later, so the
+  page showed a LOSS beside a "FINAL 0-0" panel. Audit rule R8 now flags any
+  tennis grade standing on a final no player could have won.
+
+Current as of 2026-07-30.

@@ -31,7 +31,7 @@ const { fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { syncLiveSituations } = require('./src/live_situation');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline, sanitizeTimeline } = require('./src/pick_timeline');
-const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
+const { fetchTodaysTennisMatches, refreshTennisStartTimes, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
@@ -3611,6 +3611,13 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
     await fetchTodaysWnbaGames();
     await fetchTodaysNcaafGames();
     await updateSoccerLiveScores();
+    // Tennis too. The 5-min score cron is gated to active hours (5am-1am ET), so
+    // a match that started just before 1am used to freeze mid-first-set: no
+    // updater ran again until 5am, and the 3h "stuck game" reconcile below
+    // promoted the frozen row to final off its own re-fetch instead. That is how
+    // ATP 178921 graded on a retirement (2026-07-30). This tick is self-bounded
+    // by the live check and ESPN tennis is free, so the real score keeps landing.
+    await updateTennisLiveScores();
     await syncLiveSituations();
     // A game that just flipped to Final needs to settle, not sit on its last inning.
     stampActualEnds();

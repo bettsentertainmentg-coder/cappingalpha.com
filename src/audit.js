@@ -9,6 +9,8 @@
 //   R4 a finished game must not leave board picks ungraded for long
 //   R7 no tracked ML bet priced past the heavy gate at tracking time
 //      (docs/GRADING_RULES.md R7; current cycle only, restated rows exempt)
+//   R8 no tennis grade standing on a final no player could have won
+//      (winner must hold 2+ completed sets, else the match ended early)
 //
 // FLAG ONLY — this module never mutates picks, results, or history. Each
 // violation is stored in audit_flags WITH A FULL ROW SNAPSHOT (detail_json),
@@ -201,6 +203,65 @@ function runGradingAudit() {
     for (const r of rows) {
       _flag(found, 'stale_pending', 'picks', r.id, r.espn_game_id,
         `${r.team} ${r.pick_type} ${r.spread ?? ''} still ungraded 90+ min after final ${r.away_score}-${r.home_score}`, r);
+    }
+  } catch (_) {}
+
+  // ── R8: a tennis grade that the final score cannot support ─────────────────
+  // Every tour format is best-of-3 or best-of-5, so a real completed match ends
+  // with a winner holding 2+ COMPLETED sets. A win/loss standing on a final
+  // where neither player got there means the match stopped early (retirement,
+  // walkover) and the row should be void, or a set counter credited an
+  // unfinished set. Both were live on 2026-07-30: results.js counted a partial
+  // 3-0 first set as a set won and minted a LOSS on Darderi's retirement.
+  // Structural on purpose — it needs no status string, so it catches the next
+  // variant of this bug even if ESPN renames the status.
+  try {
+    const rows = db.prepare(`
+      SELECT m.id, m.team, m.pick_type, m.espn_game_id, m.result, m.game_date,
+             m.home_score, m.away_score, m.home_team, m.away_team, m.annotation
+      FROM mvp_picks m
+      WHERE m.sport IN ('ATP', 'WTA')
+        AND m.result IN ('win', 'loss', 'push')
+        AND COALESCE(m.retired, 0) = 0
+        AND m.home_score IS NOT NULL AND m.away_score IS NOT NULL
+        AND MAX(m.home_score, m.away_score) < 2
+        AND m.game_date >= date('now', '-45 days')
+    `).all();
+    for (const r of rows) {
+      _flag(found, 'tennis_incomplete_grade', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} graded ${r.result} on a ${r.away_score}-${r.home_score} set score — no player reached 2 sets, so the match did not finish`, r);
+    }
+  } catch (_) {}
+
+  // ── R8b: a tennis moneyline grade that contradicts its OWN stored score ────
+  // The cheapest invariant there is: if the picked player holds more sets on the
+  // row, the row must say win. Michael Zheng's ML sat at 'loss' beside a 2-1 set
+  // score he was leading (2026-07-29) because ESPN briefly reported the match
+  // final mid-play, the grade stuck, and the score column was refreshed later
+  // while the result never re-ran. A grade and the score printed next to it can
+  // never disagree on a phone screen again without this firing.
+  try {
+    const rows = db.prepare(`
+      SELECT m.id, m.team, m.pick_type, m.espn_game_id, m.result, m.game_date,
+             m.home_score, m.away_score, m.home_team, m.away_team
+      FROM mvp_picks m
+      WHERE m.sport IN ('ATP', 'WTA')
+        AND LOWER(m.pick_type) = 'ml'
+        AND m.result IN ('win', 'loss')
+        AND COALESCE(m.retired, 0) = 0
+        AND m.home_score IS NOT NULL AND m.away_score IS NOT NULL
+        AND m.home_score != m.away_score
+        AND m.home_team IS NOT NULL AND m.away_team IS NOT NULL
+        AND m.game_date >= date('now', '-45 days')
+    `).all();
+    for (const r of rows) {
+      const pickedHome = r.team === r.home_team;
+      const pickedAway = r.team === r.away_team;
+      if (!pickedHome && !pickedAway) continue;         // replacement/void territory, not this rule
+      const implied = (pickedHome ? r.home_score > r.away_score : r.away_score > r.home_score) ? 'win' : 'loss';
+      if (implied === r.result) continue;
+      _flag(found, 'tennis_result_vs_score', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ML graded ${r.result} but the stored set score ${r.away_score}-${r.home_score} says ${implied}`, r);
     }
   } catch (_) {}
 

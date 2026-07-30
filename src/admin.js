@@ -4653,6 +4653,42 @@ router.post('/api/retire-mvp', adminLoginRateLimit, express.json({ limit: '1mb' 
   res.json({ changed, retired_total: totals.retired, table_total: totals.total });
 });
 
+// ── POST /admin/api/regrade-tennis — repair grades minted on a stopped match ─
+// Re-derives every settled tennis row from ESPN and re-settles it through the
+// live grader (results.evaluatePick), which now voids matches that ended early
+// (GRADING_RULES R8). Fixes both failure modes of the old naive set counter: a
+// partial set credited as a won set, and a retirement graded as a real result.
+// Body: { dry_run: true|false, since: 'YYYY-MM-DD', game_ids: [...] }
+// Defaults to a DRY RUN so the change list can be read before anything moves.
+// Header-auth so it can be driven from the Mac. Idempotent: a second run with
+// the same inputs reports zero changes.
+router.post('/api/regrade-tennis', adminLoginRateLimit, express.json(), async (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const dryRun  = req.body?.dry_run !== false;
+  const since   = typeof req.body?.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.since)
+    ? req.body.since : '2026-07-09';
+  const gameIds = Array.isArray(req.body?.game_ids) ? req.body.game_ids.map(String) : null;
+  try {
+    const { regradeTennis } = require('./tennis_regrade');
+    const report = await regradeTennis({ since, dryRun, gameIds });
+    console.log(`[regrade-tennis] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_changed} row(s) across ${report.games_examined} game(s) since ${since}`);
+    // Capper records feed off capper_history, so a real run needs the ratings
+    // rebuilt before the leaderboard agrees with the repaired ledger.
+    if (!dryRun && report.rows_changed > 0) {
+      try { require('./capper_ratings').recomputeCapperRatings(); } catch (e) {
+        console.warn('[regrade-tennis] ratings recompute failed:', e.message);
+      }
+    }
+    res.json(report);
+  } catch (err) {
+    console.error('[regrade-tennis] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
 router.post('/import-mvp', adminLoginRateLimit, express.json({ limit: '5mb' }), (req, res) => {
   const pw = req.headers['x-admin-password'];
