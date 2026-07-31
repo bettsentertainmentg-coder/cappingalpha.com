@@ -521,8 +521,15 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
             if (String(comp.id) !== String(espnGameId)) continue;
             const statusName = (comp.status?.type?.name || '').toLowerCase();
             const stateName  = (comp.status?.type?.state || '').toLowerCase();
-            const isFinal = statusName.includes('final') || statusName.includes('complete')
-                         || statusName === 'post'        || stateName === 'post';
+            // Postponed / suspended / canceled matches can carry state 'post'
+            // with an empty linescore. tennis_espn.js has always downgraded
+            // those so an unplayed match never reaches grading; this path is
+            // the one that resolves games with no board row left, so it has to
+            // apply the same rule or it hands back a 0-0 "final".
+            const notFinal = /postpone|suspend|cancel|delay|rain|abandon/.test(statusName);
+            const isFinal = !notFinal
+                         && (statusName.includes('final') || statusName.includes('complete')
+                          || statusName === 'post'        || stateName === 'post');
             if (!isFinal) return null;
 
             const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
@@ -538,6 +545,13 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
             // This block used to credit a set to whoever merely LED it, so a
             // retirement at 0-3 in set one came back as a 1-0 "final" and minted
             // a loss (ATP 178921, 2026-07-30). Never re-implement it locally.
+            // The linescores must be read off the competitors HERE: the refactor
+            // that moved counting into tennis_score.js deleted the block that
+            // used to define them and left the call referencing the dead names,
+            // so every tennis re-fetch threw ReferenceError into the catch below
+            // and reported itself as a scoreboard failure.
+            const homeLs = home.linescores || [];
+            const awayLs = away.linescores || [];
             const { homeSetsWon, awaySetsWon, setDetails, homeGames, awayGames, numSets } =
               countSets(homeLs, awayLs);
 
@@ -563,7 +577,12 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
         }
       }
     } catch (err) {
-      console.warn(`[results] tennis scoreboard ${path} ${ymd} failed:`, err.message);
+      // A ReferenceError/TypeError in here is OUR bug, not ESPN's. Logging it
+      // with the same wording as a network timeout is what let a dead-variable
+      // crash sit in production looking like a flaky upstream, so name it.
+      const ours = err instanceof ReferenceError || err instanceof TypeError;
+      console.warn(`[results] tennis scoreboard ${path} ${ymd} ${ours ? 'CODE ERROR' : 'failed'}:`,
+        ours ? (err.stack || err.message) : err.message);
     }
   }
   return null;
