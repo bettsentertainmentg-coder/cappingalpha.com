@@ -104,6 +104,7 @@ function runGradingAudit() {
     const rows = db.prepare(`
       SELECT * FROM mvp_picks
       WHERE game_date >= ? AND result IN ('win','loss','push') AND espn_game_id IS NOT NULL
+        AND COALESCE(retired, 0) = 0
     `).all(cutoff);
     for (const m of rows) {
       const game = {
@@ -123,7 +124,7 @@ function runGradingAudit() {
   try {
     const rows = db.prepare(`
       SELECT * FROM mvp_picks
-      WHERE result != 'void' AND (
+      WHERE result != 'void' AND COALESCE(retired, 0) = 0 AND (
         (LOWER(pick_type) IN ('over','under') AND captured_total  IS NOT NULL AND spread IS NOT captured_total) OR
         (LOWER(pick_type) =  'spread'         AND captured_spread IS NOT NULL AND spread IS NOT captured_spread)
       )
@@ -136,14 +137,19 @@ function runGradingAudit() {
 
   // ── R2: one tracked bet per game per dimension ──────────────────────────────
   try {
+    // Retired rows are off the record and no longer claim a bet slot (mvp.js
+    // resolver filters them the same way), so they must not read as a duplicate
+    // against the row that legitimately owns the game. Without this, the
+    // 2026-07-30 restatement made every restored bet look like a live conflict
+    // with the in-play row it had just replaced.
     const games = db.prepare(`
       SELECT espn_game_id FROM mvp_picks
-      WHERE espn_game_id IS NOT NULL AND result != 'void'
+      WHERE espn_game_id IS NOT NULL AND result != 'void' AND COALESCE(retired, 0) = 0
       GROUP BY espn_game_id HAVING COUNT(*) > 1
     `).all();
     for (const { espn_game_id } of games) {
       const rows = db.prepare(`
-        SELECT * FROM mvp_picks WHERE espn_game_id = ? AND result != 'void'
+        SELECT * FROM mvp_picks WHERE espn_game_id = ? AND result != 'void' AND COALESCE(retired, 0) = 0
       `).all(espn_game_id);
       const totals = rows.filter(r => _isTotal(r.pick_type));
       const hasOver = totals.some(r => (r.pick_type || '').toLowerCase() === 'over');
