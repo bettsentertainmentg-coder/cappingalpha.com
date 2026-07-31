@@ -59,18 +59,33 @@ function _ddOpt(which, val, label, active) {
 }
 
 // ── MVP tab loading ───────────────────────────────────────────────────────────
+// One tab, two loaders: /api/mvp (paid) and /api/mvp/public. They can be in
+// flight at the same time (a reload straight onto #mvp used to fire the public
+// one before checkAuth resolved and the paid one right after), and both write
+// state.mvpData, so the tab settled on whichever response LANDED last. The two
+// payloads differ: the paid one carries pending rows for games that already
+// started, the public one is resolved rows only. That is why refreshing flipped
+// the rankings between "finished games sitting ungraded" and "those games not
+// there at all". Every load now takes a ticket and a stale response is dropped.
+let _mvpLoadSeq = 0;
+
 export async function loadMvp() {
+  const seq = ++_mvpLoadSeq;
   try {
     const res = await fetch('/api/mvp');
+    if (seq !== _mvpLoadSeq) return;   // a newer load started while this was out
     // 403 = the server says this session isn't paid (e.g. an expired code grant
     // while the client still holds a non-free tier). Show the public view
     // instead of an error page — same tab a free member gets.
     if (res.status === 403) return loadMvpPublic();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.mvpData = await res.json();
+    const data = await res.json();
+    if (seq !== _mvpLoadSeq) return;
+    state.mvpData = data;
     state.mvpLoadedAt = Date.now();
     renderMvpTab(state.mvpData, false);
   } catch (err) {
+    if (seq !== _mvpLoadSeq) return;   // stale failure must not wipe a good render
     console.error('[MVP] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
       `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;
@@ -86,15 +101,20 @@ function _devUnlock() {
 }
 
 export async function loadMvpPublic() {
+  const seq = ++_mvpLoadSeq;
   try {
     const res = await fetch('/api/mvp/public');
+    if (seq !== _mvpLoadSeq) return;   // a newer load started while this was out
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.mvpData = await res.json();
+    const data = await res.json();
+    if (seq !== _mvpLoadSeq) return;
+    state.mvpData = data;
     state.mvpLoadedAt = Date.now();
     // Full layout when: ?mockrail=1 (mock design review) OR on localhost (dev
     // unlock). Both render the unlocked view with public data; prod stays limited.
     renderMvpTab(state.mvpData, !(railMockActive() || _devUnlock()));
   } catch (err) {
+    if (seq !== _mvpLoadSeq) return;   // stale failure must not wipe a good render
     console.error('[MVP public] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
       `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;

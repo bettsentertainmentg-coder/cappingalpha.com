@@ -4,7 +4,7 @@ import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=8';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=46';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=47';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
@@ -143,6 +143,13 @@ window.switchTab = switchTab;
 // public/limited view (with the "Unlock" prompt) before checkAuth() resolved the
 // paid tier, then cached it. Called on tab switch and again once auth resolves.
 function loadMvpTab() {
+  // Auth is still resolving (a reload straight onto #mvp lets DOMContentLoaded
+  // hash nav beat checkAuth). Loading now means firing the public loader for a
+  // tier we haven't confirmed, then the paid one moments later — two requests
+  // racing to write the same tab. Hold the spinner instead; the re-sync below
+  // calls back the moment checkAuth resolves. mvpLoadedPaid stays null, which
+  // never equals a real isPaying() result, so that call always goes through.
+  if (!state.authReady) { state.mvpLoaded = true; return; }
   const paid = isPaying();
   // Re-fetch when the cached render is over a minute old — the record bar,
   // graph, and history must include games graded since the tab last rendered.
