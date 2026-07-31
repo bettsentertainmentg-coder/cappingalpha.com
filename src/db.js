@@ -1242,6 +1242,9 @@ try {
     )
   `);
 } catch (_) {}
+// Split provenance: NULL = legacy ActionNetwork rows, 'vsin' = VSiN DK splits,
+// 'mixed' = AN row with VSiN-filled gaps (src/vsin.js merge policy).
+try { db.exec(`ALTER TABLE public_betting ADD COLUMN source TEXT`); } catch (_) {}
 
 // ── pick_history — permanent archive of every pick ≥35 points ─────────────────
 // Written live from storage.js when a pick first scores ≥35pts.

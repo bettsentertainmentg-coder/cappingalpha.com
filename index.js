@@ -55,6 +55,7 @@ const { getGameForm }                                 = require('./src/game_form
 const { getTennisHistory }                            = require('./src/tennis_player_form');
 const { getLinesForGame }                             = require('./src/lines_scraper');
 const { fetchPublicBetting, getPublicBettingForGame } = require('./src/public_betting');
+const { fetchVsinSplits } = require('./src/vsin');
 const { syncLineHistory, syncLineHistorySoon, getLineHistoryForGame } = require('./src/line_history');
 const { syncPolymarketData, syncPolymarketSoon, getPolymarketForGame } = require('./src/polymarket');
 const { syncKalshiData, syncKalshiSoon, getKalshiForGame } = require('./src/kalshi');
@@ -982,6 +983,42 @@ app.get('/api/games', (req, res) => {
       return false;
     });
   }
+  // Board-card context, three bulk reads (games without rows ship no field):
+  //  pub   — public betting consensus (tickets + money % per market)
+  //  votes — CA member vote counts per slot (community lean fallback)
+  //  open  — opening lines from line_history (line-move fallback; current lines
+  //          are already on the row itself)
+  try {
+    const pbRows = db.prepare(`SELECT * FROM public_betting`).all();
+    const pbMap = new Map(pbRows.map(r => [String(r.espn_game_id), r]));
+    const vtRows = db.prepare(`SELECT espn_game_id, pick_slot, COUNT(*) AS n FROM game_votes GROUP BY espn_game_id, pick_slot`).all();
+    const vtMap = new Map();
+    for (const v of vtRows) {
+      const k = String(v.espn_game_id);
+      if (!vtMap.has(k)) vtMap.set(k, {});
+      vtMap.get(k)[v.pick_slot] = v.n;
+    }
+    const opRows = db.prepare(`SELECT espn_game_id, spread_home, ml_home, ml_away, over_under FROM line_history WHERE recorded_at = 'opening'`).all();
+    const opMap = new Map(opRows.map(r => [String(r.espn_game_id), r]));
+    for (const g of rows) {
+      const key = String(g.espn_game_id);
+      const pb = pbMap.get(key);
+      if (pb) {
+        g.pub = {
+          away_ml: pb.away_ml_pct, home_ml: pb.home_ml_pct,
+          away_ml_money: pb.away_ml_money_pct, home_ml_money: pb.home_ml_money_pct,
+          away_spread: pb.away_spread_pct, home_spread: pb.home_spread_pct,
+          away_spread_money: pb.away_spread_money_pct, home_spread_money: pb.home_spread_money_pct,
+          over: pb.over_pct, under: pb.under_pct,
+          over_money: pb.over_money_pct, under_money: pb.under_money_pct,
+        };
+      }
+      const vt = vtMap.get(key);
+      if (vt) g.votes = vt;
+      const op = opMap.get(key);
+      if (op) g.open = { spread_home: op.spread_home, ml_home: op.ml_home, ml_away: op.ml_away, over_under: op.over_under };
+    }
+  } catch (_) {}
   res.json(rows);
 });
 
@@ -3459,6 +3496,9 @@ app.listen(PORT, () => {
   for (const s of ['NBA', 'WNBA', 'NFL', 'MLB', 'NHL', 'NCAAF', 'CBB', 'Soccer']) {
     fetchPublicBetting(s).catch(e => console.error(`[startup] publicBetting ${s}:`, e.message));
   }
+  // VSiN DK splits ride behind AN: gap-filler for team sports, the default (and
+  // only) splits source for tennis. Delayed so the AN sweep lands first.
+  setTimeout(() => fetchVsinSplits().catch(e => console.error('[startup] vsin:', e.message)), 45 * 1000);
 
   // Seed line history + prediction market caches on startup (free APIs, no credits).
   // Line history covers ALL pre-game rows including the forward window — a game with
@@ -3618,6 +3658,7 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1, Soccer:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 5am ${s}:`, e.message));
   }
+  setTimeout(() => fetchVsinSplits().catch(e => console.error('[vsin] 5am:', e.message)), 45 * 1000);
   // Seed initial line history + prediction market data. Line history is pre-game;
   // market volume covers the whole board (a game already live/finished at 5am still
   // needs its volume for the ranking), matching the 15-min cron.
@@ -3663,6 +3704,7 @@ if (!UI_ONLY) cron.schedule('0 16 * * *', async () => {
   for (const s of Object.keys({ NBA:1, WNBA:1, NFL:1, MLB:1, NHL:1, NCAAF:1, CBB:1, Soccer:1 })) {
     fetchPublicBetting(s).catch(e => console.error(`[publicBetting] 4pm ${s}:`, e.message));
   }
+  setTimeout(() => fetchVsinSplits().catch(e => console.error('[vsin] 4pm:', e.message)), 45 * 1000);
 }, { timezone: 'America/New_York' });
 
 // Smart public betting refresh: every 30 min, hourly cadence unless within 3h of a game start
@@ -3685,6 +3727,13 @@ cron.schedule('*/30 8-23 * * *', async () => {
       fetchPublicBetting(sport).catch(e => console.error(`[publicBetting] cron ${sport}:`, e.message));
       _lastPbFetch[sport] = now;
     }
+  }
+  // VSiN sweep on the same clock, behind the AN fetches: gap-fill every sport on
+  // the board (incl. tennis, which AN never covers) once an hour.
+  const minsSinceVsin = (now - (_lastPbFetch._vsin || 0)) / 60000;
+  if (minsSinceVsin >= 60) {
+    _lastPbFetch._vsin = now;
+    setTimeout(() => fetchVsinSplits().catch(e => console.error('[vsin] cron:', e.message)), 30 * 1000);
   }
 }, { timezone: 'America/New_York' });
 
