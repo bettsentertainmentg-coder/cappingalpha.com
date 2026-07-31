@@ -174,6 +174,7 @@ function resolveConflictingMvpPicks() {
         SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score, m.spread FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
+          AND COALESCE(m.retired, 0) = 0
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
       `).all();
       const curStmt = db.prepare(`
@@ -182,6 +183,34 @@ function resolveConflictingMvpPicks() {
         WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
       `);
       const delStmt  = db.prepare(`DELETE FROM mvp_picks WHERE id = ?`);
+      // ── Traced deletion (2026-07-30) ────────────────────────────────────────
+      // These three sweeps used to DELETE outright, leaving no annotation, no
+      // flag and nothing to autopsy when a row vanished from the Rankings list.
+      // Every removal now snapshots the row into mvp_deletions first, with the
+      // reason and whether the game had already started. Audit R6 reads it: a
+      // deletion on a started game is a rule violation, because membership
+      // locks at first pitch.
+      const _delSnap = db.prepare(`SELECT * FROM mvp_picks WHERE id = ?`);
+      const _delGame = db.prepare(`
+        SELECT status, start_time, actual_start_at, sport, home_score, away_score, period
+        FROM today_games WHERE espn_game_id = ?
+      `);
+      const _delLog = db.prepare(`
+        INSERT INTO mvp_deletions (mvp_id, espn_game_id, team, pick_type, score, reason, game_started, row_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const dropRow = (id, reason) => {
+        try {
+          const row = _delSnap.get(id);
+          if (row) {
+            const g = row.espn_game_id ? _delGame.get(row.espn_game_id) : null;
+            const started = g ? (require('./pick_cutoff').hasGameStarted(g) ? 1 : 0) : 0;
+            _delLog.run(row.id, row.espn_game_id ?? null, row.team ?? null, row.pick_type ?? null,
+                        row.score ?? null, reason, started, JSON.stringify(row));
+          }
+        } catch (err) { console.warn('[mvp] delete trace failed:', err.message); }
+        delStmt.run(id);
+      };
       const syncStmt = db.prepare(`UPDATE mvp_picks SET score = ? WHERE id = ?`);
       const lineStmt = db.prepare(`UPDATE mvp_picks SET spread = ? WHERE id = ?`);
       // NOTE (heavy-price gate, Jack 2026-07-28): the gate is evaluated ONCE, at
@@ -199,7 +228,7 @@ function resolveConflictingMvpPicks() {
           const j = JSON.parse(cur.v3_json || '{}');
           if (typeof j.gold === 'boolean') isGold = j.gold; // includes the totals gate
         } catch (_) {}
-        if (!isGold) { delStmt.run(m.id); demoted++; continue; }
+        if (!isGold) { dropRow(m.id, 'pregame_demotion'); demoted++; continue; }
         // Score sync: board-wide rescores (nightly re-rank, new grades, merges)
         // move a pick's true total WITHOUT a new mention, and saveMvpPick only
         // refreshes score on the mention path — so the tracked score drifts.
@@ -248,6 +277,7 @@ function resolveConflictingMvpPicks() {
           FROM mvp_picks m
           JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
           WHERE tg.status = 'pre' AND LOWER(m.pick_type) = 'ml' AND m.gate_ml_odds IS NULL
+            AND COALESCE(m.retired, 0) = 0
             AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
         `).all();
         const stampStmt = db.prepare(`UPDATE mvp_picks SET gate_ml_odds = ? WHERE id = ?`);
@@ -257,7 +287,7 @@ function resolveConflictingMvpPicks() {
           const ml = isHome ? m.ml_home : m.ml_away;
           if (ml == null) continue; // no price yet — judge on a later pass
           if (ml <= gateOdds && !heavyBracketUnlocked(m.espn_game_id, m.team, m.pick_type)) {
-            delStmt.run(m.id); removed++;
+            dropRow(m.id, 'heavy_price_gate'); removed++;
           } else {
             stampStmt.run(ml, m.id); judged++;
           }
@@ -295,7 +325,8 @@ function resolveConflictingMvpPicks() {
       let promoted = 0;
       const pendingOnGame = db.prepare(`
         SELECT id, score, team, pick_type, spread FROM mvp_picks
-        WHERE espn_game_id = ? AND (result IS NULL OR result NOT IN ('win','loss','push','void'))
+        WHERE espn_game_id = ? AND COALESCE(retired, 0) = 0
+          AND (result IS NULL OR result NOT IN ('win','loss','push','void'))
       `);
       for (const p of goldPicks) {
         let isGold = true;
@@ -342,6 +373,7 @@ function resolveConflictingMvpPicks() {
         SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.spread, m.score FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
+          AND COALESCE(m.retired, 0) = 0
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
       `).all();
       const byGame = new Map();
@@ -362,7 +394,7 @@ function resolveConflictingMvpPicks() {
             if (!cur) { byKey.set(k, r); continue; }
             const drop = r.id < cur.id ? cur : r;
             if (r.id < cur.id) byKey.set(k, r);
-            delStmt.run(drop.id); flipped++;
+            dropRow(drop.id, 'pregame_duplicate'); flipped++;
           }
           // Conflicts: a strictly higher score owns the bet; beaten sides are
           // removed. Sorted so the leader is kept first.
@@ -371,7 +403,7 @@ function resolveConflictingMvpPicks() {
           for (const r of survivors) {
             const beat = kept.find(k => dim.conflict(k, r) && k.score > r.score);
             if (beat) {
-              delStmt.run(r.id); flipped++;
+              dropRow(r.id, 'pregame_flip'); flipped++;
               console.log(`[mvp] pregame flip on ${gid} (${dim.name}): ${beat.team} ${beat.pick_type} (${beat.score}) replaces ${r.team} ${r.pick_type} (${r.score})`);
             } else {
               kept.push(r);
@@ -386,9 +418,13 @@ function resolveConflictingMvpPicks() {
   }
 
   // Games with more than one non-void MVP pick — necessary condition for a conflict.
+  // Retired rows are OFF the record (the restatement flag). They must not be
+  // able to claim a game's bet slot or void a live row — before this filter a
+  // row restated out still competed here, so any restatement silently undid
+  // itself on the next 5-minute pass.
   const games = db.prepare(`
     SELECT espn_game_id FROM mvp_picks
-    WHERE espn_game_id IS NOT NULL AND result != 'void'
+    WHERE espn_game_id IS NOT NULL AND result != 'void' AND COALESCE(retired, 0) = 0
     GROUP BY espn_game_id HAVING COUNT(*) > 1
   `).all();
 
@@ -418,7 +454,7 @@ function resolveConflictingMvpPicks() {
 
     const allPicks = db.prepare(`
       SELECT id, score, team, pick_type, spread, result FROM mvp_picks
-      WHERE espn_game_id = ? AND result != 'void'
+      WHERE espn_game_id = ? AND result != 'void' AND COALESCE(retired, 0) = 0
     `).all(espn_game_id);
 
     for (const dim of DIMENSIONS) {

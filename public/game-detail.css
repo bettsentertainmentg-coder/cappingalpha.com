@@ -631,6 +631,24 @@ nav {
    badge never reads. Without this rule the badge rendered completely unstyled. */
 .ca-dp-result-void { background: var(--surface2); color: var(--text-tertiary); border: 1px solid var(--border); }
 
+/* Graded but OUTVOTED: the pick may well have won its game, but the other side
+   of the match carried more points so it was never the tracked bet and it
+   counts in neither column. Same soft yellow, same wording, as the Rankings
+   rail (public/modules/sport_cards.js) — one vocabulary on both screens
+   (Jack 2026-07-30). Fallback literals because the standalone detail page does
+   not always inherit the app palette. */
+.ca-dp-result-outvoid {
+  background: rgba(242,193,78,0.10);
+  color: var(--amber, #f2c14e);
+  border: 1px solid var(--amber-line, rgba(242,193,78,0.34));
+}
+.ca-dp-result-note {
+  margin-top: 5px; max-width: 260px;
+  font-size: 11px; line-height: 1.35; font-style: italic;
+  color: var(--text-tertiary);
+}
+.ca-dp-result-note.out { color: var(--amber, #f2c14e); opacity: 0.92; }
+
 /* Detail panel header */
 .ca-dp-header {
   display: flex; align-items: flex-start; justify-content: space-between;

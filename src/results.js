@@ -805,11 +805,13 @@ async function resolveResults() {
     // Match mvp_picks by the game key first (espn_game_id + team + type — immune
     // to a game_date re-stamp), then the legacy team + game_date + type key.
     // Never overwrite a voided pick — conflict resolver already settled it
+    // Retired rows are off the record; grading them back to life would undo a
+    // restatement on the next results pass.
     const mvp = (pick.espn_game_id ? db.prepare(
-      `SELECT id FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ? AND result != 'void'`
+      `SELECT id FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ? AND result != 'void' AND COALESCE(retired, 0) = 0`
     ).get(pick.espn_game_id, pick.team, pick.pick_type ?? null) : null)
       || db.prepare(
-        `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void'`
+        `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void' AND COALESCE(retired, 0) = 0`
       ).get(pick.team, pick.game_date, pick.pick_type ?? null);
 
     if (mvp) {
@@ -829,13 +831,15 @@ async function resolveResults() {
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail, tg.status_detail, tg.clock
     FROM mvp_picks m
     JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
-    WHERE tg.status = 'post' AND m.result = 'pending'
+    WHERE tg.status = 'post' AND m.result = 'pending' AND COALESCE(m.retired, 0) = 0
   `).all();
 
   for (const mvp of directMvps) {
     const result = evaluatePick(mvp, mvp);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
+    // Re-assert result = 'pending' in the WHERE: the conflict resolver runs on
+    // its own 5-minute cron and may have voided this row since the SELECT.
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ? AND result = 'pending'`)
       .run(result, mvp.home_score, mvp.away_score, result === 'void' ? voidNoteFor(mvp, mvp) : null, mvp.id);
     resolved++;
   }
@@ -845,6 +849,7 @@ async function resolveResults() {
     SELECT m.* FROM mvp_picks m
     LEFT JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
     WHERE m.result = 'pending' AND tg.espn_game_id IS NULL AND m.espn_game_id IS NOT NULL
+      AND COALESCE(m.retired, 0) = 0
   `).all();
 
   for (const mvp of staleMvps) {
@@ -852,7 +857,12 @@ async function resolveResults() {
     if (!gameData) continue;
     const result = evaluatePick(mvp, gameData);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
+    // This loop awaits a network fetch per row, so the row set is stale by the
+    // time we write. Without re-asserting 'pending' the write lands on top of a
+    // void the conflict resolver set during the await, producing a row that
+    // reads 'win' while still carrying a '*not counted:' annotation — counted
+    // by the history list, excluded from the record, styled as a void.
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ? AND result = 'pending'`)
       .run(result, gameData.home_score, gameData.away_score, result === 'void' ? voidNoteFor(mvp, gameData) : null, mvp.id);
     resolved++;
   }

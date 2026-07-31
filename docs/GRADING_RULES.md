@@ -107,4 +107,42 @@ violation (with a full row snapshot that survives the daily wipe) to
   page showed a LOSS beside a "FINAL 0-0" panel. Audit rule R8 now flags any
   tennis grade standing on a final no player could have won.
 
+## R9. A tracked bet is placed BEFORE first pitch, or it is not a bet (2026-07-30)
+- No row may be created in the tracked ledger at or after its game's start.
+  Not by a mention, not by a promotion sweep, not by a boot migration.
+- Every gate calls one helper, `pick_cutoff.hasGameStarted()`. A game has
+  started when ESPN says it is no longer pregame, when a real start was stamped,
+  or when live play is on the board. For fixed-schedule sports a passed start
+  time also counts; for tennis and golf it does not, because ESPN lists those as
+  "not before" and matches routinely go off 30 to 90 minutes late.
+- First pitch is detected within 30 seconds, not 5 minutes: the live tick also
+  wakes for games inside the start window (index.js `startWindowOpen`).
+- Both halves of the proof are stored on the row and survive the daily wipe:
+  `saved_at` (when the bet was created) and `game_start_at` (when its game
+  began). Audit rule R9 compares them on every pass.
+- Why: 48 of 457 v4-era tracked bets were created after their game started. 26
+  of those inside 5 minutes, on the old cron lag. Because an in-play row had
+  been collecting mentions while the match played out, it usually carried MORE
+  points than the legitimate pregame bet, won the conflict resolver under R3,
+  and VOIDED the real bet. Eight good bets were destroyed that way, including a
+  Tabilo ML on 2026-07-30 that went on to win its match and showed VOID on the
+  Rankings list beside a WIN badge on the game page. Worse, the boot migration
+  promoted already-finished games and then read the FINAL SCORE to grade them
+  (six MLB bets in one second, up to 7 hours after first pitch, one recorded as
+  a win). Full autopsy: docs/RANKINGS_AUDIT_2026_07_30.md.
+
+## R10. Nothing leaves the ledger untraced (2026-07-30)
+- The pregame sweeps may delete a tracked row while its game is still pregame.
+  That is R3's flip rule working, and it is the only legitimate deletion.
+- Every deletion is snapshotted into `mvp_deletions` first, with the reason and
+  whether the game had started. Never wiped. Audit rule R10 flags any deletion
+  that happened after a game started.
+- `retired = 1` is authoritative everywhere, not just in the read helpers. A row
+  restated off the record cannot claim a game's bet slot, cannot void a live
+  row, and cannot be graded back to life. Before this, retiring a row left it
+  competing in the conflict resolver, so any restatement silently undid itself
+  on the next 5-minute pass.
+- Why: deletes left no annotation, no flag and nothing to autopsy, which is how
+  rows vanished from the Rankings list with no explanation.
+
 Current as of 2026-07-30.

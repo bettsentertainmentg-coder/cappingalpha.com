@@ -6,7 +6,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { state } from '/modules/state.js';
-import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=7';
+import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=8';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js?v=3';
@@ -922,8 +922,23 @@ function renderDetailPanel() {
     return null; // ML: the line value itself is the odds
   })();
 
+  // ── One result vocabulary (Jack 2026-07-30) ────────────────────────────────
+  // The server now overlays the TRACKED LEDGER's verdict onto any pick that is
+  // a tracked bet (index.js overlayLedgerResult), so this page can no longer
+  // say WIN while the Rankings list says VOID for the same pick. A pick that
+  // won its match but was outvoted on points renders the same soft-yellow
+  // "not counted" state the rail has always used, with the same reason text.
+  const _isVoid   = p && ((p.result || '').toLowerCase() === 'void'
+                    || /not counted/i.test(String(p.annotation || '')));
+  const _outVoid  = _isVoid && /had more points|had less points|outscored/i.test(String(p.annotation || ''));
   const resultBadge = showRealScore && p?.result && p.result !== 'pending'
-    ? `<div class="ca-dp-result-badge ca-dp-result-${p.result}">${p.result.toUpperCase()}</div>`
+    ? (_outVoid
+        ? `<div class="ca-dp-result-badge ca-dp-result-outvoid">NOT COUNTED</div>`
+        : `<div class="ca-dp-result-badge ca-dp-result-${p.result}">${p.result.toUpperCase()}</div>`)
+    : '';
+  // The reason, in the ledger's own words, so both screens read identically.
+  const resultNote = showRealScore && _isVoid && p.annotation
+    ? `<div class="ca-dp-result-note${_outVoid ? ' out' : ''}">${esc(p.annotation)}</div>`
     : '';
 
   const rankBadge = p && rank === 1
@@ -998,6 +1013,7 @@ function renderDetailPanel() {
       </div>
       ${rankBadge}
       ${resultBadge}
+      ${resultNote}
     </div>
   </div>`;
 

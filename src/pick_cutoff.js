@@ -1,22 +1,72 @@
 // src/pick_cutoff.js
-// Scoring lock: once a game has actually started (status='in' stamped via
-// game_start_tracker), new pick mentions are only accepted for 5 minutes.
-// Anything later is rejected and logged to skipped_messages.
+// THE START-OF-MATCH LOCK. Jack's rule 2: "picks are tallied up throughout the
+// day. EVERYTHING STOPS AT THE START OF THE MATCH."
+//
+// One helper answers "has this game started?" and every gate in the product
+// calls it: board mentions (storage.savePick), tracked-bet creation
+// (storage.saveMvpPick), and the boot record-sync migration (index.js).
+//
+// Before 2026-07-30 this rule was enforced on scraper sources (source_ingest's
+// live gate) and on the capper ranking pool, but NOT on the Discord path and
+// NOT on the tracked-bet INSERT. 48 of 457 v4-era tracked bets were created
+// after their game started; 8 of them outscored the legitimate pregame bet and
+// voided it. See docs/RANKINGS_AUDIT_2026_07_30.md.
 
 const db = require('./db');
 
 const GRACE_MS = 5 * 60 * 1000;
 
-function isPickAcceptable(game) {
-  if (!game || !game.actual_start_at) return true;
+// Sports whose scheduled start time is an ESTIMATE, not a commitment. ESPN
+// lists tennis as "not before" and matches routinely go off 30-90 minutes late
+// because the previous match on court ran long. For these the clock proves
+// nothing — only a status flip, a stamped start, or a live score does.
+// Everything else runs to a published schedule, so a passed start time is
+// itself proof (and is the backstop when the ESPN status poll lags).
+const LOOSE_START_SPORTS = new Set(['ATP', 'WTA', 'Tennis', 'Golf']);
+
+function _ms(ts) {
+  if (!ts) return NaN;
   // SQLite datetime('now') returns 'YYYY-MM-DD HH:MM:SS' in UTC with no offset.
   // Convert to ISO so new Date() parses it as UTC, not local time.
-  const iso = game.actual_start_at.includes('T')
-    ? game.actual_start_at
-    : game.actual_start_at.replace(' ', 'T') + 'Z';
-  const startedAt = new Date(iso).getTime();
-  if (Number.isNaN(startedAt)) return true;
-  return (Date.now() - startedAt) <= GRACE_MS;
+  const iso = String(ts).includes('T') ? String(ts) : String(ts).replace(' ', 'T') + 'Z';
+  return new Date(iso).getTime();
+}
+
+// Has this game actually begun? Conservative by design: when in doubt about a
+// loose-start sport we say NO (the pick stays eligible) and rely on the
+// 30-second start watcher to flip the status within half a minute of first
+// serve. For fixed-schedule sports we say YES once the clock passes, because
+// there the schedule is real and the status poll is the thing that lags.
+function hasGameStarted(game, nowMs = Date.now()) {
+  if (!game) return false;
+  // 1. ESPN says it is no longer pregame. The strongest signal we have.
+  const status = (game.status || '').toLowerCase();
+  if (status && status !== 'pre') return true;
+  // 2. We stamped a real first-pitch/first-serve time (game_start_tracker).
+  if (game.actual_start_at && !Number.isNaN(_ms(game.actual_start_at))) return true;
+  // 3. Live play is on the board even though the status has not caught up.
+  if ((game.home_score ?? 0) > 0 || (game.away_score ?? 0) > 0) return true;
+  if ((game.period ?? 0) > 0) return true;
+  // 4. Schedule backstop, fixed-schedule sports only.
+  const sport = game.sport || '';
+  if (LOOSE_START_SPORTS.has(sport)) return false;
+  const startMs = _ms(game.start_time);
+  return Number.isFinite(startMs) && startMs <= nowMs;
+}
+
+// Board-mention gate. A mention landing after the start is not scoring
+// information, it is commentary on a game already in progress, so it must not
+// move a pick's total. The 5-minute grace absorbs clock skew between the
+// poster and our stamp; it is NOT licence to create a tracked bet (saveMvpPick
+// gates on hasGameStarted with no grace).
+function isPickAcceptable(game) {
+  if (!game) return true;
+  if (!hasGameStarted(game)) return true;
+  // Prefer the stamped start; fall back to the schedule so the grace still has
+  // a reference point when only the status flipped.
+  const ref = _ms(game.actual_start_at) || _ms(game.start_time);
+  if (Number.isNaN(ref) || !Number.isFinite(ref)) return false;
+  return (Date.now() - ref) <= GRACE_MS;
 }
 
 function logLatePick(pick) {
@@ -39,4 +89,7 @@ function logLatePick(pick) {
   }
 }
 
-module.exports = { isPickAcceptable, logLatePick, GRACE_MS };
+module.exports = {
+  isPickAcceptable, hasGameStarted, logLatePick,
+  parseGameTs: _ms, GRACE_MS, LOOSE_START_SPORTS,
+};

@@ -1,7 +1,7 @@
 // modules/auth.js — Auth state, tier helpers, login/signup/logout
 
 import { state } from './state.js';
-import { avatarFor } from './utils.js?v=7';
+import { avatarFor } from './utils.js?v=8';
 
 // ── Tier helpers ──────────────────────────────────────────────────────────────
 export function isViewer()  { return !state.currentUser; }

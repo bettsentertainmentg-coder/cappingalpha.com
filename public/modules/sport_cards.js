@@ -11,7 +11,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, SPORT_THEMES, flatUnitReturn, pickOddsAmerican } from './utils.js?v=7';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican } from './utils.js?v=8';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -206,7 +206,12 @@ const profileBtnHtml = (key) =>
 // (still ranked by score — the rail sort), GRADED (most recent final first).
 function viewBuckets(card) {
   const { list } = card;
-  const graded = list.filter(isGraded).sort((a, b) => _finishTs(b) - _finishTs(a));
+  // Voided bets sink to the bottom of the graded list (Jack 2026-07-30). They
+  // count in neither column, so they should not sit between real results and
+  // push a win or loss out of view. Within each group, most recent final first.
+  const graded = list.filter(isGraded).sort((a, b) =>
+    (isVoidedPick(a) ? 1 : 0) - (isVoidedPick(b) ? 1 : 0) || _finishTs(b) - _finishTs(a)
+  );
   const open = list.filter(p => !isGraded(p));
   const live = open.filter(p => p.game_status === 'in');
   const upcoming = open.filter(p => p.game_status !== 'in');
@@ -218,6 +223,9 @@ function _counted(graded) {
   return graded.filter(p => {
     const r = (p.result || '').toLowerCase();
     if (p.annotation && p.annotation.toLowerCase().includes('not counted')) return false;
+    // Held while the tracked ledger catches up: shown so the match does not
+    // vanish, but never counted — we do not yet know it was a tracked bet.
+    if (p._awaitingLedger) return false;
     return r === 'win' || r === 'loss' || r === 'push';
   });
 }
@@ -250,7 +258,9 @@ function cornerMetaHtml(card) {
       const r = (p.result || '').toLowerCase();
       // Soft-yellow pip for a graded pick that got outscored on its game — it
       // counts in neither column, and a grey pip read as "not started yet".
-      const cls = isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
+      // A held row is not a settled pip yet — leave it neutral rather than
+      // colouring a result the record does not (yet) count.
+      const cls = p._awaitingLedger ? '' : isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
       return `<i class="${cls}"></i>`;
     }),
     ...b.live.map(() => '<i class="lv"></i>'),
@@ -341,12 +351,23 @@ export function renderSportRail(filters) {
   if (!el) return;
 
   const { min, max, sport } = _filters;
+  const inSport = (p) => !(sport && sport !== 'ALL' && displaySport(p.sport) !== sport);
   const inRange = (p) => {
     const s = p.score || 0;
     if (s < (min ?? 0)) return false;
     if (max != null && s > max) return false;
-    if (sport && sport !== 'ALL' && displaySport(p.sport) !== sport) return false;
-    return true;
+    return inSport(p);
+  };
+  // A TRACKED bet is on the record by definition — it qualified when it was
+  // placed. The score floor exists to keep the rail to gold BOARD picks, and
+  // applying it to tracked rows compares two different scales: tracked rows
+  // carry the TRUE v3 total, board rows carry the reveal-aware, heavy-capped
+  // DISPLAY score. A bet tracked at 163 whose display later caps at 95 would
+  // otherwise drop off its own record (and a true 102 showing 95 would flicker
+  // into existence the moment it graded).
+  const inRangeTracked = (p) => {
+    if (max != null && (p.score || 0) > max) return false;
+    return inSport(p);
   };
 
   let picks;
@@ -360,7 +381,8 @@ export function renderSportRail(filters) {
     // being a tracked bet (crossed gold after its game started, blocked by the
     // totals gate, or outscored on its game), and counting those made the
     // cards' day records disagree with Today's P/L. Same set, same record.
-    const today = currentBoardDate();
+    const days = boardDayKeys();
+    const onBoardDay = (p) => days.includes(p.game_date);
     const _mapTracked = (p) => ({
       ...p,
       game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
@@ -368,9 +390,9 @@ export function renderSportRail(filters) {
       game_away_score: p.away_score,
     });
     const tracked = (state.mvpData?.picks || [])
-      .filter(p => p.game_date === today && isGraded(p))
+      .filter(p => onBoardDay(p) && isGraded(p))
       .map(_mapTracked)
-      .filter(inRange);
+      .filter(inRangeTracked);
     // A just-finished game can briefly be graded in the ledger while the board
     // row hasn't flipped yet; the tracked row wins the slot.
     const _betKey = (p) => `${p.espn_game_id}|${String(p.team || '').trim().toLowerCase()}|${(p.pick_type || '').toLowerCase()}`;
@@ -378,15 +400,33 @@ export function renderSportRail(filters) {
     const board = (state.allPicks || [])
       .filter(p => !isGraded(p) && !seen.has(_betKey(p)))
       .filter(inRange);
-    picks = board.concat(tracked);
+    // ── Ledger-lag hold (2026-07-30) ────────────────────────────────────────
+    // A board row that just graded but has no tracked row is NOT proof the bet
+    // was untracked — it may just mean /api/mvp has not been re-polled yet.
+    // Without this, the row is graded (so the open bucket above drops it) and
+    // absent from the ledger (so the tracked bucket drops it too): it exists in
+    // NEITHER and the match silently vanishes off the card mid-session. That is
+    // the "live tennis matches disappearing" report.
+    // Held only while the board snapshot is FRESHER than the ledger snapshot,
+    // i.e. while the ledger is provably behind. Once the ledger catches up the
+    // hold releases on its own and the row either appears as a tracked bet or
+    // correctly drops away. A held row never counts toward the record.
+    const ledgerBehind = !state.mvpLoadedAt || (state.picksLoadedAt || 0) > state.mvpLoadedAt;
+    const held = ledgerBehind
+      ? (state.allPicks || [])
+          .filter(p => isGraded(p) && !seen.has(_betKey(p)))
+          .map(p => ({ ...p, _awaitingLedger: true }))
+          .filter(inRange)
+      : [];
+    picks = board.concat(held, tracked);
     // Fallback source: when neither carries anything eligible (locally the
     // mirrored /api/picks is a logged-out payload with scores stripped), fill
     // the rail from today's tracked picks — real rows, minus live game state.
     if (!picks.length && state.mvpData?.picks?.length) {
       picks = state.mvpData.picks
-        .filter(p => p.game_date === today)
+        .filter(onBoardDay)
         .map(_mapTracked)
-        .filter(inRange);
+        .filter(inRangeTracked);
       fallback = picks.length > 0;
     }
   }

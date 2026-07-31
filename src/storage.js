@@ -5,7 +5,7 @@
 
 const db            = require('./db');
 const { scorePick } = require('./scoring');
-const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
+const { isPickAcceptable, logLatePick, hasGameStarted, GRACE_MS } = require('./pick_cutoff');
 const { cycleDateForInstant } = require('./cycle');
 
 // ── Line capture at the archive threshold ────────────────────────────────────
@@ -331,7 +331,7 @@ function savePick(pick) {
     const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(aiGameId);
     if (game) {
       if (!isPickAcceptable(game)) {
-        console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${aiGameId}`);
+        console.log(`[storage] late pick rejected (game already started, past the ${GRACE_MS / 60000}min grace) for ${team} in game ${aiGameId}`);
         logLatePick(pick);
         return null;
       }
@@ -347,7 +347,7 @@ function savePick(pick) {
   // 2. Fallback: fuzzy match by team name
   const game = findTodayGame(team);
   if (game && !isPickAcceptable(game)) {
-    console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${game.espn_game_id}`);
+    console.log(`[storage] late pick rejected (game already started, past the ${GRACE_MS / 60000}min grace) for ${team} in game ${game.espn_game_id}`);
     logLatePick(pick);
     return null;
   }
@@ -737,14 +737,18 @@ function heavyBracketUnlocked(espn_game_id, team, pick_type) {
 
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null, scale = 'v2' }) {
   // today_games gives team names + the opening line (used as a fallback only).
-  let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false;
+  let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false, gameStartAt = null;
   if (espn_game_id) {
     const game = db.prepare(
-      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds, status, start_time FROM today_games WHERE espn_game_id = ?`
+      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds, status, start_time,
+              sport, actual_start_at, home_score, away_score, period
+       FROM today_games WHERE espn_game_id = ?`
     ).get(espn_game_id);
     if (game) {
-      const startMs = new Date(game.start_time).getTime();
-      gameStarted = game.status !== 'pre' || (Number.isFinite(startMs) && startMs <= Date.now());
+      // One shared definition of "started" across every gate in the product.
+      gameStarted = hasGameStarted(game);
+      // Stamped onto the row so the pregame proof survives the daily wipe (audit R5).
+      gameStartAt = game.actual_start_at || game.start_time || null;
       // Board day comes from the GAME's start_time, never the caller's stamp.
       // Tennis lists tomorrow's matches on today's board and ESPN corrects
       // start times after first listing, so slot/pick game_date can be a day
@@ -809,6 +813,21 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     ).get(team, game_date, pick_type ?? null);
 
   if (!exists) {
+    // ── THE START-OF-MATCH GATE (Jack's rule 2, enforced 2026-07-30) ─────────
+    // A tracked bet is a bet PLACED. It cannot be placed on a game already in
+    // progress, and it certainly cannot be placed on one that has finished.
+    // Before this gate the `gameStarted` value above was computed and then used
+    // only on the UPDATE path below, so any pick crossing gold mid-match minted
+    // a fresh tracked row. Those rows carried more points than the legitimate
+    // pregame bet (they had been collecting in-match mentions), won the
+    // conflict resolver, and VOIDED the real bet: 48 of 457 v4-era rows, 8 good
+    // bets destroyed, including a Tabilo ML that went on to win.
+    // No grace window here on purpose. The board-mention grace in pick_cutoff
+    // exists to absorb clock skew on a SCORE; placing a bet is a harder line.
+    if (gameStarted) {
+      console.log(`[mvp] not tracking ${team} ${pick_type} — game already started (rule: everything stops at first pitch)`);
+      return;
+    }
     // No odds anywhere = the pick can't be tracked (Jack 2026-07-13): an ML
     // pick without a price has no P/L truth. Skip the insert — mentions keep
     // arriving, so the row lands the moment any source posts a line, and a
@@ -832,10 +851,10 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       return;
     }
     db.prepare(`
-      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version, gate_ml_odds)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version, gate_ml_odds, game_start_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale,
-           (pick_type || '').toLowerCase() === 'ml' ? gateMl : null);
+           (pick_type || '').toLowerCase() === 'ml' ? gateMl : null, gameStartAt);
   } else {
     // Score LOCKS once the row is decided (win/loss/push/void) or the game has
     // started. Post-decision mentions used to keep bumping the number, so a

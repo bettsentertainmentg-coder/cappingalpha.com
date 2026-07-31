@@ -7,6 +7,10 @@
 //   R2 one game = ONE tracked bet per dimension (margin / total)
 //   R3 a graded result must equal what the final score + locked line imply
 //   R4 a finished game must not leave board picks ungraded for long
+//   R9 no tracked bet CREATED at or after its game's start (a bet is placed
+//      before first pitch or it is not a bet — docs/RANKINGS_AUDIT_2026_07_30.md)
+//   R10 no tracked bet DELETED after its game started (membership locks at
+//      first pitch; mvp_deletions is the trail)
 //   R7 no tracked ML bet priced past the heavy gate at tracking time
 //      (docs/GRADING_RULES.md R7; current cycle only, restated rows exempt)
 //   R8 no tennis grade standing on a final no player could have won
@@ -187,6 +191,54 @@ function runGradingAudit() {
       if (heavyBracketUnlocked(r.espn_game_id, r.team, r.pick_type)) continue;
       _flag(found, 'price_gate', 'mvp_picks', r.id, r.espn_game_id,
         `tracked ML judged at ${r.gate_ml_odds} — past the ${gateOdds} heavy-price gate with no bracket unlock`, r);
+    }
+  } catch (_) {}
+
+  // ── R9: no tracked bet created at or after its game's start ────────────────
+  // Jack's rule 2: "everything stops at the start of the match." A tracked bet
+  // is a bet PLACED, so it cannot be created on a game already in progress, and
+  // certainly not on one that has finished. saved_at is stamped by the column
+  // default at INSERT and never updated; game_start_at is stamped alongside it
+  // from today_games, so the pair survives the daily wipe and this rule can
+  // judge history as well as today.
+  //
+  // This is the rule that would have caught the 2026-07-30 Tabilo void on the
+  // first pass: an Atmane ML tracked 90 seconds after first serve, which then
+  // outscored the legitimate pregame bet and voided it. 48 of 457 v4-era rows
+  // were minted this way. Retired rows are exempt (already off the record).
+  try {
+    const rows = db.prepare(`
+      SELECT id, team, pick_type, sport, espn_game_id, score, result, saved_at, game_start_at
+      FROM mvp_picks
+      WHERE game_start_at IS NOT NULL AND saved_at IS NOT NULL
+        AND COALESCE(retired, 0) = 0
+        AND datetime(saved_at) >= datetime(game_start_at)
+      ORDER BY saved_at DESC LIMIT 200
+    `).all();
+    for (const r of rows) {
+      const lateMin = Math.round(
+        (new Date(String(r.saved_at).replace(' ', 'T') + 'Z') - new Date(String(r.game_start_at).replace(' ', 'T').replace(/Z?$/, 'Z'))) / 60000
+      );
+      _flag(found, 'inplay_tracked_bet', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} tracked ${Number.isFinite(lateMin) ? lateMin : '?'} min AFTER first pitch (bet placed on a game in progress)`, r);
+    }
+  } catch (_) {}
+
+  // ── R10: no tracked bet deleted after its game started ─────────────────────
+  // Membership locks at first pitch. The pregame sweeps in mvp.js may drop a
+  // row while the game is still pregame (that is the flip rule working), but a
+  // deletion once play has begun means a bet was removed from the record after
+  // it was live — which is how rows used to vanish from the Rankings list with
+  // no trace at all. mvp_deletions is the audit trail; it is never wiped.
+  try {
+    const rows = db.prepare(`
+      SELECT * FROM mvp_deletions
+      WHERE game_started = 1 AND deleted_at >= datetime('now', '-45 days')
+      ORDER BY deleted_at DESC LIMIT 200
+    `).all();
+    for (const r of rows) {
+      _flag(found, 'inplay_ledger_delete', 'mvp_deletions', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} (${r.score}) deleted by '${r.reason}' AFTER its game started`, r);
     }
   } catch (_) {}
 

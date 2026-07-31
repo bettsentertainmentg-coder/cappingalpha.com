@@ -178,19 +178,29 @@ function engineFightsToday() {
 // MVP picks + all-time record for the page's sports (case-insensitive labels).
 function mvpForSports(sports) {
   const ph = sports.map(() => '?').join(',');
+  // SAME POPULATION AS EVERY OTHER PUBLIC RECORD (Jack 2026-07-30). This query
+  // used to carry no score threshold and no annotation filter, so the "All-time
+  // MLB record" printed on /mlb counted sub-gold rows and outvoted "not
+  // counted" rows that the leaderboard, the CA profile popup and /results all
+  // exclude. Three public numbers for the same picks, guaranteed to disagree.
+  const threshold = db.getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : parseInt(db.getSetting('mvp_display_threshold', '65'), 10) || 65;
   // Resolved only: today's still-pending gold picks are paid pre-game content and
   // must not render to logged-out visitors (mirrors /api/mvp/public + /api/mvp).
   const picks = db.prepare(
     `SELECT * FROM mvp_picks WHERE sport COLLATE NOCASE IN (${ph})
      AND result IN ('win', 'loss', 'push') AND COALESCE(retired, 0) = 0
+     AND score >= ? AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
      ORDER BY game_date DESC, saved_at DESC LIMIT 8`
-  ).all(...sports);
+  ).all(...sports, threshold);
   const rows = db.prepare(
     `SELECT result, COUNT(*) AS c FROM mvp_picks
      WHERE sport COLLATE NOCASE IN (${ph}) AND result IN ('win', 'loss', 'push')
        AND COALESCE(retired, 0) = 0
+       AND score >= ? AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
      GROUP BY result`
-  ).all(...sports);
+  ).all(...sports, threshold);
   const record = { win: 0, loss: 0, push: 0 };
   for (const r of rows) record[r.result] = r.c;
   return { picks, record };
@@ -624,7 +634,7 @@ async function buildSportPageHtml(pageDef, opts = {}) {
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=3" />
   <style>${PAGE_CSS}</style>
   <script type="application/ld+json">${jsonLd}</script>
 </head>

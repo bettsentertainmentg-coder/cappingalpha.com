@@ -3,9 +3,9 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=7';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=8';
 import { unlockCtaHtml } from './paywall.js';
-import { winPctColor } from './sport_cards.js?v=28';
+import { winPctColor } from './sport_cards.js?v=29';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';

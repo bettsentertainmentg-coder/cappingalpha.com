@@ -1652,6 +1652,47 @@ try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN price_gated       INTEGER`)
 // of the price the gate saw — audit R7 judges it, never ml_odds.
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN gate_ml_odds REAL`); } catch (_) {}
 
+// ── game_start_at: when the bet's game actually began (2026-07-30) ────────────
+// Stamped by storage.saveMvpPick from today_games at insert time. saved_at
+// already records when the bet was created; this is the other half of the
+// pair, and together they prove a tracked bet was placed BEFORE first pitch —
+// permanently, long after today_games is wiped. Audit R5 compares the two.
+// Backfilled from today_games for any row whose game is still on the board.
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN game_start_at TEXT`); } catch (_) {}
+try {
+  db.exec(`
+    UPDATE mvp_picks SET game_start_at = (
+      SELECT tg.start_time FROM today_games tg WHERE tg.espn_game_id = mvp_picks.espn_game_id
+    )
+    WHERE game_start_at IS NULL AND espn_game_id IS NOT NULL
+  `);
+} catch (_) {}
+
+// ── mvp_deletions: every tracked bet ever removed from the ledger ────────────
+// The three pregame sweeps in mvp.js DELETE rows outright, which until now left
+// zero forensic trace: no annotation, no flag, nothing to autopsy when a row
+// vanished from the Rankings list. `retired = 1` was built to be reversible and
+// visible; deletes were neither. This table is the audit trail for them, and
+// audit R6 reads it. Never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mvp_deletions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      mvp_id        INTEGER,
+      espn_game_id  TEXT,
+      team          TEXT,
+      pick_type     TEXT,
+      score         REAL,
+      reason        TEXT NOT NULL,
+      game_started  INTEGER NOT NULL DEFAULT 0,
+      row_json      TEXT,
+      deleted_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_mvp_del_game ON mvp_deletions(espn_game_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_mvp_del_at ON mvp_deletions(deleted_at)`);
+} catch (_) {}
+
 // ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
 // AN experts registry (discovered from public expert pages; picks land in
 // capper_history via source_ingest with source='actionnetwork').

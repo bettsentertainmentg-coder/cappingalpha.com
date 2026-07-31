@@ -17,7 +17,7 @@ import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
   onBoardForSport, currentBoardDate, teamNickname, countryColor,
   SPORT_THEMES,
-} from './utils.js?v=7';
+} from './utils.js?v=8';
 import { isPaying } from './auth.js';
 import { TEAM_COLORS } from './modal.js?v=12';
 

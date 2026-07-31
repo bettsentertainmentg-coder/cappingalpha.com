@@ -105,6 +105,21 @@ export function currentBoardDate() {
   return date;
 }
 
+// EVERY board day currently in play. There are two clocks in the product and
+// they disagree for four and a half hours a night: a pick's game_date is
+// stamped by cycleDateForInstant (src/cycle.js), which rolls at 12:30am ET,
+// while the board itself does not roll until the ~5am wipe. So between 12:30am
+// and 5am ET a late game's own stamp has already advanced to the next day while
+// the board still shows the current one, and any surface filtering on a single
+// currentBoardDate() made those picks invisible until 5am, then popped them
+// into existence. Late-session and overnight European tennis lands here nightly.
+// Filter with this, not with a single date.
+export function boardDayKeys() {
+  const cur = currentBoardDate();
+  const p = _etParts(new Date());
+  return parseInt(p.hour, 10) < 5 ? [cur, _addDays(cur, 1)] : [cur];
+}
+
 // A game's ET cycle date. Late games finishing 12:00–12:30am ET belong to the
 // previous cycle (mirror of cycleDateForInstant).
 function _gameBoardDate(iso) {
@@ -301,7 +316,9 @@ export function voteOdds(v) {
 
 export function calcVoteReturn(v, unit) {
   const r = (v.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
+  // 'void' returns nothing, same as a push. Without it a voided vote fell
+  // through to the win payout below and paid out as a winner.
+  if (r === 'push' || r === 'void' || r === 'pending' || !r) return 0;
   if (r === 'loss') return -unit;
   const odds = voteOdds(v) || -115;
   if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);

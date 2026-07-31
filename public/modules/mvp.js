@@ -2,10 +2,10 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=7';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=8';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=28';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=29';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -134,7 +134,11 @@ function _windowedPicks(picks, rangeKey) {
 function _resolvedPicks(picks) {
   return (picks || []).filter(p =>
     (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
-    !(p.annotation && p.annotation.includes('not counted'))
+    // Case-insensitive, matching sport_cards.isVoidedPick and the server's
+    // SQL NOT LIKE (ASCII-case-insensitive in SQLite). This test used to be
+    // case-SENSITIVE here alone, so a differently-capitalised note would have
+    // been excluded from the history list and counted in the record bar.
+    !(p.annotation && p.annotation.toLowerCase().includes('not counted'))
   );
 }
 

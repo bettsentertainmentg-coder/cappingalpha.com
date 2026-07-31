@@ -1733,6 +1733,7 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
   `).all(espn_game_id).filter(p => !mlPickUnpriced(p)); // hide picks we never priced
+  overlayLedgerResult(picks, espn_game_id);
 
   // v3 scale: show the SAME reveal-aware display score the picks list shows, so
   // the popup never disagrees with the board (was showing the raw un-rescaled v2
@@ -2686,6 +2687,40 @@ function _resolveTeamColor(game, isHome) {
   return (c && c.primary) ? c.primary : null;
 }
 
+// ── One result vocabulary across every surface (Jack 2026-07-30) ─────────────
+// A board pick and its tracked bet are two different rows with two different
+// result columns, and NOTHING reconciled them: the conflict resolver writes
+// mvp_picks.result='void' and never touches picks.result, so a pick that won
+// its match but lost the bet slot read WIN on the game detail page and VOID on
+// the Rankings list. Jack, 2026-07-30: "if a pick won but was outvoted by the
+// other side then it's simply not counted, yellow outvoted with a note like
+// we've always had it."
+//
+// The ledger is the truth for any pick that IS a tracked bet. Untracked board
+// picks keep their own result (they were never bets). Overlaying result AND
+// annotation means the detail page renders the identical yellow not-counted
+// state from the identical fields the Rankings list already keys on.
+function overlayLedgerResult(picks, espn_game_id) {
+  if (!picks || !picks.length || !espn_game_id) return picks;
+  try {
+    const rows = db.prepare(`
+      SELECT team, pick_type, result, annotation FROM mvp_picks
+      WHERE espn_game_id = ? AND COALESCE(retired, 0) = 0
+    `).all(espn_game_id);
+    if (!rows.length) return picks;
+    const key = (t, ty) => `${String(t || '').trim().toLowerCase()}|${String(ty || '').toLowerCase()}`;
+    const byKey = new Map(rows.map(r => [key(r.team, r.pick_type), r]));
+    for (const p of picks) {
+      const m = byKey.get(key(p.team, p.pick_type));
+      if (!m) continue;
+      p.tracked = true;
+      if (m.result && m.result !== 'pending') p.result = m.result;
+      if (m.annotation) p.annotation = m.annotation;
+    }
+  } catch (_) {}
+  return picks;
+}
+
 async function renderGameDetail(req, res, game, opts = {}) {
   try {
     let picks = opts.picks;
@@ -2695,6 +2730,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
         FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
         WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
       `).all(game.espn_game_id);
+      overlayLedgerResult(picks, game.espn_game_id);
       // v3: show the same leak-aware display score as the board + popup (was
       // inlining the raw v2 column into __GAME_DATA__). Historical archive picks
       // arrive via opts.picks and keep their stored score.
@@ -3173,12 +3209,20 @@ app.listen(PORT, () => {
         return gold;
       };
       // Demote + score-sync the tracked rows.
+      // PREGAME ONLY (2026-07-30). Membership locks at first pitch, and a boot
+      // migration is not an exception to that — it used to silently delete
+      // tracked rows on games already in progress or already graded, every time
+      // the generation was bumped. A rescore that should change a STARTED game's
+      // record goes through the reviewed retire-mvp path instead, where it is
+      // visible and reversible.
       const tracked = db.prepare(`
         SELECT m.id, m.team, m.pick_type, m.score AS mvp_score, sb.v3_total, sb.v3_json FROM mvp_picks m
         JOIN picks p ON p.espn_game_id = m.espn_game_id
           AND LOWER(p.team) = LOWER(COALESCE(m.team, ''))
           AND LOWER(p.pick_type) = LOWER(COALESCE(m.pick_type, ''))
         JOIN score_breakdown sb ON sb.pick_id = p.id
+        JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+        WHERE tg.status = 'pre' AND COALESCE(m.retired, 0) = 0
       `).all();
       let demoted = 0, synced = 0;
       for (const m of tracked) {
@@ -3191,15 +3235,21 @@ app.listen(PORT, () => {
           synced++;
         }
       }
-      // Promote gold board picks that have no tracked row (started/graded
-      // included, this once — membership normally locks at first pitch, but
-      // these earned gold under the corrected engine).
+      // Promote gold board picks that have no tracked row — PREGAME ONLY.
+      //
+      // This block used to say "started/graded included, this once". It was not
+      // once: the generation has been bumped six times and it re-fired on every
+      // bump, minting tracked bets on games that had already been played and
+      // then reading the FINAL SCORE to grade them (six MLB bets in one second
+      // on 2026-07-28, up to 7 hours after first pitch, one recorded as a WIN).
+      // A bet recorded after the outcome is known is not a bet. The status
+      // filter below is the whole fix.
       const goldPicks = db.prepare(`
-        SELECT p.*, sb.v3_total, sb.v3_json, tg.home_score AS tg_home, tg.away_score AS tg_away
+        SELECT p.*, sb.v3_total, sb.v3_json
         FROM picks p
         JOIN score_breakdown sb ON sb.pick_id = p.id
         JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-        WHERE sb.v3_total >= 100
+        WHERE sb.v3_total >= 100 AND tg.status = 'pre'
       `).all();
       let promoted = 0;
       for (const p of goldPicks) {
@@ -3215,16 +3265,11 @@ app.listen(PORT, () => {
             cap: p.line_captured_at ? { ml: p.captured_ml, spread: p.captured_spread, total: p.captured_total, ou_odds: p.captured_ou_odds, at: p.line_captured_at } : null,
             scale: 'v3',
           });
-          // A finished game's result is already on the board pick — mirror it
-          // (with the final score) so the new row doesn't sit pending forever.
-          if (['win', 'loss', 'push'].includes(p.result || '')) {
-            db.prepare(`
-              UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?
-              WHERE team = ? AND game_date = ? AND pick_type = ? AND result = 'pending'
-            `).run(p.result, p.tg_home ?? null, p.tg_away ?? null, p.team, p.game_date, p.pick_type ?? null);
-          }
           promoted++;
           console.log(`[startup] record-sync promotion: ${p.team} ${p.pick_type} (${p.v3_total}) onto the MVP record`);
+          // NOTE: the old "mirror the finished result onto the new row" block
+          // lived here. It is gone with the started-game promotions it served.
+          // A pregame promotion grades through results.js like every other bet.
         } catch (err) {
           console.warn('[startup] record-sync promotion failed for', p.team, p.pick_type, err.message);
         }
@@ -3601,10 +3646,34 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
 // that ends after the active window still resolves instead of stranding on a live
 // inning. Idles (one cheap query) when nothing is live. In-flight guard prevents overlap.
 let _liveTickRunning = false;
+// ── The start watcher (Jack 2026-07-30) ──────────────────────────────────────
+// The tick also wakes for games that are ABOUT to start, so first pitch is
+// detected within 30 seconds instead of up to 5 minutes. That lag was the
+// single biggest source of bad tracked bets: 26 of the 48 in-play-minted rows
+// in the v4 era were created inside 5 minutes of a start the site had not
+// noticed yet (docs/RANKINGS_AUDIT_2026_07_30.md).
+//
+// Deliberately NOT a hard clock cutoff. Tennis start times are ESPN "not
+// before" estimates and matches routinely go off 30-90 minutes late, so the
+// schedule cannot decide when a match began — only a real status flip can.
+// This just makes that flip land fast. Free: ESPN is the only source touched.
+const START_WATCH_AHEAD_MS = 15 * 60 * 1000;      // wake this far before a scheduled start
+const START_WATCH_OVERDUE_MS = 4 * 60 * 60 * 1000; // keep watching a late (tennis) start this long
+function startWindowOpen(nowMs = Date.now()) {
+  const { parseGameTs } = require('./src/pick_cutoff');
+  const rows = db.prepare(
+    "SELECT start_time FROM today_games WHERE status = 'pre' AND start_time IS NOT NULL"
+  ).all();
+  for (const r of rows) {
+    const t = parseGameTs(r.start_time);
+    if (Number.isFinite(t) && t <= nowMs + START_WATCH_AHEAD_MS && t >= nowMs - START_WATCH_OVERDUE_MS) return true;
+  }
+  return false;
+}
 if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
   if (_liveTickRunning) return;
   const hasLive = db.prepare("SELECT 1 FROM today_games WHERE status = 'in' LIMIT 1").get();
-  if (!hasLive) return;
+  if (!hasLive && !startWindowOpen()) return;
   _liveTickRunning = true;
   try {
     await fetchTodaysGames();
@@ -3619,6 +3688,10 @@ if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
     // by the live check and ESPN tennis is free, so the real score keeps landing.
     await updateTennisLiveScores();
     await syncLiveSituations();
+    // Stamp first pitch the moment ESPN flips a game live. This is what closes
+    // the tracked-bet window (storage.saveMvpPick -> pick_cutoff.hasGameStarted)
+    // and it now runs on the 30-second tick, not just the 5-minute cron.
+    stampActualStarts();
     // A game that just flipped to Final needs to settle, not sit on its last inning.
     stampActualEnds();
     await resolveResults();

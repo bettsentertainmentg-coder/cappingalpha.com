@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isViewer, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js?v=7';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, LOCK_SVG, pickSlotKey } from './utils.js?v=8';
 import { inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
 
 export async function loadPicks() {
@@ -10,6 +10,10 @@ export async function loadPicks() {
     const res = await fetch('/api/picks');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.allPicks = await res.json();
+    // Snapshot age, so the sport rail can tell whether the tracked ledger has
+    // caught up with the board or is simply one poll behind (sport_cards.js
+    // ledger-lag hold — a just-graded match must not fall between the buckets).
+    state.picksLoadedAt = Date.now();
     renderPicks(state.allPicks);
     const refreshEl = document.getElementById('last-refresh');
     if (refreshEl) refreshEl.textContent =

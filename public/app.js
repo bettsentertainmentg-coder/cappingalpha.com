@@ -1,10 +1,10 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
-import { setHeatScale } from './modules/utils.js?v=7';
+import { setHeatScale } from './modules/utils.js?v=8';
 import { checkAuth, isPaying } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=45';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=46';
 import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
@@ -151,6 +151,14 @@ function loadMvpTab() {
   state.mvpLoaded = true;
   state.mvpLoadedPaid = paid;
   if (paid) loadMvp(); else loadMvpPublic();
+}
+
+// Unconditional ledger refresh for the polling intervals below. No-ops until
+// the Rankings tab has been opened at least once, so a user who never goes
+// there never pays for the fetch.
+function refreshMvpData() {
+  if (!state.mvpLoaded) return;
+  if (isPaying()) loadMvp(); else loadMvpPublic();
 }
 
 // ── Support / contact form (About page) ───────────────────────────────────────
@@ -403,6 +411,14 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // Home MVP widget too — its record and P/L must fold in games graded during
   // the session, not just what was final at page load.
   setInterval(loadHomeMvp, REFRESH_MS);
+  // The TRACKED LEDGER (state.mvpData) feeds the Rankings record bar, the CA
+  // P/L graph and every graded row on the sport cards. It used to refresh only
+  // on tab entry, with no interval at all — so the instant a live match graded,
+  // the board dropped it (now graded) while the stale ledger had not picked it
+  // up (still pending), and the row was in NEITHER bucket and vanished off the
+  // card until you left the tab and came back. Tennis grades on the 30-second
+  // tick, so this fired constantly. Only polls once the tab has been opened.
+  setInterval(refreshMvpData, REFRESH_MS);
 
   // Near-real-time refresh while a game is live: every 30s re-pull the live
   // surfaces (board scores, #1 card, Top Games tiles). Gated on a live game being
@@ -414,5 +430,9 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
     loadPicks();
     loadTopGames();
     loadHomeSidebar();
+    // Ledger on the same live cadence as the board, so a match that grades
+    // mid-session is never stranded between the two sources for more than one
+    // tick (see the ledger-lag hold in sport_cards.js).
+    refreshMvpData();
   }, 30000);
 })();
