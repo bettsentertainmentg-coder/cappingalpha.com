@@ -16,7 +16,7 @@ import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
   onBoardForSport, currentBoardDate, teamNickname, countryColor,
-  SPORT_THEMES,
+  SPORT_THEMES, flatUnitReturn,
 } from './utils.js?v=8';
 import { isPaying } from './auth.js';
 import { TEAM_COLORS } from './modal.js?v=12';
@@ -530,17 +530,31 @@ function sortedSports() {
 }
 
 // Board-day stats from the tracked record the home widget already loads.
-// Flat 1u math: win +1, loss -1, pushes 0.
+//
+// Units are ODDS-WEIGHTED, through the same helper every other P/L surface uses.
+// This used to be `units: w - l`, i.e. every winner credited a full unit. A -200
+// favourite that wins pays HALF a unit, and the board leans favourite-heavy, so
+// the error compounded in the flattering direction: on 2026-08-01 this line read
+// "This month: 208-187, +21.0u" in green while the Rankings tab had the same
+// picks at -13.31u. A $343 gap at a $10 unit, and it turned a losing month into
+// a winning one.
 function _settledUnits(rows) {
   const w = rows.filter(p => String(p.result || '').toLowerCase() === 'win').length;
   const l = rows.filter(p => String(p.result || '').toLowerCase() === 'loss').length;
-  return { w, l, units: w - l };
+  const units = rows.reduce((s, p) => s + flatUnitReturn(p, 1), 0);
+  return { w, l, units: +units.toFixed(2) };
 }
 function _rowsOn(datePrefix) {
   return (state.homeMvpPicks || []).filter(p => String(p.game_date || '').slice(0, datePrefix.length) === datePrefix);
 }
 function _settledOf(rows) {
-  return rows.filter(p => ['win', 'loss', 'push'].includes(String(p.result || '').toLowerCase()));
+  // "not counted" rows (outscored on their own game) are excluded here the same
+  // way every other record surface excludes them — this was the one ledger that
+  // silently counted them.
+  return rows.filter(p =>
+    ['win', 'loss', 'push'].includes(String(p.result || '').toLowerCase())
+    && !String(p.annotation || '').toLowerCase().includes('not counted')
+  );
 }
 function fmtU(u) { return `${u > 0 ? '+' : ''}${u.toFixed(1)}u`; }
 function unitsHtml(u) {

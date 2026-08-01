@@ -4597,20 +4597,35 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
       SELECT canonical_name, fade, picks, ROUND(units, 1) units, ROUND(blend * 100, 1) blend_pct
       FROM capper_ratings WHERE scope = 'overall' AND fade IS NOT NULL ORDER BY blend ASC LIMIT 8
     `);
-    // Drift: trailing 30d record of the publicly tracked tier. Scale-aware:
-    // after the v3 flip + history rescale the tier line is 100 on every row.
+    // Drift: trailing 30d record of the publicly tracked tier.
+    //
+    // Reads mvp_picks — THE tracked ledger — with the same filters every other
+    // record surface uses. It used to read pick_history, which was wrong twice
+    // over: (1) pick_history.score holds each pick's RAW V2 score on v3-era rows
+    // (index.js:855 compensates with COALESCE(v3_total, score); this query never
+    // did), so `score >= 100` selected roughly "picks with 3+ premium Discord
+    // mentions" and made anything sourced from AN/Polymarket/Covers invisible
+    // because those earn zero v2 channel points; and (2) a startup mirror in
+    // db.js gives most gold picks a SECOND pick_history row under a synthetic
+    // negative pick_id, so 18% of the sample was double-counted and some pairs
+    // disagreed on the result. The card was labelled "tracked tier" while
+    // measuring something else entirely — on 2026-07-31 it implied 49.4% and a
+    // firing alarm when the real tracked record was 52.8% and fine.
     const tierLine = db.getSetting('scoring_version', 'v2') === 'v3' ? 100 : 65;
     const drift = one(`
       SELECT SUM(result='win') w, SUM(result='loss') l
-      FROM pick_history
-      WHERE score >= ${tierLine} AND result IN ('win','loss') AND game_date >= date('now','-30 days')
+      FROM mvp_picks
+      WHERE score >= ${tierLine} AND result IN ('win','loss')
+        AND COALESCE(retired, 0) = 0
+        AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+        AND game_date >= date('now','-30 days')
     `);
     const registry = one(`SELECT (SELECT COUNT(*) FROM capper_registry) cappers, (SELECT COUNT(*) FROM capper_source_handles) handles`);
     res.json({
       generatedAt: new Date().toISOString(),
       sources, discordToday, unresolved24h: unresolved24h?.n ?? 0,
       ratings, fadeList, registry,
-      drift: { window: '30d', tier: 'v2-65plus', wins: drift?.w ?? 0, losses: drift?.l ?? 0,
+      drift: { window: '30d', tier: `tracked ${tierLine}+`, wins: drift?.w ?? 0, losses: drift?.l ?? 0,
                alarm: (drift?.w ?? 0) + (drift?.l ?? 0) >= 20 && (drift?.w ?? 0) / Math.max(1, (drift?.w ?? 0) + (drift?.l ?? 0)) < 0.524 },
     });
   } catch (err) {

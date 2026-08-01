@@ -2,6 +2,13 @@
 // Called from the GET /:sport/:slug route in index.js.
 // Server-renders: <head> SEO tags, nav, breadcrumb, game header, sidebar.
 // Client-renders: slot picker, detail panel, lines, sentiment, injuries, context.
+//
+// The top nav is NOT defined here. It comes from src/nav_tabs.js, the single
+// definition shared with public/index.html, because maintaining it in two
+// places is exactly how this page ended up showing "Leaderboard" long after
+// the tab was renamed to "Socials".
+
+const { NAV_TABS } = require('./nav_tabs');
 
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -155,23 +162,17 @@ function buildNav(user) {
       </button>
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
-        ${tab('mvp', `<img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings`)}
-        <div class="nav-about-wrap" id="ca-sports-nav">
-          <button class="tab-btn" id="ca-sports-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleSportsMenu(event)">Sports<span class="tab-caret">&#9662;</span></button>
-          <div class="about-dropdown hidden" id="ca-sports-dd" role="menu">
-            ${SPORT_PAGES.map(s => `<a class="about-dropdown-item" role="menuitem" href="/${s.slug}">${s.label}</a>`).join('\n            ')}
-          </div>
-        </div>
-        ${tab('esports', 'Esports')}
-        ${tab('leaderboard', 'Leaderboard')}
-        <div class="nav-about-wrap" id="ca-about-nav">
-          <button class="tab-btn" id="ca-about-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleAboutMenu(event)">About<span class="tab-caret">&#9662;</span></button>
+        ${NAV_TABS.map(t => t.dropdown
+          ? `<div class="nav-about-wrap" id="ca-about-nav">
+          <button class="tab-btn" id="ca-about-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleAboutMenu(event)">${t.label}<span class="tab-caret">&#9662;</span></button>
           <div class="about-dropdown hidden" id="ca-about-dd" role="menu">
-            <a class="about-dropdown-item" role="menuitem" href="/#about">About</a>
-            <a class="about-dropdown-item" role="menuitem" href="/faq">FAQ</a>
-            <a class="about-dropdown-item" role="menuitem" href="/tools">Betting Calculators</a>
+            ${t.dropdown.map(d => `<a class="about-dropdown-item" role="menuitem" href="${d.href}">${d.label}</a>`).join('\n            ')}
           </div>
-        </div>
+        </div>`
+          : tab(t.tab, t.logo
+              ? `<img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">${t.label}`
+              : t.label)
+        ).join('\n        ')}
       </div>
     </div>
     <div class="nav-actions">
@@ -206,7 +207,7 @@ function buildNav(user) {
       ${SPORT_PAGES.map(s => `<a class="ca-drawer-sub-item" href="/${s.slug}">${s.label} <span>&rsaquo;</span></a>`).join('\n      ')}
     </div>
     <a class="ca-drawer-nav-item" href="/#esports">Esports <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
-    <a class="ca-drawer-nav-item" href="/#leaderboard">Leaderboard <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
+    <a class="ca-drawer-nav-item" href="/#socials">Socials <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
     <div class="ca-drawer-account-toggle" onclick="caDrawerSub('ca-drawer-about-sub','ca-drawer-about-chev')">
       <span>About</span> <span class="ca-drawer-nav-chevron" id="ca-drawer-about-chev">&rsaquo;</span>
     </div>
@@ -257,29 +258,13 @@ function buildNav(user) {
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
-    function caToggleSportsMenu(e) {
-      if (e) e.stopPropagation();
-      caCloseAboutMenu();
-      var dd  = document.getElementById('ca-sports-dd');
-      var btn = document.getElementById('ca-sports-btn');
-      if (!dd) return;
-      var willOpen = dd.classList.contains('hidden');
-      dd.classList.toggle('hidden', !willOpen);
-      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    }
-    function caCloseSportsMenu() {
-      var dd  = document.getElementById('ca-sports-dd');
-      var btn = document.getElementById('ca-sports-btn');
-      if (dd) dd.classList.add('hidden');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
-    }
+    // Sports is a plain tab now — no caret, no menu (Jack 2026-08-01). The
+    // per-sport pages are still reachable from the footer and the mobile drawer.
     document.addEventListener('click', function (e) {
       var w = document.getElementById('ca-about-nav');
       if (!(w && w.contains(e.target))) caCloseAboutMenu();
-      var sw = document.getElementById('ca-sports-nav');
-      if (!(sw && sw.contains(e.target))) caCloseSportsMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseSportsMenu(); caCloseDrawer(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseDrawer(); } });
 
     // ── Mobile drawer (same behavior as app.js toggleDrawer/closeDrawer) ──
     function caToggleDrawer() {

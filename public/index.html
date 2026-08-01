@@ -352,7 +352,6 @@
     .nav-about-wrap { position: relative; display: flex; align-items: stretch; }
     .tab-caret { font-size: 9px; margin-left: 5px; opacity: .8; }
     /* The Sports caret is its own click target (opens the menu; the label navigates) */
-    #nav-sports-btn .tab-caret { padding: 8px 6px; margin: -8px -2px -8px 1px; }
     .about-dropdown {
       position: absolute; top: calc(100% + 14px); left: 0; min-width: 150px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -369,8 +368,6 @@
 
     /* Sports dropdown: 11 links read better as two columns than one long strip.
        The ID selector outscores .about-dropdown.hidden, so hidden must be restated. */
-    #sports-dropdown { display: grid; grid-template-columns: 1fr 1fr; column-gap: 2px; min-width: 230px; }
-    #sports-dropdown.hidden { display: none; }
 
     /* ── Appearance theme toggle (Settings) ── */
     .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 3px; }
@@ -3395,23 +3392,11 @@
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
       <div class="nav-tabs">
         <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</button>
-        <div class="nav-about-wrap" id="nav-sports-wrap">
-          <button class="tab-btn" data-tab="sports" id="nav-sports-btn" onclick="sportsNavClick(event)" aria-haspopup="true" aria-expanded="false">Sports<span class="tab-caret" onclick="toggleSportsMenu(event)">&#9662;</span></button>
-          <div class="about-dropdown hidden" id="sports-dropdown" role="menu">
-            <a class="about-dropdown-item" role="menuitem" href="#" style="grid-column:1 / -1;font-weight:600;" onclick="closeSportsMenu(); switchTab('sports'); return false;">All sports</a>
-            <a class="about-dropdown-item" role="menuitem" href="/mlb">MLB</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nba">NBA</a>
-            <a class="about-dropdown-item" role="menuitem" href="/wnba">WNBA</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nfl">NFL</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nhl">NHL</a>
-            <a class="about-dropdown-item" role="menuitem" href="/ncaaf">NCAAF</a>
-            <a class="about-dropdown-item" role="menuitem" href="/cbb">CBB</a>
-            <a class="about-dropdown-item" role="menuitem" href="/tennis">Tennis</a>
-            <a class="about-dropdown-item" role="menuitem" href="/golf">Golf</a>
-            <a class="about-dropdown-item" role="menuitem" href="/soccer">Soccer</a>
-            <a class="about-dropdown-item" role="menuitem" href="/mma">UFC / MMA</a>
-          </div>
-        </div>
+        <!-- Sports is a PLAIN TAB. No caret, no dropdown (Jack 2026-08-01:
+             "remove any arrow on the sports page that could indicate a drop
+             down"). The per-sport landing pages are still linked from the
+             footer and the mobile drawer, and are still in the sitemap. -->
+        <button class="tab-btn" data-tab="sports" onclick="switchTab('sports')">Sports</button>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
         <button class="tab-btn" data-tab="socials" onclick="switchTab('socials')">Socials</button>
         <div class="nav-about-wrap" id="nav-about-wrap">
@@ -3484,33 +3469,11 @@
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
-    // Label click goes straight to the Sports board; the caret alone opens the menu.
-    function sportsNavClick(e) {
-      if (e && e.target.closest && e.target.closest('.tab-caret')) return; // caret has its own handler
-      closeSportsMenu();
-      switchTab('sports');
-    }
-    function toggleSportsMenu(e) {
-      if (e) e.stopPropagation();
-      closeAboutMenu();
-      const dd  = document.getElementById('sports-dropdown');
-      const btn = document.getElementById('nav-sports-btn');
-      if (!dd) return;
-      const willOpen = dd.classList.contains('hidden');
-      dd.classList.toggle('hidden', !willOpen);
-      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    }
-    function closeSportsMenu() {
-      const dd  = document.getElementById('sports-dropdown');
-      const btn = document.getElementById('nav-sports-btn');
-      if (dd) dd.classList.add('hidden');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
-    }
+    // Sports is a plain tab — the caret and its menu are gone (Jack 2026-08-01).
     document.addEventListener('click', (e) => {
       if (!(e.target.closest && e.target.closest('#nav-about-wrap'))) closeAboutMenu();
-      if (!(e.target.closest && e.target.closest('#nav-sports-wrap'))) closeSportsMenu();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeAboutMenu(); closeSportsMenu(); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeAboutMenu(); } });
   </script>
 
   <!-- ── Unlock the CappingAlpha ── -->

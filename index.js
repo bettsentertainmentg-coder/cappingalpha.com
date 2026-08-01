@@ -870,7 +870,23 @@ app.get('/api/pick-history', (req, res) => {
                     ${scoreCol} AS score, mention_count, result, home_score, away_score,
                     first_seen_at, resolved_at, archived_at
              FROM pick_history WHERE 1=1
-             AND NOT (LOWER(pick_type) = 'ml' AND ml_odds IS NULL)`;
+             AND NOT (LOWER(pick_type) = 'ml' AND ml_odds IS NULL)
+             -- One row per bet. A startup mirror in db.js copies every tracked
+             -- pick into this table under a synthetic NEGATIVE pick_id, which by
+             -- construction can never collide with the real archive row, so the
+             -- UNIQUE constraint does not dedupe them. Only the real row is ever
+             -- result-updated (results.js keys on pick_id), so the mirror freezes
+             -- at whatever it said when it was first copied: on 2026-07-31 the
+             -- public archive carried 51 bets twice and 9 of those pairs
+             -- DISAGREED (Ben Shelton ML read 'void' and 'win' at once). Drop the
+             -- mirror whenever the real row exists; a mirror-only bet still shows.
+             AND NOT (pick_id < 0 AND EXISTS (
+               SELECT 1 FROM pick_history h2
+               WHERE h2.espn_game_id = pick_history.espn_game_id
+                 AND LOWER(h2.team) = LOWER(pick_history.team)
+                 AND LOWER(COALESCE(h2.pick_type,'')) = LOWER(COALESCE(pick_history.pick_type,''))
+                 AND h2.pick_id > 0
+             ))`;
   const params = [];
   if (sport) {
     // "Tennis" is a virtual filter that blends both tours (ATP + WTA).
@@ -3022,6 +3038,11 @@ app.listen(PORT, () => {
   console.log('[CappperBoss] Active hours: 5:00AM–1:00AM ET');
   console.log(`[CappperBoss] Next wipe: 4:58AM ET`);
   console.log('[CappperBoss] ─────────────────────────────────');
+
+  // Shout at boot if the SPA nav and the server-rendered nav have drifted. The
+  // game/sport/tools pages build their bar from src/nav_tabs.js; this is what
+  // stops them silently falling a rename behind again.
+  try { require('./src/nav_tabs').assertNavInSync(); } catch (_) {}
 
   // IndexNow: tell Bing/Yandex the core pages are fresh after each deploy.
   // Prod-only (SESSION_SECURE=1) so local dev never pings the live URLs.
