@@ -45,8 +45,16 @@ function hasGameStarted(game, nowMs = Date.now()) {
   // 2. We stamped a real first-pitch/first-serve time (game_start_tracker).
   if (game.actual_start_at && !Number.isNaN(_ms(game.actual_start_at))) return true;
   // 3. Live play is on the board even though the status has not caught up.
+  //
+  // SCORE ONLY. `period` is NOT a start signal and must never be added back:
+  // ESPN reports period as the period that is NEXT, not the number played, so a
+  // pregame MLB game and a pregame tennis match both sit at period = 1 before a
+  // ball is thrown. Trusting it judged 45 of 84 pregame games on the board as
+  // "already started" on 2026-07-31, which silently blocked EVERY tracked bet
+  // on them: Jessica Pegula ML scored 319 on 14 fully-pregame mentions, won,
+  // and never reached the record. Verified on the same board: 0 of 84 pregame
+  // games carry a nonzero score, so the score check below is safe on its own.
   if ((game.home_score ?? 0) > 0 || (game.away_score ?? 0) > 0) return true;
-  if ((game.period ?? 0) > 0) return true;
   // 4. Schedule backstop, fixed-schedule sports only.
   const sport = game.sport || '';
   if (LOOSE_START_SPORTS.has(sport)) return false;
