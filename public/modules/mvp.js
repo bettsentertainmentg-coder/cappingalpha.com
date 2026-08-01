@@ -5,7 +5,7 @@ import { isPaying, isAccount } from './auth.js';
 import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=8';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=29';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=30';
 
 let mvpChart  = null;
 let homeChart = null;

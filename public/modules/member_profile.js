@@ -11,7 +11,7 @@
 
 import { state } from './state.js';
 import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=8';
-import { winPctColor } from './sport_cards.js?v=29';
+import { winPctColor } from './sport_cards.js?v=30';
 
 let _picks = [];           // recent picks for the open profile (for sport filtering)
 let _sportFilter = 'all';

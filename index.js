@@ -695,6 +695,16 @@ app.get('/api/picks', (req, res) => {
   // Picks is intentionally a superset and still shows them.
   picks = picks.filter(p => (p.score || 0) > 0);
 
+  // ONE LIST FOR THE WHOLE RANKINGS TAB (Jack 2026-07-31: "all the CA Scores
+  // cards are supposed to do is filter the CA rankings"). The board knows what a
+  // pick DID; only the ledger knows whether it counted. Overlaying the ledger's
+  // verdict here means the Complete Ranking, the sport cards and the P/L graph
+  // all read the same rows, instead of the cards stitching two sources together
+  // and agreeing with neither. A pick outscored on its own game arrives carrying
+  // result='void' plus the "not counted" note, so it still shows GOLD (gold means
+  // verified, not "we bet it") with the reason attached.
+  overlayLedgerResult(picks);
+
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
   // on rank instead of each deriving it from array position.
@@ -2700,18 +2710,35 @@ function _resolveTeamColor(game, isHome) {
 // picks keep their own result (they were never bets). Overlaying result AND
 // annotation means the detail page renders the identical yellow not-counted
 // state from the identical fields the Rankings list already keys on.
-function overlayLedgerResult(picks, espn_game_id) {
-  if (!picks || !picks.length || !espn_game_id) return picks;
+// Works for one game (pass espn_game_id) or for a whole board (omit it, the
+// picks carry their own espn_game_id). The board form is what makes the three
+// Rankings surfaces agree: /api/picks now ships the ledger's verdict, so the
+// Complete Ranking, the CA Scores cards and the P/L graph are all reading one
+// list instead of three.
+function overlayLedgerResult(picks, espn_game_id = null) {
+  if (!picks || !picks.length) return picks;
   try {
-    const rows = db.prepare(`
-      SELECT team, pick_type, result, annotation FROM mvp_picks
-      WHERE espn_game_id = ? AND COALESCE(retired, 0) = 0
-    `).all(espn_game_id);
+    const key = (g, t, ty) =>
+      `${String(g ?? '')}|${String(t || '').trim().toLowerCase()}|${String(ty || '').toLowerCase()}`;
+    let rows;
+    if (espn_game_id) {
+      rows = db.prepare(`
+        SELECT espn_game_id, team, pick_type, result, annotation FROM mvp_picks
+        WHERE espn_game_id = ? AND COALESCE(retired, 0) = 0
+      `).all(espn_game_id);
+    } else {
+      const ids = [...new Set(picks.map(p => p.espn_game_id).filter(Boolean))];
+      if (!ids.length) return picks;
+      const ph = ids.map(() => '?').join(',');
+      rows = db.prepare(`
+        SELECT espn_game_id, team, pick_type, result, annotation FROM mvp_picks
+        WHERE espn_game_id IN (${ph}) AND COALESCE(retired, 0) = 0
+      `).all(...ids);
+    }
     if (!rows.length) return picks;
-    const key = (t, ty) => `${String(t || '').trim().toLowerCase()}|${String(ty || '').toLowerCase()}`;
-    const byKey = new Map(rows.map(r => [key(r.team, r.pick_type), r]));
+    const byKey = new Map(rows.map(r => [key(r.espn_game_id, r.team, r.pick_type), r]));
     for (const p of picks) {
-      const m = byKey.get(key(p.team, p.pick_type));
+      const m = byKey.get(key(espn_game_id ?? p.espn_game_id, p.team, p.pick_type));
       if (!m) continue;
       p.tracked = true;
       if (m.result && m.result !== 'pending') p.result = m.result;

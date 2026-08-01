@@ -5,7 +5,7 @@
 import { isViewer } from './auth.js';
 import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=8';
 import { unlockCtaHtml } from './paywall.js';
-import { winPctColor } from './sport_cards.js?v=29';
+import { winPctColor } from './sport_cards.js?v=30';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';

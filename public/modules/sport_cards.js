@@ -223,9 +223,6 @@ function _counted(graded) {
   return graded.filter(p => {
     const r = (p.result || '').toLowerCase();
     if (p.annotation && p.annotation.toLowerCase().includes('not counted')) return false;
-    // Held while the tracked ledger catches up: shown so the match does not
-    // vanish, but never counted — we do not yet know it was a tracked bet.
-    if (p._awaitingLedger) return false;
     return r === 'win' || r === 'loss' || r === 'push';
   });
 }
@@ -258,9 +255,7 @@ function cornerMetaHtml(card) {
       const r = (p.result || '').toLowerCase();
       // Soft-yellow pip for a graded pick that got outscored on its game — it
       // counts in neither column, and a grey pip read as "not started yet".
-      // A held row is not a settled pip yet — leave it neutral rather than
-      // colouring a result the record does not (yet) count.
-      const cls = p._awaitingLedger ? '' : isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
+      const cls = isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
       return `<i class="${cls}"></i>`;
     }),
     ...b.live.map(() => '<i class="lv"></i>'),
@@ -375,57 +370,35 @@ export function renderSportRail(filters) {
   if (mockRailActive()) {
     picks = MOCK_PICKS.filter(inRange);
   } else {
-    // Open (live / upcoming) rows come from the live board, but GRADED rows
-    // come from the TRACKED ledger (state.mvpData — the exact source the P/L
-    // record bar reads). A raw board row can sit graded at 100+ without ever
-    // being a tracked bet (crossed gold after its game started, blocked by the
-    // totals gate, or outscored on its game), and counting those made the
-    // cards' day records disagree with Today's P/L. Same set, same record.
-    const days = boardDayKeys();
-    const onBoardDay = (p) => days.includes(p.game_date);
-    const _mapTracked = (p) => ({
-      ...p,
-      game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
-      game_home_score: p.home_score,
-      game_away_score: p.away_score,
-    });
-    const tracked = (state.mvpData?.picks || [])
-      .filter(p => onBoardDay(p) && isGraded(p))
-      .map(_mapTracked)
-      .filter(inRangeTracked);
-    // A just-finished game can briefly be graded in the ledger while the board
-    // row hasn't flipped yet; the tracked row wins the slot.
-    const _betKey = (p) => `${p.espn_game_id}|${String(p.team || '').trim().toLowerCase()}|${(p.pick_type || '').toLowerCase()}`;
-    const seen = new Set(tracked.map(_betKey));
-    const board = (state.allPicks || [])
-      .filter(p => !isGraded(p) && !seen.has(_betKey(p)))
-      .filter(inRange);
-    // ── Ledger-lag hold (2026-07-30) ────────────────────────────────────────
-    // A board row that just graded but has no tracked row is NOT proof the bet
-    // was untracked — it may just mean /api/mvp has not been re-polled yet.
-    // Without this, the row is graded (so the open bucket above drops it) and
-    // absent from the ledger (so the tracked bucket drops it too): it exists in
-    // NEITHER and the match silently vanishes off the card mid-session. That is
-    // the "live tennis matches disappearing" report.
-    // Held only while the board snapshot is FRESHER than the ledger snapshot,
-    // i.e. while the ledger is provably behind. Once the ledger catches up the
-    // hold releases on its own and the row either appears as a tracked bet or
-    // correctly drops away. A held row never counts toward the record.
-    const ledgerBehind = !state.mvpLoadedAt || (state.picksLoadedAt || 0) > state.mvpLoadedAt;
-    const held = ledgerBehind
-      ? (state.allPicks || [])
-          .filter(p => isGraded(p) && !seen.has(_betKey(p)))
-          .map(p => ({ ...p, _awaitingLedger: true }))
-          .filter(inRange)
-      : [];
-    picks = board.concat(held, tracked);
-    // Fallback source: when neither carries anything eligible (locally the
-    // mirrored /api/picks is a logged-out payload with scores stripped), fill
-    // the rail from today's tracked picks — real rows, minus live game state.
+    // ── ONE LIST (Jack 2026-07-31) ──────────────────────────────────────────
+    // "All the CA Scores cards are supposed to do is filter the CA rankings for
+    // users to see it easier."
+    //
+    // So that is all this does now: take the exact array the Complete Ranking
+    // renders (state.allPicks, from /api/picks) and filter it by score and
+    // sport. Nothing else.
+    //
+    // This used to stitch two sources — ungraded rows from the board, graded
+    // rows from the tracked ledger — which is why the cards agreed with neither
+    // the ranking above them nor the P/L below them, and why a match that
+    // graded mid-session fell between the two and vanished. The server now
+    // overlays the ledger's verdict onto /api/picks (index.js
+    // overlayLedgerResult), so a single list already carries both facts: what
+    // the pick did, and whether it counted. The ledger-lag hold that patched
+    // the old gap is gone with the gap.
+    picks = (state.allPicks || []).filter(inRange);
+    // Fallback: locally the mirrored /api/picks is a logged-out payload with
+    // scores stripped, so fill the rail from today's tracked picks instead.
     if (!picks.length && state.mvpData?.picks?.length) {
+      const days = boardDayKeys();
       picks = state.mvpData.picks
-        .filter(onBoardDay)
-        .map(_mapTracked)
+        .filter(p => days.includes(p.game_date))
+        .map(p => ({
+          ...p,
+          game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
+          game_home_score: p.home_score,
+          game_away_score: p.away_score,
+        }))
         .filter(inRangeTracked);
       fallback = picks.length > 0;
     }
