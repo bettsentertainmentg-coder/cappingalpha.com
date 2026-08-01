@@ -14,7 +14,12 @@
 
 const db = require('./db');
 
-const GRACE_MS = 5 * 60 * 1000;
+// ZERO. Jack 2026-07-31: "NOTHING IS TRACKED PAST THAT EVEN IF A CAPPER POSTS
+// AT ANY POINT AFTER THAT." There used to be a 5-minute grace here to absorb
+// clock skew, and it was a hole: a mention landing inside it still added points
+// to a game already in progress. First pitch is now detected within 30 seconds
+// (the start watcher in index.js), so there is no skew left to forgive.
+const GRACE_MS = 0;
 
 // Sports whose scheduled start time is an ESTIMATE, not a commitment. ESPN
 // lists tennis as "not before" and matches routinely go off 30-90 minutes late
@@ -69,12 +74,7 @@ function hasGameStarted(game, nowMs = Date.now()) {
 // gates on hasGameStarted with no grace).
 function isPickAcceptable(game) {
   if (!game) return true;
-  if (!hasGameStarted(game)) return true;
-  // Prefer the stamped start; fall back to the schedule so the grace still has
-  // a reference point when only the status flipped.
-  const ref = _ms(game.actual_start_at) || _ms(game.start_time);
-  if (Number.isNaN(ref) || !Number.isFinite(ref)) return false;
-  return (Date.now() - ref) <= GRACE_MS;
+  return !hasGameStarted(game);
 }
 
 function logLatePick(pick) {

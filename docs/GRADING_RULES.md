@@ -16,13 +16,27 @@ violation (with a full row snapshot that survives the daily wipe) to
   two pages can never be correct.
 
 ## R2. Points freeze at the true start
+Jack, 2026-07-31: "THE TRACKING AND POINTS TALLYING ENDS AT THE START OF THE GAME
+FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
+
 - Pregame, points move freely: new backers, rating changes, rescores all count
   (a late whale is signal, not noise).
-- The freeze trigger is ESPN's status flip to live. Tracked scores sync to the
-  board every 5 minutes until then (src/mvp.js), then never move.
-- In-play arrivals (a wallet trade after tip, a live pick) are flagged live in
-  provenance: record-only for the capper, zero points, never on the board
-  (src/source_ingest.js).
+- **At the start, the SCORE itself freezes.** Whatever a pick is worth at first
+  pitch is what it is worth forever. `computeAndLogV3` returns the stored total
+  untouched once the game has begun (src/scoring_v3.js). No late mention, no
+  ratings recompute, no board rescore, no boot migration may move it.
+- Zero grace. A mention landing one second after the start is rejected
+  (`GRACE_MS = 0`, src/pick_cutoff.js). First pitch is detected within 30
+  seconds by the start watcher, so there is no clock skew left to forgive.
+- In-play source entries are DROPPED, not logged. They used to be inserted into
+  capper_history flagged live in provenance on a "record-only" theory; d3af377
+  then had to exclude 7,787 of ~19k graded rows from the ratings pool (WTA 82%,
+  ATP 62%) because they had been shaping every capper's rank. A row we refuse to
+  judge on should not exist (src/source_ingest.js).
+- Why the score freeze had to be added: gating only the tracked-bet INSERT left
+  the score free to climb. On 2026-07-31 Diana Shnaider crossed 100 DURING her
+  match and rendered as a gold pick that was never bettable. A pick must not be
+  able to reach gold after the moment it could have been bet.
 
 ## R3. One tracked bet per game per dimension
 - Dimensions: MARGIN (moneyline + spread together) and TOTAL (over/under).

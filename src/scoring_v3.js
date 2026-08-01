@@ -455,7 +455,48 @@ function computeV3(pickId) {
 }
 
 // ── Persist alongside v2 (dual logging) ───────────────────────────────────────
+// ── THE FREEZE (Jack 2026-07-31) ─────────────────────────────────────────────
+// "THE TRACKING AND POINTS TALLYING ENDS AT THE START OF THE GAME FOR ANY PICK
+// EVER. NOTHING IS TRACKED PAST THAT."
+//
+// Whatever a pick is worth at first pitch is what it is worth forever. This is
+// the single rule the whole board rests on, and until now it was enforced on
+// the tracked-bet INSERT only — the SCORE itself kept moving. Two leaks fed it:
+// a mention landing inside the old 5-minute grace, and (much larger) capper
+// ratings recomputing and rescoring the entire board with no start check at
+// all, so a pick could climb past gold hours after the game went off with
+// nobody posting anything. That is how Diana Shnaider crossed 100 mid-match on
+// 2026-07-31 and appeared as a gold pick that was never bettable.
+//
+// Frozen means frozen: no new points, no re-rank, no late backer. The last
+// pregame value stands. Games with no today_games row (post-wipe history) are
+// left alone — the daily wipe already ended their scoring.
+function _gameStartedForScoring(pickId) {
+  try {
+    const g = db.prepare(`
+      SELECT tg.status, tg.start_time, tg.actual_start_at, tg.sport, tg.home_score, tg.away_score
+      FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+      WHERE p.id = ?
+    `).get(pickId);
+    if (!g) return false;
+    return require('./pick_cutoff').hasGameStarted(g);
+  } catch (_) { return false; }
+}
+
 function computeAndLogV3(pickId) {
+  // Frozen at first pitch. Return the stored total so callers still get a
+  // number, they just never get a NEW one.
+  if (_gameStartedForScoring(pickId)) {
+    try {
+      const cur = db.prepare(`SELECT v3_total, v3_json FROM score_breakdown WHERE pick_id = ?`).get(pickId);
+      if (cur && cur.v3_total != null) {
+        let breakdown = {};
+        try { breakdown = JSON.parse(cur.v3_json || '{}'); } catch (_) {}
+        return { total: cur.v3_total, breakdown, frozen: true };
+      }
+    } catch (_) {}
+    return null;
+  }
   const scored = computeV3(pickId);
   if (!scored) return null;
   try {

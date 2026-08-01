@@ -118,10 +118,19 @@ function recordSourcePick(pick) {
   const isTotal = pt === 'over' || pt === 'under';
   if (!isTotal && !pick.side) return 'skipped:no-side';
 
-  // Pregame rule: the SOURCE timestamp decides. In-game entries are still logged
-  // (capper record only) but flagged live in provenance.
+  // Pregame rule: the SOURCE timestamp decides.
+  //
+  // In-play entries are DROPPED ENTIRELY (Jack 2026-07-31: "NOTHING IS TRACKED
+  // PAST THAT EVEN IF A CAPPER POSTS AT ANY POINT AFTER THAT IT IS NOT ADDED TO
+  // CAPPER HISTORY OR NOTHING"). They used to be inserted as capper_history
+  // rows flagged live in provenance, on the theory that they were record-only.
+  // They were not harmless: d3af377 later had to exclude them from the ratings
+  // pool after finding 7,787 of ~19k graded rows were in-play, WTA 82% and ATP
+  // 62%, which had been quietly shaping every capper's rank. A row we refuse to
+  // judge on should not exist.
   const startMs = gameStartMs(game);
   const live = !!(startMs && pick.postedAtMs && pick.postedAtMs >= startMs);
+  if (live) return 'skipped:in-play';
 
   const team = isTotal ? game.home_team : (pick.side === 'home' ? game.home_team : game.away_team);
   const gameDate = (game.start_time || '').slice(0, 10) || null;
