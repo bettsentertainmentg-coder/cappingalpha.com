@@ -713,13 +713,31 @@
        The iOS webview draws edge to edge under the status bar (viewport-fit=cover
        + black-translucent), so the top bar grows by the status-bar inset: the
        velvet extends under the clock while the nav content sits below it. */
+    /* The raw status-bar inset leaves a band of empty velvet between the clock
+       and the nav row; pull the row up 10px (max() clamps to 0 on devices with
+       no inset). One knob shared by everything that rides the top bar. */
+    html.ca-app { --ca-safe-top: max(0px, calc(env(safe-area-inset-top) - 10px)); }
     html.ca-app nav:not(.ca-tabbar) {
-      padding-top: env(safe-area-inset-top);
+      padding-top: var(--ca-safe-top);
       /* Tighter than the web's 56px: the avatar sits close under the clock. */
-      height: calc(46px + env(safe-area-inset-top));
+      height: calc(46px + var(--ca-safe-top));
     }
-    html.ca-app .soc-subnav { top: calc(50px + env(safe-area-inset-top)); }
-    html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
+    html.ca-app .soc-subnav { top: calc(50px + var(--ca-safe-top)); }
+    html.ca-app .ca-drawer { padding-top: var(--ca-safe-top); }
+    /* Home: trim the dead space between the velvet bar and the first section. */
+    html.ca-app .ca-home-grid { padding-top: 8px; }
+    /* Tracking: same trim — the web hero's 48px top padding is dead velvet in-app. */
+    html.ca-app #panel-tracking .hero { padding-top: 12px; padding-bottom: 8px; }
+    html.ca-app #panel-tracking .hero h1 { margin-bottom: 4px; }
+    /* Tracking typeface: the system face (SF Pro on iOS) — native feel, and
+       distance from the stock grotesque look (Jack's font-lab pick, 2026-07-29).
+       Numbers override the explicit Space Grotesk the web styles set. */
+    html.ca-app #panel-tracking { font-family: -apple-system, system-ui, 'Source Sans Pro', sans-serif; }
+    html.ca-app #panel-tracking .perf-headline, html.ca-app #panel-tracking .perf-m-val,
+    html.ca-app #panel-tracking .track-stat-val, html.ca-app #panel-tracking .nu-val,
+    html.ca-app #panel-tracking .rec-big, html.ca-app #panel-tracking .myp-val {
+      font-family: -apple-system, system-ui, sans-serif;
+    }
     /* Modal cards (golf popup) sit below the status bar; the close button was
        under the clock and unreachable. */
     html.ca-app .modal-overlay { padding-top: calc(env(safe-area-inset-top) + 8px); }
@@ -2345,6 +2363,337 @@
     #panel-sports .nx-chip .nx-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #panel-sports .nx-split { width: 44px; height: 5px; border-radius: 3px; overflow: hidden; display: flex; flex-shrink: 0; background: var(--border); }
     #panel-sports .nx-split i { display: block; height: 100%; }
+    /* ── Public betting: the Rope Line element ─────────────────────────────
+       Sits at the foot of a game card, left of the CA chip. */
+    /* ══ rope1 · Rope Line / Crowd Chip ═══════════════════════════════════
+       Integrator contract
+       - inline custom props only, no other inline style:
+           --nx-r-k   away ticket %  (integer, e.g. 38)   -> knot position
+           --nx-r-m   money %        (integer, e.g. 71)   -> caret position
+           --nx-r-s2  second market %(integer, e.g. 57)   -> second bar
+       - add nx-r--money        when a money reading exists
+       - add nx-r--money-home   when {{MONEY_SIDE}} is the HOME side
+                                (flips caret side + paints everything ember)
+       - add nx-r--split        when the dollars lean against the tickets
+       - add nx-r--two          when a second market is shown
+       Heights: base 32px · money/split 46px · two 46px. Width caps at 220px.
+       ═════════════════════════════════════════════════════════════════════ */
+    #panel-sports .nx-pubrope .nx-r, #panel-sports .nx-pubrope .nx-r * {box-sizing:border-box}
+
+
+    #panel-sports .nx-pubrope .nx-r {
+      --nx-r-cold:#4FD8EC;                    /* road / away, ice */
+      --nx-r-warm:#FF8A4C;                    /* home, ember */
+      --nx-r-k:50;
+      --nx-r-m:50;
+      --nx-r-kpos:calc(var(--nx-r-k) * 1%);   /* knot along the rope */
+      --nx-r-mpos:calc(var(--nx-r-m) * 1%);   /* money caret along the rope */
+      --nx-r-mcol:var(--nx-r-cold);           /* money side colour */
+      width:100%;
+      max-width:220px;
+      display:flex;
+      flex-direction:column;
+      line-height:1;
+      font-variant-numeric:tabular-nums;
+      font-feature-settings:"tnum" 1;
+      -webkit-font-smoothing:antialiased;
+    }
+
+    #panel-sports .nx-pubrope .nx-r--money-home {
+      --nx-r-mpos:calc(100% - var(--nx-r-m) * 1%);
+      --nx-r-mcol:var(--nx-r-warm);
+    }
+
+
+    /* ── head row: ends pinned, chip dead centre ───────────────────────── */
+    #panel-sports .nx-pubrope .nx-r-head {
+      display:grid;
+      grid-template-columns:1fr auto 1fr;     /* equal side tracks = true centre */
+      align-items:center;
+      gap:6px;
+      height:17px;
+    }
+
+    #panel-sports .nx-pubrope .nx-r-end {display:flex;align-items:baseline;gap:3px;min-width:0;white-space:nowrap;overflow:hidden}
+
+    #panel-sports .nx-pubrope .nx-r-end.nx-r-home {justify-self:end}
+
+    #panel-sports .nx-pubrope .nx-r-pct {font-size:12px;font-weight:800;letter-spacing:-.2px}
+
+    #panel-sports .nx-pubrope .nx-r-pct i {font-style:normal;font-size:.72em;font-weight:700;opacity:.85;margin-left:.5px}
+
+    #panel-sports .nx-pubrope .nx-r-away .nx-r-pct {color:var(--nx-r-cold)}
+
+    #panel-sports .nx-pubrope .nx-r-home .nx-r-pct {color:var(--nx-r-warm)}
+
+    #panel-sports .nx-pubrope .nx-r-abbr {font-size:10px;font-weight:700;letter-spacing:.4px;color:#8b949e;text-transform:uppercase}
+
+
+    /* ── the crowd chip ────────────────────────────────────────────────── */
+    #panel-sports .nx-pubrope .nx-r-chip {
+      flex:none;
+      display:inline-flex;align-items:center;gap:5px;
+      height:16px;padding:0 7px 0 6px;
+      border-radius:999px;
+      border:1px solid rgba(139,148,158,.30);
+      background:linear-gradient(180deg,#232a3a 0%,#171d28 100%);
+      box-shadow:0 1px 0 rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.06);
+      white-space:nowrap;
+    }
+
+    #panel-sports .nx-pubrope .nx-r-crowd {width:15px;height:11px;flex:none;color:#dbe4ee}
+
+    #panel-sports .nx-pubrope .nx-r-crowd .nx-r-back {opacity:.48}
+         /* two figures fall behind the front one */
+    #panel-sports .nx-pubrope .nx-r-mkt {font-size:11px;font-weight:700;letter-spacing:.1px;color:#e6edf3}
+
+
+    /* ── the rope ──────────────────────────────────────────────────────── */
+    #panel-sports .nx-pubrope .nx-r-ropewrap {position:relative;height:11px;margin-top:4px;display:flex;align-items:center}
+
+    #panel-sports .nx-pubrope .nx-r-rope {position:relative;width:100%;height:6px}
+
+    #panel-sports .nx-pubrope .nx-r-track {position:absolute;inset:0;border-radius:3px;overflow:hidden;background:#1c2230;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+
+    #panel-sports .nx-pubrope .nx-r-fill {position:absolute;top:0;bottom:0;display:block}
+
+    #panel-sports .nx-pubrope .nx-r-fill-a {left:0;width:var(--nx-r-kpos);background:linear-gradient(90deg,#6FE4F6 0%,#3CC7DE 100%)}
+
+    #panel-sports .nx-pubrope .nx-r-fill-h {right:0;width:calc(100% - var(--nx-r-kpos));background:linear-gradient(90deg,#D9631A 0%,#FF9A63 100%)}
+
+    #panel-sports .nx-pubrope .nx-r-knot {
+      position:absolute;top:50%;
+      left:clamp(4px,var(--nx-r-kpos),calc(100% - 4px));
+      transform:translate(-50%,-50%);
+      width:7px;height:11px;border-radius:3.5px;
+      background:linear-gradient(180deg,#fff 0%,#dbe4ee 55%,#aebbc9 100%);
+      box-shadow:0 0 0 1.5px rgba(12,16,22,.92), 0 0 7px rgba(226,242,255,.32);
+    }
+
+    #panel-sports .nx-pubrope .nx-r-knot::after {content:"";position:absolute;left:1.5px;right:1.5px;top:50%;height:1px;
+      transform:translateY(-50%);background:rgba(24,30,40,.38);border-radius:1px}
+
+
+    /* money caret sits under the rope, pointing at where the dollars land */
+    #panel-sports .nx-pubrope .nx-r-caret {
+      position:absolute;top:100%;
+      left:clamp(3.5px,var(--nx-r-mpos),calc(100% - 3.5px));
+      transform:translate(-50%,0);
+      width:0;height:0;
+      border-left:3.5px solid transparent;border-right:3.5px solid transparent;
+      border-bottom:3.5px solid #8b949e;
+    }
+
+
+    /* hatched tension zone: knot -> caret, painted in the money side's colour */
+    #panel-sports .nx-pubrope .nx-r-tension {
+      position:absolute;top:-2px;bottom:-2px;
+      left:min(var(--nx-r-kpos),var(--nx-r-mpos));
+      width:calc(max(var(--nx-r-kpos),var(--nx-r-mpos)) - min(var(--nx-r-kpos),var(--nx-r-mpos)));
+      border-radius:3px;
+      background-color:rgba(9,12,18,.42);
+      background-image:linear-gradient(135deg,var(--nx-r-mcol) 0 22%,transparent 22% 50%,var(--nx-r-mcol) 50% 72%,transparent 72%);
+      background-size:6px 6px;
+      opacity:.9;
+      box-shadow:0 0 8px -1px var(--nx-r-mcol);
+      animation:rope1-nx-r-drift 2.4s linear infinite;
+      pointer-events:none;
+    }
+
+    @keyframes rope1-nx-r-drift {from{background-position:0 0}to{background-position:12px 0}}
+
+    @media (prefers-reduced-motion:reduce) {
+    #panel-sports .nx-pubrope .nx-r-tension {animation:none}
+
+    }
+
+
+    #panel-sports .nx-pubrope .nx-r--split .nx-r-track {filter:saturate(.85)}
+
+    #panel-sports .nx-pubrope .nx-r--split .nx-r-caret {border-bottom-color:var(--nx-r-mcol);filter:drop-shadow(0 0 3px var(--nx-r-mcol))}
+
+
+    /* ── money line ────────────────────────────────────────────────────── */
+    #panel-sports .nx-pubrope .nx-r-moneyrow {display:none;align-items:center;gap:5px;height:12px;margin-top:2px}
+
+    #panel-sports .nx-pubrope .nx-r--money .nx-r-moneyrow {display:flex}
+
+    #panel-sports .nx-pubrope .nx-r--money-home .nx-r-moneyrow {flex-direction:row-reverse}
+       /* hugs the money side */
+    #panel-sports .nx-pubrope .nx-r-pull {display:none;width:12px;height:8px;flex:none;color:var(--nx-r-mcol)}
+
+    #panel-sports .nx-pubrope .nx-r--split .nx-r-pull {display:block}
+
+    #panel-sports .nx-pubrope .nx-r--money-home .nx-r-pull {transform:scaleX(-1)}
+
+    #panel-sports .nx-pubrope .nx-r-money {display:inline-flex;align-items:baseline;gap:3px;height:12px;padding:0 1px;border-radius:6px}
+
+    #panel-sports .nx-pubrope .nx-r-cur {font-size:10px;font-weight:800;color:#8b949e}
+
+    #panel-sports .nx-pubrope .nx-r-money .nx-r-pct {font-size:10.5px;color:#8b949e}
+
+    #panel-sports .nx-pubrope .nx-r-money .nx-r-abbr {font-size:10px}
+
+    #panel-sports .nx-pubrope .nx-r-tag {font-size:9.5px;font-weight:600;letter-spacing:.2px;color:#8b949e;white-space:nowrap}
+
+
+    /* split: the quiet grey line lights up in the money side's colour */
+    #panel-sports .nx-pubrope .nx-r--split .nx-r-money {padding:0 5px;background:rgba(79,216,236,.12);box-shadow:inset 0 0 0 1px rgba(79,216,236,.36)}
+
+    #panel-sports .nx-pubrope .nx-r--split .nx-r-cur, #panel-sports .nx-pubrope .nx-r--split .nx-r-money .nx-r-pct, #panel-sports .nx-pubrope .nx-r--split .nx-r-money .nx-r-abbr {color:var(--nx-r-cold)}
+
+    #panel-sports .nx-pubrope .nx-r--split.nx-r--money-home .nx-r-money {background:rgba(255,138,76,.13);box-shadow:inset 0 0 0 1px rgba(255,138,76,.38)}
+
+    #panel-sports .nx-pubrope .nx-r--split.nx-r--money-home .nx-r-cur, #panel-sports .nx-pubrope .nx-r--split.nx-r--money-home .nx-r-money .nx-r-pct, #panel-sports .nx-pubrope .nx-r--split.nx-r--money-home .nx-r-money .nx-r-abbr {color:var(--nx-r-warm)}
+
+
+    /* ── second market ─────────────────────────────────────────────────── */
+    #panel-sports .nx-pubrope .nx-r-second {display:none;align-items:center;gap:6px;height:12px;margin-top:2px}
+
+    #panel-sports .nx-pubrope .nx-r--two .nx-r-second {display:flex}
+
+    #panel-sports .nx-pubrope .nx-r-s2chip {flex:none;display:inline-flex;align-items:center;height:12px;padding:0 5px;border-radius:4px;
+      border:1px solid rgba(139,148,158,.26);background:rgba(28,34,48,.85);
+      font-size:9.5px;font-weight:700;letter-spacing:.2px;color:#c7d1db}
+
+    #panel-sports .nx-pubrope .nx-r-s2val {flex:none;display:inline-flex;align-items:baseline;gap:3px}
+
+    #panel-sports .nx-pubrope .nx-r-s2val .nx-r-pct {font-size:10.5px;color:#cfd8e3}
+
+    #panel-sports .nx-pubrope .nx-r-s2val .nx-r-abbr {font-size:9.5px}
+
+    #panel-sports .nx-pubrope .nx-r-s2bar {position:relative;flex:1 1 auto;min-width:24px;height:4px;border-radius:2px;background:#1c2230;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.05);opacity:.85}
+
+    #panel-sports .nx-pubrope .nx-r-s2bar i {position:absolute;left:0;top:0;bottom:0;width:calc(var(--nx-r-s2) * 1%);
+      border-radius:2px 0 0 2px;background:linear-gradient(90deg,#6FE4F6,#3CC7DE)}
+
+    #panel-sports .nx-pubrope .nx-r-s2bar u {position:absolute;right:0;top:0;bottom:0;left:calc(var(--nx-r-s2) * 1%);
+      border-radius:0 2px 2px 0;background:linear-gradient(90deg,#D9631A,#FF9A63)}
+
+    #panel-sports .nx-pubrope .nx-r-s2bar b {position:absolute;top:-1.5px;bottom:-1.5px;width:2px;border-radius:1px;
+      left:clamp(2px,calc(var(--nx-r-s2) * 1%),calc(100% - 2px));transform:translateX(-50%);
+      background:#eef4fa;box-shadow:0 0 0 1px rgba(12,16,22,.85)}
+
+
+
+    /* Fallbacks when a game has no public split: the CA members' lean, the
+       day's line movement, or the price-implied read. */
+    #panel-sports .nx-pubalt { display: inline-flex; align-items: center; gap: 5px; min-height: 26px; padding: 3px 10px; border-radius: 999px; background: var(--surface2); border: 1px solid var(--border); font-size: 11px; color: var(--muted); min-width: 0; overflow: hidden; white-space: nowrap; }
+    #panel-sports .nx-pubalt b { font-weight: 800; color: var(--text); }
+    #panel-sports .nx-pubalt em { font-style: normal; font-weight: 800; font-size: 9px; letter-spacing: .05em; color: #5b6675; }
+    #panel-sports .nx-pubalt .nx-pubi { color: #38bdf8; flex-shrink: 0; }
+    #panel-sports .nx-pubalt .nx-pubca { height: 12px; width: auto; border-radius: 2px; flex-shrink: 0; }
+    #panel-sports .nx-pubalt.mkt { border-style: dashed; color: #7b8694; }
+    #panel-sports .nx-pubalt.mkt b { color: var(--muted); }
+
+    /* ── The full public betting panel (card dropdown) ─────────────────────
+       Blue bar = share of bets, gold bar = share of dollars, per side. */
+    #panel-sports .nx-pubpanel { margin-top: 10px; }
+    #panel-sports .nx-pubpanel .nx-dd-panel {
+      --nx-dd-dim:#b6c0cc;
+      --nx-dd-track:#2a3240;
+      box-sizing:border-box;
+      width:100%;
+      padding:11px 12px 10px;
+      background:linear-gradient(180deg,#181e28 0%,var(--surface) 62%);
+      border:1px solid var(--border);
+      border-radius:12px;
+      color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+      font-variant-numeric:tabular-nums;
+      font-feature-settings:"tnum" 1;
+      -webkit-font-smoothing:antialiased;
+    }
+
+    #panel-sports .nx-pubpanel .nx-dd-panel * {box-sizing:border-box;}
+
+
+    /* ---- panel header + key ---- */
+    #panel-sports .nx-pubpanel .nx-dd-head {
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      padding-bottom:8px;margin-bottom:9px;border-bottom:1px solid var(--border);
+    }
+
+    #panel-sports .nx-pubpanel .nx-dd-title {display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.2px;color:var(--text);}
+
+    #panel-sports .nx-pubpanel .nx-dd-ico {width:13px;height:13px;flex:none;display:block;}
+
+    #panel-sports .nx-pubpanel .nx-dd-ico-b {fill:var(--accent);}
+
+    #panel-sports .nx-pubpanel .nx-dd-ico-m {fill:var(--gold);}
+
+    #panel-sports .nx-pubpanel .nx-dd-key {display:inline-flex;align-items:center;gap:10px;font-size:9.5px;font-weight:600;letter-spacing:.2px;color:var(--muted);}
+
+    #panel-sports .nx-pubpanel .nx-dd-keyitem {display:inline-flex;align-items:center;gap:4px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-sw {width:14px;height:5px;flex:none;display:block;}
+
+    #panel-sports .nx-pubpanel .nx-dd-sw-b {fill:var(--accent);}
+
+    #panel-sports .nx-pubpanel .nx-dd-sw-m {fill:var(--gold);}
+
+
+    /* ---- market block ---- */
+    #panel-sports .nx-pubpanel .nx-dd-mkt+.nx-dd-mkt {margin-top:11px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-mkt-h {display:flex;align-items:center;gap:8px;margin:0 0 7px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-mkt-name {font-size:9.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--muted);line-height:11px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-rule {flex:1;height:1px;background:linear-gradient(90deg,var(--border),rgba(48,54,61,0));}
+
+
+    /* ---- one side = 2 rows (bets, money) + a row-spanning line/price cell ---- */
+    #panel-sports .nx-pubpanel .nx-dd-side {
+      display:grid;
+      grid-template-columns:72px 1fr 38px;
+      column-gap:8px;row-gap:3px;
+      align-items:center;
+    }
+
+    #panel-sports .nx-pubpanel .nx-dd-side+.nx-dd-side {margin-top:9px;}
+
+
+    #panel-sports .nx-pubpanel .nx-dd-v {font-size:11px;font-weight:700;line-height:12px;text-align:right;white-space:nowrap;letter-spacing:-.1px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-v--bets {color:var(--text);}
+
+    #panel-sports .nx-pubpanel .nx-dd-v--money {color:var(--gold);}
+
+    #panel-sports .nx-pubpanel .nx-dd-ab {font-size:9.5px;font-weight:600;letter-spacing:.2px;color:var(--muted);margin-left:3px;}
+
+
+    #panel-sports .nx-pubpanel .nx-dd-num {
+      grid-row:span 2;
+      text-align:right;font-size:10.5px;font-weight:700;letter-spacing:-.1px;
+      color:var(--nx-dd-dim);white-space:nowrap;
+    }
+
+
+    /* ---- the paired bars ---- */
+    #panel-sports .nx-pubpanel .nx-dd-track {position:relative;display:block;height:5px;border-radius:3px;background:var(--nx-dd-track);}
+
+    #panel-sports .nx-pubpanel .nx-dd-fill {position:absolute;left:0;top:0;bottom:0;display:block;border-radius:3px;}
+
+    #panel-sports .nx-pubpanel .nx-dd-fill--bets {background:linear-gradient(90deg,#3b82f6,#63a0ff);}
+
+    #panel-sports .nx-pubpanel .nx-dd-fill--money {background:linear-gradient(90deg,#e0bb00,var(--gold));box-shadow:0 0 7px rgba(255,215,0,.20);}
+
+    /* ghost of the bets length, sitting under the gold fill: any grey showing past
+       the gold end is money falling short of the ticket count */
+    #panel-sports .nx-pubpanel .nx-dd-ref {position:absolute;left:0;top:0;bottom:0;display:block;border-radius:3px;background:rgba(230,237,243,.14);}
+
+    /* ---- footnote ---- */
+    #panel-sports .nx-pubpanel .nx-dd-note {
+      margin:9px 0 0;padding-top:8px;border-top:1px solid var(--border);
+      font-size:9.5px;line-height:1.4;color:var(--muted);
+    }
+
+    #panel-sports .nx-pubpanel .nx-dd-note b {color:var(--nx-dd-dim);font-weight:700;}
+
+
     #panel-sports .nx-cac { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; flex-shrink: 0; max-width: 100%; margin-left: auto; }
     #panel-sports .nx-cac + .nx-cluster { margin-left: 0; }
     #panel-sports .nx-cac .nx-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -3765,7 +4114,7 @@
       </button>
     </div>
     <div class="nav-actions-mobile">
-      <button class="nav-unlock-m" id="m-nav-unlock" onclick="switchTab('unlock')">Unlock<img src="/ca-logo.png" alt="" class="nav-unlock-m-logo" onerror="this.style.display='none'"></button>
+      <button class="nav-unlock-m" id="m-nav-unlock" style="display:none;" onclick="switchTab('unlock')">Unlock<img src="/ca-logo.png" alt="" class="nav-unlock-m-logo" onerror="this.style.display='none'"></button>
       <button class="nav-avatar-btn account-trigger" id="m-nav-avatar-btn" onclick="toggleAccountMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Account menu" style="display:none;">
         <span id="m-nav-avatar-slot"></span>
       </button>
@@ -4180,11 +4529,10 @@
     </div>
   </div>
 
-  <!-- ── Tab 6: My Account ── -->
-  <!-- ── My Tracking ── -->
+  <!-- ── Tab 6: My Tracking ── -->
   <div id="panel-tracking" class="tab-panel">
     <div class="hero" style="padding-bottom:16px;">
-      <h1>My Account</h1>
+      <h1>My Tracking</h1>
       <p>Your bets, record, and profile in one place.</p>
     </div>
     <div class="container">
@@ -4505,6 +4853,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=132"></script>
+  <script type="module" src="app.js?v=152"></script>
 </body>
 </html>

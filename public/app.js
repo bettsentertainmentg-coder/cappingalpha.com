@@ -3,14 +3,14 @@
 import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=7';
 import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './modules/native.js?v=2';
-import { checkAuth, isPaying } from './modules/auth.js';
+import { checkAuth, isPaying, syncNavUnlock } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
 import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=43';
-import { loadSports } from './modules/sports.js?v=6';
+import { loadSports } from './modules/sports.js?v=22';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=7';
-import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=69';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=70';
 import './modules/track.js?v=53';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=12';
@@ -84,6 +84,8 @@ export function switchTab(tabName) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `panel-${tabName}`));
     // Mobile bottom tab bar active state (home/mvp/sports/tracking).
     document.querySelectorAll('.ca-tabbar-item').forEach(b => b.classList.toggle('active', b.dataset.tabbar === tabName));
+    // Top-bar Unlock chip rides the same swap: visible on Rankings only.
+    syncNavUnlock(tabName === 'mvp');
 
     // Land at the top of the page on every tab switch. Without this the page keeps
     // its prior scroll position (e.g. opening Unlock from mid-Home dropped you into
@@ -331,7 +333,7 @@ window.sendSupport = sendSupport;
 // Honor a hash like #about / #mvp / #sports on initial load and on subsequent
 // hashchange events (e.g. someone clicks "Learn how" on the standalone game
 // detail page, which links back to /#about).
-const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'about', 'account', 'tracking', 'settings', 'unlock', 'profile']);
+const HASH_TABS = new Set(['home', 'sports', 'mvp', 'esports', 'leaderboard', 'socials', 'about', 'account', 'tracking', 'settings', 'unlock', 'profile']);
 function applyHashTab() {
   const h = (location.hash || '').replace('#', '').trim().toLowerCase();
   if (!h) {

@@ -395,13 +395,295 @@ function caChip(g, ctx) {
   return '';
 }
 
-// Mock chipRow: pub chip + avatar strip + CA chip. Public betting and tracked-bet
-// avatars have no board-payload data yet, so only the CA element renders; an
-// empty row renders nothing (no invented counts).
+// ── Public betting element (fills the chips row's empty left side) ────────────
+// /api/games ships per game (absent when no data): `pub` (tickets + money %
+// per market), `votes` (CA member vote counts per slot), `open` (opening lines).
+// Display chain: public betting -> CA community lean -> line movement -> the
+// price-implied read, so a game with lines is never blank.
+const PPL_ICON = `<svg class="nx-pubi" width="11" height="11" viewBox="0 0 640 512" aria-hidden="true"><path fill="currentColor" d="M96 128a96 96 0 1 1 192 0A96 96 0 1 1 96 128zM0 482.3C0 383.8 79.8 304 178.3 304h27.4c98.5 0 178.3 79.8 178.3 178.3 0 16.4-13.3 29.7-29.7 29.7H29.7C13.3 512 0 498.7 0 482.3zM609.3 512H471.4c5.4-9.4 8.6-20.3 8.6-32v-8c0-60.7-27.1-115.2-69.8-151.8 2.4-.1 4.7-.2 7.1-.2h61.4C567.8 320 640 392.2 640 481.3c0 17-13.8 30.7-30.7 30.7zM432 256c-31 0-59-12.6-79.3-32.9C372.4 196.5 384 163.6 384 128c0-26.8-6.6-52.1-18.3-74.3C384.3 40.1 407.2 32 432 32c61.9 0 112 50.1 112 112s-50.1 112-112 112z"/></svg>`;
+const TREND_ICON = `<svg class="nx-pubi" width="11" height="11" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d="M384 160c-17.7 0-32-14.3-32-32s14.3-32 32-32H480c17.7 0 32 14.3 32 32V224c0 17.7-14.3 32-32 32s-32-14.3-32-32V205.3L342.6 310.6c-12.5 12.5-32.8 12.5-45.3 0L192 205.3 54.6 342.6c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3l160-160c12.5-12.5 32.8-12.5 45.3 0L320 242.7 402.7 160H384z"/></svg>`;
+
+// De-vigged implied probability of the ticket-lead side, from the moneyline.
+function _impliedPct(g, homeLed) {
+  const toP = (ml) => ml == null ? null : (ml < 0 ? -ml / (-ml + 100) : 100 / (ml + 100));
+  const ph = toP(g.ml_home), pa = toP(g.ml_away);
+  if (ph == null || pa == null || ph + pa <= 0) return null;
+  return Math.round(100 * (homeLed ? ph : pa) / (ph + pa));
+}
+
+function _pair(a, h) { return a != null && h != null && a + h >= 90 && a + h <= 110; }
+
+// All displayable markets for a game, scored by how SURPRISING the lean is.
+// Spread and total are priced ~50/50, so raw skew counts fully; a moneyline
+// lean only counts for how far it runs ABOVE the price-implied probability
+// (everyone betting the -400 favorite is not a story). Jack's rule: a 65%
+// spread should outrank a 95% ML.
+function pubMarkets(g) {
+  const p = g.pub;
+  if (!p) return [];
+  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const out = [];
+  const push = (tag, a, h, aM, hM, sideA, sideH, score) => {
+    if (!_pair(a, h)) return;
+    const homeLed = h >= a;
+    const side = homeLed ? sideH : sideA;
+    const pct = Math.max(a, h);
+    const hasM = aM != null && hM != null;
+    const moneySamePct = hasM ? (homeLed ? hM : aM) : null;
+    const moneySide = hasM ? (hM >= aM ? sideH : sideA) : null;
+    const moneySidePct = hasM ? Math.max(aM, hM) : null;
+    // Split: the money clearly leans the other way (55+), or runs 12+ points
+    // hotter on the same side. A 50/50 money read is not a lean.
+    const split = hasM && ((moneySide !== side && moneySidePct >= 55) || (moneySide === side && moneySamePct - pct >= 12));
+    out.push({ tag, side, pct, away: a, home: h, awayM: aM, homeM: hM, hasM,
+               moneySamePct, moneySide, moneySidePct, split, homeLed,
+               score: score(pct, homeLed) });
+  };
+  push('SPR', p.away_spread, p.home_spread, p.away_spread_money, p.home_spread_money, am, hm,
+       (pct) => pct - 50);
+  push('O/U', p.over, p.under, p.over_money, p.under_money, 'Ov', 'Un',
+       (pct) => (pct - 50) * 0.8);
+  push('ML', p.away_ml, p.home_ml, p.away_ml_money, p.home_ml_money, am, hm,
+       (pct, homeLed) => {
+         const imp = _impliedPct(g, homeLed);
+         return imp != null ? Math.max(0, pct - imp) : (pct - 50) * 0.4;
+       });
+  // Splits are the story regardless of size: float any split market, then by surprise.
+  out.sort((x, y) => (y.split - x.split) || (y.score - x.score));
+  return out;
+}
+
+// ── Public betting element: the Rope Line ────────────────────────────────────
+// The crowd's split drawn as a tug of war. Ice-cyan pulls from the away end,
+// ember-orange from the home end, and the knot sits exactly where the tickets
+// fall. The centre chip carries a crowd icon plus the bet as a bettor reads it
+// ("-1.5", "O 8.5", "Win"), never a market code. When the dollars disagree with
+// the tickets the rope between the knot and the money caret turns into a
+// hatched tension zone in the money side's colour.
+// Four states, chosen by p2State: split (dollars disagree, the loudest signal)
+// > two (a second market) > money (dollars agree, kept quiet) > base.
+const ROPE_STATES = {
+  base: "<div class=\"nx-r\" style=\"--nx-r-k:{{AWAY_PCT}}\">\n  <div class=\"nx-r-head\">\n    <span class=\"nx-r-end nx-r-away\"><span class=\"nx-r-pct\">{{AWAY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{AWAY_ABBR}}</span></span>\n    <span class=\"nx-r-chip\">\n      <svg class=\"nx-r-crowd\" viewBox=\"0 0 16 11\" aria-hidden=\"true\"><g class=\"nx-r-back\" fill=\"currentColor\"><circle cx=\"3.4\" cy=\"3.9\" r=\"1.85\"/><path d=\"M0.8 10.6a2.6 2.6 0 0 1 5.2 0z\"/><circle cx=\"12.6\" cy=\"3.9\" r=\"1.85\"/><path d=\"M10 10.6a2.6 2.6 0 0 1 5.2 0z\"/></g><g fill=\"currentColor\" stroke=\"#1b2231\" stroke-width=\".8\" paint-order=\"stroke\"><circle cx=\"8\" cy=\"3.2\" r=\"2.4\"/><path d=\"M4.6 10.6a3.4 3.4 0 0 1 6.8 0z\"/></g></svg>\n      <span class=\"nx-r-mkt\">{{MARKET_LABEL}}</span>\n    </span>\n    <span class=\"nx-r-end nx-r-home\"><span class=\"nx-r-pct\">{{HOME_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{HOME_ABBR}}</span></span>\n  </div>\n  <div class=\"nx-r-ropewrap\" aria-hidden=\"true\"><div class=\"nx-r-rope\">\n    <span class=\"nx-r-track\"><i class=\"nx-r-fill nx-r-fill-a\"></i><i class=\"nx-r-fill nx-r-fill-h\"></i></span>\n    <i class=\"nx-r-knot\"></i>\n  </div></div>\n</div>",
+  money: "<!-- money agrees with the tickets. add nx-r--money-home when {{MONEY_SIDE}} is the home side -->\n<div class=\"nx-r nx-r--money nx-r--money-home\" style=\"--nx-r-k:{{AWAY_PCT}};--nx-r-m:{{MONEY_PCT}}\">\n  <div class=\"nx-r-head\">\n    <span class=\"nx-r-end nx-r-away\"><span class=\"nx-r-pct\">{{AWAY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{AWAY_ABBR}}</span></span>\n    <span class=\"nx-r-chip\">\n      <svg class=\"nx-r-crowd\" viewBox=\"0 0 16 11\" aria-hidden=\"true\"><g class=\"nx-r-back\" fill=\"currentColor\"><circle cx=\"3.4\" cy=\"3.9\" r=\"1.85\"/><path d=\"M0.8 10.6a2.6 2.6 0 0 1 5.2 0z\"/><circle cx=\"12.6\" cy=\"3.9\" r=\"1.85\"/><path d=\"M10 10.6a2.6 2.6 0 0 1 5.2 0z\"/></g><g fill=\"currentColor\" stroke=\"#1b2231\" stroke-width=\".8\" paint-order=\"stroke\"><circle cx=\"8\" cy=\"3.2\" r=\"2.4\"/><path d=\"M4.6 10.6a3.4 3.4 0 0 1 6.8 0z\"/></g></svg>\n      <span class=\"nx-r-mkt\">{{MARKET_LABEL}}</span>\n    </span>\n    <span class=\"nx-r-end nx-r-home\"><span class=\"nx-r-pct\">{{HOME_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{HOME_ABBR}}</span></span>\n  </div>\n  <div class=\"nx-r-ropewrap\" aria-hidden=\"true\"><div class=\"nx-r-rope\">\n    <span class=\"nx-r-track\"><i class=\"nx-r-fill nx-r-fill-a\"></i><i class=\"nx-r-fill nx-r-fill-h\"></i></span>\n    <i class=\"nx-r-knot\"></i><i class=\"nx-r-caret\"></i>\n  </div></div>\n  <div class=\"nx-r-moneyrow\">\n    <svg class=\"nx-r-pull\" viewBox=\"0 0 12 8\" aria-hidden=\"true\"><path d=\"M7.4.9 4.1 4l3.3 3.1M11.4.9 8.1 4l3.3 3.1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>\n    <span class=\"nx-r-money\"><span class=\"nx-r-cur\">$</span><span class=\"nx-r-pct\">{{MONEY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{MONEY_SIDE}}</span></span>\n    <span class=\"nx-r-tag\">with the crowd</span>\n  </div>\n</div>",
+  split: "<!-- dollars lean the other way. add nx-r--money-home when {{MONEY_SIDE}} is the home side -->\n<div class=\"nx-r nx-r--money nx-r--split\" style=\"--nx-r-k:{{AWAY_PCT}};--nx-r-m:{{MONEY_PCT}}\">\n  <div class=\"nx-r-head\">\n    <span class=\"nx-r-end nx-r-away\"><span class=\"nx-r-pct\">{{AWAY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{AWAY_ABBR}}</span></span>\n    <span class=\"nx-r-chip\">\n      <svg class=\"nx-r-crowd\" viewBox=\"0 0 16 11\" aria-hidden=\"true\"><g class=\"nx-r-back\" fill=\"currentColor\"><circle cx=\"3.4\" cy=\"3.9\" r=\"1.85\"/><path d=\"M0.8 10.6a2.6 2.6 0 0 1 5.2 0z\"/><circle cx=\"12.6\" cy=\"3.9\" r=\"1.85\"/><path d=\"M10 10.6a2.6 2.6 0 0 1 5.2 0z\"/></g><g fill=\"currentColor\" stroke=\"#1b2231\" stroke-width=\".8\" paint-order=\"stroke\"><circle cx=\"8\" cy=\"3.2\" r=\"2.4\"/><path d=\"M4.6 10.6a3.4 3.4 0 0 1 6.8 0z\"/></g></svg>\n      <span class=\"nx-r-mkt\">{{MARKET_LABEL}}</span>\n    </span>\n    <span class=\"nx-r-end nx-r-home\"><span class=\"nx-r-pct\">{{HOME_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{HOME_ABBR}}</span></span>\n  </div>\n  <div class=\"nx-r-ropewrap\" aria-hidden=\"true\"><div class=\"nx-r-rope\">\n    <span class=\"nx-r-track\"><i class=\"nx-r-fill nx-r-fill-a\"></i><i class=\"nx-r-fill nx-r-fill-h\"></i></span>\n    <i class=\"nx-r-tension\"></i><i class=\"nx-r-knot\"></i><i class=\"nx-r-caret\"></i>\n  </div></div>\n  <div class=\"nx-r-moneyrow\">\n    <svg class=\"nx-r-pull\" viewBox=\"0 0 12 8\" aria-hidden=\"true\"><path d=\"M7.4.9 4.1 4l3.3 3.1M11.4.9 8.1 4l3.3 3.1\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>\n    <span class=\"nx-r-money\"><span class=\"nx-r-cur\">$</span><span class=\"nx-r-pct\">{{MONEY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{MONEY_SIDE}}</span></span>\n    <span class=\"nx-r-tag\">against the crowd</span>\n  </div>\n</div>",
+  two: "<div class=\"nx-r nx-r--two\" style=\"--nx-r-k:{{AWAY_PCT}}\">\n  <div class=\"nx-r-head\">\n    <span class=\"nx-r-end nx-r-away\"><span class=\"nx-r-pct\">{{AWAY_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{AWAY_ABBR}}</span></span>\n    <span class=\"nx-r-chip\">\n      <svg class=\"nx-r-crowd\" viewBox=\"0 0 16 11\" aria-hidden=\"true\"><g class=\"nx-r-back\" fill=\"currentColor\"><circle cx=\"3.4\" cy=\"3.9\" r=\"1.85\"/><path d=\"M0.8 10.6a2.6 2.6 0 0 1 5.2 0z\"/><circle cx=\"12.6\" cy=\"3.9\" r=\"1.85\"/><path d=\"M10 10.6a2.6 2.6 0 0 1 5.2 0z\"/></g><g fill=\"currentColor\" stroke=\"#1b2231\" stroke-width=\".8\" paint-order=\"stroke\"><circle cx=\"8\" cy=\"3.2\" r=\"2.4\"/><path d=\"M4.6 10.6a3.4 3.4 0 0 1 6.8 0z\"/></g></svg>\n      <span class=\"nx-r-mkt\">{{MARKET_LABEL}}</span>\n    </span>\n    <span class=\"nx-r-end nx-r-home\"><span class=\"nx-r-pct\">{{HOME_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{HOME_ABBR}}</span></span>\n  </div>\n  <div class=\"nx-r-ropewrap\" aria-hidden=\"true\"><div class=\"nx-r-rope\">\n    <span class=\"nx-r-track\"><i class=\"nx-r-fill nx-r-fill-a\"></i><i class=\"nx-r-fill nx-r-fill-h\"></i></span>\n    <i class=\"nx-r-knot\"></i>\n  </div></div>\n  <div class=\"nx-r-second\" style=\"--nx-r-s2:{{SECOND_PCT}}\">\n    <span class=\"nx-r-s2chip\">{{SECOND_LABEL}}</span>\n    <span class=\"nx-r-s2val\"><span class=\"nx-r-pct\">{{SECOND_PCT}}<i>%</i></span><span class=\"nx-r-abbr\">{{SECOND_SIDE}}</span></span>\n    <span class=\"nx-r-s2bar\" aria-hidden=\"true\"><i></i><u></u><b></b></span>\n  </div>\n</div>",
+};
+
+// ── Full public betting panel (the card dropdown) ────────────────────────────
+// Every market, both sides, a blue bar for the share of bets over a gold bar
+// for the share of dollars. Comparing the two bar lengths is the whole point:
+// a gold bar running past its blue one is money betting bigger than the crowd.
+const PANEL_HEAD = "<section class=\"nx-dd-panel\">\n\n  <header class=\"nx-dd-head\">\n    <span class=\"nx-dd-title\">\n      <svg class=\"nx-dd-ico\" viewBox=\"0 0 16 16\" aria-hidden=\"true\">\n        <rect class=\"nx-dd-ico-b\" x=\"1\" y=\"4\" width=\"9\" height=\"2.6\" rx=\"1.3\"/>\n        <rect class=\"nx-dd-ico-m\" x=\"1\" y=\"9.4\" width=\"14\" height=\"2.6\" rx=\"1.3\"/>\n      </svg>\n      Public betting\n    </span>\n    <span class=\"nx-dd-key\">\n      <span class=\"nx-dd-keyitem\"><svg class=\"nx-dd-sw\" viewBox=\"0 0 14 5\" aria-hidden=\"true\"><rect class=\"nx-dd-sw-b\" width=\"14\" height=\"5\" rx=\"2.5\"/></svg># bets</span>\n      <span class=\"nx-dd-keyitem\"><svg class=\"nx-dd-sw\" viewBox=\"0 0 14 5\" aria-hidden=\"true\"><rect class=\"nx-dd-sw-m\" width=\"14\" height=\"5\" rx=\"2.5\"/></svg>money</span>\n    </span>\n  </header>\n";
+// One block per market, rendered only when that market actually has data:
+// tennis carries a moneyline split and nothing else, so the spread and total
+// blocks would otherwise render as empty rows.
+const PANEL_MARKETS = [
+  "  <div class=\"nx-dd-mkt\">\n    <div class=\"nx-dd-mkt-h\"><span class=\"nx-dd-mkt-name\">Spread</span><span class=\"nx-dd-rule\"></span></div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{SPR_AWAY_BETS}}%<span class=\"nx-dd-ab\">{{AWAY_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{SPR_AWAY_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{SPR_AWAY_LINE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{SPR_AWAY_MONEY}}%<span class=\"nx-dd-ab\">{{AWAY_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{SPR_AWAY_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{SPR_AWAY_MONEY}}%\"></i></span>\n    </div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{SPR_HOME_BETS}}%<span class=\"nx-dd-ab\">{{HOME_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{SPR_HOME_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{SPR_HOME_LINE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{SPR_HOME_MONEY}}%<span class=\"nx-dd-ab\">{{HOME_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{SPR_HOME_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{SPR_HOME_MONEY}}%\"></i></span>\n    </div>\n  </div>",
+  "  <div class=\"nx-dd-mkt\">\n    <div class=\"nx-dd-mkt-h\"><span class=\"nx-dd-mkt-name\">Total</span><span class=\"nx-dd-rule\"></span></div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{TOT_OVER_BETS}}%<span class=\"nx-dd-ab\">Over</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{TOT_OVER_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{TOTAL_LINE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{TOT_OVER_MONEY}}%<span class=\"nx-dd-ab\">Over</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{TOT_OVER_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{TOT_OVER_MONEY}}%\"></i></span>\n    </div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{TOT_UNDER_BETS}}%<span class=\"nx-dd-ab\">Under</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{TOT_UNDER_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{TOTAL_LINE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{TOT_UNDER_MONEY}}%<span class=\"nx-dd-ab\">Under</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{TOT_UNDER_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{TOT_UNDER_MONEY}}%\"></i></span>\n    </div>\n  </div>",
+  "  <div class=\"nx-dd-mkt\">\n    <div class=\"nx-dd-mkt-h\"><span class=\"nx-dd-mkt-name\">Moneyline</span><span class=\"nx-dd-rule\"></span></div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{ML_AWAY_BETS}}%<span class=\"nx-dd-ab\">{{AWAY_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{ML_AWAY_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{ML_AWAY_PRICE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{ML_AWAY_MONEY}}%<span class=\"nx-dd-ab\">{{AWAY_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{ML_AWAY_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{ML_AWAY_MONEY}}%\"></i></span>\n    </div>\n\n    <div class=\"nx-dd-side\">\n      <span class=\"nx-dd-v nx-dd-v--bets\">{{ML_HOME_BETS}}%<span class=\"nx-dd-ab\">{{HOME_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-fill nx-dd-fill--bets\" style=\"width:{{ML_HOME_BETS}}%\"></i></span>\n      <span class=\"nx-dd-num\">{{ML_HOME_PRICE}}</span>\n      <span class=\"nx-dd-v nx-dd-v--money\">$ {{ML_HOME_MONEY}}%<span class=\"nx-dd-ab\">{{HOME_ABBR}}</span></span>\n      <span class=\"nx-dd-track\" aria-hidden=\"true\"><i class=\"nx-dd-ref\" style=\"width:{{ML_HOME_BETS}}%\"></i><i class=\"nx-dd-fill nx-dd-fill--money\" style=\"width:{{ML_HOME_MONEY}}%\"></i></span>\n    </div>\n  </div>",
+];
+const PANEL_FOOT = "  <p class=\"nx-dd-note\">Bets is the share of wagers placed. Money is the share of dollars. A gold bar past its blue one is money betting bigger than the crowd.</p>\n</section>";
+
+// The bet as a bettor reads it: "-1.5" for a spread (from the leaning side's
+// point of view), "O 8.5" / "U 8.5" for a total, "Win" for a moneyline. Falls
+// back to the market code when the board has no line yet.
+function p2MarketLabel(g, m) {
+  if (m.tag === 'ML') return 'Win';
+  if (m.tag === 'O/U') {
+    if (g.over_under == null) return 'Total';
+    return `${m.side === 'Un' ? 'U' : 'O'} ${g.over_under}`;
+  }
+  const n = m.homeLed ? g.spread_home : g.spread_away;
+  return n == null ? 'Spread' : fmtSpread(n);
+}
+
+function p2State(p1, second) {
+  if (p1.split) return 'split';
+  if (second) return 'two';
+  if (p1.hasM) return 'money';
+  return 'base';
+}
+
+function ropeHtml(g, p1, second) {
+  const tpl = ROPE_STATES[p2State(p1, second)];
+  const isOU = p1.tag === 'O/U';
+  const t = {
+    PCT: p1.pct,
+    SIDE: p1.side,
+    TAG: p1.tag,
+    MARKET_LABEL: p2MarketLabel(g, p1),
+    SECOND_LABEL: second ? p2MarketLabel(g, second) : '',
+    AWAY_ABBR: isOU ? 'Ov' : mono(g.away_team, g.sport),
+    HOME_ABBR: isOU ? 'Un' : mono(g.home_team, g.sport),
+    AWAY_PCT: p1.away,
+    HOME_PCT: p1.home,
+    MONEY_PCT: p1.moneySidePct == null ? '' : p1.moneySidePct,
+    MONEY_SIDE: p1.moneySide == null ? '' : p1.moneySide,
+    SECOND_PCT: second ? second.pct : '',
+    SECOND_SIDE: second ? second.side : '',
+    SECOND_TAG: second ? second.tag : '',
+  };
+  const html = tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => esc(String(t[k] ?? '')));
+  return `<span class="nx-pubrope" title="${_mktTitle(p1)}">${html}</span>`;
+}
+
+// ── The full public betting panel (card dropdown) ────────────────────────────
+// Alternative designs for the full public-betting panel, same template-as-data
+// approach as the card element. 'current' keeps the built-in table below.
+// The single widest bets-vs-money gap on the game, for designs that lead with
+// the conclusion instead of the grid.
+function ddDivergence(g) {
+  const p = g.pub || {};
+  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const rows = [
+    ['Spread', am, p.away_spread, p.away_spread_money], ['Spread', hm, p.home_spread, p.home_spread_money],
+    ['Total', 'Over', p.over, p.over_money], ['Total', 'Under', p.under, p.under_money],
+    ['Moneyline', am, p.away_ml, p.away_ml_money], ['Moneyline', hm, p.home_ml, p.home_ml_money],
+  ].filter(r => r[2] != null && r[3] != null);
+  if (!rows.length) return { market: '', side: '', bets: '', money: '' };
+  const best = rows.reduce((a, b) => (Math.abs(b[3] - b[2]) > Math.abs(a[3] - a[2]) ? b : a));
+  return { market: best[0], side: best[1], bets: best[2], money: best[3] };
+}
+
+function ddTokens(g) {
+  const p = g.pub || {};
+  const n = (x) => (x == null ? '' : x);
+  const dv = ddDivergence(g);
+  return {
+    DIV_MARKET: dv.market, DIV_SIDE: dv.side, DIV_BETS: dv.bets, DIV_MONEY: dv.money,
+    AWAY_ABBR: mono(g.away_team, g.sport),
+    HOME_ABBR: mono(g.home_team, g.sport),
+    SPR_AWAY_LINE: g.spread_away == null ? '' : fmtSpread(g.spread_away),
+    SPR_HOME_LINE: g.spread_home == null ? '' : fmtSpread(g.spread_home),
+    TOTAL_LINE: n(g.over_under),
+    ML_AWAY_PRICE: g.ml_away == null ? '' : fmtOdds(g.ml_away),
+    ML_HOME_PRICE: g.ml_home == null ? '' : fmtOdds(g.ml_home),
+    SPR_AWAY_BETS: n(p.away_spread), SPR_HOME_BETS: n(p.home_spread),
+    SPR_AWAY_MONEY: n(p.away_spread_money), SPR_HOME_MONEY: n(p.home_spread_money),
+    TOT_OVER_BETS: n(p.over), TOT_UNDER_BETS: n(p.under),
+    TOT_OVER_MONEY: n(p.over_money), TOT_UNDER_MONEY: n(p.under_money),
+    ML_AWAY_BETS: n(p.away_ml), ML_HOME_BETS: n(p.home_ml),
+    ML_AWAY_MONEY: n(p.away_ml_money), ML_HOME_MONEY: n(p.home_ml_money),
+  };
+}
+
+function ddRender(g) {
+  const p = g.pub;
+  if (!p) return '';
+  const has = [
+    _pair(p.away_spread, p.home_spread) || _pair(p.away_spread_money, p.home_spread_money),
+    _pair(p.over, p.under) || _pair(p.over_money, p.under_money),
+    _pair(p.away_ml, p.home_ml) || _pair(p.away_ml_money, p.home_ml_money),
+  ];
+  const body = PANEL_MARKETS.filter((_, i) => has[i]).join('\n');
+  if (!body) return '';
+  const t = ddTokens(g);
+  const html = (PANEL_HEAD + '\n' + body + '\n' + PANEL_FOOT)
+    .replace(/\{\{(\w+)\}\}/g, (_, x) => esc(String(t[x] ?? '')));
+  return `<div class="nx-pubpanel">${html}</div>`;
+}
+
+// Fallback 1: the CA community lean from member votes (3+ votes on a family).
+function pubVotesLean(g) {
+  const v = g.votes;
+  if (!v) return null;
+  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  let home = 0, away = 0, over = 0, under = 0;
+  for (const [slot, n] of Object.entries(v)) {
+    const s = slot.toLowerCase();
+    if (s === 'over') over += n;
+    else if (s === 'under') under += n;
+    else if (s.includes('home')) home += n;
+    else if (s.includes('away')) away += n;
+  }
+  if (home + away >= 3) {
+    const homeLed = home >= away;
+    return { side: homeLed ? hm : am, pct: Math.round(100 * Math.max(home, away) / (home + away)), n: home + away };
+  }
+  if (over + under >= 3) {
+    return { side: over >= under ? 'Ov' : 'Un', pct: Math.round(100 * Math.max(over, under) / (over + under)), n: over + under };
+  }
+  return null;
+}
+
+// Fallback 2: the day's line movement (opening line vs the board's current one).
+function pubLineMove(g) {
+  const o = g.open;
+  if (!o) return null;
+  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  // Spread move (shown from the favorite's side of the CURRENT number).
+  if (o.spread_home != null && g.spread_home != null && Math.abs(g.spread_home - o.spread_home) >= 0.5) {
+    const homeFav = g.spread_home <= 0;
+    const from = homeFav ? o.spread_home : -o.spread_home;
+    const to   = homeFav ? g.spread_home : g.spread_away != null ? g.spread_away : -g.spread_home;
+    return { label: `${homeFav ? hm : am} ${fmtSpread(from)} → ${fmtSpread(to)}` };
+  }
+  if (o.over_under != null && g.over_under != null && Math.abs(g.over_under - o.over_under) >= 0.5) {
+    return { label: `Total ${o.over_under} → ${g.over_under}` };
+  }
+  if (o.ml_home != null && g.ml_home != null && g.ml_away != null && o.ml_away != null) {
+    const homeFav = g.ml_home <= g.ml_away;
+    const from = homeFav ? o.ml_home : o.ml_away;
+    const to   = homeFav ? g.ml_home : g.ml_away;
+    if (from != null && Math.abs(to - from) >= 15) {
+      return { label: `${homeFav ? hm : am} ML ${fmtOdds(from)} → ${fmtOdds(to)}` };
+    }
+  }
+  return null;
+}
+
+// Tooltip text for the element: the market, the lean, and where the money is.
+function _mktTitle(m) {
+  const money = m.hasM ? ` Money: ${m.moneySidePct}% on ${m.moneySide}.` : '';
+  return `${m.pct}% of ${m.tag === 'O/U' ? 'total' : m.tag === 'SPR' ? 'spread' : 'moneyline'} tickets on ${m.side}.${money}`;
+}
+// Elastic bar: the filled share IS the displayed lead percentage, so the bar
+// always agrees with the number beside it.
+
+function pubChip(g) {
+  const mkts = pubMarkets(g);
+
+  // ── Fallback chain when no coherent public data ──
+  if (!mkts.length) {
+    const cv = pubVotesLean(g);
+    if (cv) {
+      return `<span class="nx-pubalt n" title="How CappingAlpha members lean on this game (${cv.n} votes)">` +
+        `<img class="nx-pubca" src="/ca-logo.png" alt="" onerror="this.style.display='none'">` +
+        `<b>${cv.pct}%</b> ${esc(cv.side)} <em>CA VOTES</em></span>`;
+    }
+    const lm = pubLineMove(g);
+    if (lm) {
+      return `<span class="nx-pubalt n" title="How this line has moved since it opened">${TREND_ICON}${esc(lm.label)} <em>LINE</em></span>`;
+    }
+    // Floor: what the price itself implies, so a card with lines is never blank.
+    // Deliberately NOT dressed as public data: no people icon, MKT label, muted.
+    const impHome = _impliedPct(g, true);
+    if (impHome != null) {
+      const homeLed = impHome >= 50;
+      const side = mono(homeLed ? g.home_team : g.away_team, g.sport);
+      const pct = homeLed ? impHome : 100 - impHome;
+      return `<span class="nx-pubalt mkt n" title="No public betting data for this game yet. ${pct}% is the win chance implied by the current moneyline price."><b>${pct}%</b> ${esc(side)} <em>MKT</em></span>`;
+    }
+    return '';
+  }
+
+  const p1 = mkts[0];
+  // Second market: the best one of a DIFFERENT kind (side market vs total), so
+  // the pair never restates the same team twice (SPR 78% TEX + ML 78% TEX).
+  // 55% floor keeps coin-flip markets out of the second slot.
+  const p1Side = p1.tag !== 'O/U';
+  const second = mkts.find(m => m !== p1 && (m.tag !== 'O/U') !== p1Side && m.pct >= 55) || null;
+
+  return ropeHtml(g, p1, second);
+}
+
+// Mock chipRow: pub chip (left) + CA chip (right). Tracked-bet avatars still
+// have no board-payload data; an empty row renders nothing (no invented counts).
 function chipRow(g, ctx) {
-  const h = caChip(g, ctx);
-  if (!h) return '';
-  return `<div class="nx-chips">${h}</div>`;
+  const ca = caChip(g, ctx);
+  const pub = pubChip(g);
+  if (!ca && !pub) return '';
+  return `<div class="nx-chips">${pub}${ca}</div>`;
 }
 
 // ── Expansion — context the card does NOT already show (Jack 2026-07-28: the
@@ -419,18 +701,15 @@ function _relTime(ms) {
   return `${h}h ${m % 60}m`;
 }
 
+// Expansion, kept BASIC (Jack 2026-07-30): no restating what the card already
+// shows (start time, live state). Only info the card doesn't carry — tennis
+// set-by-set, members' ranked picks — plus a full-width Track button and the
+// bell. Details button deleted: tapping anywhere on the card (except the
+// chevron and buttons) goes to the game page.
 function xpHtml(g, ctx) {
   const sp = (g.sport || '').toUpperCase();
   const tennis = sp === 'ATP' || sp === 'WTA';
   let rows = '';
-
-  if (g.status === 'in') {
-    rows += `<div class="nx-xrow"><b class="nx-xl">Now</b><b>${esc(liveShortText(g))}</b></div>`;
-  } else if (g.status === 'pre') {
-    const ms = startsInMs(g);
-    const rel = Number.isFinite(ms) && ms > 0 ? ` <span>· in ${esc(_relTime(ms))}</span>` : '';
-    rows += `<div class="nx-xrow"><b class="nx-xl">Starts</b><b>${esc(gameTime(g.start_time))} ET</b>${rel}</div>`;
-  }
 
   // Tennis: the set-by-set board (the band only shows sets won). Away side
   // first, matching the band's left-to-right order.
@@ -453,18 +732,19 @@ function xpHtml(g, ctx) {
       if (picks.length > 3) rows += `<div class="nx-xrow"><span>+${picks.length - 3} more on the Rankings tab</span></div>`;
     }
   }
-  if (!rows) rows = `<div class="nx-xrow"><span>Full recap on the game page.</span></div>`;
+
+  // The full split table: every market, both sides, tickets vs money.
+  rows += ddRender(g);
 
   const id = esc(String(g.espn_game_id));
   const bellOn = _bells.has(String(g.espn_game_id));
   let exits = `<div class="nx-exits">`;
-  exits += `<button type="button" class="nx-xbtn" data-act="details" data-id="${id}">Details</button>`;
-  if (g.status !== 'post' && hasLines(g)) exits += `<button type="button" class="nx-xbtn pri" data-act="track" data-id="${id}">Track</button>`;
+  if (g.status !== 'post' && hasLines(g)) exits += `<button type="button" class="nx-xbtn pri grow" data-act="track" data-id="${id}">Track</button>`;
   exits += `<button type="button" class="nx-xbtn nx-bell${bellOn ? ' on' : ''}" data-act="bell" data-id="${id}" aria-pressed="${bellOn}" aria-label="Toggle game alerts for this matchup">` +
     `<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path class="bfill" d="M12 3a6 6 0 0 0-6 6v3.6L4.4 16.6h15.2L18 12.6V9a6 6 0 0 0-6-6z"/><path class="bfill" d="M10 19.5a2 2 0 0 0 4 0"/></svg></button>`;
   exits += `</div>`;
 
-  return `<div class="nx-xp"><div><div class="nx-xpin"><div class="nx-xinfo">${rows}</div>${exits}</div></div></div>`;
+  return `<div class="nx-xp"><div><div class="nx-xpin">${rows ? `<div class="nx-xinfo">${rows}</div>` : ''}${exits}</div></div></div>`;
 }
 
 function cardHtml(g, ctx, dayTag) {
@@ -856,9 +1136,7 @@ function bindEvents() {
     const act = e.target.closest('[data-act]');
     if (act) {
       e.stopPropagation();
-      const id = act.dataset.id;
-      if (act.dataset.act === 'details' && window.openGameModal) window.openGameModal(id);
-      if (act.dataset.act === 'track' && window.openTrackForSlot) window.openTrackForSlot(id, 'none');
+      if (act.dataset.act === 'track' && window.openTrackForSlot) window.openTrackForSlot(act.dataset.id, 'none');
       return;
     }
 
@@ -877,8 +1155,8 @@ function bindEvents() {
       return;
     }
 
-    if (e.target.closest('.nx-xp')) return;   // the expansion body itself never navigates
-
+    // Anywhere else on the card — expansion body included — goes to the game
+    // page (Jack 2026-07-30: only the chevron and real buttons do anything else).
     const card = e.target.closest('.nx-card');
     if (card && card.dataset.id) window.location.href = `/game/${card.dataset.id}`;
   });

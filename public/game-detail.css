@@ -2284,9 +2284,16 @@ a, button { touch-action: manipulation; }
 /* ── Native app chrome (html.ca-app, stamped pre-paint) — the detail page used
    to show full web chrome inside the app: hamburger up top and the old 4-tab
    bar. The bar markup now mirrors the SPA; these rules match the app shell. */
-html.ca-app nav:not(.ca-tabbar) { padding-top: env(safe-area-inset-top); height: calc(46px + env(safe-area-inset-top)); }
+html.ca-app { --ca-safe-top: max(0px, calc(env(safe-area-inset-top) - 10px)); }
+html.ca-app nav:not(.ca-tabbar) { padding-top: var(--ca-safe-top); height: calc(46px + var(--ca-safe-top)); }
 html.ca-app .ca-hamburger { display: none !important; }
 html.ca-app footer { display: none !important; }
-html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
+html.ca-app .ca-drawer { padding-top: var(--ca-safe-top); }
+/* The PICKS/LINES/... tab strip sticks below the app bar (46px + inset), not the
+   web's 56px, so it never slides under the velvet while scrolling. */
+html.ca-app .ca-mobile-tabs { top: calc(46px + var(--ca-safe-top)); }
+/* App: the top-bar Unlock chip belongs to the Rankings tab only, so the game
+   page (server-renders one for the web) keeps a clean bar in the shell. */
+html.ca-app .nav-unlock-m { display: none !important; }
 html.ca-app { -webkit-tap-highlight-color: transparent; }
 html.ca-app nav, html.ca-app .ca-tabbar, html.ca-app .track-fab { -webkit-user-select: none; user-select: none; }

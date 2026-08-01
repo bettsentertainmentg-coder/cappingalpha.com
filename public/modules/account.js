@@ -1430,11 +1430,15 @@ export function openRecordView(kind, param) {
   }
   if (!window._trackingVotes && !window._trackingBets) { loadTracking(); return; }
   renderRecordView();
+  // Open at the top of the record view: the drill-in replaces mid-scroll page
+  // content, so the browser's kept scroll position landed mid-record.
+  window.scrollTo({ top: 0 });
 }
 export function closeRecordView() {
   _recScope = null;
   if (recChart) { recChart.destroy(); recChart = null; }
   loadTracking();
+  window.scrollTo({ top: 0 });
 }
 export function recSetWindow(w) { if (_recScope) { _recScope.window = w; renderRecordView(); } }
 export function recToggleFilters() { if (_recScope) { _recScope.showFilters = !_recScope.showFilters; renderRecordView(); } }

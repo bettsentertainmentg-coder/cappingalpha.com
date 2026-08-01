@@ -55,9 +55,6 @@ export function updateNavAuth() {
   const dLogout  = document.getElementById('drawer-btn-logout');
   const dUpgrade = document.getElementById('drawer-upgrade');
   const drawerFooter = document.getElementById('ca-drawer-footer');
-  // Mobile top-bar action: Unlock (logged out) vs My Account (signed in).
-  const mUnlock  = document.getElementById('m-nav-unlock');
-
   const loggedIn = !!state.currentUser;
   const paying   = loggedIn && state.currentUser.tier !== 'free';
   const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
@@ -93,8 +90,8 @@ export function updateNavAuth() {
 
   // Unlock CTA (desktop nav): show to anyone not already paying.
   show(document.getElementById('btn-unlock'), !paying);
-  // Mobile top-bar: Unlock when logged out; the avatar (handled above) when signed in.
-  show(mUnlock,  !loggedIn);
+  // Mobile top-bar Unlock chip: Rankings tab only (see syncNavUnlock).
+  syncNavUnlock();
   // Track-Bet FAB: floating, only for logged-in users. Guests in the native shell
   // get the persistent sign-up banner in the same zone instead (one CTA, not two).
   // Set 'flex' explicitly (not via show(), whose '' would fall back to the CSS
@@ -114,6 +111,20 @@ export function updateNavAuth() {
       tier: state.currentUser.tier,
     });
   }
+}
+
+// The gold top-bar Unlock chip lives on the Rankings tab ONLY (the page whose
+// content is actually paywalled) and only for users without access (guests +
+// free accounts). Every other tab keeps a clean top bar; the game detail page
+// hides its server-rendered copy via ca-app CSS. Called from updateNavAuth on
+// auth changes and from switchTab (app.js) on tab changes, which passes
+// onRankings directly; with no argument the active panel in the DOM decides.
+export function syncNavUnlock(onRankings) {
+  const el = document.getElementById('m-nav-unlock');
+  if (!el) return;
+  if (onRankings === undefined) onRankings = !!document.querySelector('#panel-mvp.active');
+  const paying = !!state.currentUser && state.currentUser.tier !== 'free';
+  el.style.display = (!paying && onRankings) ? '' : 'none';
 }
 
 // ── Login modal ───────────────────────────────────────────────────────────────
