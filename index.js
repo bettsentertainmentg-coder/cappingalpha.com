@@ -704,6 +704,7 @@ app.get('/api/picks', (req, res) => {
   // result='void' plus the "not counted" note, so it still shows GOLD (gold means
   // verified, not "we bet it") with the reason attached.
   overlayLedgerResult(picks);
+  markOutscoredNonBets(picks);
 
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
@@ -1771,6 +1772,9 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     for (const p of picks) p.score = v3DisplayScore(p);
     picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
+  // AFTER the display scores land — this compares scores, and before the line
+  // above every pick still carries the raw v2 column.
+  markOutscoredNonBets(picks);
 
   // Vote tallies
   const voteRows = db.prepare(`
@@ -2731,6 +2735,74 @@ function _resolveTeamColor(game, isHome) {
 // Rankings surfaces agree: /api/picks now ships the ledger's verdict, so the
 // Complete Ranking, the CA Scores cards and the P/L graph are all reading one
 // list instead of three.
+// A gold board pick that was BEATEN on its own game was never the bet: the
+// resolver keeps the higher-scored side and drops the other (GRADING_RULES R3,
+// Jack: "if it's outscored void it and bet the higher one"). The dropped side
+// leaves no mvp_picks row, so no "not counted" note comes back from the ledger,
+// and once /api/picks started feeding the rankings cards directly it rendered as
+// an ordinary graded LOSS and counted against the record. On 2026-08-02 Hijikata
+// ML 131 showed as a -$10 loss beside Munar ML 164's +$7.35 win — both sides of
+// one match on one card, when only Munar was ever a bet.
+//
+// So: any pick with no tracked row that a conflicting pick on the same game
+// outscores gets the same "*not counted:" annotation a voided ledger row would
+// carry. Every downstream check (isVoidedPick, isOutscoredVoid, _counted, the
+// void note, the P/L sum) already keys on that phrase, so nothing else changes.
+// Scores are frozen at first pitch, so this comparison is stable once a game
+// starts. Mirrors the conflict math in src/mvp.js exactly.
+function markOutscoredNonBets(picks) {
+  if (!picks || picks.length < 2) return picks;
+  const type = (p) => String(p.pick_type || '').toLowerCase();
+  const line = (p) => Number(p.spread ?? 0) || 0;
+  const between = (lo, hi) => (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
+  const conflicts = (a, b) => {
+    const ta = type(a), tb = type(b);
+    const aTot = ta === 'over' || ta === 'under', bTot = tb === 'over' || tb === 'under';
+    if (aTot !== bTot) return false;                       // different dimensions
+    if (aTot) {
+      if (ta === tb) return false;                         // over vs over never conflicts
+      const over = ta === 'over' ? a : b, under = ta === 'under' ? a : b;
+      return !between(line(over), line(under));            // a legit middle is not a conflict
+    }
+    const na = String(a.team || '').toLowerCase(), nb = String(b.team || '').toLowerCase();
+    if (na && nb && na === nb) return false;               // same team ML + spread both ride
+    return !between(-(ta === 'ml' ? 0 : line(a)), (tb === 'ml' ? 0 : line(b)));
+  };
+  const label = (p) => {
+    const t = type(p);
+    if (t === 'over' || t === 'under') return `${t === 'over' ? 'Over' : 'Under'} ${p.spread ?? ''}`.trim();
+    if (t === 'ml') return `${p.team} ML`;
+    const n = line(p);
+    return `${p.team} ${n > 0 ? '+' : ''}${n}`;
+  };
+  const byGame = new Map();
+  for (const p of picks) {
+    const k = p.espn_game_id;
+    if (!k) continue;
+    if (!byGame.has(k)) byGame.set(k, []);
+    byGame.get(k).push(p);
+  }
+  // Only picks that LOOK like they should have counted get the note. A sub-gold
+  // pick was never a candidate bet, so "not counted" on it is noise.
+  const goldLine = getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : (parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10) || 65);
+  for (const p of picks) {
+    if (p.tracked) continue;                               // it IS the bet, leave it
+    if (p.annotation) continue;                            // ledger already spoke
+    if ((p.score || 0) < goldLine) continue;               // never looked like a bet
+    const peers = byGame.get(p.espn_game_id) || [];
+    let beat = null;
+    for (const o of peers) {
+      if (o === p || !conflicts(o, p)) continue;
+      if ((o.score || 0) <= (p.score || 0)) continue;
+      if (!beat || (o.score || 0) > (beat.score || 0)) beat = o;
+    }
+    if (beat) p.annotation = `*not counted: ${label(beat)} had more points (${beat.score} vs ${p.score})`;
+  }
+  return picks;
+}
+
 function overlayLedgerResult(picks, espn_game_id = null) {
   if (!picks || !picks.length) return picks;
   try {
@@ -2782,6 +2854,8 @@ async function renderGameDetail(req, res, game, opts = {}) {
         for (const p of picks) p.score = v3DisplayScore(p);
         picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
       }
+      // AFTER the display scores land (see the /api/game note).
+      markOutscoredNonBets(picks);
       for (const p of picks) p.timeline = getPickTimeline(p.id);
     }
 
