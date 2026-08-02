@@ -493,8 +493,10 @@ function p2MarketLabel(g, m) {
     if (g.over_under == null) return 'Total';
     return `${m.side === 'Un' ? 'U' : 'O'} ${g.over_under}`;
   }
+  // A bare "-1.5" does not say whose number it is, so the spread carries the
+  // side it belongs to: "CCU -1.5".
   const n = m.homeLed ? g.spread_home : g.spread_away;
-  return n == null ? 'Spread' : fmtSpread(n);
+  return n == null ? 'Spread' : `${m.side} ${fmtSpread(n)}`;
 }
 
 function p2State(p1, second) {

@@ -2381,6 +2381,8 @@
     #panel-sports .nx-pubrope .nx-r, #panel-sports .nx-pubrope .nx-r * {box-sizing:border-box}
 
 
+    /* The wrapper is the flex item: it claims every pixel the CA chip leaves. */
+    #panel-sports .nx-pubrope { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
     #panel-sports .nx-pubrope .nx-r {
       --nx-r-cold:#4FD8EC;                    /* road / away, ice */
       --nx-r-warm:#FF8A4C;                    /* home, ember */
@@ -2390,7 +2392,6 @@
       --nx-r-mpos:calc(var(--nx-r-m) * 1%);   /* money caret along the rope */
       --nx-r-mcol:var(--nx-r-cold);           /* money side colour */
       width:100%;
-      max-width:220px;
       display:flex;
       flex-direction:column;
       line-height:1;
@@ -2596,10 +2597,10 @@
       --nx-dd-track:#2a3240;
       box-sizing:border-box;
       width:100%;
-      padding:11px 12px 10px;
-      background:linear-gradient(180deg,#181e28 0%,var(--surface) 62%);
-      border:1px solid var(--border);
-      border-radius:12px;
+      padding:2px 0 0;
+      background:none;
+      border:0;
+      border-radius:0;
       color:var(--text);
       font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
       font-variant-numeric:tabular-nums;
@@ -4853,6 +4854,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=152"></script>
+  <script type="module" src="app.js?v=153"></script>
 </body>
 </html>
