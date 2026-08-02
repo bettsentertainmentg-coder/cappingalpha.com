@@ -8,10 +8,11 @@
 //    delta (a new best backer shows the netted step: their points plus the old
 //    best halved into the stack, minus what was already showing). Fade points
 //    from the opposite slot land at the opposing mention's real timestamp. The
-//    only synthetic placement: the four formula-shaped components (sport rank,
-//    market, side lean, sport bonus) surface at their seeded reveal moments from
-//    scoring_v3.bonusRevealEvents — random, at least 3h before game start — so
-//    their timing can't be correlated with the market events that produced them.
+//    only synthetic placement: the general bonuses (in-sport rank, market, side
+//    lean, sport bonus) are withheld and land as ONE tallied step at T-60, one
+//    hour before the scheduled start — the same moment ca_line.js locks the CA
+//    official line. Capper points add the instant they happen; the spot prices
+//    in once, when the price does. See scoring_v3.bonusRevealEvents.
 //    The curve ENDS on the exact display score the picks list shows (both are
 //    the same reveal-aware function), so the curve and the big number never
 //    disagree, and future reveal moments never draw early.

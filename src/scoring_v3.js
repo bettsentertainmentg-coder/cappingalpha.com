@@ -538,34 +538,39 @@ function computeAndLogV3(pickId) {
 }
 
 // ── The reveal plan: WHEN each scoring component surfaces publicly ────────────
-// Backer/fade/offset points show the moment they happen (the conviction curve
-// replays the real mentions). The four formula-shaped components each get ONE
-// deterministic seeded-random reveal moment per pick:
-//   normal case: uniform inside [first mention, game start - 3h]
-//   pick born inside that 3h window: a short trickle within ~20 min of birth
-//     (still finishing at least 3 min before start when a start time exists)
-//   no start time on file: same short trickle after birth
-// Seeded by (pick id, component), so every request — the picks list, the game
-// popup, the conviction curve — replays identical moments without storing a
-// schedule, and the moment never moves for the life of the pick.
-const REVEAL_LEAD_MS = 3 * 60 * 60 * 1000;   // bonuses fully visible 3h before start
-const REVEAL_SOFT_MS = 20 * 60 * 1000;       // late-born picks: reveal within ~20 min
+// TWO KINDS OF POINTS, and they behave differently on purpose (Jack 2026-08-02:
+// "have all general bonuses get added 1 hour before the game tallied up to a
+// total. Capper bonuses obviously add right away").
+//
+//   CAPPER POINTS — the best backer, the stack, fade from the other side, the
+//   conflict offset. These ARE the news. They surface the instant they happen,
+//   at the real message timestamp, and the conviction curve replays them exactly.
+//
+//   GENERAL BONUSES — in-sport rank, market signals, side lean, sport bonus.
+//   These are formula-shaped: they describe the spot, not a person backing it,
+//   and drip-feeding them made the curve look like conviction was arriving when
+//   nothing had actually happened. They are now withheld and land TOGETHER as
+//   ONE tallied step at T-60, exactly one hour before the scheduled start.
+//
+// T-60 is not an arbitrary hour. It is when ca_line.js locks the CA official
+// line, the moment we treat the bet as placed. The whole spot now prices in one
+// step, at the same instant the price does.
+//
+// Edge cases: a pick born inside the last hour reveals its bonuses at birth
+// (there is no earlier moment left), and so does a pick with no start time on
+// file. Nothing is ever withheld past the start.
+//
+// Retired 2026-08-02: the four independent seeded-random moments (uniform inside
+// [first mention, start - 3h], with a ~20 min trickle for late-born picks) and
+// the mulberry32 seeding that made them reproducible. One fixed moment needs no
+// seed, which is also why the list/popup/curve can no longer disagree.
+const REVEAL_LEAD_MS = 60 * 60 * 1000;   // general bonuses all land at T-60
 const REVEAL_COMPONENTS = [
-  { key: 'sport_pct',   salt: 0x9E3779B1, label: 'Sport rank', pts: bd => Math.round(bd?.sport_pct?.pts ?? 0) },
-  { key: 'market',      salt: 0x7F4A7C15, label: 'Market',     pts: bd => Math.round(bd?.market?.pts ?? 0) },
-  { key: 'lean',        salt: 0x94D049BB, label: 'Side lean',  pts: bd => Math.round(bd?.lean?.pts ?? 0) },
-  { key: 'sport_bonus', salt: 0xBF58476D, label: 'Sport',      pts: bd => Math.round(bd?.sport_bonus ?? 0) },
+  { key: 'sport_pct',   pts: bd => Math.round(bd?.sport_pct?.pts ?? 0) },
+  { key: 'market',      pts: bd => Math.round(bd?.market?.pts ?? 0) },
+  { key: 'lean',        pts: bd => Math.round(bd?.lean?.pts ?? 0) },
+  { key: 'sport_bonus', pts: bd => Math.round(bd?.sport_bonus ?? 0) },
 ];
-
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function parseDbMs(s) {
   if (!s) return null;
@@ -605,32 +610,30 @@ function revealContext(pickId) {
   return out;
 }
 
-// The deterministic reveal moments for a pick's bonus components. Only
-// components currently worth points appear (values come from the live
-// breakdown, so a component that changes value redraws at the same moment).
+// The single reveal moment for a pick's general bonuses: one event carrying the
+// whole tallied block, stamped at T-60. Returns [] when the pick has no bonus
+// points at all, so a pick made entirely of capper points draws no phantom step.
+//
+// Deliberately ONE event, not four. Four separate reveals meant the same points
+// could surface in a different order on the list, the popup and the curve if any
+// one of them drifted, and it made the curve step four times for a spot that was
+// never re-evaluated. This is a fixed clock time, so every surface agrees by
+// construction.
 function bonusRevealEvents(pickId, ctx = null) {
   const c = ctx || revealContext(pickId);
   if (!c || !c.bd) return [];
-  const born = c.firstMentionMs ?? Date.now();
-  const hardEnd = c.startMs != null ? c.startMs - REVEAL_LEAD_MS : null;
-  const out = [];
+  let pts = 0;
   for (const comp of REVEAL_COMPONENTS) {
-    const pts = comp.pts(c.bd);
-    if (!pts || pts <= 0) continue;
-    const rnd = mulberry32(((pickId * 2654435761) ^ comp.salt) >>> 0);
-    let ts;
-    if (hardEnd != null && hardEnd > born) {
-      ts = born + rnd() * (hardEnd - born);
-    } else {
-      // Born inside the 3h window (or no start time): short trickle after birth,
-      // never past 3 min before a known start.
-      let soft = born + rnd() * REVEAL_SOFT_MS;
-      if (c.startMs != null) soft = Math.min(soft, c.startMs - 3 * 60 * 1000);
-      ts = Math.max(born, soft);
-    }
-    out.push({ key: comp.key, label: comp.label, pts, ts: Math.round(ts) });
+    const p = comp.pts(c.bd);
+    if (p > 0) pts += p;
   }
-  return out;
+  if (pts <= 0) return [];
+
+  const born = c.firstMentionMs ?? Date.now();
+  // T-60, or birth when the pick is younger than that (or the start is unknown).
+  // Never earlier than the first mention: points cannot exist before the pick.
+  const ts = c.startMs != null ? Math.max(born, c.startMs - REVEAL_LEAD_MS) : born;
+  return [{ key: 'bonuses', label: 'Bonuses', pts, ts: Math.round(ts) }];
 }
 
 // THE HEAVY DISPLAY CAP (Jack 2026-07-29): a pick the heavy-price gate keeps

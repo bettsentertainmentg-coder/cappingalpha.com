@@ -3447,6 +3447,66 @@ app.listen(PORT, () => {
     }
   } catch (err) { console.error('[startup] capper score backfill error:', err.message); }
 
+  // One-time (2026-08-02): restate the two picks the 5-minute grace corrupted.
+  //
+  // Until 9fbe3ac (deployed 2026-07-31 21:03 ET) pick_cutoff.isPickAcceptable carried
+  // GRACE_MS = 5 minutes, so a mention landing within five minutes of first pitch was
+  // still accepted onto the board. Accepting a mention REBUILDS the whole pick against
+  // the ratings pool as it stands at that instant, so those late mentions did not just
+  // add themselves, they re-derived the entire score after the game had started.
+  //
+  // WNBA 401857102 (Atlanta Dream vs Seattle Storm, first pitch 2026-07-31 23:33:30Z)
+  // is the one board we captured before the 4:58am wipe destroyed it. Two picks took a
+  // mention inside the grace:
+  //
+  //   pick 33532  Dream under 178.5, recorded 84
+  //     '0ev' posted 23:28:27 (pregame, so the capper keeps their history credit) but
+  //     was INGESTED at 23:34:40, 70s after first pitch. Their own recorded chip-in was
+  //     3.8, so the pregame total was 80. Correctable by subtraction.
+  //
+  //   pick 33530  Storm +11.5, recorded 96
+  //     'Docs 11th Hour' POSTED at 23:36:34, three minutes after first pitch, and is
+  //     the pick's best backer (resume 57.9 of the 96). Removing the advocate re-seats
+  //     the whole stack (the next backer's chip-in was computed against the old peak),
+  //     so there is no honest arithmetic that recovers the pregame number. The archive
+  //     total is NULLED rather than guessed: a wrong number in the calibration series
+  //     is worse than a missing one.
+  //
+  // The other four picks on that game took no late mention and are untouched. No
+  // tracked bet is affected: the only mvp_picks row on the game is the Dream spread,
+  // whose mentions are all pregame. Originals are preserved in the audit_flags
+  // snapshot, so this is reversible by hand.
+  try {
+    if (!db.getSetting('v4_grace_restate_20260731')) {
+      const GAME = '401857102';
+      const fixes = [
+        { pick_id: 33532, from: 84, to: 80,
+          why: "'0ev' mention ingested 70s after first pitch rebuilt the score; their own chip-in was 3.8" },
+        { pick_id: 33530, from: 96, to: null,
+          why: "'Docs 11th Hour' posted 3 min after first pitch and is the best backer (57.9 of 96); pregame total unrecoverable" },
+      ];
+      let restated = 0;
+      for (const f of fixes) {
+        const row = db.prepare(`SELECT pick_id, team, pick_type, v3_total FROM pick_history WHERE pick_id = ?`).get(f.pick_id);
+        if (!row || row.v3_total == null) continue;          // already restated, or never archived
+        if (Math.round(row.v3_total) !== f.from) continue;    // not the value we audited: leave it alone
+        db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(f.to, f.pick_id);
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO audit_flags (kind, ref_table, ref_id, espn_game_id, summary, detail_json)
+            VALUES ('score_moved_after_start', 'pick_history', ?, ?, ?, ?)
+          `).run(String(f.pick_id), GAME,
+            `${row.team} ${row.pick_type} scored ${f.from} off a mention that landed after first pitch; archive total set to ${f.to == null ? 'NULL (unrecoverable)' : f.to}`,
+            JSON.stringify({ ...row, restated_to: f.to, why: f.why, grace_ms_at_the_time: 5 * 60 * 1000 }));
+        } catch (_) {}
+        restated++;
+        console.log(`[startup] grace restatement: pick ${f.pick_id} ${row.team} ${row.pick_type} ${f.from} -> ${f.to}`);
+      }
+      db.setSetting('v4_grace_restate_20260731', new Date().toISOString());
+      console.log(`[startup] 5-minute-grace restatement: ${restated} archive row(s) corrected on game ${GAME}`);
+    }
+  } catch (err) { console.error('[startup] grace restatement error:', err.message); }
+
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
   stampActualEnds();
