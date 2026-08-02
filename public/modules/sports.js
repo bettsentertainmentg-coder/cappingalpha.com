@@ -199,6 +199,20 @@ function mono(name, sport) {
   return s.slice(0, 3).toUpperCase();
 }
 
+// The abbreviation a sports panel would show. ESPN already ships it on the row
+// (CIN, PIT), so prefer it over initials derived from the full name, which turn
+// "Cincinnati Bengals" into CBE. Tennis is the exception: ESPN's tennis abbr is
+// the first three letters of the FIRST name, where the surname reads far better,
+// so those keep the derived form.
+function abbrOf(g, side) {
+  const sp = (g.sport || '').toUpperCase();
+  const name = side === 'home' ? g.home_team : g.away_team;
+  if (sp === 'ATP' || sp === 'WTA') return mono(name, g.sport);
+  const a = side === 'home' ? g.home_abbr : g.away_abbr;
+  const t = a == null ? '' : String(a).trim();
+  return t ? t.toUpperCase() : mono(name, g.sport);
+}
+
 function displayName(name) {
   return teamNickname(name || '') || name || '?';
 }
@@ -270,7 +284,7 @@ function tileInner(g, side, name) {
     }
     if (flag) return `<img class="nx-lgi" src="${esc(flag)}" alt="" loading="lazy" onerror="${toLetters}">`;
   }
-  return esc(mono(name, g.sport));
+  return esc(abbrOf(g, side));
 }
 
 function bandTeam(g, side) {
@@ -321,7 +335,7 @@ function linesStrip(g) {
     if (g.status === 'pre') return `<div class="nx-lines quiet">Lines post closer to start</div>`;
     return '';
   }
-  const hm = mono(g.home_team, g.sport), am = mono(g.away_team, g.sport);
+  const hm = abbrOf(g, 'home'), am = abbrOf(g, 'away');
   const spans = [];
   if (g.spread_home != null || g.spread_away != null) {
     const homeFav = g.spread_home != null && g.spread_home <= 0;
@@ -421,7 +435,7 @@ function _pair(a, h) { return a != null && h != null && a + h >= 90 && a + h <= 
 function pubMarkets(g) {
   const p = g.pub;
   if (!p) return [];
-  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const am = abbrOf(g, 'away'), hm = abbrOf(g, 'home');
   const out = [];
   const push = (tag, a, h, aM, hM, sideA, sideH, score) => {
     if (!_pair(a, h)) return;
@@ -515,8 +529,8 @@ function ropeHtml(g, p1, second) {
     TAG: p1.tag,
     MARKET_LABEL: p2MarketLabel(g, p1),
     SECOND_LABEL: second ? p2MarketLabel(g, second) : '',
-    AWAY_ABBR: isOU ? 'Ov' : mono(g.away_team, g.sport),
-    HOME_ABBR: isOU ? 'Un' : mono(g.home_team, g.sport),
+    AWAY_ABBR: isOU ? 'Ov' : abbrOf(g, 'away'),
+    HOME_ABBR: isOU ? 'Un' : abbrOf(g, 'home'),
     AWAY_PCT: p1.away,
     HOME_PCT: p1.home,
     MONEY_PCT: p1.moneySidePct == null ? '' : p1.moneySidePct,
@@ -536,7 +550,7 @@ function ropeHtml(g, p1, second) {
 // the conclusion instead of the grid.
 function ddDivergence(g) {
   const p = g.pub || {};
-  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const am = abbrOf(g, 'away'), hm = abbrOf(g, 'home');
   const rows = [
     ['Spread', am, p.away_spread, p.away_spread_money], ['Spread', hm, p.home_spread, p.home_spread_money],
     ['Total', 'Over', p.over, p.over_money], ['Total', 'Under', p.under, p.under_money],
@@ -553,8 +567,8 @@ function ddTokens(g) {
   const dv = ddDivergence(g);
   return {
     DIV_MARKET: dv.market, DIV_SIDE: dv.side, DIV_BETS: dv.bets, DIV_MONEY: dv.money,
-    AWAY_ABBR: mono(g.away_team, g.sport),
-    HOME_ABBR: mono(g.home_team, g.sport),
+    AWAY_ABBR: abbrOf(g, 'away'),
+    HOME_ABBR: abbrOf(g, 'home'),
     SPR_AWAY_LINE: g.spread_away == null ? '' : fmtSpread(g.spread_away),
     SPR_HOME_LINE: g.spread_home == null ? '' : fmtSpread(g.spread_home),
     TOTAL_LINE: n(g.over_under),
@@ -589,7 +603,7 @@ function ddRender(g) {
 function pubVotesLean(g) {
   const v = g.votes;
   if (!v) return null;
-  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const am = abbrOf(g, 'away'), hm = abbrOf(g, 'home');
   let home = 0, away = 0, over = 0, under = 0;
   for (const [slot, n] of Object.entries(v)) {
     const s = slot.toLowerCase();
@@ -612,7 +626,7 @@ function pubVotesLean(g) {
 function pubLineMove(g) {
   const o = g.open;
   if (!o) return null;
-  const am = mono(g.away_team, g.sport), hm = mono(g.home_team, g.sport);
+  const am = abbrOf(g, 'away'), hm = abbrOf(g, 'home');
   // Spread move (shown from the favorite's side of the CURRENT number).
   if (o.spread_home != null && g.spread_home != null && Math.abs(g.spread_home - o.spread_home) >= 0.5) {
     const homeFav = g.spread_home <= 0;
@@ -662,7 +676,7 @@ function pubChip(g) {
     const impHome = _impliedPct(g, true);
     if (impHome != null) {
       const homeLed = impHome >= 50;
-      const side = mono(homeLed ? g.home_team : g.away_team, g.sport);
+      const side = abbrOf(g, homeLed ? 'home' : 'away');
       const pct = homeLed ? impHome : 100 - impHome;
       return `<span class="nx-pubalt mkt n" title="No public betting data for this game yet. ${pct}% is the win chance implied by the current moneyline price."><b>${pct}%</b> ${esc(side)} <em>MKT</em></span>`;
     }
@@ -1037,7 +1051,7 @@ function dayTagFor(iso) {
 
 function gameMatches(g, q) {
   const hay = [g.sport, sportKey(g.sport), g.away_team, g.home_team,
-    mono(g.away_team, g.sport), mono(g.home_team, g.sport)].join(' ').toLowerCase();
+    abbrOf(g, 'away'), abbrOf(g, 'home')].join(' ').toLowerCase();
   return hay.indexOf(q) >= 0;
 }
 
