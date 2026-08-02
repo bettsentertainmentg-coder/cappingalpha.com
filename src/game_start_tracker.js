@@ -23,15 +23,16 @@ function stampActualStarts() {
     // Freeze the curve with the score. A pick's points stop at first pitch, so the
     // record of HOW it got there has to stop at first pitch too (lazy require:
     // pick_timeline pulls in scoring_v3, which must not load at module scope here).
-    if (starting.length) {
-      try {
-        const { freezeTimelinesForGame } = require('./pick_timeline');
-        let frozen = 0;
-        for (const g of starting) frozen += freezeTimelinesForGame(g.espn_game_id);
-        if (frozen) console.log(`[gameStartTracker] froze ${frozen} conviction curve(s) at first pitch`);
-      } catch (err) {
-        console.warn('[gameStartTracker] curve freeze error:', err.message);
-      }
+    try {
+      const { freezeTimelinesForGame, freezeStartedCurves } = require('./pick_timeline');
+      let frozen = 0;
+      for (const g of starting) frozen += freezeTimelinesForGame(g.espn_game_id);
+      if (frozen) console.log(`[gameStartTracker] froze ${frozen} conviction curve(s) at first pitch`);
+      // Backstop for anything that got past the stamp (first seen as 'post',
+      // a restart across the flip, a tick window we missed).
+      freezeStartedCurves();
+    } catch (err) {
+      console.warn('[gameStartTracker] curve freeze error:', err.message);
     }
     return r.changes;
   } catch (err) {

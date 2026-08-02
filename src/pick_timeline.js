@@ -177,35 +177,46 @@ function buildV3Timeline(pick) {
   // Land exactly on the display score the picks list shows right now — the curve
   // and the big number are one story or they are both untrustworthy.
   //
-  // HOW the gap is closed depends on whether the game has begun, and that
-  // distinction is the whole point of this block. PREGAME, a pick is still
-  // accumulating and a small gap is just the pool re-ranking since the last
-  // recalc, so it settles into the last step. ONCE THE GAME HAS STARTED nothing
-  // is allowed to move, so a gap is evidence that something DID move, and
-  // burying it in a pregame step would draw those points hours before they
-  // existed. It gets its own point instead, stamped at first pitch, flagged
-  // postStart, and rendered in the "should never happen" style.
+  // MOST of any gap is NOT a score change. The replay re-derives every interior
+  // point from capper_ratings as they stand at request time, and results.js
+  // re-ranks that table on every graded pass, so the replayed total drifts away
+  // from the stored one all day with nobody posting anything. Folding that drift
+  // into the last step is the honest close: it is one number's worth of "the
+  // pool moved", not a step anyone took.
+  //
+  // A REAL post-start move is a different thing, and we can tell them apart
+  // exactly. picks.score_at_start is stamped once at first pitch, so if the
+  // stored total no longer matches it, the score genuinely moved after the game
+  // began, which the rules forbid. Only that case earns the red flagged point.
+  // Drawing red on mere replay drift would cry wolf on every live pick, every
+  // five minutes, which is worse than not drawing it at all.
   const last = events[events.length - 1];
-  const gap = displayScore - last.score;
-  if (gap !== 0) {
-    const startedNow = startMs != null && Date.now() >= startMs;
-    if (startedNow) {
-      const lastMs = new Date(last.ts).getTime();
-      const ms = Math.max(startMs, lastMs + 1000);
-      events.push({
-        ts: new Date(ms).toISOString(),
-        delta: gap,
-        label: `${gap >= 0 ? '+' : ''}${gap}`,
-        score: displayScore,
-        kind: 'adjust',
-        cause: null,
-        postStart: true,
-      });
-    } else {
-      last.delta += gap;
-      last.score = displayScore;
+  const atStart = pick.score_at_start != null ? Math.round(pick.score_at_start) : null;
+  const movedAfterStart = atStart != null && atStart !== displayScore;
+  if (movedAfterStart) {
+    // Close the replay drift against where the pick REALLY stood at first pitch,
+    // then show the illegal move as its own step.
+    if (last.score !== atStart) {
+      last.delta += (atStart - last.score);
+      last.score = atStart;
       last.label = `${last.delta >= 0 ? '+' : ''}${last.delta}`;
     }
+    const move = displayScore - atStart;
+    const lastMs = new Date(last.ts).getTime();
+    const ms = Math.max(startMs ?? lastMs, lastMs) + 1000;
+    events.push({
+      ts: new Date(ms).toISOString(),
+      delta: move,
+      label: `${move >= 0 ? '+' : ''}${move}`,
+      score: displayScore,
+      kind: 'adjust',
+      cause: null,
+      postStart: true,
+    });
+  } else if (last.score !== displayScore) {
+    last.delta += (displayScore - last.score);
+    last.score = displayScore;
+    last.label = `${last.delta >= 0 ? '+' : ''}${last.delta}`;
   }
   return events;
 }
@@ -307,6 +318,25 @@ function writeFrozenTimeline(pickId, events) {
 // 2026-07-31 WNBA drop could not be reconstructed: the pregame value of an
 // untracked pick existed nowhere once it had been overwritten. It is the
 // baseline audit rule R11 compares against.
+// Sweep every game that has begun and freeze anything still unfrozen. The stamp
+// in game_start_tracker only fires on status 'in' with no actual_start_at, so a
+// game we first observe as 'post' (a short outage, a restart, a game that flips
+// outside the live tick window) would never get its curve photographed and would
+// redraw itself forever. This is the backstop, and it is idempotent.
+function freezeStartedCurves() {
+  let n = 0;
+  try {
+    const games = db.prepare(`
+      SELECT DISTINCT tg.espn_game_id
+      FROM today_games tg JOIN picks p ON p.espn_game_id = tg.espn_game_id
+      WHERE tg.status IN ('in', 'post') AND p.mention_count > 0 AND p.timeline_frozen IS NULL
+    `).all();
+    for (const g of games) n += freezeTimelinesForGame(g.espn_game_id);
+  } catch (_) {}
+  if (n) console.log(`[pickTimeline] froze ${n} conviction curve(s) on already-started games`);
+  return n;
+}
+
 function freezeTimelinesForGame(espnGameId) {
   let n = 0;
   try {
@@ -344,7 +374,20 @@ function getPickTimeline(pickId, opts = {}) {
       try {
         const cap = require('./scoring_v3').heavyDisplayCapFor(pick);
         if (Number.isFinite(cap) && Array.isArray(events)) {
-          return events.map(e => (e && typeof e.score === 'number' && e.score > cap) ? { ...e, score: cap } : e);
+          // Clamp, then RE-DERIVE the deltas from the clamped series. Rewriting
+          // score alone (what this did before) breaks the one invariant a step
+          // chart has: score[n] = score[n-1] + delta[n]. Two points both clamped
+          // to 95 drew a flat segment labelled "+13", and the last point is
+          // always labelled, so the contradiction was guaranteed to be the one
+          // a reader looked at.
+          let prev = 0;
+          return events.map(e => {
+            if (!e || typeof e.score !== 'number') return e;
+            const score = Math.min(e.score, cap);
+            const delta = Math.round(score - prev);
+            prev = score;
+            return { ...e, score, delta, label: `${delta >= 0 ? '+' : ''}${delta}` };
+          });
         }
       } catch (_) {}
       return events;
@@ -364,4 +407,4 @@ function sanitizeTimeline(events) {
   return events.map(e => ({ ts: e.ts, score: e.score, postStart: !!e.postStart }));
 }
 
-module.exports = { getPickTimeline, sanitizeTimeline, freezeTimelinesForGame };
+module.exports = { getPickTimeline, sanitizeTimeline, freezeTimelinesForGame, freezeStartedCurves };
