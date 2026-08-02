@@ -3487,7 +3487,12 @@ app.listen(PORT, () => {
       ];
       let restated = 0;
       for (const f of fixes) {
-        const row = db.prepare(`SELECT pick_id, team, pick_type, v3_total FROM pick_history WHERE pick_id = ?`).get(f.pick_id);
+        // picks.id is AUTOINCREMENT and pick_history.pick_id is UNIQUE, so the id
+        // is unambiguous. The game and the exact stored value are checked anyway:
+        // this only ever fires on the two rows that were audited by hand.
+        const row = db.prepare(
+          `SELECT pick_id, team, pick_type, v3_total FROM pick_history WHERE pick_id = ? AND espn_game_id = ?`
+        ).get(f.pick_id, GAME);
         if (!row || row.v3_total == null) continue;          // already restated, or never archived
         if (Math.round(row.v3_total) !== f.from) continue;    // not the value we audited: leave it alone
         db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(f.to, f.pick_id);
