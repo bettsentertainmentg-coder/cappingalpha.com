@@ -138,6 +138,7 @@
       --text:      #e2e8f0;
       --muted:     #8892a4;
       --accent:    #3b82f6;
+      --accent-ink:#60a5fa;   /* accent as TEXT on dark: lifted off --accent so small type clears AA (6.6:1) */
       --gold:      #FFD700;   /* gold as a FILL (buttons/chips) AND as text — both work on dark */
       --gold-ink:  #FFD700;   /* gold as TEXT; equals --gold in dark so text remaps are a no-op here */
       --green:     #22c55e;
@@ -172,6 +173,7 @@
       --text:      #18202e;   /* near-black navy, not pure #000 */
       --muted:     #566175;   /* secondary text — passes WCAG AA on both bg and surface */
       --accent:    #2563eb;
+      --accent-ink:#1d4ed8;   /* accent as TEXT on white: darkened to clear AA (6.3:1) */
       --gold:      #F5B301;   /* bright FILL gold — premium on white with dark text (buttons/chips), still reads gold on dark */
       --gold-ink:  #8B6914;   /* dark bronze for gold TEXT on white — clears WCAG AA (5.09:1) */
       --green:     #15803d;   /* darkened so small stat text clears WCAG AA (4.5:1) on white */
@@ -2641,7 +2643,7 @@
 
     #panel-sports .nx-pubpanel .nx-dd-mkt-h {display:flex;align-items:center;gap:8px;margin:0 0 7px;}
 
-    #panel-sports .nx-pubpanel .nx-dd-mkt-name {font-size:9.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--muted);line-height:11px;}
+    #panel-sports .nx-pubpanel .nx-dd-mkt-name {font-size:10.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--accent-ink);line-height:12px;}
 
     #panel-sports .nx-pubpanel .nx-dd-rule {flex:1;height:1px;background:linear-gradient(90deg,var(--border),rgba(48,54,61,0));}
 
@@ -4854,6 +4856,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=153"></script>
+  <script type="module" src="app.js?v=154"></script>
 </body>
 </html>
