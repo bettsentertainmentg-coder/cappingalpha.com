@@ -11,7 +11,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican } from './utils.js?v=8';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -104,6 +104,9 @@ export function caPickProfit10(p) { return flatUnitReturn(p, 10); }
 export function caPickRowHtml(p, opts = {}) {
   const graded = isGraded(p);
   const live = !graded && p.game_status === 'in';
+  // Halted mid-play (or before it): the row must never wear a start time, which
+  // is what it did while `status` alone decided (a suspended match is filed 'pre').
+  const susp = !graded && !live && isSuspendedGame(p);
   const r = (p.result || '').toLowerCase();
   const isVoid = isVoidedPick(p);
   const outVoid = graded && isOutscoredVoid(p); // graded, beaten on its game → soft yellow
@@ -113,6 +116,7 @@ export function caPickRowHtml(p, opts = {}) {
 
   const rowCls = 'ca-row'
     + (live ? ' live' : '')
+    + (susp ? ' susp' : '')
     + (graded ? (outVoid ? ' g-out' : isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
 
   // Score ring: outcome color once graded (soft yellow when the pick graded but
@@ -188,6 +192,10 @@ export function caPickRowHtml(p, opts = {}) {
       money = `<span class="ca-row-money ${pf > 0 ? 'pos' : pf < 0 ? 'neg' : ''}">${pf >= 0 ? '+' : '-'}$${Math.abs(pf).toFixed(2).replace(/\.00$/, '')}</span>`;
     }
     end = `<div class="ca-row-end ca-row-res">${chip}${money}</div>`;
+  } else if (susp) {
+    const as = p.game_away_score ?? 0, hs = p.game_home_score ?? 0;
+    const played = (as || hs) ? `<span class="ca-row-susp-sc">${as}-${hs}</span>` : '';
+    end = `<div class="ca-row-end"><span class="ca-res-chip v">${suspendedLabel(p).toUpperCase()}</span>${played}</div>`;
   } else {
     end = `<div class="ca-row-end"><span class="ca-row-time">${_stripTags(scoreDisplay(p)) || ''}</span></div>`;
   }

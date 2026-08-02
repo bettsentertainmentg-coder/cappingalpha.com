@@ -1,6 +1,6 @@
 # CappingAlpha Grading Rules
 
-One page. Seven rules. Every surface (rankings, history, tracked bets, capper
+One page. Eleven rules. Every surface (rankings, history, tracked bets, capper
 records) must agree with these. If one disagrees, that is a bug: the self-audit
 (src/audit.js) re-verifies every graded row every 5 minutes and files a
 violation (with a full row snapshot that survives the daily wipe) to
@@ -159,4 +159,39 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
 - Why: deletes left no annotation, no flag and nothing to autopsy, which is how
   rows vanished from the Rankings list with no explanation.
 
-Current as of 2026-07-30.
+## R11. A suspended match is not a pregame match (2026-08-02)
+- ESPN files a halted event (suspended, postponed, rain delay, abandoned) as
+  state `post` with a partial or empty linescore. tennis_espn.js downgrades
+  those to `pre` so grading can never settle a half-played match off a partial
+  score. That downgrade is correct and stays. Its consequence is the rule here:
+  `status = 'pre'` is NOT proof a match is pregame, and no gate may treat it so.
+- Scoring and membership follow R9's `hasGameStarted()`, which now also counts
+  TENNIS GAMES PLAYED. Sets won only counts COMPLETED sets, so a match suspended
+  inside the first set scores 0-0; on a row re-listed after the 3-day prune
+  (which carries no stamped start) that read as fully pregame.
+- New picks arriving on a suspended match are refused by BOTH intake paths. The
+  Discord path already was (savePick calls `hasGameStarted`, and the message is
+  logged to `skipped_messages` as `late_post_start`). The wave-1 scrapers were
+  not: they judged in-play by comparing the source timestamp to `start_time`
+  alone, and tennis_espn takes ESPN's freshest date on every upsert, so a halted
+  match gets re-dated to its resumption. A pick posted while the match sat 1-1
+  in sets then read as pregame and earned a `capper_history` row that graded
+  into the Wilson pool. `recordSourcePick` now also asks `hasGameStarted`.
+- User tracking (votes, the Track a Bet line board, the verified confirm slide)
+  uses the stricter `pick_cutoff.isTrackingClosed()`: closed once a game has
+  started AND while it is suspended. A halt freezes our line while the market
+  moves or is pulled, and nothing in the payload says whether play resumes in 20
+  minutes or tomorrow.
+- The T-60 line lock skips any started game. `ca_line_locked` lives on
+  today_games, so a match that outlives the prune and gets re-listed comes back
+  unlocked with its start time in the past, and the lock would rewrite a tracked
+  bet's odds and line at a mid-match number.
+- Every surface says so: the pick row, the Sports card, the home strip, the #1
+  card, the game modal and the detail page all show an amber SUSPENDED chip with
+  the score reached before play stopped. None of them shows a start time.
+- Why: three Toronto matches were suspended by rain on 2026-08-02. All three sat
+  on the board reading like upcoming games, one of them with Pegula already a set
+  up on a gold Eala pick, and voting plus verified tracking were still open on
+  every one of them at the frozen pregame price.
+
+Current as of 2026-08-02.

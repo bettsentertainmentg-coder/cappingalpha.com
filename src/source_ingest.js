@@ -18,6 +18,7 @@
 
 const db = require('./db');
 const { resolveCapperName, ensureRegistered, savePick } = require('./storage');
+const { hasGameStarted } = require('./pick_cutoff');
 
 // Multi-match resolver: a doubleheader (same two teams twice today) or a
 // cross-sport city collision (Toronto/Miami/Dallas exist in 3+ leagues) makes
@@ -118,7 +119,7 @@ function recordSourcePick(pick) {
   const isTotal = pt === 'over' || pt === 'under';
   if (!isTotal && !pick.side) return 'skipped:no-side';
 
-  // Pregame rule: the SOURCE timestamp decides.
+  // Pregame rule: the SOURCE timestamp decides, AND the game itself gets a vote.
   //
   // In-play entries are DROPPED ENTIRELY (Jack 2026-07-31: "NOTHING IS TRACKED
   // PAST THAT EVEN IF A CAPPER POSTS AT ANY POINT AFTER THAT IT IS NOT ADDED TO
@@ -128,8 +129,17 @@ function recordSourcePick(pick) {
   // pool after finding 7,787 of ~19k graded rows were in-play, WTA 82% and ATP
   // 62%, which had been quietly shaping every capper's rank. A row we refuse to
   // judge on should not exist.
+  //
+  // hasGameStarted() is the second half, and a SUSPENDED match is why (2026-08-02).
+  // The timestamp test alone trusts start_time to stay put, and it does not:
+  // tennis_espn takes ESPN's freshest date on every upsert, so a halted match gets
+  // re-dated to its resumption. The moment that lands, a pick posted while the
+  // match sat 1-1 in sets reads as PREGAME (posted before the new start) and earns
+  // a capper_history row that grades into the Wilson pool. The Discord path never
+  // had this hole because savePick gates on hasGameStarted; this one does now too.
   const startMs = gameStartMs(game);
-  const live = !!(startMs && pick.postedAtMs && pick.postedAtMs >= startMs);
+  const live = !!(startMs && pick.postedAtMs && pick.postedAtMs >= startMs)
+            || hasGameStarted(game);
   if (live) return 'skipped:in-play';
 
   const team = isTotal ? game.home_team : (pick.side === 'home' ? game.home_team : game.away_team);

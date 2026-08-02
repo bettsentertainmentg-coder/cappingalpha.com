@@ -29,6 +29,24 @@ const GRACE_MS = 0;
 // itself proof (and is the backstop when the ESPN status poll lags).
 const LOOSE_START_SPORTS = new Set(['ATP', 'WTA', 'Tennis', 'Golf']);
 
+// ESPN's non-final status markers. A suspended, postponed or rained-out event is
+// filed as state 'post' with a partial (or empty) linescore, so tennis_espn.js
+// downgrades those rows to 'pre' — otherwise grading would settle a half-played
+// match off its partial score. The side effect is that a match SUSPENDED MID-PLAY
+// also reads pregame everywhere the raw status string is the gate, which is how
+// three suspended Toronto matches sat on the board on 2026-08-02 with voting and
+// verified tracking still open at the frozen pregame price.
+const SUSPEND_RE = /postpone|suspend|cancel|delay|rain|abandon/i;
+
+// Is ESPN telling us this event is not being played right now? Reads the raw
+// status name we store (status_detail, e.g. STATUS_SUSPENDED) and falls back to
+// the display clock ('Suspended').
+function isSuspended(game) {
+  if (!game) return false;
+  return SUSPEND_RE.test(String(game.status_detail || ''))
+      || SUSPEND_RE.test(String(game.clock || ''));
+}
+
 function _ms(ts) {
   if (!ts) return NaN;
   // SQLite datetime('now') returns 'YYYY-MM-DD HH:MM:SS' in UTC with no offset.
@@ -60,6 +78,15 @@ function hasGameStarted(game, nowMs = Date.now()) {
   // and never reached the record. Verified on the same board: 0 of 84 pregame
   // games carry a nonzero score, so the score check below is safe on its own.
   if ((game.home_score ?? 0) > 0 || (game.away_score ?? 0) > 0) return true;
+  // 3b. Tennis games on the board. home_score/away_score count only COMPLETED
+  // SETS (tennis_score.countSets), so a match suspended inside the first set
+  // carries 0-0 while real games have been played. actual_start_at covers that
+  // for as long as the row lives, but the row does not: the prune drops a game
+  // after 3 days and the tennis fetcher re-lists any uncompleted match, and the
+  // fresh row comes back with no stamp, status 'pre' and a 0-0 score. Without
+  // this signal that row reads fully pregame and would accept new mentions and
+  // a new tracked bet on a match already in progress.
+  if ((game.tennis_home_games ?? 0) > 0 || (game.tennis_away_games ?? 0) > 0) return true;
   // 4. Schedule backstop, fixed-schedule sports only.
   const sport = game.sport || '';
   if (LOOSE_START_SPORTS.has(sport)) return false;
@@ -75,6 +102,19 @@ function hasGameStarted(game, nowMs = Date.now()) {
 function isPickAcceptable(game) {
   if (!game) return true;
   return !hasGameStarted(game);
+}
+
+// USER-FACING TRACKING GATE (votes, the Track a Bet line board, the verified
+// confirm slide). Closed once a game has started AND while it is suspended.
+//
+// The suspension half is deliberately stricter than hasGameStarted: a match
+// halted before the first serve has not "started", but our line is frozen at the
+// last pregame number while the market has moved or been pulled, and nothing in
+// the payload says whether play resumes in 20 minutes or tomorrow. Snapshotting
+// a bet against that number is the same defect as tracking a live game off the
+// pregame close, which is why that case is already closed.
+function isTrackingClosed(game) {
+  return hasGameStarted(game) || isSuspended(game);
 }
 
 function logLatePick(pick) {
@@ -98,6 +138,6 @@ function logLatePick(pick) {
 }
 
 module.exports = {
-  isPickAcceptable, hasGameStarted, logLatePick,
-  parseGameTs: _ms, GRACE_MS, LOOSE_START_SPORTS,
+  isPickAcceptable, hasGameStarted, isSuspended, isTrackingClosed, logLatePick,
+  parseGameTs: _ms, GRACE_MS, LOOSE_START_SPORTS, SUSPEND_RE,
 };

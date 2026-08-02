@@ -272,6 +272,8 @@ nav {
 .ca-status-live   { background: rgba(239,68,68,0.12); color: var(--accent-live-score); border: 1px solid rgba(239,68,68,0.3); display: flex; align-items: center; gap: 6px; }
 .ca-status-live::before { content:''; width:6px; height:6px; border-radius:50%; background: var(--accent-live); animation: ca-live-dot 1.4s ease-in-out infinite; flex-shrink:0; }
 .ca-status-final  { background: rgba(34,197,94,0.1);   color: var(--accent-win); border: 1px solid rgba(34,197,94,0.25); }
+/* Suspended / postponed: amber, and never a countdown (the start time is past). */
+.ca-status-susp   { background: rgba(242,193,78,0.12); color: var(--amber, #f2c14e); border: 1px solid var(--amber-line, rgba(242,193,78,0.34)); }
 @keyframes ca-live-dot { 0%,100% { opacity:1 } 50% { opacity:0.3 } }
 
 /* Team matchup row */
@@ -822,6 +824,7 @@ nav {
 .ca-live-badge { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; padding: 2px 8px; border-radius: 5px; }
 .ca-live-badge--live  { color: #fff; background: var(--accent-live); }
 .ca-live-badge--final { color: var(--text-tertiary); background: var(--surface2); border: 1px solid var(--border); }
+.ca-live-badge--susp { color: var(--amber, #f2c14e); background: rgba(242,193,78,0.12); border: 1px solid var(--amber-line, rgba(242,193,78,0.34)); }
 .ca-live-status { font-size: 13px; font-weight: 700; color: var(--text-secondary); }
 .ca-live-score { display: flex; flex-direction: column; gap: 6px; }
 .ca-live-team { display: flex; align-items: center; justify-content: space-between; gap: 14px; }

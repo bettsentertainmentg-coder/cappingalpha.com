@@ -3,9 +3,9 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=8';
+import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
 import { unlockCtaHtml } from './paywall.js';
-import { winPctColor } from './sport_cards.js?v=30';
+import { winPctColor } from './sport_cards.js?v=31';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -90,6 +90,15 @@ async function _renderTopPick() {
       const tail = bb || (fallback ? `<span class="bb-half">${fallback}</span>` : '');
       liveLine = `<div class="ca-tp-live-line"><span class="ca-tp-live-dot"></span><span class="ca-tp-live-score">${aScore}-${hScore}</span>${tail}</div>`;
       cardState = ' ca-tp-live';
+    }
+
+    // Suspended: the card's time line would otherwise read like an upcoming game
+    // (a halted match is filed 'pre' on our side — see utils.isSuspendedGame).
+    if (hasPick && !resultBadge && !isLive && isSuspendedGame(pick)) {
+      const aScore = pick.game_away_score ?? 0;
+      const hScore = pick.game_home_score ?? 0;
+      const sc = (aScore || hScore) ? `<span class="ca-tp-live-score">${aScore}-${hScore}</span>` : '';
+      liveLine = `<div class="ca-tp-live-line ca-tp-susp">${sc}<span class="bb-half">${suspendedLabel(pick)}</span></div>`;
     }
 
     // ── P/L block (only when there's enough resolved history) ─────────────────

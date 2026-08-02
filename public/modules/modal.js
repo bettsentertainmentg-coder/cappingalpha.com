@@ -2,7 +2,7 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount, isViewer } from './auth.js';
-import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime, countryColorPair } from './utils.js?v=8';
+import { LOCK_SVG, PICK_HEAT_COLOR, fmtOdds, fmtSpread, gameTime, countryColorPair, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
 import { cappingGauge } from './gauge.js';
 
 // Escape any value that reaches innerHTML. Golf player/capper names come from
@@ -545,7 +545,9 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
   // These odds come from today_games, which is locked at the pregame close (5am/4pm) and
   // never moves once a game starts — we have no live in-game line. So label it "Pregame"
   // (not "Current") for live/finished games rather than implying it's the number right now.
-  const started = game.status === 'in' || game.status === 'post';
+  // Same for a suspended match: the number on screen is the one from before play
+  // stopped, so it is a Pregame line, not a Current one.
+  const started = game.status === 'in' || game.status === 'post' || isSuspendedGame(game);
   const currentLabel = started ? 'Pregame' : 'Current';
   const currentTitle = started ? 'Pregame closing line (no live in-game line available)' : "CappingAlpha's current line";
   const linesHtml = `
@@ -942,11 +944,18 @@ function renderSentiment(data, slotKey, gameStatus, pickBySlot) {
     size: 'sm',
   });
 
-  const locked = gameStatus === 'in' || gameStatus === 'post';
+  // A suspended match reads gameStatus 'pre' (ESPN files it 'post' and
+  // tennis_espn.js downgrades it so grading can't settle a half-played match),
+  // so the status string alone left voting open on a match already under way.
+  // The server enforces the same rule and 409s, this just tells the truth first.
+  const susp = isSuspendedGame(data?.game);
+  const locked = gameStatus === 'in' || gameStatus === 'post' || susp;
 
   let voteSection = '';
   if (locked) {
-    voteSection = `<div class="vote-closed">Voting closed. Game started.</div>`;
+    voteSection = susp
+      ? `<div class="vote-closed">Tracking closed. Match ${suspendedLabel(data?.game).toLowerCase()}.</div>`
+      : `<div class="vote-closed">Voting closed. Game started.</div>`;
   } else if (!state.currentUser) {
     voteSection = `<div style="font-size:12px;color:var(--muted);margin-top:8px;"><a onclick="openLogin()" style="color:var(--accent);cursor:pointer;">Log in</a> or <a onclick="openSignup()" style="color:var(--accent);cursor:pointer;">sign up free</a> to track a pick</div>`;
   } else {

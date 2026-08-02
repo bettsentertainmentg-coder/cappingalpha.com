@@ -157,11 +157,47 @@ export function onBoardForSport(startTime, sport) {
   return false;
 }
 
+// ── Suspended / postponed games ───────────────────────────────────────────────
+// ESPN files a halted event as state 'post' with a partial (or empty) linescore,
+// so tennis_espn.js downgrades it to 'pre' — otherwise grading would settle a
+// half-played match off a partial score. The side effect is that `status` alone
+// reads a suspended match as UPCOMING, which is how three Toronto matches sat on
+// the board showing a start time while one player was already a set up
+// (2026-08-02). Every surface asks here instead of reading the status string.
+// status_detail is ESPN's raw status name (STATUS_SUSPENDED); clock is its label.
+const SUSPEND_RE = /postpone|suspend|cancel|delay|rain|abandon/i;
+
+export function isSuspendedGame(g) {
+  if (!g) return false;
+  const detail = g.game_status_detail ?? g.status_detail ?? '';
+  const clock  = g.game_clock ?? g.clock ?? '';
+  return SUSPEND_RE.test(String(detail)) || SUSPEND_RE.test(String(clock));
+}
+
+// Which word to show. A match halted mid-play is Suspended; one that never got
+// under way is Postponed. Never a start time either way.
+export function suspendedLabel(g) {
+  const s = `${g?.game_status_detail ?? g?.status_detail ?? ''} ${g?.game_clock ?? g?.clock ?? ''}`.toLowerCase();
+  if (/postpone/.test(s))    return 'Postponed';
+  if (/cancel/.test(s))      return 'Canceled';
+  if (/abandon/.test(s))     return 'Abandoned';
+  if (/rain|delay/.test(s))  return 'Delayed';
+  return 'Suspended';
+}
+
 export function scoreDisplay(p) {
   const status = p.game_status;
   const away   = p.game_away_score ?? 0;
   const home   = p.game_home_score ?? 0;
   const result = p.result;
+
+  // Checked before 'post' on purpose: a postponed team-sport game keeps ESPN's
+  // 'post' status on our side (espn_live.js is untouchable), and rendering that
+  // as "0-0 Final" is the same lie in a different costume.
+  if (isSuspendedGame(p)) {
+    const played = (away || home) ? `${away}-${home} · ` : '';
+    return `<span style="font-size:0.88em;font-weight:600;color:var(--amber,#f2c14e);margin-left:8px;">${played}${suspendedLabel(p)}</span>`;
+  }
 
   if (status === 'post') {
     if (result === 'win')

@@ -17,6 +17,7 @@ const scanner = require('./src/expert_data');
 const admin   = require('./src/admin');
 const auth    = require('./src/auth');
 const { publicPick, publicPicks } = require('./src/pick_privacy'); // strip proprietary scoring columns before any pick leaves the server
+const { isTrackingClosed } = require('./src/pick_cutoff'); // one answer to "can a user still track this game?"
 const { runDailyWipe, pruneStaleGames }   = require('./src/wipe');
 const { lockMorningLines, getLines } = require('./src/lines');
 const { fetchForwardGames } = require('./src/forward_games');
@@ -658,6 +659,7 @@ app.get('/api/picks', (req, res) => {
            tg.away_team  AS away_team,
            tg.start_time AS start_time,
            tg.status     AS game_status,
+           tg.status_detail AS game_status_detail,
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
@@ -754,6 +756,7 @@ app.get('/api/picks/top', (req, res) => {
            tg.away_team  AS away_team,
            tg.start_time AS start_time,
            tg.status     AS game_status,
+           tg.status_detail AS game_status_detail,
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
@@ -928,7 +931,10 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
-  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
+  // status_detail rides along so the client can tell a genuinely pregame match from
+  // a SUSPENDED one: ESPN files suspensions as 'post' and tennis_espn.js downgrades
+  // them to 'pre', so `status` alone reads them as upcoming.
+  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, start_time, status, status_detail, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
@@ -1573,9 +1579,14 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
 
   if (!slot) return res.status(400).json({ error: 'slot required' });
 
-  const game = db.prepare(`SELECT status FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+  // SELECT * (not just status): the gate below reads the stamped start, the
+  // score and the suspension marker, because a suspended match is filed by ESPN
+  // as 'post' and downgraded to 'pre' on our side. Gating on the status string
+  // alone let a voter pull a vote out of a match that was half played and going
+  // against them.
+  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
-  if (game.status === 'in' || game.status === 'post') {
+  if (isTrackingClosed(game)) {
     return res.status(409).json({ error: 'Game has started — vote cannot be removed' });
   }
 
@@ -2468,7 +2479,12 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   // frozen at the pregame close), so accepting a vote here would snapshot and later grade
   // it at a stale number wearing a "live" label. Close it — the frontend shows the
   // "tracking is closed" toast and offers a custom bet instead. (DELETE already 409s live.)
-  if (game.status === 'in' || game.status === 'post') {
+  //
+  // The gate is isTrackingClosed, not the status string: a match suspended mid-play is
+  // filed by ESPN as 'post' and downgraded to 'pre' here so grading can't settle it off a
+  // partial score, which left this endpoint open on a half-played match at the frozen
+  // pregame price (three Toronto matches, 2026-08-02).
+  if (isTrackingClosed(game)) {
     return res.status(409).json({ error: 'Tracking closed — game has started' });
   }
   // Same prediction-market fallback as /api/game: a side tracked off the Polymarket line

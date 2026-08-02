@@ -730,6 +730,7 @@
     /* Live-odds marker: a pulsing dot, distinct from the free-bet bolt */
     .ob-livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; margin-right: 6px; vertical-align: middle; animation: pulse 1.6s ease-in-out infinite; }
     .ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
+    .ob-susp { font-size: 10px; font-weight: 800; color: var(--amber); border: 1px solid var(--amber-line); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
 
     /* Confirmation slide (tap a line -> configure -> Track Bet) */
     .lc-sel { font-size: 18px; font-weight: 800; margin: 6px 0 12px; }
@@ -2018,6 +2019,8 @@
     #panel-sports .nx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nx-live); flex-shrink: 0; animation: nxpul 2s ease-in-out infinite; box-shadow: 0 0 0 1px rgba(0,0,0,.3); }
     #panel-sports .nx-state.pre { text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 11px; }
     #panel-sports .nx-state.fin { color: rgba(255,255,255,.8); }
+    #panel-sports .nx-state.susp { color: var(--amber); }
+    #panel-sports .nx-susp { color: var(--amber); }
     #panel-sports .nx-bsub { font-size: 9px; font-weight: 600; color: rgba(255,255,255,.72); white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
     #panel-sports .nx-srv { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
     #panel-sports .nx-chev { position: absolute; top: 4px; right: 4px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: 10px; cursor: pointer; color: rgba(255,255,255,.85); padding: 0; z-index: 2; }
@@ -2522,6 +2525,7 @@
       50%      { box-shadow: 0 0 10px 2px rgba(56,189,248,0.95); opacity: 1; }
     }
     .ca-tp-live-line { display: flex; align-items: center; gap: 7px; margin: 4px 0 9px; font-size: 13px; font-weight: 700; color: var(--text); }
+    .ca-tp-live-line.ca-tp-susp, .ca-tp-live-line.ca-tp-susp .ca-tp-live-score, .ca-tp-live-line.ca-tp-susp .bb-half { color: var(--amber); }
     .ca-tp-live-score { font-size: 14px; font-weight: 800; color: var(--text); }
     .ca-tp-live-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
       background: radial-gradient(circle at 35% 35%, #bae6fd, #38bdf8); animation: ca-live-glow 1.1s ease-in-out infinite; }
@@ -2780,6 +2784,7 @@
     .ca-tg-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 11px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); font-weight: 600; }
     .ca-tg-time { color: var(--muted); }
     .ca-tg-final { color: var(--muted); font-weight: 600; }
+    .ca-tg-susp { color: var(--amber); font-weight: 700; }
     .ca-tg-live { color: #38bdf8; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; }
     .ca-tg-live-dot {
       width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block;
@@ -3253,6 +3258,11 @@
     .ca-row-live .lsc { font-size:12px; font-weight:800; color:#38bdf8; font-variant-numeric:tabular-nums; white-space:nowrap; }
     .ca-row-live .lck { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; color:#38bdf8; white-space:nowrap; }
     .ca-row-res { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+    /* Suspended / postponed: amber, never a start time. The row still shows the
+       score reached before play stopped so the state is unmistakable. */
+    .ca-row.susp { background:var(--amber-soft); }
+    .ca-row.susp .ca-row-end { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+    .ca-row-susp-sc { font-size:12px; font-weight:800; color:var(--amber); font-variant-numeric:tabular-nums; }
     .ca-res-chip { font-size:9.5px; font-weight:800; letter-spacing:.04em; padding:2px 8px; border-radius:999px; }
     .ca-res-chip.w { color:var(--green); background:rgba(34,197,94,0.13); }
     .ca-res-chip.l { color:var(--red); background:rgba(239,68,68,0.13); }
@@ -4166,6 +4176,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=127"></script>
+  <script type="module" src="app.js?v=128"></script>
 </body>
 </html>

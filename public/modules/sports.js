@@ -16,10 +16,10 @@ import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
   onBoardForSport, currentBoardDate, teamNickname, countryColor,
-  SPORT_THEMES, flatUnitReturn,
-} from './utils.js?v=8';
+  SPORT_THEMES, flatUnitReturn, isSuspendedGame, suspendedLabel,
+} from './utils.js?v=9';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=12';
+import { TEAM_COLORS } from './modal.js?v=13';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).
@@ -58,7 +58,9 @@ function startsInMs(g) {
   const t = new Date(g.start_time).getTime();
   return Number.isNaN(t) ? Infinity : t - Date.now();
 }
-function isSoon(g) { return g.status === 'pre' && startsInMs(g) <= SOON_MS; }
+// A suspended match is filed 'pre' with a start time already in the past, so
+// without the guard it lands in "starting soon" wearing a countdown.
+function isSoon(g) { return g.status === 'pre' && !isSuspendedGame(g) && startsInMs(g) <= SOON_MS; }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function refreshBoardData() {
@@ -241,6 +243,13 @@ function fmtCd(ms) {
 // Mock stateHtml: live dot + short text; soon = amber countdown + muted start;
 // pre = start time; post = final label.
 function stateHtml(g) {
+  // Suspended first: a halted match is filed 'pre' on our side (see utils.js), so
+  // the branches below would render it as an upcoming game with a countdown.
+  if (isSuspendedGame(g)) {
+    const as = g.away_score ?? 0, hs = g.home_score ?? 0;
+    const sc = (as || hs) ? ` ${as}-${hs}` : '';
+    return `<span class="nx-state susp">${esc(suspendedLabel(g))}${esc(sc)}</span>`;
+  }
   if (g.status === 'in') {
     return `<span class="nx-state"><i class="nx-dot"></i>${esc(liveShortText(g))}</span>`;
   }
@@ -318,6 +327,9 @@ function hasLines(g) {
 // Mock linesStrip: SPR / TOT / ML shorts, plus the Graded tag on settled games.
 function linesStrip(g) {
   if (!hasLines(g)) {
+    // A suspended match is filed 'pre', and "lines post closer to start" is the
+    // wrong promise for one that already started: the books have pulled it.
+    if (isSuspendedGame(g)) return `<div class="nx-lines quiet">No line while the match is ${suspendedLabel(g).toLowerCase()}</div>`;
     if (g.status === 'pre') return `<div class="nx-lines quiet">Lines post closer to start</div>`;
     return '';
   }
@@ -424,7 +436,9 @@ function xpHtml(g, ctx) {
   const tennis = sp === 'ATP' || sp === 'WTA';
   let rows = '';
 
-  if (g.status === 'in') {
+  if (isSuspendedGame(g)) {
+    rows += `<div class="nx-xrow"><b class="nx-xl">Status</b><b class="nx-susp">${esc(suspendedLabel(g))}</b><span>· tracking closed</span></div>`;
+  } else if (g.status === 'in') {
     rows += `<div class="nx-xrow"><b class="nx-xl">Now</b><b>${esc(liveShortText(g))}</b></div>`;
   } else if (g.status === 'pre') {
     const ms = startsInMs(g);

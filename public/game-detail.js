@@ -6,7 +6,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { state } from '/modules/state.js';
-import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=8';
+import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale, isSuspendedGame, suspendedLabel } from '/modules/utils.js?v=9';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js?v=3';
@@ -165,8 +165,8 @@ async function init() {
   // Mobile section-tab bar: expand/brighten once it pins to the top.
   initStickyTabs();
 
-  // Countdown for pre-game
-  if (_data.game.status === 'pre') startCountdown();
+  // Countdown for pre-game (never for a suspended match — its start time is past)
+  if (_data.game.status === 'pre' && !isSuspendedGame(_data.game)) startCountdown();
 
   // The payload status can lag ESPN (it's mirrored from prod in local dev, and on
   // a fresh start the cron hasn't flipped 'pre' -> 'in' yet). Probe the live
@@ -484,6 +484,19 @@ function renderStatusPill() {
   const { game } = _data;
   const s = game.status;
 
+  // Suspended before anything else. A halted match is filed 'pre' on our side
+  // (see utils.isSuspendedGame), so the pill would otherwise count down to a
+  // start time that has already come and gone.
+  if (isSuspendedGame(game)) {
+    const sport = (game.sport || '').toUpperCase();
+    const scoreStr = (sport === 'ATP' || sport === 'WTA')
+      ? _tennisScoreStr(game, true)
+      : `${game.away_score ?? 0}–${game.home_score ?? 0}`;
+    pill.className = 'ca-gh-status-pill ca-status-susp';
+    pill.innerHTML = `<span class="ca-num">${scoreStr}</span> · ${suspendedLabel(game)}`;
+    return;
+  }
+
   if (s === 'post') {
     pill.className = 'ca-gh-status-pill ca-status-final';
     const sport = (game.sport || '').toUpperCase();
@@ -720,6 +733,11 @@ window.selectSlot = selectSlot;
 // ── Live game feed (shown in the pick panel once the game has started) ────────
 function liveStatusLabel(game) {
   const sport = (game.sport || '').toUpperCase();
+  if (isSuspendedGame(game)) {
+    // "Suspended in set 2" beats a bare set number next to a stopped match.
+    if (sport === 'ATP' || sport === 'WTA') return game.period ? `${suspendedLabel(game)} in set ${game.period}` : suspendedLabel(game);
+    return suspendedLabel(game);
+  }
   if (game.status === 'post') return 'Final';
   if (sport === 'ATP' || sport === 'WTA') return game.period ? `Set ${game.period}` : 'Live';
   const p = game.period;
@@ -763,9 +781,13 @@ function liveFeedHtml() {
       `</div>`;
   }
 
+  // Not live and not final: a suspended match sits between the two, and calling
+  // it FINAL next to a part-played score is the same lie the board used to tell.
   const badge = live
     ? `<span class="ca-live-badge ca-live-badge--live">● LIVE</span>`
-    : `<span class="ca-live-badge ca-live-badge--final">FINAL</span>`;
+    : isSuspendedGame(game)
+      ? `<span class="ca-live-badge ca-live-badge--susp">${esc(suspendedLabel(game).toUpperCase())}</span>`
+      : `<span class="ca-live-badge ca-live-badge--final">FINAL</span>`;
   return `<div class="ca-live-feed">
     <div class="ca-live-head">${badge}<span class="ca-live-status">${esc(liveStatusLabel(game))}</span></div>
     ${scoreRow}
@@ -886,7 +908,9 @@ function renderDetailPanel() {
   if (!slot) { el.innerHTML = ''; return; }
 
   const line = slotLineCurrent(_activeSlot, game);
-  const gameStarted = game.status === 'in' || game.status === 'post';
+  // Suspended counts as started for every line/tracking decision below: the
+  // numbers on file are frozen at the moment play stopped.
+  const gameStarted = game.status === 'in' || game.status === 'post' || isSuspendedGame(game);
   const gameId      = game.espn_game_id;
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -1856,7 +1880,8 @@ function renderCommunity() {
   };
 
   // Pre-game games are votable: the gauge chips themselves are the vote buttons.
-  const votable = game?.status === 'pre';
+  // A suspended match is filed 'pre' but is not votable (the server 409s it too).
+  const votable = game?.status === 'pre' && !isSuspendedGame(game);
 
   const blocks = betTypes.map(bt => {
     const { leftPct, rightPct } = votePair(bt.leftKey, bt.rightKey);

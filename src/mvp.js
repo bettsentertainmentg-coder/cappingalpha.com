@@ -170,13 +170,28 @@ function resolveConflictingMvpPicks() {
   // Started and graded rows are NEVER touched — membership locks at game start.
   try {
     if (db.getSetting('scoring_version', 'v2') === 'v3') {
+      // "Pregame" for every sweep below means NOT STARTED, which is not the same
+      // as status='pre'. ESPN files a suspended match as state 'post' and
+      // tennis_espn.js downgrades it to 'pre' so grading can never settle a
+      // half-played match off its partial score — which quietly readmitted
+      // suspended games to these sweeps, where the flip pass could delete a
+      // tracked bet on a match already in progress. Membership locks at first
+      // serve (audit R6 flags a deletion on a started game), so exclude them.
+      const { hasGameStarted } = require('./pick_cutoff');
+      const startedIds = new Set(
+        db.prepare(`SELECT * FROM today_games WHERE status = 'pre'`).all()
+          .filter(g => hasGameStarted(g))
+          .map(g => String(g.espn_game_id))
+      );
+      const stillPregame = (gid) => !startedIds.has(String(gid));
+
       const pendingRows = db.prepare(`
         SELECT m.id, m.espn_game_id, m.team, m.pick_type, m.score, m.spread FROM mvp_picks m
         JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
         WHERE tg.status = 'pre'
           AND COALESCE(m.retired, 0) = 0
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
-      `).all();
+      `).all().filter(r => stillPregame(r.espn_game_id));
       const curStmt = db.prepare(`
         SELECT sb.v3_total, sb.v3_json, p.spread AS board_spread FROM picks p
         JOIN score_breakdown sb ON sb.pick_id = p.id
@@ -279,7 +294,7 @@ function resolveConflictingMvpPicks() {
           WHERE tg.status = 'pre' AND LOWER(m.pick_type) = 'ml' AND m.gate_ml_odds IS NULL
             AND COALESCE(m.retired, 0) = 0
             AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
-        `).all();
+        `).all().filter(r => stillPregame(r.espn_game_id));
         const stampStmt = db.prepare(`UPDATE mvp_picks SET gate_ml_odds = ? WHERE id = ?`);
         let judged = 0, removed = 0;
         for (const m of unjudged) {
@@ -303,12 +318,16 @@ function resolveConflictingMvpPicks() {
       // keep the pregame archive rows on the board line too, so the public
       // 50+ archive always shows the same number the rankings do.
       try {
+        const startedList = [...startedIds];
+        const notStarted = startedList.length
+          ? ` AND espn_game_id NOT IN (${startedList.map(() => '?').join(',')})`
+          : '';
         db.prepare(`
           UPDATE pick_history
           SET spread = COALESCE((SELECT p.spread FROM picks p WHERE p.id = pick_history.pick_id), spread)
           WHERE result = 'pending' AND pick_id IS NOT NULL
-            AND espn_game_id IN (SELECT espn_game_id FROM today_games WHERE status = 'pre')
-        `).run();
+            AND espn_game_id IN (SELECT espn_game_id FROM today_games WHERE status = 'pre')${notStarted}
+        `).run(...startedList);
       } catch (_) {}
 
       // ── Promotion sweep: the mirror image ─────────────────────────────────
@@ -321,7 +340,7 @@ function resolveConflictingMvpPicks() {
         JOIN score_breakdown sb ON sb.pick_id = p.id
         JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
         WHERE tg.status = 'pre' AND sb.v3_total >= 100
-      `).all();
+      `).all().filter(r => stillPregame(r.espn_game_id));
       let promoted = 0;
       const pendingOnGame = db.prepare(`
         SELECT id, score, team, pick_type, spread FROM mvp_picks
@@ -375,7 +394,7 @@ function resolveConflictingMvpPicks() {
         WHERE tg.status = 'pre'
           AND COALESCE(m.retired, 0) = 0
           AND (m.result IS NULL OR m.result NOT IN ('win','loss','push','void'))
-      `).all();
+      `).all().filter(r => stillPregame(r.espn_game_id));
       const byGame = new Map();
       for (const r of flipRows) {
         if (!byGame.has(r.espn_game_id)) byGame.set(r.espn_game_id, []);

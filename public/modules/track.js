@@ -7,7 +7,7 @@
 //     settle it yourself, never on the leaderboard.
 
 import { state } from './state.js';
-import { sportBadge } from './utils.js?v=8';
+import { sportBadge, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';
@@ -984,7 +984,11 @@ function renderTrackGames() {
     const home = nameOf(g.home_team, g.away_team, g.sport);
     const time = g.start_time ? new Date(g.start_time).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' }) : '';
     const isEventRow = !away; // races and other single-entry events: just the name
-    const status = cust
+    // Suspended before the rest: it is filed 'pre' on our side, so it would
+    // otherwise show a start time on a match that is already part played.
+    const status = isSuspendedGame(g)
+      ? `<span style="color:var(--amber);">${suspendedLabel(g)}</span>`
+      : cust
       ? (g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}` : time)
       : g.status === 'post' ? `Final ${g.away_score ?? ''}-${g.home_score ?? ''}`
       : g.status === 'in' ? `<span style="color:#38bdf8;">LIVE ${g.away_score ?? 0}-${g.home_score ?? 0}</span>`
@@ -1150,11 +1154,16 @@ function renderOddsBoard() {
   const id = g.espn_game_id;
   const finished = g.status === 'post';        // a FINAL game closes tracking
   const live     = g.status === 'in';          // a LIVE game also closes verified tracking
+  // A SUSPENDED match closes it too, and it hides behind status 'pre': ESPN files
+  // a halted event as 'post' and tennis_espn.js downgrades it so grading can never
+  // settle a half-played match. Without this the line board stayed tappable on a
+  // match already a set down, at the frozen pregame price (2026-08-02).
+  const susp     = isSuspendedGame(g);
   // We have no live in-game odds source (ESPN drops odds once a game is 'in'; book_lines
   // and today_games are frozen at the pregame close). So once a game starts we do NOT show
   // a tappable line board — it would be the stale pregame number wearing a "live" label.
   // Live games get the same closed treatment as finished games: custom-bet only.
-  const closed = finished || live;
+  const closed = finished || live || susp;
   const away = g.away_team || 'Away', home = g.home_team || 'Home';
   const fullNames = FULL_NAME_SPORTS.has((g.sport || '').toUpperCase());
   const awayN = fullNames ? away : shortSide(away, home);
@@ -1212,9 +1221,11 @@ function renderOddsBoard() {
 
   body.innerHTML = `
     <button class="ob-back" onclick="trackFromGame()">‹ Games</button>
-    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}${live ? ' <span class="ob-live">LIVE</span>' : ''}</div>
+    <div class="ob-head">${away} @ ${home} ${sportBadge(g.sport)}${live ? ' <span class="ob-live">LIVE</span>' : ''}${susp ? ` <span class="ob-susp">${suspendedLabel(g).toUpperCase()}</span>` : ''}</div>
     <div class="track-form-note">${finished
       ? 'This game is final, so tracking is closed. Use Custom bet to log it.'
+      : susp
+        ? `This match is ${suspendedLabel(g).toLowerCase()}, so verified tracking is closed (the line on file is the one from before play stopped). Use Custom bet to log it with your own odds.`
       : live
         ? 'This game is live, so verified tracking is closed (we do not have a live in-game line). Use Custom bet to log it with your own odds.'
         : `Tap a line to track it. Verified, locked at this number, graded automatically.${g.line_source ? ` <span style="color:#a78bfa;">Line via ${g.line_source === 'kalshi' ? 'Kalshi' : 'Polymarket'}</span>` : ''}`}</div>
