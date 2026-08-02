@@ -6,6 +6,12 @@ const db = require('./db');
 
 function stampActualStarts() {
   try {
+    // Read the ids BEFORE the update — afterwards they are indistinguishable from
+    // games stamped on an earlier pass, and this is the one moment we can freeze
+    // their conviction curves at their true first-pitch shape.
+    const starting = db.prepare(`
+      SELECT espn_game_id FROM today_games WHERE status = 'in' AND actual_start_at IS NULL
+    `).all();
     const r = db.prepare(`
       UPDATE today_games
       SET actual_start_at = datetime('now')
@@ -13,6 +19,19 @@ function stampActualStarts() {
     `).run();
     if (r.changes > 0) {
       console.log(`[gameStartTracker] stamped actual_start_at on ${r.changes} game(s)`);
+    }
+    // Freeze the curve with the score. A pick's points stop at first pitch, so the
+    // record of HOW it got there has to stop at first pitch too (lazy require:
+    // pick_timeline pulls in scoring_v3, which must not load at module scope here).
+    if (starting.length) {
+      try {
+        const { freezeTimelinesForGame } = require('./pick_timeline');
+        let frozen = 0;
+        for (const g of starting) frozen += freezeTimelinesForGame(g.espn_game_id);
+        if (frozen) console.log(`[gameStartTracker] froze ${frozen} conviction curve(s) at first pitch`);
+      } catch (err) {
+        console.warn('[gameStartTracker] curve freeze error:', err.message);
+      }
     }
     return r.changes;
   } catch (err) {

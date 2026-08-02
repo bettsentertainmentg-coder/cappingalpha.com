@@ -668,6 +668,23 @@ function upsertScoreBreakdown(pick_id, scored) {
 function recomputePickFromMentions(pickId) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
   if (!pick) return null;
+  // Frozen at first pitch, same as the score. computeAndLogV3 below already
+  // refuses to move v3_total on a started game, but everything ABOVE it here
+  // (picks.score, mention_count, capper_name, the v2 breakdown) was still being
+  // rewritten underneath the frozen number. mention_count in particular gates
+  // every board query (`WHERE mention_count > 0`), so a withdrawal could drop a
+  // live pick off the board entirely. Callers are start-gated too; this is the
+  // backstop that does not depend on the next caller remembering.
+  if (pick.espn_game_id) {
+    try {
+      const g = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score
+                            FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id);
+      if (g && hasGameStarted(g)) {
+        console.log(`[storage] recompute skipped for pick ${pickId} — game already started`);
+        return null;
+      }
+    } catch (_) { /* unknown game state: fall through */ }
+  }
   const rows = db.prepare(
     `SELECT channel, author, capper_name FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
   ).all(pickId);

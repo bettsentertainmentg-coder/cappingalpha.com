@@ -6,20 +6,58 @@
 // toward MVP, then lights up fully gold (with a soft glow) once it crosses the
 // MVP threshold. Each step is marked with its delta (+10, +5, +30 ...) shown
 // faintly at all times and emphasized on hover.
+//
+// EXACT TALLYING AND TIMING (Jack 2026-07-31). Three things were wrong for
+// anyone trying to actually watch a pick:
+//   - the x axis was a CATEGORY axis, so points sat at even intervals. A step
+//     four hours after the last one looked identical to one twenty seconds after
+//     it. The axis is now real time, so distance on the chart is elapsed time.
+//   - first pitch was drawn nowhere, on any surface, so there was no way to see
+//     whether a step landed while the pick was still bettable.
+//   - negative deltas were skipped by the marker plugin (`if (d <= 0) return`),
+//     so the one thing worth explaining — a score going DOWN — rendered as a
+//     line sloping into nothing with no label on it.
+// Now: true time axis, a first-pitch marker, post-start steps drawn in alarm red
+// (they should not exist), and every delta labelled in both directions.
 
 let timelineChart = null;
 
 const GRAY = [100, 116, 139];   // #64748b — neutral start
 const GOLD = [250, 204, 21];    // #facc15 — MVP gold
+const ALARM = [248, 113, 113];  // #f87171 — anything that moved after first pitch
 
-function shortTime(iso) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', {
-    timeZone: 'America/New_York',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+const ET = { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' };
+
+function tsMs(v) {
+  if (v == null) return NaN;
+  if (typeof v === 'number') return v;
+  const s = String(v);
+  // SQLite stamps ('YYYY-MM-DD HH:MM:SS', UTC, no zone) need normalising or they
+  // parse as local time and land hours off.
+  const iso = s.includes('T') ? s : s.replace(' ', 'T') + 'Z';
+  return new Date(iso).getTime();
+}
+
+// "7:44pm" — lowercase meridiem kept, because 7:44 alone is ambiguous on a board
+// that carries morning tennis and night baseball.
+function clockLabel(ms) {
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms).toLocaleTimeString('en-US', ET).replace(' AM', 'am').replace(' PM', 'pm');
+}
+
+// Round clock ticks. Chart.js picks "nice" values for a linear scale, but on an
+// epoch-ms axis "nice" means round MILLISECONDS, so the axis came out reading
+// 7:29am / 11:00am / 1:46pm / 4:33pm. Snap to whole hours instead (US Eastern is
+// a whole-hour offset, so UTC hour boundaries are ET hour boundaries) at a step
+// that keeps roughly 4 to 6 labels across whatever span the pick covers.
+const HOUR = 3600 * 1000;
+const TICK_STEPS = [15 * 60 * 1000, 30 * 60 * 1000, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, 24 * HOUR];
+function niceTimeTicks(min, max) {
+  const span = Math.max(1, max - min);
+  const step = TICK_STEPS.find(s => span / s <= 6) ?? TICK_STEPS[TICK_STEPS.length - 1];
+  const out = [];
+  for (let t = Math.ceil(min / step) * step; t <= max; t += step) out.push({ value: t });
+  return out.length ? out : [{ value: min }, { value: max }];
 }
 
 // Gray → gold ramp keyed to how close the score is to MVP. Stays grayer early
@@ -34,7 +72,10 @@ function heatRgb(score, threshold) {
 }
 const rgb  = ([r, g, b], a) => a == null ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`;
 
-export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-timeline-chart') {
+// opts.startTs — the game's first pitch (actual_start_at preferred, scheduled
+// start as the fallback). Drawn as a vertical marker so every step is readable as
+// before or after the pick stopped being bettable.
+export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-timeline-chart', opts = {}) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
@@ -42,12 +83,17 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
   const hasData = Array.isArray(timeline) && timeline.length > 0;
 
   const points = hasData ? timeline.map(e => ({
-    ts: e.ts, score: e.score, delta: e.delta, label: e.label,
-  })) : [];
+    ms: tsMs(e.ts), ts: e.ts, score: e.score, delta: e.delta, label: e.label,
+    cause: e.cause ?? null, kind: e.kind ?? null, postStart: !!e.postStart,
+  })).filter(p => Number.isFinite(p.ms)).sort((a, b) => a.ms - b.ms) : [];
 
-  const finalScore = hasData ? points[points.length - 1].score : 0;
+  const startMs = tsMs(opts.startTs);
+  const hasStart = Number.isFinite(startMs) && points.length > 0;
+
+  const finalScore = points.length ? points[points.length - 1].score : 0;
   const isMvp      = finalScore >= mvpThreshold;
   const goldStr    = rgb(GOLD);
+  const alarmStr   = rgb(ALARM);
 
   // Line color. MVP → solid gold across the whole line. Otherwise a left-to-right
   // gradient that follows each point's score (gray climbing toward gold).
@@ -74,15 +120,24 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
     return g;
   };
 
-  const dataset = hasData ? [{
+  const dataset = points.length ? [{
     label: 'Score',
-    data: points.map(p => p.score),
+    data: points.map(p => ({ x: p.ms, y: p.score })),
     borderColor: lineColor,
     backgroundColor: fillColor,
     borderWidth: isMvp ? 2.5 : 2,
+    // Any leg of the line that crosses into live play is drawn in alarm red and
+    // dashed. Points stop at first pitch, so a red leg is a defect, not a feature,
+    // and it should be impossible to miss.
+    segment: {
+      borderColor: ctx => (points[ctx.p1DataIndex]?.postStart ? alarmStr : undefined),
+      borderDash:  ctx => (points[ctx.p1DataIndex]?.postStart ? [4, 3] : undefined),
+    },
     pointRadius: 4,
     pointHoverRadius: 8,
-    pointBackgroundColor: ctx => rgb(heatRgb(points[ctx.dataIndex]?.score ?? 0, mvpThreshold)),
+    pointBackgroundColor: ctx => (points[ctx.dataIndex]?.postStart
+      ? alarmStr
+      : rgb(heatRgb(points[ctx.dataIndex]?.score ?? 0, mvpThreshold))),
     pointBorderColor: 'rgba(11,14,20,0.9)',
     pointBorderWidth: 1.5,
     pointHoverBorderColor: '#ffffff',
@@ -117,20 +172,34 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       const top = chart.chartArea.top;
       const active = new Set(chart.getActiveElements().map(a => a.index));
 
+      // A true time axis bunches the pre-tip burst, and 11px labels on adjacent
+      // points overprint into mush. Drop a label when its point is within
+      // MIN_GAP of the last one drawn — unless it is hovered, the final point, or
+      // abnormal (a drop or a post-start step), which are the ones worth reading.
+      const MIN_GAP = 22;
+      let lastLabelX = -Infinity;
+
       meta.data.forEach((pt, i) => {
-        const d = points[i]?.delta;
-        if (!d || d <= 0) return;
+        const p = points[i];
+        const d = p?.delta;
+        // Both directions. A drop is the step most worth explaining, and it used
+        // to be the only one with no label on it.
+        if (d == null || d === 0) return;
         const on   = active.has(i);
-        const text = `+${d}`;
+        const mustShow = on || d < 0 || p.postStart || i === points.length - 1;
+        if (!mustShow && (pt.x - lastLabelX) < MIN_GAP) return;
+        lastLabelX = pt.x;
+        const text = `${d > 0 ? '+' : ''}${d}`;
         const off  = on ? 14 : 10;
         const above = (pt.y - off) >= top + 6;
+        const restColor = (d < 0 || p.postStart) ? rgb(ALARM) : rgb(heatRgb(p.score, mvpThreshold));
 
         ctx.save();
         ctx.font = `${on ? 700 : 600} ${on ? 14 : 11}px Inter, system-ui, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = above ? 'bottom' : 'top';
         ctx.globalAlpha = on ? 1 : 0.6;
-        ctx.fillStyle = on ? '#ffffff' : rgb(heatRgb(points[i].score, mvpThreshold));
+        ctx.fillStyle = on ? '#ffffff' : restColor;
         if (on) { ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 4; }
         ctx.fillText(text, pt.x, above ? pt.y - off : pt.y + off);
         ctx.restore();
@@ -138,13 +207,52 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
     },
   };
 
+  // ── First-pitch marker: a vertical line at the moment the pick stopped being
+  //    bettable. Everything left of it is the real accumulation; anything right
+  //    of it should not exist. ──
+  const startPlugin = {
+    id: 'firstPitch',
+    afterDatasetsDraw(chart) {
+      if (!hasStart) return;
+      const xs = chart.scales.x;
+      const area = chart.chartArea;
+      if (!xs || !area) return;
+      const x = xs.getPixelForValue(startMs);
+      if (!Number.isFinite(x) || x < area.left - 1 || x > area.right + 1) return;
+      const { ctx } = chart;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(248,113,113,0.55)';
+      ctx.moveTo(x, area.top);
+      ctx.lineTo(x, area.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = '600 9px Inter, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(248,113,113,0.85)';
+      // Bottom of the line, not the top: the curve is at its highest near first
+      // pitch, so a top label lands in the same band as the delta markers.
+      // Flip inside the plot when the marker sits near the right edge.
+      const flip = x > area.right - 46;
+      ctx.textAlign = flip ? 'right' : 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('FIRST PITCH', flip ? x - 4 : x + 4, area.bottom - 3);
+      ctx.restore();
+    },
+  };
+
+  // Pad the time window so the first and last points aren't glued to the frame,
+  // and so the first-pitch marker stays visible when it sits past the last step.
+  const lo = points.length ? points[0].ms : 0;
+  const hi = points.length ? points[points.length - 1].ms : 1;
+  const rightEdge = hasStart ? Math.max(hi, startMs) : hi;
+  const pad = Math.max(60 * 1000, (rightEdge - lo) * 0.04);
+
   timelineChart = new Chart(canvas, {
     type: 'line',
-    data: {
-      labels: hasData ? points.map(p => shortTime(p.ts)) : ['', '', '', '', ''],
-      datasets: dataset,
-    },
-    plugins: [glowPlugin, markerPlugin],
+    data: { datasets: dataset },
+    plugins: [glowPlugin, markerPlugin, startPlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -155,18 +263,40 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       layout: { padding: { top: 18 } },                 // headroom for top markers
       plugins: {
         legend: { display: false },
-        tooltip: hasData ? {
+        tooltip: points.length ? {
           displayColors: false,
           callbacks: {
-            title: () => '',
-            label: item => points[item.dataIndex]?.label || '',
+            // Time first — the whole point of the curve is WHEN, and the tooltip
+            // used to force an empty title and show the bare delta.
+            title: items => clockLabel(points[items[0]?.dataIndex]?.ms) + ' ET',
+            label: (item) => {
+              const p = points[item.dataIndex];
+              if (!p) return '';
+              const out = [];
+              // `label`/`delta` are stripped for free viewers; the running score
+              // is always there, so the tooltip degrades to "84 points".
+              if (p.label) out.push(`${p.label} → ${p.score} points`);
+              else out.push(`${p.score} points`);
+              if (p.cause) out.push(p.cause);
+              if (p.postStart) out.push('after first pitch');
+              return out;
+            },
           },
         } : { enabled: false },
       },
       scales: {
         x: {
+          // REAL TIME, not one slot per event. Distance across the chart is
+          // elapsed time, so a burst of late action reads as a burst.
+          type: 'linear',
+          min: lo - pad,
+          max: rightEdge + pad,
           grid: { display: false },
-          ticks: { color: '#8892a4', maxRotation: 0, autoSkipPadding: 16, font: { size: 10 } },
+          afterBuildTicks: (axis) => { axis.ticks = niceTimeTicks(axis.min, axis.max); },
+          ticks: {
+            color: '#8892a4', maxRotation: 0, autoSkipPadding: 24, font: { size: 10 },
+            callback: (v) => clockLabel(v),
+          },
         },
         y: {
           beginAtZero: true,

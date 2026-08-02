@@ -828,19 +828,47 @@ function ccTime(iso) {
   return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
 }
 
+// Epoch ms from either an ISO string or a SQLite 'YYYY-MM-DD HH:MM:SS' UTC stamp.
+// NaN for anything unusable, which the curve reads as "no usable clock".
+function ccMs(v) {
+  if (!v) return NaN;
+  const s = String(v);
+  return new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z').getTime();
+}
+
 // Annotated conviction curve (image-2 style, compact): the score steps over time, the
 // y-window framed to the data so the line fills the box (no dead space). Each step is
 // labelled with the points it added (+35, +5, +10) above and its time below, plus a
 // dashed MVP line when it falls in view. Accurate to the pick's real timeline.
-function convCurveSvg(timeline) {
+// EXACT TIMING (Jack 2026-07-31). Three fixes, matching the Chart.js renderer:
+//   - x was `i / (n - 1)`, one even slot per event, so the chart said nothing
+//     about WHEN anything happened. It is now proportional to real elapsed time.
+//   - first pitch is drawn. Points stop at first pitch, so anything to the right
+//     of that line is a defect and now looks like one (red dot, red delta).
+//   - deltas rendered gold in both directions, so a collapse was painted the same
+//     as a run. Drops and post-start steps are red.
+// Labels are thinned to the points that carry information (first, last, drops,
+// post-start, biggest move) because 7px text at true time spacing collides.
+function convCurveSvg(timeline, startTsRaw) {
   const W = 232, H = 58, padL = 4, padR = 4, padT = 12, padB = 12;
   const innerW = W - padL - padR, innerH = H - padT - padB;
+  const n = timeline.length;
   const scores = timeline.map(e => e.score);
-  const n = scores.length;
   const smin = Math.min(...scores), smax = Math.max(...scores);
   const padv = Math.max(4, (smax - smin) * 0.18);
   const lo = smin - padv, hi = smax + padv, span = Math.max(1, hi - lo);
-  const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
+
+  // Real-time x. Falls back to even spacing when the stamps are unusable (the
+  // synthetic locked teaser has no ts at all).
+  const ms = timeline.map(e => ccMs(e.ts));
+  const timed = n > 1 && ms.every(Number.isFinite) && ms[n - 1] > ms[0];
+  const t0 = timed ? ms[0] : 0;
+  const startMs = ccMs(startTsRaw);
+  const tEnd = timed ? (Number.isFinite(startMs) ? Math.max(ms[n - 1], startMs) : ms[n - 1]) : 1;
+  const tSpan = Math.max(1, tEnd - t0);
+  const x = (i) => padL + (n === 1 ? innerW / 2
+    : timed ? ((ms[i] - t0) / tSpan) * innerW
+    : (i / (n - 1)) * innerW);
   const y = (v) => padT + (1 - (v - lo) / span) * innerH;
   const anchor = (i) => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
   const baseY = (padT + innerH).toFixed(1);
@@ -848,15 +876,39 @@ function convCurveSvg(timeline) {
   const area = `${x(0).toFixed(1)},${baseY} ${pts} ${x(n - 1).toFixed(1)},${baseY}`;
   const mvp = (MVP_THRESHOLD > lo && MVP_THRESHOLD < hi)
     ? `<line x1="${padL}" y1="${y(MVP_THRESHOLD).toFixed(1)}" x2="${W - padR}" y2="${y(MVP_THRESHOLD).toFixed(1)}" class="ca-cc-mvp"/>` : '';
-  const dots = scores.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2" fill="#FFD700"/>`).join('');
-  const deltas = timeline.map((e, i) => e.label
-    ? `<text x="${x(i).toFixed(1)}" y="${(y(e.score) - 4).toFixed(1)}" class="ca-cc-delta" text-anchor="${anchor(i)}">${esc(e.label)}</text>` : '').join('');
+
+  // First pitch.
+  let startLine = '';
+  if (timed && Number.isFinite(startMs) && startMs >= t0) {
+    const sx = padL + ((startMs - t0) / tSpan) * innerW;
+    startLine = `<line x1="${sx.toFixed(1)}" y1="${padT - 6}" x2="${sx.toFixed(1)}" y2="${baseY}" class="ca-cc-start"/>`;
+  }
+
+  const bad = (e) => e.postStart || (typeof e.delta === 'number' && e.delta < 0);
+  const dots = timeline.map((e, i) =>
+    `<circle cx="${x(i).toFixed(1)}" cy="${y(e.score).toFixed(1)}" r="${bad(e) ? 2.4 : 2}" fill="${bad(e) ? '#f87171' : '#FFD700'}"/>`).join('');
+
+  // Which points get text. Always the ends and anything abnormal; otherwise the
+  // single largest move, so a normal curve still shows its headline step.
+  const show = new Set([0, n - 1]);
+  timeline.forEach((e, i) => { if (bad(e)) show.add(i); });
+  let biggest = -1, biggestAbs = 0;
+  timeline.forEach((e, i) => {
+    const a = Math.abs(e.delta ?? 0);
+    if (a > biggestAbs) { biggestAbs = a; biggest = i; }
+  });
+  if (biggest >= 0) show.add(biggest);
+
+  const deltas = timeline.map((e, i) => (e.label && show.has(i))
+    ? `<text x="${x(i).toFixed(1)}" y="${(y(e.score) - 4).toFixed(1)}" class="ca-cc-delta${bad(e) ? ' ca-cc-delta--bad' : ''}" text-anchor="${anchor(i)}">${esc(e.label)}</text>` : '').join('');
   const times = timeline.map((e, i) => {
-    const t = ccTime(e.ts).replace(/\s?[AP]M$/, '');   // compact "8:47", no meridiem
+    if (!show.has(i)) return '';
+    const t = ccTime(e.ts).replace(/\s?([AP])M$/, (_, m) => m.toLowerCase());  // "8:47p"
     return t ? `<text x="${x(i).toFixed(1)}" y="${(H - 2).toFixed(1)}" class="ca-cc-time" text-anchor="${anchor(i)}">${esc(t)}</text>` : '';
   }).join('');
+
   return `<svg class="ca-cc" viewBox="0 0 ${W} ${H}">
-    ${mvp}
+    ${mvp}${startLine}
     <polygon points="${area}" fill="#FFD700" fill-opacity="0.10"/>
     <polyline points="${pts}" fill="none" stroke="#FFD700" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     ${dots}${deltas}${times}
@@ -874,23 +926,24 @@ const CONV_TEASER = [
 // with the CA-branded annotated curve. No score (already on the far right), no "Learn
 // how" (that lives on pre-game cards). Non-paid users get the curve blurred behind a
 // lock, exactly like the pre-game conviction chart.
-function convictionHeaderHtml(p, timelineVisible, hasTimeline) {
+function convictionHeaderHtml(p, timelineVisible, hasTimeline, startTs) {
   const head = `<span class="ca-dp-hdr-conv-lbl"><img src="/ca-logo.png" alt="CA" class="ca-dp-hdr-conv-logo" onerror="this.style.display='none'">Conviction</span>`;
   let body;
   if (!timelineVisible) {
     // Non-paid: blurred teaser on EVERY slot (so it never reveals which sides have picks).
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--locked" onclick="openSignup()" title="Full access only">
-      <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER)}</div>
+      <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER, null)}</div>
       <div class="ca-dp-hdr-conv-lockover"><i class="fa-solid fa-lock"></i><span>Full access</span></div>
     </div>`;
   } else if (!p) {
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
   } else {
     body = (hasTimeline && p.timeline.length > 0)
-      ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline)}</div>`
+      ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline, startTs)}</div>`
       : `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
   }
-  return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score evolves all day as more cappers weigh in.">
+  const startNote = startTs ? ` The dashed line is first pitch, where the score locks.` : '';
+  return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score builds through the day as more cappers weigh in.${startNote}">
     <div class="ca-dp-hdr-conv-top">${head}</div>
     ${body}
   </div>`;
@@ -1026,7 +1079,7 @@ function renderDetailPanel() {
           ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
         </div>
       </div>
-      ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline) : ''}
+      ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline, game.actual_start_at || game.start_time || null) : ''}
     </div>
     ${liveUnlockBadge}
     <div class="ca-dp-hdr-right">
@@ -1146,7 +1199,8 @@ function renderDetailPanel() {
   if (!isTrackerLive && typeof Chart !== 'undefined') {
     requestAnimationFrame(() => {
       if (timelineVisible) {
-        drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart');
+        const startTs = _data?.game?.actual_start_at || _data?.game?.start_time || null;
+        drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart', { startTs });
       } else {
         const seed = String(gameId || '').split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
         drawLockedTeaser('ca-dp-timeline-chart', MVP_THRESHOLD, seed);

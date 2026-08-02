@@ -628,7 +628,10 @@ function renderPickInfo(data, slotKey, pickBySlot, SLOTS) {
 
   if (typeof Chart !== 'undefined' && (isPaying() || p.globalRank === 1)) {
     const mvp = state.CONFIG?.mvp_threshold || 75;
-    requestAnimationFrame(() => drawPickTimeline(p?.timeline || [], mvp));
+    // First pitch, so the curve can mark where the pick stopped being bettable.
+    // The stamped start wins; the schedule is the fallback until it lands.
+    const startTs = _modalData?.game?.actual_start_at || _modalData?.game?.start_time || null;
+    requestAnimationFrame(() => drawPickTimeline(p?.timeline || [], mvp, 'pick-timeline-chart', { startTs }));
   }
 }
 

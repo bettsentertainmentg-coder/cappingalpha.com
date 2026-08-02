@@ -2276,6 +2276,11 @@ nav {
 .ca-cc { display: block; width: 100%; height: 100%; }
 .ca-cc-mvp { stroke: #3a4456; stroke-width: 1; stroke-dasharray: 3 3; }
 .ca-cc-delta { fill: #d4af37; font-size: 7px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+/* First pitch: where the score locks. Anything drawn to the right of this line
+   moved after the pick stopped being bettable, so both the marker and the steps
+   past it are red. */
+.ca-cc-start { stroke: rgba(248,113,113,0.6); stroke-width: 1; stroke-dasharray: 2 2; }
+.ca-cc-delta--bad { fill: #f87171; }
 .ca-cc-time { fill: var(--text-disabled, #6b7280); font-size: 7px; font-weight: 700; }
 .ca-dp-hdr-conv-graph--msg { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-tertiary); font-style: italic; }
 /* Non-paid: real curve replaced by a blurred synthetic teaser + lock, same treatment

@@ -242,6 +242,23 @@ function recordSourcePick(pick) {
 function removeSourceEntry({ canonical, espn_game_id, pickType, team }) {
   const pt = (pickType || '').toLowerCase();
   const isTotal = pt === 'over' || pt === 'under';
+
+  // NOT ONCE THE GAME IS UNDER WAY (Jack 2026-07-31). A wallet hedging or
+  // flipping mid-game is trading its own position, not retracting the read it
+  // published before first pitch — and the withdrawal used to run anyway, on a
+  // live slot, with no start check anywhere in the path. It deleted the pending
+  // capper_history row (so the capper lost credit for a call they made in time)
+  // and deleted the board mention, then re-scored the slot from the survivors
+  // against whatever the ratings pool looked like at that minute. Same rule as
+  // the score itself: what a pick is worth at first pitch is what it is worth.
+  try {
+    const g = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score
+                          FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+    if (g && require('./pick_cutoff').hasGameStarted(g)) {
+      console.log(`[ingest] withdrawal ignored for ${canonical} on ${espn_game_id} ${pt} — game already started`);
+      return { removed: false, reason: 'game_started' };
+    }
+  } catch (_) { /* unknown game state: fall through to the existing behaviour */ }
   const hist = db.prepare(`
     SELECT id, source FROM capper_history
     WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = ?

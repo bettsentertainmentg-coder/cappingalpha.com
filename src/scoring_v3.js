@@ -471,16 +471,32 @@ function computeV3(pickId) {
 // Frozen means frozen: no new points, no re-rank, no late backer. The last
 // pregame value stands. Games with no today_games row (post-wipe history) are
 // left alone — the daily wipe already ended their scoring.
+//
+// FAILS CLOSED. Every ambiguous answer here means "frozen", because the cost of
+// the two mistakes is not symmetric: freezing a pick that could still legally
+// score leaves it a few points light, while rescoring a pick whose game is under
+// way puts a number on the board that was never bettable. The one exception is a
+// pick with no espn_game_id at all — the reader could not match it to a game, so
+// it is not on the board, has no clock to be past, and must stay scoreable.
 function _gameStartedForScoring(pickId) {
   try {
+    const p = db.prepare(`SELECT espn_game_id FROM picks WHERE id = ?`).get(pickId);
+    if (!p) return true;                 // no pick row: nothing legitimate to score
+    if (!p.espn_game_id) return false;   // never matched to a game: no start to be past
     const g = db.prepare(`
-      SELECT tg.status, tg.start_time, tg.actual_start_at, tg.sport, tg.home_score, tg.away_score
-      FROM picks p JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-      WHERE p.id = ?
-    `).get(pickId);
-    if (!g) return false;
+      SELECT status, start_time, actual_start_at, sport, home_score, away_score
+      FROM today_games WHERE espn_game_id = ?
+    `).get(p.espn_game_id);
+    // Game-tied pick whose game is no longer on the board (pruned, or the daily
+    // wipe): its scoring window closed with the game. Freeze.
+    if (!g) return true;
     return require('./pick_cutoff').hasGameStarted(g);
-  } catch (_) { return false; }
+  } catch (err) {
+    // Schema-shaped failures hit every pick at once and would silently un-freeze
+    // the entire board, so this is loud and it freezes.
+    console.warn('[scoringV3] start check failed, freezing pick', pickId, err.message);
+    return true;
+  }
 }
 
 function computeAndLogV3(pickId) {

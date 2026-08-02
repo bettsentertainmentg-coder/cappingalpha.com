@@ -1508,6 +1508,15 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN display_score   REAL`); } catch (_) 
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_target     REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_started_at TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_window_sec INTEGER`); } catch (_) {}
+// The conviction curve, snapshotted at first pitch (pick_timeline.freezeTimelinesForGame).
+// The curve's interior points are replayed against live capper_ratings, and those
+// re-rank every 5 minutes, so without this a settled pick redraws a different
+// history on every page load. Written once, never updated.
+try { db.exec(`ALTER TABLE picks ADD COLUMN timeline_frozen TEXT`); } catch (_) {}
+// What the pick was worth at first pitch. Stamped alongside the curve freeze and
+// never updated. Audit R11 compares the live v3_total against it: any difference
+// is a score that moved after the game started, which the rules do not allow.
+try { db.exec(`ALTER TABLE picks ADD COLUMN score_at_start REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 // When each tracked pick was GRADED (≈ game end). The single-day CA P/L graphs

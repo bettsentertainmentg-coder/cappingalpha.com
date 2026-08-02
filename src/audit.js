@@ -15,6 +15,8 @@
 //      (docs/GRADING_RULES.md R7; current cycle only, restated rows exempt)
 //   R8 no tennis grade standing on a final no player could have won
 //      (winner must hold 2+ completed sets, else the match ended early)
+//   R11 a pick's SCORE never moves after its game starts (picks.score_at_start,
+//      stamped at first pitch, vs the live v3 total)
 //
 // FLAG ONLY — this module never mutates picks, results, or history. Each
 // violation is stored in audit_flags WITH A FULL ROW SNAPSHOT (detail_json),
@@ -320,6 +322,32 @@ function runGradingAudit() {
       if (implied === r.result) continue;
       _flag(found, 'tennis_result_vs_score', 'mvp_picks', r.id, r.espn_game_id,
         `${r.team} ML graded ${r.result} but the stored set score ${r.away_score}-${r.home_score} says ${implied}`, r);
+    }
+  } catch (_) {}
+
+  // ── R11: a pick's score never moves after its game starts ───────────────────
+  // Every other invariant Jack hardened got a detector. This one shipped without
+  // one, which is why the 2026-07-31 WNBA under going 100+ to 84 mid-game had to
+  // be caught by watching the screen. picks.score_at_start is stamped once at
+  // first pitch (pick_timeline.freezeTimelinesForGame); anything that moves the
+  // live total away from it afterwards is a rule violation by definition.
+  // Flag-only, like every rule here — it never rewrites the score.
+  try {
+    const drifted = db.prepare(`
+      SELECT p.id, p.team, p.pick_type, p.espn_game_id, p.score_at_start,
+             sb.v3_total, tg.status, tg.home_team, tg.away_team, tg.actual_start_at
+      FROM picks p
+      JOIN score_breakdown sb ON sb.pick_id = p.id
+      JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+      WHERE p.score_at_start IS NOT NULL
+        AND sb.v3_total IS NOT NULL
+        AND ABS(sb.v3_total - p.score_at_start) >= 1
+    `).all();
+    for (const r of drifted) {
+      const dir = r.v3_total > r.score_at_start ? 'up' : 'down';
+      const move = Math.round(Math.abs(r.v3_total - r.score_at_start));
+      _flag(found, 'score_moved_after_start', 'picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} moved ${dir} ${move} point(s) after first pitch (${Math.round(r.score_at_start)} at start, ${Math.round(r.v3_total)} now)`, r);
     }
   } catch (_) {}
 
