@@ -427,16 +427,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
     try { bd = p.v3_json ? JSON.parse(p.v3_json) : null; } catch (_) {}
     const v3score = p.v3_total != null ? Math.round(p.v3_total) : null;
     const shownScore = v3Now ? (v3score != null ? v3score : (p.score ?? '—')) : (p.score ?? '—');
-    // Reconcile with the public board: while any bonus component is still ahead
-    // of its seeded reveal moment, members see a lower number. Show it next to
-    // the true score so admin and the live site never LOOK out of sync (they
-    // converge when the last reveal fires, always before game start).
+    // Reconcile with the public board: until T-60 the general bonuses are held
+    // back, so members see a lower number. Show it next to the true score so
+    // admin and the live site never LOOK out of sync (they converge an hour
+    // before start, when the bonus block lands in one step).
     let publicNote = '';
     if (v3Now && v3score != null) {
       try {
         const disp = require('./scoring_v3').effectiveDisplayScore(p);
         if (disp < v3score) {
-          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="Part of this score has not surfaced publicly yet. Members currently see this lower number; the remaining points land at their scheduled reveal moments before game start.">public ${disp}↗</div>`;
+          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="The general bonuses have not surfaced publicly yet. Members currently see this lower number; the whole bonus block lands in one step at T-60, an hour before the scheduled start.">public ${disp}↗</div>`;
         }
       } catch (_) {}
     }
