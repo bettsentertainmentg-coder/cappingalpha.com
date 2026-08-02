@@ -644,14 +644,28 @@ function bonusRevealEvents(pickId, ctx = null) {
 // public surface. The TRUE total is untouched (capper credit, conflict logic,
 // admin views all keep the real number); a drift-riding tracked gold keeps its
 // gold — it IS a bet, so the badge is honest. Returns the cap or Infinity.
+// FROZEN AT FIRST PITCH TOO (Jack 2026-08-02). Every input this reads moves
+// during a live game: today_games.ml_* (refreshEspnOdds will COALESCE an in-play
+// price onto a game in progress), the tracked-row check (the conflict pass voids
+// rows once ESPN flips the game live), and heavyBracketUnlocked (capper_ratings
+// rebuilds on every graded pass). So a gold ML sitting at 109 silently dropped to
+// a displayed 95 and re-styled from gold to silver mid-game with nobody posting
+// anything, which is the same rule violation as the score moving. The cap is now
+// decided once, stamped by pick_timeline.freezeTimelinesForGame at first pitch,
+// and read from that stamp forever after. Unstamped picks compute live as before,
+// which is also how the stamp itself gets its value.
 const HEAVY_DISPLAY_CAP = 95;
 function heavyDisplayCapFor(pickRow) {
   try {
     let team = pickRow?.team, pt = pickRow?.pick_type, gid = pickRow?.espn_game_id;
-    if ((team == null || pt == null || gid === undefined) && pickRow?.id != null) {
-      const p = db.prepare(`SELECT team, pick_type, espn_game_id FROM picks WHERE id = ?`).get(pickRow.id);
-      if (p) { team = p.team; pt = p.pick_type; gid = p.espn_game_id; }
+    let frozen = pickRow?.heavy_capped_at_start;
+    if ((team == null || pt == null || gid === undefined || frozen === undefined) && pickRow?.id != null) {
+      const p = db.prepare(
+        `SELECT team, pick_type, espn_game_id, heavy_capped_at_start FROM picks WHERE id = ?`
+      ).get(pickRow.id);
+      if (p) { team = p.team; pt = p.pick_type; gid = p.espn_game_id; frozen = p.heavy_capped_at_start; }
     }
+    if (frozen != null) return frozen ? HEAVY_DISPLAY_CAP : Infinity;
     if ((pt || '').toLowerCase() !== 'ml' || !gid) return Infinity;
     const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage'); // lazy: avoids a load cycle
     const g = db.prepare(`SELECT home_team, ml_home, ml_away FROM today_games WHERE espn_game_id = ?`).get(gid);

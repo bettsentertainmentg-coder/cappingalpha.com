@@ -362,12 +362,21 @@ function freezeTimelinesForGame(espnGameId) {
       WHERE p.espn_game_id = ? AND p.mention_count > 0 AND p.timeline_frozen IS NULL
     `).all(espnGameId);
     for (const p of picks) {
+      // Order matters. The timeline is built first (it applies the cap, which is
+      // still computing live at this point), then the score, then the cap flag.
+      // Stamping the cap first would make heavyDisplayCapFor read its own
+      // not-yet-written answer.
       try { if (writeFrozenTimeline(p.id, getPickTimeline(p.id, { skipFrozen: true }))) n++; } catch (_) {}
       try {
         if (p.v3_total != null) {
           db.prepare(`UPDATE picks SET score_at_start = ? WHERE id = ? AND score_at_start IS NULL`)
             .run(p.v3_total, p.id);
         }
+      } catch (_) {}
+      try {
+        const cap = require('./scoring_v3').heavyDisplayCapFor({ id: p.id });
+        db.prepare(`UPDATE picks SET heavy_capped_at_start = ? WHERE id = ? AND heavy_capped_at_start IS NULL`)
+          .run(Number.isFinite(cap) ? 1 : 0, p.id);
       } catch (_) {}
     }
   } catch (_) {}

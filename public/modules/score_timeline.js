@@ -20,7 +20,17 @@
 // Now: true time axis, a first-pitch marker, post-start steps drawn in alarm red
 // (they should not exist), and every delta labelled in both directions.
 
-let timelineChart = null;
+// ONE RENDERER FOR EVERY SURFACE (2026-08-02). The live detail page used to draw
+// its own inline SVG conviction curve, so every fix here had to be written twice
+// and the two drifted: the SVG had no hover, no tooltip, no first-pitch marker,
+// labelled three points out of N, and framed its y axis to the data instead of
+// zero, which made a six-point wobble look like a collapse. It is gone. The
+// header bubble mounts a canvas and calls this in compact mode, so the popup, the
+// pre-game page and the live header are now literally the same code.
+//
+// Charts are keyed by canvas id rather than a single module-level handle, because
+// merging the surfaces means two can legitimately be alive at once.
+const charts = new Map();
 
 const GRAY = [100, 116, 139];   // #64748b — neutral start
 const GOLD = [250, 204, 21];    // #facc15 — MVP gold
@@ -78,8 +88,12 @@ const rgb  = ([r, g, b], a) => a == null ? `rgb(${r},${g},${b})` : `rgba(${r},${
 export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-timeline-chart', opts = {}) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+  destroyPickTimeline(canvasId);
 
+  // Compact = the live header bubble: 58px tall, no axes, no grid. It keeps the
+  // marker, the delta labels and the tooltip, which is everything the old SVG
+  // could not do.
+  const compact = !!opts.compact;
   const hasData = Array.isArray(timeline) && timeline.length > 0;
 
   const points = hasData ? timeline.map(e => ({
@@ -197,23 +211,40 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       let carry = 0;
       let lastRight = -Infinity;
       let flip = false;
+      let prevIdx = -1;
+      const emit = (idx, value, abnormal) => {
+        const pt = meta.data[idx];
+        if (!pt || value === 0) return;
+        const text = `${value > 0 ? '+' : ''}${value}`;
+        const half = ctx.measureText(text).width / 2;
+        plan.push({ i: idx, text, x: pt.x, y: pt.y, half, below: false, abnormal, score: points[idx].score });
+        lastRight = Math.max(lastRight, pt.x + half);
+      };
       for (let i = 0; i < points.length; i++) {
         const p = points[i];
         const d = p?.delta;
         if (d == null) continue;
+        const abnormal = d < 0 || p.postStart;
+        // A drop or a post-start step is a BARRIER. Carrying a positive run into
+        // one nets them together and prints a "+7" beside a visibly falling
+        // segment, which is arithmetically true and completely misleading. Flush
+        // whatever accumulated onto the previous point first, then let the
+        // abnormal step show its own number.
+        if (abnormal && carry !== 0 && prevIdx >= 0) { emit(prevIdx, carry, false); carry = 0; }
+        prevIdx = i;
         carry += d;
         if (carry === 0) continue;
         const pt = meta.data[i];
         if (!pt) continue;
         const text = `${carry > 0 ? '+' : ''}${carry}`;
         const half = ctx.measureText(text).width / 2;
-        const forced = d < 0 || p.postStart || i === points.length - 1;
+        const forced = abnormal || i === points.length - 1;
         const clear = (pt.x - half) >= lastRight + PAD;
         if (!clear && !forced) continue;          // carry it forward to the next label
         // A forced label with no room drops to the other side of the point rather
         // than printing on top of its neighbour.
         flip = forced && !clear ? !flip : false;
-        plan.push({ i, text, x: pt.x, y: pt.y, half, below: flip, abnormal: d < 0 || p.postStart, score: p.score });
+        plan.push({ i, text, x: pt.x, y: pt.y, half, below: flip, abnormal, score: p.score });
         lastRight = Math.max(lastRight, pt.x + half);
         carry = 0;
       }
@@ -264,6 +295,9 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       ctx.lineTo(x, area.bottom);
       ctx.stroke();
       ctx.setLineDash([]);
+      // The 58px bubble has no room for the caption. The line still reads as the
+      // divider, and the wrapper's title attribute explains it.
+      if (compact) { ctx.restore(); return; }
       ctx.font = '600 9px Inter, system-ui, sans-serif';
       ctx.fillStyle = 'rgba(248,113,113,0.85)';
       // Bottom of the line, not the top: the curve is at its highest near first
@@ -284,7 +318,7 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
   const rightEdge = hasStart ? Math.max(hi, startMs) : hi;
   const pad = Math.max(60 * 1000, (rightEdge - lo) * 0.04);
 
-  timelineChart = new Chart(canvas, {
+  charts.set(canvasId, new Chart(canvas, {
     type: 'line',
     data: { datasets: dataset },
     plugins: [glowPlugin, markerPlugin, startPlugin],
@@ -295,7 +329,7 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       transitions: { active: { animation: { duration: 180 } } }, // subtle hover grow
       interaction: { mode: 'index', intersect: false },
       hover: { mode: 'index', intersect: false },
-      layout: { padding: { top: 18 } },                 // headroom for top markers
+      layout: { padding: compact ? { top: 12, bottom: 2 } : { top: 18 } },
       plugins: {
         legend: { display: false },
         tooltip: points.length ? {
@@ -327,21 +361,27 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
           min: lo - pad,
           max: rightEdge + pad,
           grid: { display: false },
+          border: { display: !compact },
           afterBuildTicks: (axis) => { axis.ticks = niceTimeTicks(axis.min, axis.max); },
           ticks: {
+            display: !compact,
             color: '#8892a4', maxRotation: 0, autoSkipPadding: 24, font: { size: 10 },
             callback: (v) => clockLabel(v),
           },
         },
         y: {
+          // beginAtZero on BOTH surfaces. The old header SVG framed y to the data
+          // range, so a six-point wobble and a forty-point collapse drew with the
+          // same drama. Same pick, two pages, two different stories.
           beginAtZero: true,
-          grid: { color: 'rgba(255,255,255,0.05)' },
-          ticks: { color: '#8892a4', stepSize: 10 },
+          grid: { display: !compact, color: 'rgba(255,255,255,0.05)' },
+          border: { display: !compact },
+          ticks: { display: !compact, color: '#8892a4', stepSize: 10 },
           suggestedMax: Math.max(mvpThreshold + 10, finalScore + 15),
         },
       },
     },
-  });
+  }));
 }
 
 // Locked teaser: a synthetic "climbing to MVP" curve drawn for non-paying users
@@ -352,7 +392,7 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
 export function drawLockedTeaser(canvasId = 'pick-timeline-chart', mvpThreshold = 50, seed = 0) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+  destroyPickTimeline(canvasId);
 
   // Deterministic PRNG so the teaser is stable for a given seed (no flicker).
   let s = (seed | 0) || 7;
@@ -379,7 +419,7 @@ export function drawLockedTeaser(canvasId = 'pick-timeline-chart', mvpThreshold 
     afterDatasetDraw(chart)  { chart.ctx.restore(); },
   };
 
-  timelineChart = new Chart(canvas, {
+  charts.set(canvasId, new Chart(canvas, {
     type: 'line',
     data: {
       labels: data.map(() => ''),
@@ -401,9 +441,17 @@ export function drawLockedTeaser(canvasId = 'pick-timeline-chart', mvpThreshold 
              border: { display: false }, suggestedMax: mvpThreshold + 22 },
       },
     },
-  });
+  }));
 }
 
-export function destroyPickTimeline() {
-  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+// Destroy one canvas's chart, or every chart when called with no id (what the
+// page-level teardown does before a full re-render).
+export function destroyPickTimeline(canvasId) {
+  if (canvasId) {
+    const c = charts.get(canvasId);
+    if (c) { c.destroy(); charts.delete(canvasId); }
+    return;
+  }
+  for (const c of charts.values()) { try { c.destroy(); } catch (_) {} }
+  charts.clear();
 }

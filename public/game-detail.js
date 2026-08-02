@@ -820,160 +820,64 @@ function liveBetsInlineHtml() {
   }).join('');
 }
 
-// Time label (ET) for the conviction curve axis.
-function ccTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-}
-
-// Epoch ms from either an ISO string or a SQLite 'YYYY-MM-DD HH:MM:SS' UTC stamp.
-// NaN for anything unusable, which the curve reads as "no usable clock".
-function ccMs(v) {
-  if (!v) return NaN;
-  const s = String(v);
-  return new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z').getTime();
-}
-
 // Annotated conviction curve (image-2 style, compact): the score steps over time, the
 // y-window framed to the data so the line fills the box (no dead space). Each step is
 // labelled with the points it added (+35, +5, +10) above and its time below, plus a
 // dashed MVP line when it falls in view. Accurate to the pick's real timeline.
-// EXACT TIMING (Jack 2026-07-31). Three fixes, matching the Chart.js renderer:
-//   - x was `i / (n - 1)`, one even slot per event, so the chart said nothing
-//     about WHEN anything happened. It is now proportional to real elapsed time.
-//   - first pitch is drawn. Points stop at first pitch, so anything to the right
-//     of that line is a defect and now looks like one (red dot, red delta).
-//   - deltas rendered gold in both directions, so a collapse was painted the same
-//     as a run. Drops and post-start steps are red.
-// Labels are thinned to the points that carry information (first, last, drops,
-// post-start, biggest move) because 7px text at true time spacing collides.
-function convCurveSvg(timeline, startTsRaw) {
-  const W = 232, H = 58, padL = 4, padR = 4, padT = 12, padB = 12;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
-  const n = timeline.length;
-  const scores = timeline.map(e => e.score);
-  const smin = Math.min(...scores), smax = Math.max(...scores);
-  const padv = Math.max(4, (smax - smin) * 0.18);
-  const lo = smin - padv, hi = smax + padv, span = Math.max(1, hi - lo);
+// Conviction widget for the live header (per-pick): a bordered bubble carrying the
+// CA-branded curve. No score (already on the far right), no "Learn how" (that lives
+// on pre-game cards). Non-paid users get the curve blurred behind a lock, exactly
+// like the pre-game conviction chart.
+//
+// This used to draw its own inline SVG. It now mounts a canvas and runs the SAME
+// renderer as the popup and the pre-game page in compact mode, so the bubble
+// gained hover, tooltips, a first-pitch marker, carried delta labels and a
+// zero-based y axis in one go, and there is no second implementation left to
+// drift. The canvas is drawn by mountConvictionCurve after the HTML is in the DOM.
+const CONV_CANVAS_ID = 'ca-dp-hdr-conv-chart';
+let _convMount = null;   // {kind:'curve'|'teaser'|'none', timeline, startTs, seed}
 
-  // Real-time x. Falls back to even spacing ONLY for the synthetic locked teaser,
-  // which carries no timestamps at all. A real series whose points all share one
-  // timestamp used to fail the same test and silently revert to even spacing,
-  // which drew four simultaneous events spread across the full width with four
-  // identical clock labels underneath. That is a picture of something that did
-  // not happen, so a zero span now collapses to a single x instead.
-  const ms = timeline.map(e => ccMs(e.ts));
-  const hasClock = n > 1 && ms.every(Number.isFinite);
-  const timed = hasClock && ms[n - 1] > ms[0];
-  const sameInstant = hasClock && !timed;
-  const t0 = timed ? ms[0] : 0;
-  const startMs = ccMs(startTsRaw);
-  const tEnd = timed ? (Number.isFinite(startMs) ? Math.max(ms[n - 1], startMs) : ms[n - 1]) : 1;
-  const tSpan = Math.max(1, tEnd - t0);
-  const x = (i) => padL + (n === 1 || sameInstant ? innerW / 2
-    : timed ? ((ms[i] - t0) / tSpan) * innerW
-    : (i / (n - 1)) * innerW);
-  const y = (v) => padT + (1 - (v - lo) / span) * innerH;
-  const anchor = (i) => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
-  const baseY = (padT + innerH).toFixed(1);
-  const pts = scores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const area = `${x(0).toFixed(1)},${baseY} ${pts} ${x(n - 1).toFixed(1)},${baseY}`;
-  const mvp = (MVP_THRESHOLD > lo && MVP_THRESHOLD < hi)
-    ? `<line x1="${padL}" y1="${y(MVP_THRESHOLD).toFixed(1)}" x2="${W - padR}" y2="${y(MVP_THRESHOLD).toFixed(1)}" class="ca-cc-mvp"/>` : '';
-
-  // First pitch.
-  let startLine = '';
-  if (timed && Number.isFinite(startMs) && startMs >= t0) {
-    const sx = padL + ((startMs - t0) / tSpan) * innerW;
-    startLine = `<line x1="${sx.toFixed(1)}" y1="${padT - 6}" x2="${sx.toFixed(1)}" y2="${baseY}" class="ca-cc-start"/>`;
-  }
-
-  const bad = (e) => e.postStart || (typeof e.delta === 'number' && e.delta < 0);
-  const dots = timeline.map((e, i) =>
-    `<circle cx="${x(i).toFixed(1)}" cy="${y(e.score).toFixed(1)}" r="${bad(e) ? 2.4 : 2}" fill="${bad(e) ? '#f87171' : '#FFD700'}"/>`).join('');
-
-  // Which points get text, and WHAT it says. 232px at 7px fits maybe eight
-  // labels, so most steps cannot carry one. Labelling a fixed three (first, last,
-  // biggest) left every other rise unnumbered and uninspectable, because this
-  // bubble has no hover and no tooltip at all.
-  //
-  // Same rule as the Chart.js renderer: a skipped step is CARRIED and the next
-  // label prints the running sum, so a printed number always equals a rise you
-  // can see. Drops and post-start steps always print.
-  const CH = 4.2;                      // ~width of one 7px digit
-  const marks = [];
-  let carry = 0, lastRight = -Infinity;
-  for (let i = 0; i < n; i++) {
-    const e = timeline[i];
-    const d = typeof e.delta === 'number' ? e.delta : null;
-    if (d == null) {                   // free viewers: no deltas at all
-      if (e.label) marks.push({ i, text: e.label, bad: bad(e) });
-      continue;
-    }
-    carry += d;
-    if (carry === 0) continue;
-    const text = `${carry > 0 ? '+' : ''}${carry}`;
-    const half = (text.length * CH) / 2;
-    const forced = bad(e) || i === n - 1;
-    if ((x(i) - half) < lastRight + 3 && !forced) continue;   // carry it forward
-    marks.push({ i, text, bad: bad(e) });
-    lastRight = Math.max(lastRight, x(i) + half);
-    carry = 0;
-  }
-
-  const deltas = marks.map(m =>
-    `<text x="${x(m.i).toFixed(1)}" y="${(y(timeline[m.i].score) - 4).toFixed(1)}" class="ca-cc-delta${m.bad ? ' ca-cc-delta--bad' : ''}" text-anchor="${anchor(m.i)}">${esc(m.text)}</text>`).join('');
-  // Clock labels on the ends and on anything abnormal only. Interior times
-  // collided at 7px, and the ends are what orient the reader.
-  const times = timeline.map((e, i) => {
-    if (i !== 0 && i !== n - 1 && !bad(e)) return '';
-    if (sameInstant && i !== 0) return '';        // one instant, one label
-    const t = ccTime(e.ts).replace(/\s?([AP])M$/, (_, m) => m.toLowerCase());  // "8:47p"
-    return t ? `<text x="${x(i).toFixed(1)}" y="${(H - 2).toFixed(1)}" class="ca-cc-time" text-anchor="${anchor(i)}">${esc(t)}</text>` : '';
-  }).join('');
-
-  return `<svg class="ca-cc" viewBox="0 0 ${W} ${H}">
-    ${mvp}${startLine}
-    <polygon points="${area}" fill="#FFD700" fill-opacity="0.10"/>
-    <polyline points="${pts}" fill="none" stroke="#FFD700" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots}${deltas}${times}
-  </svg>`;
-}
-
-// Synthetic teaser curve for non-paid users (never the real timeline — same approach
-// as the pre-game drawLockedTeaser, so a blurred curve can't be read off the wire).
-const CONV_TEASER = [
-  { score: 30, label: '+30' }, { score: 35, label: '+5' },
-  { score: 45, label: '+10' }, { score: 50, label: '+5' },
-];
-
-// Self-contained conviction widget for the live header (per-pick): a bordered bubble
-// with the CA-branded annotated curve. No score (already on the far right), no "Learn
-// how" (that lives on pre-game cards). Non-paid users get the curve blurred behind a
-// lock, exactly like the pre-game conviction chart.
 function convictionHeaderHtml(p, timelineVisible, hasTimeline, startTs) {
   const head = `<span class="ca-dp-hdr-conv-lbl"><img src="/ca-logo.png" alt="CA" class="ca-dp-hdr-conv-logo" onerror="this.style.display='none'">Conviction</span>`;
+  const canvas = `<canvas id="${CONV_CANVAS_ID}"></canvas>`;
   let body;
   if (!timelineVisible) {
     // Non-paid: blurred teaser on EVERY slot (so it never reveals which sides have picks).
+    _convMount = { kind: 'teaser' };
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--locked" onclick="openSignup()" title="Full access only">
-      <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER, null)}</div>
+      <div class="ca-dp-hdr-conv-blur">${canvas}</div>
       <div class="ca-dp-hdr-conv-lockover"><i class="fa-solid fa-lock"></i><span>Full access</span></div>
     </div>`;
   } else if (!p) {
+    _convMount = { kind: 'none' };
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
+  } else if (hasTimeline && p.timeline.length > 0) {
+    _convMount = { kind: 'curve', timeline: p.timeline, startTs };
+    body = `<div class="ca-dp-hdr-conv-graph">${canvas}</div>`;
   } else {
-    body = (hasTimeline && p.timeline.length > 0)
-      ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline, startTs)}</div>`
-      : `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
+    _convMount = { kind: 'none' };
+    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
   }
   const startNote = startTs ? ` The dashed line is first pitch, where the score locks.` : '';
   return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score builds through the day as more cappers weigh in.${startNote}">
     <div class="ca-dp-hdr-conv-top">${head}</div>
     ${body}
   </div>`;
+}
+
+// Draw whatever convictionHeaderHtml decided on, once its canvas is in the DOM.
+function mountConvictionCurve(gameId) {
+  const m = _convMount;
+  _convMount = null;
+  if (!m || m.kind === 'none' || typeof Chart === 'undefined') return;
+  requestAnimationFrame(() => {
+    if (m.kind === 'teaser') {
+      const seed = String(gameId || '').split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+      drawLockedTeaser(CONV_CANVAS_ID, MVP_THRESHOLD, seed);
+    } else {
+      drawPickTimeline(m.timeline, MVP_THRESHOLD, CONV_CANVAS_ID, { startTs: m.startTs, compact: true });
+    }
+  });
 }
 
 function renderDetailPanel() {
@@ -1217,6 +1121,10 @@ function renderDetailPanel() {
   } else {
     el.innerHTML = classicBodyHtml;
   }
+
+  // Live: the header bubble's canvas is now in the DOM, so draw it (same renderer,
+  // compact mode). Pre-game falls through to the full chart below.
+  if (isTrackerLive) mountConvictionCurve(gameId);
 
   // Render the chart after innerHTML has settled. Always draw, even when
   // locked or empty, so the chart frame is visible with the overlay. Locked

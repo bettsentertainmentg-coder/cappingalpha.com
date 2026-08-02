@@ -2272,22 +2272,17 @@ nav {
 .ca-dp-hdr-conv-top { display: flex; align-items: center; gap: 8px; height: 14px; }
 .ca-dp-hdr-conv-lbl { display: flex; align-items: center; gap: 5px; font-size: 9px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
 .ca-dp-hdr-conv-logo { height: 13px; width: auto; aspect-ratio: 440 / 305; object-fit: contain; border-radius: 3px; flex: none; }
-.ca-dp-hdr-conv-graph { height: 58px; width: 100%; }
-.ca-cc { display: block; width: 100%; height: 100%; }
-.ca-cc-mvp { stroke: #3a4456; stroke-width: 1; stroke-dasharray: 3 3; }
-.ca-cc-delta { fill: #d4af37; font-size: 7px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
-/* First pitch: where the score locks. Anything drawn to the right of this line
-   moved after the pick stopped being bettable, so both the marker and the steps
-   past it are red. */
-.ca-cc-start { stroke: rgba(248,113,113,0.6); stroke-width: 1; stroke-dasharray: 2 2; }
-.ca-cc-delta--bad { fill: #f87171; }
-.ca-cc-time { fill: var(--text-disabled, #6b7280); font-size: 7px; font-weight: 700; }
+/* The bubble now hosts a canvas driven by modules/score_timeline.js, the same
+   renderer as the popup and the pre-game page. Chart.js sizes to the parent, so
+   the parent needs an explicit box and position. The old hand-rolled .ca-cc* SVG
+   rules went with the second implementation they styled. */
+.ca-dp-hdr-conv-graph { height: 58px; width: 100%; position: relative; }
+.ca-dp-hdr-conv-graph canvas { display: block; width: 100% !important; height: 100% !important; }
 .ca-dp-hdr-conv-graph--msg { display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-tertiary); font-style: italic; }
 /* Non-paid: real curve replaced by a blurred synthetic teaser + lock, same treatment
    as the pre-game conviction chart (.ca-dp-timeline-wrap.is-locked). */
 .ca-dp-hdr-conv-graph--locked { position: relative; cursor: pointer; }
-.ca-dp-hdr-conv-blur { height: 100%; filter: blur(2px); opacity: 0.85; }
-.ca-dp-hdr-conv-blur .ca-cc { height: 100%; }
+.ca-dp-hdr-conv-blur { height: 100%; position: relative; filter: blur(2px); opacity: 0.85; }
 .ca-dp-hdr-conv-lockover {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 5px;
   color: var(--gold, #facc15); text-shadow: 0 1px 6px rgba(0,0,0,0.6);

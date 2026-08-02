@@ -1522,6 +1522,10 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN score_at_start REAL`); } catch (_) {
 // re-deriving history against whatever capper_ratings say at page-load time
 // (that table is rebuilt on every graded results pass, so the replay drifted).
 try { db.exec(`ALTER TABLE raw_messages ADD COLUMN subtotal_after REAL`); } catch (_) {}
+// Was the heavy-price display cap in force at first pitch? 1 = capped at 95,
+// 0 = uncapped, NULL = not stamped yet (compute live). Frozen with the score, so
+// a live odds refresh or a mid-game void can no longer re-style a gold ML silver.
+try { db.exec(`ALTER TABLE picks ADD COLUMN heavy_capped_at_start INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 // When each tracked pick was GRADED (≈ game end). The single-day CA P/L graphs
