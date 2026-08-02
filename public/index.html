@@ -959,6 +959,48 @@
     .logo.active { border-bottom-color: var(--accent); }
     .logo:hover span { opacity: 0.85; }
 
+    /* ── BETA tag ──
+       A small chip whose top-left corner touches the wordmark's bottom-right
+       corner. Drawn as ::after so every surface that already prints
+       "CappingAlpha" picks it up with no markup change. Kept IN FLOW (never
+       absolutely positioned) so it can't overlap the first nav tab or get
+       clipped by the bar, and pinned to the dark-bar palette like the wordmark
+       above it. --ca-beta-drop is how far the chip hangs below the wordmark: a
+       flex parent centres it on the line box, an inline one sits it on the
+       baseline, so the two contexts need different nudges.
+       Keep in sync with game-detail.css (every server-rendered page). */
+    .logo::after,
+    .ca-drawer-logo::after {
+      content: "BETA";
+      display: inline-block;
+      align-self: center;        /* stops a flex parent stretching it full height */
+      position: relative;
+      top: var(--ca-beta-drop, 8px);
+      margin-left: -2px;         /* tucks the corner in so it reads as attached */
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.07em;
+      padding: 2px 3px;
+      border-radius: 3px;
+      color: #9dc0ff;
+      background: rgba(59, 130, 246, 0.20);
+      border: 1px solid rgba(96, 150, 255, 0.55);
+      text-shadow: none;
+      pointer-events: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .logo { --ca-beta-drop: 5px; }
+    /* The nav bar is always dark velvet, so its chip keeps the pinned colors.
+       The drawer follows the theme (var(--surface) goes white), so its chip
+       needs a darker ink and tint to stay readable there. */
+    html[data-theme="light"] .ca-drawer-logo::after {
+      color: #1d4ed8;
+      background: rgba(37, 99, 235, 0.12);
+      border-color: rgba(37, 99, 235, 0.40);
+    }
+
     /* ── Nav tabs ── */
     .nav-tabs { display: flex; align-items: stretch; gap: 24px; }
     .tab-btn {
@@ -2861,7 +2903,7 @@
       padding: 0 20px; height: 56px; flex-shrink: 0;
       border-bottom: 1px solid var(--border);
     }
-    .ca-drawer-logo { font-size: 20px; font-weight: 700; color: var(--text); }
+    .ca-drawer-logo { font-size: 20px; font-weight: 700; color: var(--text); white-space: nowrap; }
     .ca-drawer-logo span { color: var(--accent); }
     .ca-drawer-close {
       background: none; border: none; color: var(--muted); cursor: pointer;

@@ -166,11 +166,32 @@
     }
     .site-header-logo {
       font-size: 16px; font-weight: 700; letter-spacing: 0.02em;
-      color: #eef3ff; text-decoration: none;
+      color: #eef3ff; text-decoration: none; white-space: nowrap;
       text-shadow: 0 1px 2px rgba(4,10,26,0.6);
     }
     .site-header-logo span { color: #7fb0ff; }
     .site-header-logo:hover { text-decoration: none; }
+    /* BETA chip hung off the wordmark's bottom-right corner. Keep in sync with
+       index.html + game-detail.css (same chip, every page of the site). */
+    .site-header-logo::after {
+      content: "BETA";
+      display: inline-block;
+      position: relative;
+      top: 7px;
+      margin-left: -2px;
+      font-size: 7px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.07em;
+      padding: 2px 3px;
+      border-radius: 3px;
+      color: #9dc0ff;
+      background: rgba(59, 130, 246, 0.20);
+      border: 1px solid rgba(96, 150, 255, 0.55);
+      text-shadow: none;
+      pointer-events: none;
+      white-space: nowrap;
+    }
     .site-header-back {
       margin-left: auto; font-size: 13px; color: #c8d4ee;
       text-decoration: none; display: inline-flex; align-items: center; gap: 6px;

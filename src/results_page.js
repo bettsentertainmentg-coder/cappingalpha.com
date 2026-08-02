@@ -127,8 +127,17 @@ function buildResultsPageHtml({ picks = [], record = {} }) {
     a { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; font-size: 15px; line-height: 1.6; padding: 0 0 96px; }
     .site-header { border-bottom: 1px solid #1e2535; padding: 14px 16px; display: flex; align-items: center; gap: 16px; }
-    .site-header-logo { font-size: 15px; font-weight: 700; color: #e2e8f0; letter-spacing: 0.02em; }
+    .site-header-logo { font-size: 15px; font-weight: 700; color: #e2e8f0; letter-spacing: 0.02em; white-space: nowrap; }
     .site-header-logo span { color: #3b82f6; }
+    /* BETA chip hung off the wordmark's bottom-right corner. Keep in sync with
+       index.html + game-detail.css (same chip, every page of the site). */
+    .site-header-logo::after {
+      content: "BETA"; display: inline-block; position: relative; top: 7px; margin-left: -2px;
+      font-size: 7px; font-weight: 800; line-height: 1; letter-spacing: 0.07em;
+      padding: 2px 3px; border-radius: 3px; color: #9dc0ff;
+      background: rgba(59, 130, 246, 0.20); border: 1px solid rgba(96, 150, 255, 0.55);
+      pointer-events: none; white-space: nowrap;
+    }
     .site-header-back { margin-left: auto; font-size: 13px; color: #8892a4; text-decoration: none; }
     .site-header-back:hover { color: #3b82f6; }
     .wrap { max-width: 980px; margin: 0 auto; padding: 40px 16px 0; }
