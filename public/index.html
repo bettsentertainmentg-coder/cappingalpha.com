@@ -2593,13 +2593,13 @@
 
     /* ── The full public betting panel (card dropdown) ─────────────────────
        Blue bar = share of bets, gold bar = share of dollars, per side. */
-    #panel-sports .nx-pubpanel { margin-top: 10px; }
+    #panel-sports .nx-pubpanel { margin-top: 0; }
     #panel-sports .nx-pubpanel .nx-dd-panel {
       --nx-dd-dim:#b6c0cc;
       --nx-dd-track:#2a3240;
       box-sizing:border-box;
       width:100%;
-      padding:2px 0 0;
+      padding:0;
       background:none;
       border:0;
       border-radius:0;
@@ -2732,7 +2732,7 @@
     #panel-sports .nx-xp { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .2s ease; }
     #panel-sports .nx-card.open .nx-xp { grid-template-rows: 1fr; }
     #panel-sports .nx-xp > div { overflow: hidden; }
-    #panel-sports .nx-xpin { border-top: 1px solid var(--border); background: rgba(0,0,0,.18); cursor: default; padding: 11px 14px 13px; }
+    #panel-sports .nx-xpin { border-top: 1px solid var(--border); background: rgba(0,0,0,.18); cursor: default; padding: 6px 14px 6px; }
     #panel-sports .nx-cols { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 14px; }
     #panel-sports .nx-mcell { display: flex; justify-content: space-between; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; margin-bottom: 6px; font-size: 11px; }
     #panel-sports .nx-mcell b { font-size: 9px; font-weight: 800; letter-spacing: .08em; color: var(--muted); align-self: center; }
@@ -2741,7 +2741,7 @@
     #panel-sports .nx-xrow b { color: var(--text); font-weight: 700; }
     #panel-sports .nx-xrow .nx-arr { color: var(--accent); font-weight: 800; flex-shrink: 0; }
     #panel-sports .nx-xlock { display: flex; align-items: center; gap: 8px; padding: 7px 0 2px; font-size: 11px; font-weight: 600; color: var(--gold); }
-    #panel-sports .nx-exits { display: flex; gap: 8px; padding-top: 10px; flex-wrap: wrap; }
+    #panel-sports .nx-exits { display: flex; gap: 8px; padding-top: 3px; flex-wrap: wrap; }
     #panel-sports .nx-xbtn { flex: 1 1 auto; min-height: 34px; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
     #panel-sports .nx-xbtn:hover { border-color: var(--nx-bs); background: var(--surface2); }
     #panel-sports .nx-xbtn.pri { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -4856,6 +4856,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=158"></script>
+  <script type="module" src="app.js?v=159"></script>
 </body>
 </html>
