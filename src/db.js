@@ -1517,6 +1517,11 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN timeline_frozen TEXT`); } catch (_) 
 // never updated. Audit R11 compares the live v3_total against it: any difference
 // is a score that moved after the game started, which the rules do not allow.
 try { db.exec(`ALTER TABLE picks ADD COLUMN score_at_start REAL`); } catch (_) {}
+// What the pick was worth the moment THIS mention landed. Written once by
+// storage.js, never updated. The conviction curve reads these instead of
+// re-deriving history against whatever capper_ratings say at page-load time
+// (that table is rebuilt on every graded results pass, so the replay drifted).
+try { db.exec(`ALTER TABLE raw_messages ADD COLUMN subtotal_after REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 // When each tracked pick was GRADED (≈ game end). The single-day CA P/L graphs

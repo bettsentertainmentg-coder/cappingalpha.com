@@ -452,6 +452,21 @@ function updateSlot(slot, pick) {
   try { v3 = require('./scoring_v3').computeAndLogV3(slot.id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
 
+  // THE CURVE'S ONLY HONEST SOURCE. Stamp what the pick is worth RIGHT NOW onto
+  // the mention that just landed. Without this the conviction curve has to
+  // re-derive every historical point at page-load time against capper_ratings as
+  // they stand then, and that table is deleted and rebuilt on every graded
+  // results pass, so a settled pick's history quietly rewrote itself all day and
+  // the leftover error got added to the last backer's labelled step (a member
+  // read "+38, ic4cream" when most of it was the pool re-ranking). One number per
+  // mention, written once, never updated.
+  if (v3Live && v3 && raw_message?.id) {
+    try {
+      db.prepare(`UPDATE raw_messages SET subtotal_after = ? WHERE pick_id = ? AND message_id = ?`)
+        .run(capperSubtotal(v3), slot.id, String(raw_message.id));
+    } catch (_) {}
+  }
+
   // Thresholds by active scale: v2 uses 35/MVP-50; v3 archives at 50 (every pick
   // worth 50pts+ is tracked in pick_history) and GOLD 100 with the totals gate
   // (only gold is tracked long-term).
@@ -546,6 +561,14 @@ function insertNewPick(pick) {
   let v3 = null;
   try { v3 = require('./scoring_v3').computeAndLogV3(pick_id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
+  // Same stamp as updateSlot: what the pick was worth the moment this mention
+  // landed, so the curve never has to guess it later.
+  if (v3Live && v3 && pick.raw_message?.id) {
+    try {
+      db.prepare(`UPDATE raw_messages SET subtotal_after = ? WHERE pick_id = ? AND message_id = ?`)
+        .run(capperSubtotal(v3), pick_id, String(pick.raw_message.id));
+    } catch (_) {}
+  }
 
   const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
@@ -657,6 +680,22 @@ function upsertScoreBreakdown(pick_id, scored) {
       JSON.stringify(scored.breakdown)
     );
   }
+}
+
+// The CAPPER-ONLY portion of a v3 score: everything the people backing this pick
+// are worth, with the four general bonuses taken back out. That split matters
+// because the bonuses do not surface publicly until T-60 (scoring_v3's reveal
+// plan), so the conviction curve composes them separately. Storing the capper
+// part per mention lets the curve plot what the pick was really worth at that
+// instant, instead of re-deriving it later against a re-ranked pool, while the
+// bonus block still lands at its scheduled moment.
+function capperSubtotal(v3) {
+  const bd = v3?.breakdown || {};
+  const bonuses = Math.round(bd.sport_pct?.pts ?? 0)
+                + Math.round(bd.market?.pts ?? 0)
+                + Math.round(bd.lean?.pts ?? 0)
+                + Math.round(bd.sport_bonus ?? 0);
+  return Math.round((v3?.total ?? 0) - bonuses);
 }
 
 // ── Rebuild a pick's scores from whatever mentions remain ────────────────────

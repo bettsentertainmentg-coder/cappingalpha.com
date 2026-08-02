@@ -173,27 +173,62 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
       const active = new Set(chart.getActiveElements().map(a => a.index));
 
       // A true time axis bunches the pre-tip burst, and 11px labels on adjacent
-      // points overprint into mush. Drop a label when its point is within
-      // MIN_GAP of the last one drawn — unless it is hovered, the final point, or
-      // abnormal (a drop or a post-start step), which are the ones worth reading.
-      const MIN_GAP = 22;
-      let lastLabelX = -Infinity;
-
-      meta.data.forEach((pt, i) => {
+      // points overprint into mush, so some have to be dropped. THE NUMBERS MUST
+      // STILL ADD UP. Dropping a label outright (what this did first) printed
+      // "+10" beside a visible fifty-point climb, because a run of five clustered
+      // mentions showed the first one's delta and swallowed the other four.
+      //
+      // So a skipped step is not discarded, it is CARRIED: the next label printed
+      // is the sum of everything since the last one. Whatever number you can see
+      // the line rise by, that is the number written next to it.
+      //
+      // Two more rules learned the hard way:
+      //   - the gap test measures the actual rendered text, not a fixed 22px. A
+      //     four-character "+100" at 11px is wider than 22px, so a fixed gap let
+      //     the labels it allowed collide anyway.
+      //   - the label set is decided WITHOUT looking at what is hovered. Letting
+      //     hover force a label in shifted every downstream decision, so numbers
+      //     popped in and out as the pointer crossed the chart with no data
+      //     change at all.
+      const PAD = 5;
+      const plan = [];
+      ctx.save();
+      ctx.font = '600 11px Inter, system-ui, sans-serif';
+      let carry = 0;
+      let lastRight = -Infinity;
+      let flip = false;
+      for (let i = 0; i < points.length; i++) {
         const p = points[i];
         const d = p?.delta;
-        // Both directions. A drop is the step most worth explaining, and it used
-        // to be the only one with no label on it.
-        if (d == null || d === 0) return;
-        const on   = active.has(i);
-        const mustShow = on || d < 0 || p.postStart || i === points.length - 1;
-        if (!mustShow && (pt.x - lastLabelX) < MIN_GAP) return;
-        lastLabelX = pt.x;
-        const text = `${d > 0 ? '+' : ''}${d}`;
-        const off  = on ? 14 : 10;
-        const above = (pt.y - off) >= top + 6;
-        const restColor = (d < 0 || p.postStart) ? rgb(ALARM) : rgb(heatRgb(p.score, mvpThreshold));
+        if (d == null) continue;
+        carry += d;
+        if (carry === 0) continue;
+        const pt = meta.data[i];
+        if (!pt) continue;
+        const text = `${carry > 0 ? '+' : ''}${carry}`;
+        const half = ctx.measureText(text).width / 2;
+        const forced = d < 0 || p.postStart || i === points.length - 1;
+        const clear = (pt.x - half) >= lastRight + PAD;
+        if (!clear && !forced) continue;          // carry it forward to the next label
+        // A forced label with no room drops to the other side of the point rather
+        // than printing on top of its neighbour.
+        flip = forced && !clear ? !flip : false;
+        plan.push({ i, text, x: pt.x, y: pt.y, half, below: flip, abnormal: d < 0 || p.postStart, score: p.score });
+        lastRight = Math.max(lastRight, pt.x + half);
+        carry = 0;
+      }
+      ctx.restore();
 
+      const { left, right } = chart.chartArea;
+      for (const L of plan) {
+        // Keep the text inside the plot. The busiest cluster is right before tip,
+        // so the combined label lands at the far right edge and used to render
+        // half outside the frame, which is where a reader looks first.
+        L.x = Math.min(Math.max(L.x, left + L.half + 1), right - L.half - 1);
+        const on = active.has(L.i);
+        const off = on ? 14 : 10;
+        const above = !L.below && (L.y - off) >= top + 6;
+        const restColor = L.abnormal ? rgb(ALARM) : rgb(heatRgb(L.score, mvpThreshold));
         ctx.save();
         ctx.font = `${on ? 700 : 600} ${on ? 14 : 11}px Inter, system-ui, sans-serif`;
         ctx.textAlign = 'center';
@@ -201,9 +236,9 @@ export function drawPickTimeline(timeline, mvpThreshold = 50, canvasId = 'pick-t
         ctx.globalAlpha = on ? 1 : 0.6;
         ctx.fillStyle = on ? '#ffffff' : restColor;
         if (on) { ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 4; }
-        ctx.fillText(text, pt.x, above ? pt.y - off : pt.y + off);
+        ctx.fillText(L.text, L.x, above ? L.y - off : L.y + off);
         ctx.restore();
-      });
+      }
     },
   };
 

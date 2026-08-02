@@ -858,15 +858,21 @@ function convCurveSvg(timeline, startTsRaw) {
   const padv = Math.max(4, (smax - smin) * 0.18);
   const lo = smin - padv, hi = smax + padv, span = Math.max(1, hi - lo);
 
-  // Real-time x. Falls back to even spacing when the stamps are unusable (the
-  // synthetic locked teaser has no ts at all).
+  // Real-time x. Falls back to even spacing ONLY for the synthetic locked teaser,
+  // which carries no timestamps at all. A real series whose points all share one
+  // timestamp used to fail the same test and silently revert to even spacing,
+  // which drew four simultaneous events spread across the full width with four
+  // identical clock labels underneath. That is a picture of something that did
+  // not happen, so a zero span now collapses to a single x instead.
   const ms = timeline.map(e => ccMs(e.ts));
-  const timed = n > 1 && ms.every(Number.isFinite) && ms[n - 1] > ms[0];
+  const hasClock = n > 1 && ms.every(Number.isFinite);
+  const timed = hasClock && ms[n - 1] > ms[0];
+  const sameInstant = hasClock && !timed;
   const t0 = timed ? ms[0] : 0;
   const startMs = ccMs(startTsRaw);
   const tEnd = timed ? (Number.isFinite(startMs) ? Math.max(ms[n - 1], startMs) : ms[n - 1]) : 1;
   const tSpan = Math.max(1, tEnd - t0);
-  const x = (i) => padL + (n === 1 ? innerW / 2
+  const x = (i) => padL + (n === 1 || sameInstant ? innerW / 2
     : timed ? ((ms[i] - t0) / tSpan) * innerW
     : (i / (n - 1)) * innerW);
   const y = (v) => padT + (1 - (v - lo) / span) * innerH;
@@ -888,21 +894,42 @@ function convCurveSvg(timeline, startTsRaw) {
   const dots = timeline.map((e, i) =>
     `<circle cx="${x(i).toFixed(1)}" cy="${y(e.score).toFixed(1)}" r="${bad(e) ? 2.4 : 2}" fill="${bad(e) ? '#f87171' : '#FFD700'}"/>`).join('');
 
-  // Which points get text. Always the ends and anything abnormal; otherwise the
-  // single largest move, so a normal curve still shows its headline step.
-  const show = new Set([0, n - 1]);
-  timeline.forEach((e, i) => { if (bad(e)) show.add(i); });
-  let biggest = -1, biggestAbs = 0;
-  timeline.forEach((e, i) => {
-    const a = Math.abs(e.delta ?? 0);
-    if (a > biggestAbs) { biggestAbs = a; biggest = i; }
-  });
-  if (biggest >= 0) show.add(biggest);
+  // Which points get text, and WHAT it says. 232px at 7px fits maybe eight
+  // labels, so most steps cannot carry one. Labelling a fixed three (first, last,
+  // biggest) left every other rise unnumbered and uninspectable, because this
+  // bubble has no hover and no tooltip at all.
+  //
+  // Same rule as the Chart.js renderer: a skipped step is CARRIED and the next
+  // label prints the running sum, so a printed number always equals a rise you
+  // can see. Drops and post-start steps always print.
+  const CH = 4.2;                      // ~width of one 7px digit
+  const marks = [];
+  let carry = 0, lastRight = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const e = timeline[i];
+    const d = typeof e.delta === 'number' ? e.delta : null;
+    if (d == null) {                   // free viewers: no deltas at all
+      if (e.label) marks.push({ i, text: e.label, bad: bad(e) });
+      continue;
+    }
+    carry += d;
+    if (carry === 0) continue;
+    const text = `${carry > 0 ? '+' : ''}${carry}`;
+    const half = (text.length * CH) / 2;
+    const forced = bad(e) || i === n - 1;
+    if ((x(i) - half) < lastRight + 3 && !forced) continue;   // carry it forward
+    marks.push({ i, text, bad: bad(e) });
+    lastRight = Math.max(lastRight, x(i) + half);
+    carry = 0;
+  }
 
-  const deltas = timeline.map((e, i) => (e.label && show.has(i))
-    ? `<text x="${x(i).toFixed(1)}" y="${(y(e.score) - 4).toFixed(1)}" class="ca-cc-delta${bad(e) ? ' ca-cc-delta--bad' : ''}" text-anchor="${anchor(i)}">${esc(e.label)}</text>` : '').join('');
+  const deltas = marks.map(m =>
+    `<text x="${x(m.i).toFixed(1)}" y="${(y(timeline[m.i].score) - 4).toFixed(1)}" class="ca-cc-delta${m.bad ? ' ca-cc-delta--bad' : ''}" text-anchor="${anchor(m.i)}">${esc(m.text)}</text>`).join('');
+  // Clock labels on the ends and on anything abnormal only. Interior times
+  // collided at 7px, and the ends are what orient the reader.
   const times = timeline.map((e, i) => {
-    if (!show.has(i)) return '';
+    if (i !== 0 && i !== n - 1 && !bad(e)) return '';
+    if (sameInstant && i !== 0) return '';        // one instant, one label
     const t = ccTime(e.ts).replace(/\s?([AP])M$/, (_, m) => m.toLowerCase());  // "8:47p"
     return t ? `<text x="${x(i).toFixed(1)}" y="${(H - 2).toFixed(1)}" class="ca-cc-time" text-anchor="${anchor(i)}">${esc(t)}</text>` : '';
   }).join('');

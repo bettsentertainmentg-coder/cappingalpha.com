@@ -76,7 +76,7 @@ function buildV3Timeline(pick) {
   // Real events: this slot's mentions and the opposite slot's (fade sources),
   // each at its true message timestamp.
   const mentionStmt = db.prepare(`
-    SELECT capper_name, message_timestamp FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
+    SELECT capper_name, message_timestamp, subtotal_after FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
   `);
   const own = mentionStmt.all(pick.id);
   const opp = oppositeSlot(pick);
@@ -106,7 +106,12 @@ function buildV3Timeline(pick) {
   const stream = [];
   for (const m of own) {
     const ms = parseDbTs(m.message_timestamp) ?? firstMs;
-    stream.push({ ms, kind: 'own', capper: m.capper_name || null });
+    // subtotal_after is what the pick was ACTUALLY worth when this mention
+    // landed, stamped by storage.js at the time. When it is present the curve
+    // stops guessing: it plots the recorded number instead of re-deriving the
+    // step against a capper pool that has re-ranked since. Rows written before
+    // this column existed carry null and fall back to the replay.
+    stream.push({ ms, kind: 'own', capper: m.capper_name || null, at: m.subtotal_after ?? null });
   }
   for (const m of oppMentions) {
     const ms = parseDbTs(m.message_timestamp);
@@ -127,6 +132,9 @@ function buildV3Timeline(pick) {
   let started = false;
   let bonusCum = 0;
   let prevScore = 0;
+  // Last recorded capper-only level. Null until a stamped mention is seen, which
+  // is what keeps pre-column picks on the old replay path.
+  let capperNow = null;
   const events = [];
   for (const ev of stream) {
     let opened = false;
@@ -152,7 +160,15 @@ function buildV3Timeline(pick) {
       if (!started) continue; // reveal moments never precede the first mention
       kind = 'model';
     }
-    const score = Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
+    // Recorded number first, reconstruction only as a fallback. `at` is the
+    // CAPPER-only subtotal stamped when this mention landed (storage.js), so the
+    // revealed bonuses compose on top of it exactly as they do on the replay
+    // path. `capperNow` carries the last recorded level forward across fade and
+    // bonus steps, which have no stamp of their own.
+    if (ev.kind === 'own' && ev.at != null) capperNow = Math.round(ev.at);
+    const score = capperNow != null
+      ? capperNow + bonusCum
+      : Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
     const delta = score - prevScore;
     if (delta === 0 && !opened) continue;
     // `cause` carries a capper name, which is paid-only — sanitizeTimeline strips
