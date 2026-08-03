@@ -134,9 +134,104 @@ function page(title, body) {
     /* ── Code gen ── */
     .code-gen-card { background:#171b24; border:1px solid #252c3b; border-radius:10px; padding:22px; max-width:480px; margin-bottom:28px; }
     .code-gen-card h3 { font-size:15px; font-weight:700; margin-bottom:16px; color:#e2e8f0; }
+    /* ── Grab-and-drag side scrolling (auto-applied to every wide table) ── */
+    .hscroll { overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; }
+    .hscroll::-webkit-scrollbar { height:9px; }
+    .hscroll::-webkit-scrollbar-track { background:#12161f; border-radius:6px; }
+    .hscroll::-webkit-scrollbar-thumb { background:#2f3849; border-radius:6px; }
+    .hscroll::-webkit-scrollbar-thumb:hover { background:#3b4560; }
+    .ca-grabbable { cursor:grab; }
+    body.ca-grabbing, body.ca-grabbing * { cursor:grabbing !important; user-select:none !important; }
   </style>
 </head>
-<body>${body}</body>
+<body>${body}
+<script>
+/* Drag-to-scroll: any horizontally scrollable box can be grabbed and pulled side to side.
+   Wide tables get wrapped automatically, so this covers panels rendered later by JS too. */
+(function(){
+  var THRESHOLD = 4;
+  var drag = null, hint = null, suppressClick = false;
+
+  function scrollerFor(el){
+    for (; el && el.nodeType === 1 && el !== document.body; el = el.parentElement){
+      if (el.scrollWidth - el.clientWidth > 1){
+        var ox = getComputedStyle(el).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return el;
+      }
+    }
+    return null;
+  }
+
+  function wrapTables(){
+    var tables = document.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++){
+      var t = tables[i], p = t.parentElement;
+      if (!p || p.classList.contains('hscroll')) continue;
+      var cs = getComputedStyle(p);
+      // Already inside a scroll box (e.g. a sticky-header panel or a modal body) — leave it alone.
+      if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowY === 'auto' || cs.overflowY === 'scroll') continue;
+      var w = document.createElement('div');
+      w.className = 'hscroll';
+      p.insertBefore(w, t);
+      w.appendChild(t);
+    }
+  }
+
+  function scheduleWrap(){
+    if (scheduleWrap._q) return;
+    scheduleWrap._q = true;
+    requestAnimationFrame(function(){ scheduleWrap._q = false; wrapTables(); });
+  }
+
+  function endDrag(){
+    if (!drag) return;
+    var moved = drag.moved;
+    drag = null;
+    document.body.classList.remove('ca-grabbing');
+    if (moved){ suppressClick = true; setTimeout(function(){ suppressClick = false; }, 0); }
+  }
+
+  document.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || e.pointerType !== 'mouse') return;
+    var t = e.target;
+    if (t.closest && t.closest('input,textarea,select,button,a,[contenteditable="true"]')) return;
+    var el = scrollerFor(t);
+    if (!el) return;
+    drag = { el: el, x: e.clientX, left: el.scrollLeft, moved: false };
+  });
+
+  document.addEventListener('pointermove', function(e){
+    if (!drag){
+      if (e.pointerType !== 'mouse') return;
+      var el = scrollerFor(e.target);
+      if (hint && hint !== el){ hint.classList.remove('ca-grabbable'); hint = null; }
+      if (el){ el.classList.add('ca-grabbable'); hint = el; }
+      return;
+    }
+    if (e.buttons === 0){ endDrag(); return; }
+    var dx = e.clientX - drag.x;
+    if (!drag.moved){
+      if (Math.abs(dx) < THRESHOLD) return;
+      drag.moved = true;
+      document.body.classList.add('ca-grabbing');
+    }
+    drag.el.scrollLeft = drag.left - dx;
+    e.preventDefault();
+  });
+
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+  window.addEventListener('blur', endDrag);
+  document.addEventListener('dragstart', function(e){ if (drag && drag.moved) e.preventDefault(); });
+  document.addEventListener('click', function(e){
+    if (suppressClick){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
+  wrapTables();
+  new MutationObserver(scheduleWrap).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+</body>
 </html>`;
 }
 
@@ -1323,7 +1418,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${fadeCount ? `<button class="btn-sm band-filter-btn" data-band="fade" onclick="filterCapperBand('fade', this)"
         style="border:1px solid #ef444444;color:#ef4444;background:#ef444411;">FADE · ${fadeCount}</button>` : ''}
     </div>
-    <div style="overflow-x:auto;">
+    <div class="hscroll">
     <table id="capper-leaderboard">
       <thead><tr>
         ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below. Hover a rank for the raw Wilson value.')}${sortable('Needed%', 'num', 'The average win rate their own odds REQUIRED. Heavy favorites push it up (-1000 needs 90.9%), dogs pull it down (+150 needs 40%). Compare with Win%: winning a lot means nothing if the prices demanded more.')}${sortable('Edge', 'num', 'Win rate minus Needed%, shrunk by 25 phantom decisions so thin samples sit near zero. Positive = beats their own prices. At -2 or worse with 100+ decisions the PRICE GATE fires and their backing pays the flat 10.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide, the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped), and the gates (win%, money, price).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
@@ -3830,7 +3925,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const chShort = ch => ch === 'free-plays' ? 'free' : ch === 'pod-thread' ? 'pod' : ch === 'community-leaks' ? 'leaks' : (ch || '—');
         const chColor = ch => ch === 'free-plays' ? '#f59e0b' : ch === 'pod-thread' ? '#a78bfa' : '#64748b';
 
-        wrap.innerHTML = \`<div style="overflow-x:auto;">
+        wrap.innerHTML = \`<div class="hscroll">
           <table id="ph-table">
             <thead><tr>
               <th>Date</th>
