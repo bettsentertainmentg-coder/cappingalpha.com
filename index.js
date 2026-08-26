@@ -45,6 +45,9 @@ const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
 const { refreshPmWallets, pollPmWallets, discoverPmHolders } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
 const { pollWagerTalk } = require('./src/wagertalk');
+const { pollBettingPros } = require('./src/bettingpros');
+const { pollCbsPicks } = require('./src/cbs_picks');
+const { pollArticlePicks } = require('./src/article_picks');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -3190,6 +3193,9 @@ app.listen(PORT, () => {
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
     pollWagerTalk().catch(err => console.error('[startup] pollWagerTalk error:', err.message));
+    pollBettingPros().catch(err => console.error('[startup] pollBettingPros error:', err.message));
+    pollCbsPicks().catch(err => console.error('[startup] pollCbsPicks error:', err.message));
+    pollArticlePicks().catch(err => console.error('[startup] pollArticlePicks error:', err.message));
   }
 
   // Seed slots for every game in today_games (including forward games) — INSERT OR
@@ -3667,6 +3673,23 @@ if (!UI_ONLY) cron.schedule('5 16 * * *', () => {
 // picks from named pros — full board path through the normal source gates.
 if (!UI_ONLY) cron.schedule('15,45 8-23 * * *', () => {
   pollWagerTalk().catch(err => console.error('[cron] pollWagerTalk error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// BettingPros: by far the biggest source (hundreds of picks a slate from the
+// whole community). Their picks post a median 2.8h before first pitch, so a
+// 20-minute cadence catches nearly everything with hours of board life left.
+if (!UI_ONLY) cron.schedule('*/20 8-23 * * *', () => {
+  pollBettingPros().catch(err => console.error('[cron] pollBettingPros error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// CBS expert grids (NFL + CFB only) and the bylined article sites. Both are
+// low-volume and publish once per game, so hourly is plenty; staggered off the
+// half-hour sweeps above.
+if (!UI_ONLY) cron.schedule('25 8-23 * * *', () => {
+  pollCbsPicks().catch(err => console.error('[cron] pollCbsPicks error:', err.message));
+}, { timezone: 'America/New_York' });
+if (!UI_ONLY) cron.schedule('50 8-23 * * *', () => {
+  pollArticlePicks().catch(err => console.error('[cron] pollArticlePicks error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on

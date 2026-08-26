@@ -1289,6 +1289,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
     polymarket:    ['PM', '#8b5cf6', 'Polymarket pro wallet. Real positions from a top-P/L trader; entries before game start count as picks.'],
     covers:        ['CV', '#f59e0b', 'Covers.com contest player. Contest picks are platform-graded and lock at game start.'],
     wagertalk:     ['WT', '#14b8a6', 'WagerTalk pro. Free picks from their public page, graded by us; pregame picks join the board through normal scoring.'],
+    bettingpros:   ['BP', '#2563eb', 'BettingPros community bettor. Their public picks carry an exact post time and unit size; pregame ones join the board like any other source.'],
+    cbs:           ['CBS', '#0f766e', 'CBS Sports writer. Their weekly NFL and college football expert grid, graded by us.'],
+    sportsbookwire:['SBW', '#c2410c', 'SportsbookWire (USA TODAY) writer. Free bylined picks published hours before kickoff.'],
+    thespread:     ['TS', '#7c3aed', 'TheSpread writer. Free bylined game picks with the price.'],
+    sportsbettingdime: ['SBD', '#db2777', 'SportsBettingDime writer. Free bylined game picks.'],
+    sportsbookreview:  ['SBR', '#65a30d', 'Sportsbook Review writer. Free bylined picks with unit sizing.'],
     telegram:      ['TG', '#0ea5e9', 'Telegram channel (wave 2, not live yet)'],
     reddit:        ['RD', '#f97316', 'Reddit (wave 2, not live yet)'],
   };
@@ -1893,7 +1899,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <tbody>
           ${sourceFeed.map(r => {
             const ts = (r.saved_at || '').slice(0, 16).replace('T', ' ');
-            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'], wagertalk: ['WT', '#14b8a6'] };
+            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'], wagertalk: ['WT', '#14b8a6'], bettingpros: ['BP', '#2563eb'], cbs: ['CBS', '#0f766e'], sportsbookwire: ['SBW', '#c2410c'], thespread: ['TS', '#7c3aed'], sportsbettingdime: ['SBD', '#db2777'], sportsbookreview: ['SBR', '#65a30d'] };
             const [srcLabel, srcColor] = SRC[r.source] || [r.source, '#8892a4'];
             const srcChip = `<span style="background:${srcColor}22;color:${srcColor};border:1px solid ${srcColor}44;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;">${srcLabel}</span>`;
             const pt = (r.pick_type || '').toUpperCase();
@@ -3065,7 +3071,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           if (v3.total != null && m.score != null && Math.round(v3.total) !== Math.round(m.score)) notes.push('Board total now. The tracked bet froze at ' + Math.round(m.score) + ' when the game started.');
           capperHtml = \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-size:13px;">\${rows.join('')}\${notes.length ? '<div style="color:#64748b;font-size:11px;margin-top:8px;">' + esc(notes.join(' ')) + '</div>' : ''}</div>\`;
         } else if (capperRows.length) {
-          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], bettingpros:['BP','#2563eb'], cbs:['CBS','#0f766e'], sportsbookwire:['SBW','#c2410c'], thespread:['TS','#7c3aed'], sportsbettingdime:['SBD','#db2777'], sportsbookreview:['SBR','#65a30d'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const bySrc = new Map();
           for (const r of capperRows) {
             if (!r.capper_name) continue;
@@ -3520,7 +3526,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
           // ── v3 profile extensions: ratings, chips, equity curve, type table, fade ──
           const rating = data.rating || null;
-          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], bettingpros:['BP','#2563eb'], cbs:['CBS','#0f766e'], sportsbookwire:['SBW','#c2410c'], thespread:['TS','#7c3aed'], sportsbettingdime:['SBD','#db2777'], sportsbookreview:['SBR','#65a30d'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const chip = (label, color) => '<span style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:800;">' + label + '</span>';
           let headerChips = '';
           if (rating) {
@@ -4663,7 +4669,8 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
     `);
     // A source that has never written a row must still show up (as zero) — an
     // absent line is exactly how the AN discovery block went unnoticed.
-    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers', 'wagertalk'];
+    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers', 'wagertalk',
+      'bettingpros', 'cbs', 'sportsbookwire', 'thespread', 'sportsbettingdime', 'sportsbookreview'];
     const sources = [
       ...sourceRows,
       ...EXPECTED_SOURCES.filter(s => !sourceRows.some(r => r.source === s))
