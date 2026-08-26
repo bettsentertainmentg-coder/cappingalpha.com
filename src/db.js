@@ -1876,6 +1876,68 @@ try {
   console.warn('[db] cappertek removal failed:', err.message);
 }
 
+// ── One-time repair of two wave-2 ingestion bugs (2026-08-26, flag-guarded) ──
+// Found by auditing the live prod ledger, both in data the scrapers wrote:
+//  1. Polymarket holders backfill graded YES/NO PROP markets that ride inside a
+//     dated game event ("both teams to score?") as if they were side bets. 299
+//     of 3,725 backfill rows (every soccer one) landed on 74 wallets' resumes,
+//     one wallet 24 of its 25. The scorer reads those resumes, so the rows are
+//     deleted outright; the walk now skips Yes/No markets at the source.
+//  2. WagerTalk capper names arrived HTML-escaped ("Marco D&#039;Angelo"),
+//     which is a different identity to the registry — it could never merge with
+//     the same person from another source. Decode in place everywhere a
+//     canonical name is stored.
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'wave2_ingest_repair'`).get();
+  if (!done) {
+    const props = db.prepare(`
+      DELETE FROM capper_history
+      WHERE source = 'polymarket' AND sources_json LIKE '%backfill%'
+        AND LOWER(TRIM(team)) IN ('yes','no')
+    `).run();
+
+    const decode = (s) => String(s || '')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+
+    const mangled = new Set();
+    for (const t of ['capper_history', 'capper_registry', 'capper_source_handles', 'capper_ratings']) {
+      const col = t === 'capper_history' ? 'capper_name' : 'canonical_name';
+      try {
+        for (const r of db.prepare(`SELECT DISTINCT ${col} n FROM ${t} WHERE ${col} LIKE '%&%;%'`).all()) {
+          if (r.n && decode(r.n) !== r.n) mangled.add(r.n);
+        }
+      } catch (_) {}
+    }
+    let renamed = 0;
+    for (const bad of mangled) {
+      const good = decode(bad);
+      // A decoded twin may already exist (same person seen after the fix):
+      // fold into it rather than colliding on the registry's unique name.
+      const twin = db.prepare(`SELECT 1 FROM capper_registry WHERE canonical_name = ?`).get(good);
+      try {
+        db.prepare(`UPDATE capper_history SET capper_name = ? WHERE capper_name = ?`).run(good, bad);
+        db.prepare(`UPDATE capper_source_handles SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+        if (twin) {
+          db.prepare(`DELETE FROM capper_registry WHERE canonical_name = ?`).run(bad);
+          db.prepare(`DELETE FROM capper_ratings WHERE canonical_name = ?`).run(bad);
+        } else {
+          db.prepare(`UPDATE capper_registry SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+          db.prepare(`UPDATE capper_ratings SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+        }
+        renamed++;
+      } catch (_) {}
+    }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('wave2_ingest_repair', datetime('now'))`).run();
+    console.log(`[db] wave2 ingest repair: ${props.changes} prop backfill rows deleted, ${renamed} escaped capper names decoded`);
+  }
+} catch (err) {
+  console.warn('[db] wave2 ingest repair failed:', err.message);
+}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

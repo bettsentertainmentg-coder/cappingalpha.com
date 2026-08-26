@@ -457,6 +457,17 @@ async function walkWalletHistory(ledgers, cfg) {
     let prices = [];
     try { prices = (typeof mkt.outcomePrices === 'string' ? JSON.parse(mkt.outcomePrices) : (mkt.outcomePrices || [])).map(parseFloat); } catch (_) {}
     if (!prices.some(p => p === 1)) continue; // unresolved or voided — no grade
+
+    // Prop guard: a dated game event carries side/total markets AND yes-or-no
+    // props ("both teams to score?", "will X win by 2+?"). Only the former are
+    // the straight bets we grade a capper on, and a Yes/No outcome is not a
+    // side any downstream reader can interpret. The live path drops these
+    // implicitly (sideOf never matches "Yes"), so this brings the backfill in
+    // line with it. Soccer events are almost entirely props, which is why
+    // every soccer backfill row before this guard was one.
+    let mktOutcomes = [];
+    try { mktOutcomes = typeof mkt.outcomes === 'string' ? JSON.parse(mkt.outcomes) : (mkt.outcomes || []); } catch (_) {}
+    if (mktOutcomes.some(o => /^(yes|no)$/i.test(String(o).trim()))) continue;
     // gamma prints '2026-07-27 18:35:00+00' — the bare '+00' offset is NaN to
     // V8's Date until it reads '+00:00'.
     const startIso = mkt.gameStartTime || null;
