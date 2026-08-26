@@ -1969,6 +1969,81 @@ function setSetting(key, value) {
   } catch (_) {}
 }
 
+// ── One-time purge of wallets admitted under the old loose bar (2026-08-26) ──
+// Jack's rule when the profit gate went in: don't just screen new wallets,
+// REMOVE the ones that trade rather than bet. 284 wallets had been admitted on
+// behaviour alone; judged on everything we now know about them (their imported
+// history AND every live pick we have graded since), only 104 clear the new bar
+// of 10+ decisions and a profit at flat stakes. The other 180 ran 47.5% for
+// -372 units.
+// Judging on the TOTAL record on purpose: 17 of the keepers had a thin import
+// but proved themselves live (one is 30-20, +9.2u off 47 live picks), and a
+// backfill-only test would have thrown them out.
+// What this does and does not touch:
+//   - untracks the failures (removed from pm_wallets) so they stop feeding new
+//     picks; that is the operative meaning of "remove".
+//   - deletes the backfill rows they were gifted under the looser bar.
+//   - LEAVES their real graded picks alone. Those are honest history we bought
+//     with real grading, and deleting them would silently restate the ledger.
+//     The scorer already neutralises losers (hard zero, fade list, money gate).
+//   - only touches wallets discovered by the holders sweep. The top-50 P/L
+//     leaderboard set is a separate lane and re-seeds itself every morning.
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'pm_holders_quality_purge'`).get();
+  if (!done) {
+    const unitReturn = (odds, result) => {
+      if (result === 'push') return 0;
+      const o = parseFloat(odds);
+      if (!Number.isFinite(o)) return result === 'win' ? 0 : -1;
+      if (result === 'win') return o > 0 ? o / 100 : 100 / Math.abs(o);
+      return -1;
+    };
+    const minDec = parseInt(getSetting('pm_screen_min_decisions', '10'), 10);
+    const minUnits = parseFloat(getSetting('pm_screen_min_units', '0'));
+    let wallets = [];
+    try {
+      wallets = db.prepare(`
+        SELECT w.wallet, h.canonical_name
+        FROM pm_wallets w
+        LEFT JOIN capper_source_handles h ON h.source = 'polymarket' AND h.handle = w.wallet
+        WHERE w.meta_json LIKE '%"discovery":"holders"%'
+      `).all();
+    } catch (_) {}
+
+    const gradedFor = db.prepare(`
+      SELECT result, odds, sources_json FROM capper_history
+      WHERE capper_name = ? AND source = 'polymarket' AND result IN ('win','loss','push')
+    `);
+    const delWallet = db.prepare(`DELETE FROM pm_wallets WHERE wallet = ?`);
+    const delBackfill = db.prepare(`
+      DELETE FROM capper_history
+      WHERE capper_name = ? AND source = 'polymarket' AND sources_json LIKE '%backfill%'
+    `);
+
+    let rejected = {};
+    try { rejected = JSON.parse(getSetting('pm_holders_rejected', '{}')); } catch (_) {}
+
+    let kept = 0, dropped = 0, rowsDeleted = 0;
+    for (const w of wallets) {
+      if (!w.canonical_name) continue; // unmapped handle: leave it alone
+      const rows = gradedFor.all(w.canonical_name);
+      const wins = rows.filter((r) => r.result === 'win').length;
+      const losses = rows.filter((r) => r.result === 'loss').length;
+      const units = rows.reduce((s, r) => s + unitReturn(r.odds, r.result), 0);
+      if ((wins + losses) >= minDec && units > minUnits) { kept++; continue; }
+      delWallet.run(w.wallet);
+      rowsDeleted += delBackfill.run(w.canonical_name).changes;
+      rejected[w.wallet] = Date.now();
+      dropped++;
+    }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('pm_holders_rejected', ?)`).run(JSON.stringify(rejected));
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('pm_holders_quality_purge', datetime('now'))`).run();
+    console.log(`[db] pm holders quality purge: kept ${kept} proven wallets, untracked ${dropped}, removed ${rowsDeleted} gifted backfill rows`);
+  }
+} catch (err) {
+  console.warn('[db] pm holders quality purge failed:', err.message);
+}
+
 module.exports = db;
 module.exports.getSetting = getSetting;
 module.exports.setSetting = setSetting;
