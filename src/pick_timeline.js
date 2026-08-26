@@ -342,12 +342,22 @@ function writeFrozenTimeline(pickId, events) {
 function freezeStartedCurves() {
   let n = 0;
   try {
+    // NOT the raw status string. A match halted mid-play is re-dated and comes
+    // back filed 'pre' with no stamp (docs/GRADING_RULES R11), so a status filter
+    // would skip exactly the games most likely to have a corrupted curve. Ask the
+    // same question the SCORE freeze asks, per game, so the two can never
+    // disagree about whether a pick is settled.
+    const { hasGameStarted } = require('./pick_cutoff');
     const games = db.prepare(`
-      SELECT DISTINCT tg.espn_game_id
+      SELECT DISTINCT tg.espn_game_id, tg.status, tg.start_time, tg.actual_start_at, tg.sport,
+             tg.home_score, tg.away_score, tg.tennis_home_games, tg.tennis_away_games
       FROM today_games tg JOIN picks p ON p.espn_game_id = tg.espn_game_id
-      WHERE tg.status IN ('in', 'post') AND p.mention_count > 0 AND p.timeline_frozen IS NULL
+      WHERE p.mention_count > 0 AND p.timeline_frozen IS NULL
     `).all();
-    for (const g of games) n += freezeTimelinesForGame(g.espn_game_id);
+    for (const g of games) {
+      if (!hasGameStarted(g)) continue;
+      n += freezeTimelinesForGame(g.espn_game_id);
+    }
   } catch (_) {}
   if (n) console.log(`[pickTimeline] froze ${n} conviction curve(s) on already-started games`);
   return n;
