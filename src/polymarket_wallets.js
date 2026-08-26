@@ -310,17 +310,54 @@ const SLUG_SPORT = {
 };
 const slugSport = (slug) => SLUG_SPORT[(slug || '').split('-')[0]] || null;
 
+// Admission thresholds (recalibrated 2026-08-26 against 26 live candidates —
+// scripts/pm_calibrate.js reproduces the measurement).
+// What that run showed, and why the numbers are what they are:
+//   - A ZERO-tolerance behaviour screen (hedge 0 / sell 5 / pregame 90) admitted
+//     NOBODY. Perfectly clean books at size do not exist.
+//   - Behaviour purity ALONE was anti-correlated with skill: the strictest
+//     behaviour-only set admitted a 3-9 wallet and two with no record at all,
+//     while the three genuinely good wallets (63% and +16.8u between them) each
+//     carried 3-6% incidental hedging from averaging into a line.
+//   - The PROFIT gate did all the separating. Once it is in, loosening or
+//     tightening the behaviour bars changed nothing.
+// So: behaviour bars sit where they exclude real traders (cash-out artists ran
+// 35-52%, churners 25-73% sells) without punishing a clean bettor's rounding,
+// and the decision is carried by a record WE graded.
 function holdersCfg() {
   return {
     minUsd: parseFloat(db.getSetting('pm_min_usd', '200')),
-    maxNew: parseInt(db.getSetting('pm_holders_max_new', '10'), 10),
+    maxNew: parseInt(db.getSetting('pm_holders_max_new', '3'), 10),
     days: parseInt(db.getSetting('pm_backfill_days', '90'), 10),
     maxDecisions: parseInt(db.getSetting('pm_backfill_max_decisions', '25'), 10),
-    hedgePct: parseFloat(db.getSetting('pm_screen_hedge_pct', '10')),
-    cashoutPct: parseFloat(db.getSetting('pm_screen_cashout_pct', '25')),
-    sellPct: parseFloat(db.getSetting('pm_screen_sell_pct', '20')),
-    pregamePct: parseFloat(db.getSetting('pm_screen_pregame_pct', '50')),
+    hedgePct: parseFloat(db.getSetting('pm_screen_hedge_pct', '8')),
+    cashoutPct: parseFloat(db.getSetting('pm_screen_cashout_pct', '15')),
+    sellPct: parseFloat(db.getSetting('pm_screen_sell_pct', '10')),
+    pregamePct: parseFloat(db.getSetting('pm_screen_pregame_pct', '80')),
+    // Proof gates: a wallet must show a real, profitable pregame record that WE
+    // graded (on-chain settlement, flat one-unit stakes at the price it paid).
+    // Polymarket's own headline P/L is never consulted — same rule as every
+    // other source's claimed record.
+    minDecisions: parseInt(db.getSetting('pm_screen_min_decisions', '10'), 10),
+    minUnits: parseFloat(db.getSetting('pm_screen_min_units', '0')),
+    // How deep to screen, INDEPENDENT of how many we admit. These must not be
+    // coupled: position size is if anything anti-correlated with being a
+    // straight bettor (the biggest holders are market-makers we refuse), so the
+    // wallets worth having sit well down the size-ranked list. Tying the search
+    // window to the admit quota starved discovery outright — a quota of 3 only
+    // looked at 15 candidates and admitted nobody while three proven winners
+    // waited at ranks 18, 19 and 26.
+    screenMax: parseInt(db.getSetting('pm_holders_screen_max', '40'), 10),
   };
+}
+
+// Flat one-unit return at American odds — the ledger's own math.
+function unitReturn(odds, result) {
+  if (result === 'push') return 0;
+  const o = parseFloat(odds);
+  if (!Number.isFinite(o)) return result === 'win' ? 0 : -1;
+  if (result === 'win') return o > 0 ? o / 100 : 100 / Math.abs(o);
+  return -1;
 }
 
 // Page a wallet's trade history back to sinceTs (seconds). Returns dated-game
@@ -575,11 +612,10 @@ async function discoverPmHolders() {
     }
   }
 
-  // Screen down the size-ranked list until the day's admit quota fills — the
-  // biggest holders are often market-maker types the screen exists to refuse,
-  // so refusals must not eat the quota. Screening is itself capped (5x) to
-  // bound API load.
-  const picks = [...candidates.entries()].sort((a, b) => b[1].estUsd - a[1].estUsd).slice(0, cfg.maxNew * 5);
+  // Screen down the size-ranked list until the day's admit quota fills. The
+  // window is its own setting (see screenMax) precisely so a small quota still
+  // searches deep — refusals must never eat the quota OR the search.
+  const picks = [...candidates.entries()].sort((a, b) => b[1].estUsd - a[1].estUsd).slice(0, cfg.screenMax);
   let admitted = 0, refused = 0, backfilled = 0;
   const sinceTs = Math.floor(Date.now() / 1000) - cfg.days * 86400;
   for (const [wallet, c] of picks) {
@@ -605,6 +641,30 @@ async function discoverPmHolders() {
       console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: only ${stats.pregame_pct}% pregame entries (${entries} settled) — live trader`);
       continue;
     }
+
+    // Proof gate: the record WE graded off their own settled pregame bets must
+    // exist and must be profitable at flat stakes. No record is not a pass —
+    // "nothing bad known" was letting through wallets with zero evidence, and
+    // measured 3-9 and 23-21 books were being admitted alongside real winners.
+    const wins = hist.rows.filter((r) => r.result === 'win').length;
+    const losses = hist.rows.filter((r) => r.result === 'loss').length;
+    const decisions = wins + losses;
+    const units = +hist.rows.reduce((s, r) => s + unitReturn(r.odds, r.result), 0).toFixed(2);
+    stats.record = `${wins}-${losses}`;
+    stats.units = units;
+    stats.win_pct = decisions ? +(100 * wins / decisions).toFixed(1) : null;
+    if (decisions < cfg.minDecisions) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: only ${decisions} graded pregame decisions (need ${cfg.minDecisions})`);
+      continue;
+    }
+    if (units <= cfg.minUnits) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: ${stats.record} (${stats.win_pct}%) but ${units}u at flat stakes — not profitable`);
+      continue;
+    }
     const walletRow = { wallet, username: c.username };
     try {
       db.prepare(`
@@ -617,7 +677,7 @@ async function discoverPmHolders() {
     const n = insertBackfillRows(pmDisplayName(walletRow), hist.rows);
     backfilled += n;
     admitted++;
-    console.log(`[pm_holders] admitted ${pmDisplayName(walletRow)} ($${Math.round(c.estUsd)} on today's board, ${stats.markets} mkts screened, ${stats.pregame_pct}% pregame, ${n} graded picks backfilled)`);
+    console.log(`[pm_holders] admitted ${pmDisplayName(walletRow)} ($${Math.round(c.estUsd)} on today's board, ${stats.record} (${stats.win_pct}%) ${stats.units >= 0 ? '+' : ''}${stats.units}u by our grading, ${stats.pregame_pct}% pregame, ${n} picks backfilled)`);
   }
   // Prune the rejection cache so it never grows unbounded.
   for (const [w, ts] of Object.entries(rejected)) if (Date.now() - ts > retryMs * 2) delete rejected[w];
@@ -626,7 +686,13 @@ async function discoverPmHolders() {
   return admitted;
 }
 
-module.exports = { refreshPmWallets, pollPmWallets, resolvePmStance, buildMarketMap, pmDisplayName, classifyMarket, discoverPmHolders };
+module.exports = {
+  refreshPmWallets, pollPmWallets, resolvePmStance, buildMarketMap, pmDisplayName,
+  classifyMarket, discoverPmHolders,
+  // Exposed for the admission-threshold calibration script (scripts/pm_calibrate.js):
+  // it replays real candidates through the exact screen the ingest uses.
+  holdersCfg, fetchWalletGameTrades, buildLedgers, screenWallet, walkWalletHistory, getJson, unitReturn,
+};
 
 // CLI: node src/polymarket_wallets.js
 if (require.main === module) {
