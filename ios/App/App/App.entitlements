@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Shared container between the app and the CappingAlphaShare extension. This
+	     is the only entitlement declared here on purpose: enabling Push Notifications
+	     from Xcode's Signing & Capabilities tab appends aps-environment to this same
+	     file, so nothing here needs to pre-empt it. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.cappingalpha.app</string>
+	</array>
+</dict>
+</plist>
