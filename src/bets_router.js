@@ -45,4 +45,19 @@ router.delete('/:id', (req, res) => send(res, () => ub.deleteBet(uid(req), Numbe
 // Manually settle a non-game-linked bet.
 router.post('/:id/settle', (req, res) => send(res, () => ({ bet: ub.settleBet(uid(req), Number(req.params.id), (req.body || {}).result) })));
 
+// Share payload for one of the owner's bets: the signed card URL plus the caption.
+// Owner-scoped, so a token is only ever minted for a bet the caller actually holds.
+router.get('/:id/share', (req, res) => send(res, () => {
+  const id = Number(req.params.id);
+  const bet = ub.getBet(uid(req), id);
+  if (!bet) { const e = new Error('Bet not found.'); e.status = 404; throw e; }
+  const card = require('./bet_card');
+  return {
+    image_url: `/og/bet/${id}.png?t=${card.tokenFor(id)}`,
+    text: card.shareText(id),
+    site: 'https://cappingalpha.com',
+    available: card.available(),
+  };
+}));
+
 module.exports = router;

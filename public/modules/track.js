@@ -378,70 +378,103 @@ export function openBetDetail(id) {
 export async function shareBet(id) {
   const b = _bets.find(x => x.id === id);
   if (!b) return;
-  const W = 1080, H = 1080, dpr = 1;
+  // The card is rendered server side (src/bet_card.js) so every share looks the
+  // same everywhere and one design covers both the shared FILE and the og:image
+  // on the link. The canvas fallback below keeps sharing working if the renderer
+  // or its fonts are ever missing.
+  try {
+    const meta = await (await fetch(`/api/bets/${id}/share`)).json();
+    if (meta && meta.available && meta.image_url) {
+      const blob = await (await fetch(meta.image_url)).blob();
+      if (blob && blob.type === 'image/png') {
+        const file = new File([blob], 'cappingalpha-bet.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file], text: meta.text, url: meta.site }); return; }
+          catch (_) { return; }   // user cancelled: do not then dump a download on them
+        }
+        downloadBlob(blob, 'cappingalpha-bet.png');
+        showToast('Saved your bet card.');
+        return;
+      }
+    }
+  } catch (_) { /* fall through to the canvas card */ }
+  await shareBetCanvas(b);
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Offline / no-renderer fallback: draw the card in the browser.
+async function shareBetCanvas(b) {
+  const W = 1080, H = 1080;
   const cv = document.createElement('canvas');
-  cv.width = W * dpr; cv.height = H * dpr;
+  cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
-  ctx.scale(dpr, dpr);
   const grad = ctx.createLinearGradient(0, 0, W, H);
   grad.addColorStop(0, '#0b1220'); grad.addColorStop(1, '#0f1117');
   ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
-  // accent bar
   ctx.fillStyle = '#3b82f6'; ctx.fillRect(0, 0, W, 14);
   const cx = W / 2;
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e2e8f0';
-  ctx.font = '800 40px system-ui, sans-serif';
-  ctx.fillText('CappingAlpha', cx, 120);
-  // WINNER badge
-  ctx.fillStyle = '#4ade80';
-  ctx.font = '900 130px system-ui, sans-serif';
-  ctx.fillText('WINNER', cx, 340);
-  // selection (wrap)
+  ctx.font = '800 42px system-ui, sans-serif';
+  ctx.fillText('CappingAlpha', cx, 130);
+
+  const r = String(b.result || 'pending').toLowerCase();
+  const RS = { win: ['WON', '#4ade80'], loss: ['LOST', '#f87171'], push: ['PUSH', '#94a3b8'], void: ['VOID', '#94a3b8'] };
+  const [label, color] = RS[r] || ['ON THE BOARD', '#60a5fa'];
+  ctx.fillStyle = color;
+  ctx.font = '900 78px system-ui, sans-serif';
+  ctx.fillText(label, cx, 300);
+
   ctx.fillStyle = '#ffffff';
   ctx.font = '700 58px system-ui, sans-serif';
   const sel = String(b.selection || 'My bet');
-  const words = sel.split(' '); let line = '', y = 470;
+  const words = sel.split(' '); let line = '', y = 420;
   for (const w of words) {
     if (ctx.measureText(line + w).width > W - 160 && line) { ctx.fillText(line.trim(), cx, y); line = ''; y += 74; }
     line += w + ' ';
   }
   ctx.fillText(line.trim(), cx, y);
-  // odds + payout stats
+
   const oddsStr = b.odds > 0 ? '+' + b.odds : '' + b.odds;
-  const profit = b.payout != null ? b.payout : 0;
-  const unit = Number(window._trackUnitSize) > 0 ? Number(window._trackUnitSize) : 20;
-  const uStr = `+${(profit / unit).toFixed(2)}u`;
-  ctx.font = '800 84px system-ui, sans-serif';
-  ctx.fillStyle = '#4ade80';
-  ctx.fillText(`+$${Math.abs(profit).toFixed(2)}`, cx, y + 200);
-  ctx.font = '600 44px system-ui, sans-serif';
-  ctx.fillStyle = '#8892a4';
-  ctx.fillText(`${oddsStr}  ·  ${uStr}${b.book ? '  ·  ' + b.book : ''}`, cx, y + 270);
-  // footer
+  ctx.font = '800 52px system-ui, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(oddsStr, cx, y + 150);
+  if (r === 'win' || r === 'loss') {
+    const profit = b.payout != null ? b.payout : 0;
+    const unit = unitSize();
+    ctx.font = '800 76px system-ui, sans-serif';
+    ctx.fillStyle = color;
+    ctx.fillText(`${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(2)}`, cx, y + 250);
+    ctx.font = '600 30px system-ui, sans-serif';
+    ctx.fillStyle = '#8892a4';
+    ctx.fillText(`${profit >= 0 ? '+' : '-'}${Math.abs(profit / unit).toFixed(2)}u${b.book ? '  ·  ' + b.book : ''}`, cx, y + 300);
+  }
   ctx.fillStyle = '#64748b';
-  ctx.font = '500 34px system-ui, sans-serif';
+  ctx.font = '500 32px system-ui, sans-serif';
   ctx.fillText('cappingalpha.com', cx, H - 70);
 
   const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
   if (!blob) { showToast('Could not make the card.', 'err'); return; }
-  const file = new File([blob], 'cappingalpha-win.png', { type: 'image/png' });
-  // Custom message + a link to the CappingAlpha main page so anyone who sees the
-  // share can come check it out (prod domain works from any environment).
+  const file = new File([blob], 'cappingalpha-bet.png', { type: 'image/png' });
   const site = 'https://cappingalpha.com';
-  const text = `I just cashed ${sel} on CappingAlpha. Come see the ranked picks and track your own bets: ${site}`;
+  const text = r === 'win'
+    ? `Just cashed ${sel} on CappingAlpha. Ranked picks and full bet tracking: ${site}`
+    : `Tracking every bet on CappingAlpha: ${site}`;
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text, url: site });
       return;
     }
-  } catch (_) { /* user canceled or share failed -> fall through to download */ }
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = 'cappingalpha-win.png';
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast('Saved your win card.');
+  } catch (_) { return; }
+  downloadBlob(blob, 'cappingalpha-bet.png');
+  showToast('Saved your bet card.');
 }
 
 export async function saveBetEdit(id) {
@@ -514,14 +547,25 @@ export function backToTrackMenu() {
   if (body) body.innerHTML = sheetMenuHtml();
 }
 
-// ── Betslip scan — free OCR, zero API credits ─────────────────────────────────
-// Tesseract.js (vendored under /vendor/tesseract, ~10MB lazy-loaded on first use)
-// reads the screenshot in the user's own browser; the image never leaves their
-// device. A heuristic parser lifts selection/odds/stake/book and prefills the
-// custom form for the user to confirm. A Mac-Ollama structuring pass can slot in
-// later; the paid Haiku path is never used here.
+// ── Betslip scan — screenshot to tracked bet, zero API credits ────────────────
+//
+// THE PATH: read the image on the device -> post only the TEXT to
+// /api/betslip/parse -> the server matches it to a real game, checks the start
+// gate and the book range -> the bet lands on the SAME confirm slide as a bet
+// placed by tapping a line. Nothing here invents a trust level: a scanned bet
+// verifies exactly when a tapped one would.
+//
+// OCR is device-side and free, two ways:
+//   - native shell : Apple Vision / ML Kit through window.CANative.ocr(). Better
+//                    accuracy, and it returns word BOXES so the server can rebuild
+//                    the visual rows (a betslip is a two-column layout, and plain
+//                    OCR reading order splits the selection from its price).
+//   - browser      : Tesseract.js, vendored under /vendor/tesseract, lazy-loaded.
+// The paid Haiku path is never used here and never should be.
 let _tessWorker = null;
 let _tessIdleTimer = null;
+let _scan = null;   // the current parse result being reviewed
+
 // Free the ~100MB wasm worker a minute after the last scan; a rescan just reloads it.
 function scheduleTessRelease() {
   if (_tessIdleTimer) clearTimeout(_tessIdleTimer);
@@ -552,21 +596,54 @@ async function getTessWorker(onProgress) {
   return _tessWorker;
 }
 
+function hasNativeOcr() {
+  return !!(window.CANative && typeof window.CANative.ocr === 'function');
+}
+
+// Read an image and return { text, blocks }. Blocks are only ever produced by the
+// native readers; the browser path returns text alone and the server copes.
+async function ocrImage(file, onProgress) {
+  if (hasNativeOcr()) {
+    if (onProgress) onProgress(10);
+    const dataUrl = await fileToDataUrl(file);
+    const res = await window.CANative.ocr({ image: dataUrl });
+    if (onProgress) onProgress(100);
+    return { text: res && res.text || '', blocks: (res && res.blocks) || null };
+  }
+  const worker = await getTessWorker(onProgress);
+  const { data } = await worker.recognize(file);
+  return { text: (data && data.text) || '', blocks: null };
+}
+
+function fileToDataUrl(file) {
+  return new Promise((ok, err) => {
+    const fr = new FileReader();
+    fr.onload = () => ok(String(fr.result || ''));
+    fr.onerror = () => err(new Error('read failed'));
+    fr.readAsDataURL(file);
+  });
+}
+
 export function showBetScan() {
   stopBoardPoll();
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
+  // On the phone the share sheet is the real entry point, so say so once here.
+  const shareHint = window.CANative
+    ? `<div class="track-form-note" style="margin-top:10px;">You can also share a bet straight from your sportsbook app: tap Share on the slip, then pick CappingAlpha.</div>`
+    : '';
   body.innerHTML = `
     <button class="ob-back" onclick="backToTrackMenu()">‹ Back</button>
     <div class="track-form">
       <div class="ob-head" style="margin-bottom:4px;">Upload a betslip</div>
-      <div class="track-form-note">Screenshot the slip in your sportsbook app, then choose it here. Reading happens on your device; the image is never uploaded anywhere.</div>
+      <div class="track-form-note">Screenshot the slip in your sportsbook app, then choose it here. The image is read on your device and never leaves it.</div>
       <label class="track-opt" style="cursor:pointer;">
         <span class="track-opt-ic" style="background:rgba(167,139,250,.16);color:#a78bfa;"><i class="fa-regular fa-image"></i></span>
-        <span><span class="track-opt-t">Choose screenshot</span><span class="track-opt-d">PNG or JPG. Tighter crops read better.</span></span>
+        <span><span class="track-opt-t">Choose screenshot</span><span class="track-opt-d">One bet or a whole My Bets list. PNG or JPG.</span></span>
         <input type="file" accept="image/*" style="display:none;" onchange="scanBetslip(this)" />
       </label>
       <div id="scan-status" style="font-size:13px;color:var(--muted);padding:10px 2px;"></div>
+      ${shareHint}
       <button class="track-opt" onclick="showCustomForm()">
         <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
         <span><span class="track-opt-t">Type it in instead</span><span class="track-opt-d">The regular custom bet form.</span></span>
@@ -575,21 +652,36 @@ export function showBetScan() {
 }
 
 export async function scanBetslip(input) {
-  const file = input?.files?.[0];
+  const file = input && input.files && input.files[0];
   if (!file) return;
+  await runScan(file);
+}
+
+// Shared by the picker and by a slip arriving from the share sheet.
+async function runScan(file) {
   const st = document.getElementById('scan-status');
   const say = t => { if (st) st.textContent = t; };
   try {
-    say('Loading the reader (first time can take a few seconds)...');
-    const worker = await getTessWorker(p => say(`Reading your slip... ${p}%`));
-    say('Reading your slip...');
-    const { data } = await worker.recognize(file);
-    const parsed = parseBetslipText(data && data.text || '');
-    if (!parsed.selection && parsed.odds == null && parsed.stake == null) {
-      say('Could not read a bet off that image. Try a tighter screenshot, or type it in below.');
+    say(hasNativeOcr() ? 'Reading your slip...' : 'Loading the reader (first time can take a few seconds)...');
+    const { text, blocks } = await ocrImage(file, p => say(`Reading your slip... ${p}%`));
+    if (!text && !(blocks && blocks.length)) { say('Could not read anything off that image. Try a tighter screenshot, or type it in below.'); return; }
+
+    say('Matching it up...');
+    const res = await fetch('/api/betslip/parse', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, blocks }),
+    });
+    if (res.status === 401) { window.openLogin && window.openLogin(); return; }
+    if (!res.ok) { say('Could not read that slip. You can type the bet in below instead.'); return; }
+    const data = await res.json();
+
+    if (!data.bets || !data.bets.length) {
+      say(data.warnings && data.warnings.includes('not_a_betslip')
+        ? 'That does not look like a betslip. Try a screenshot of the bet itself, or type it in below.'
+        : 'Could not read a bet off that image. Try a tighter screenshot, or type it in below.');
       return;
     }
-    openScannedBet(parsed);
+    await routeScanResult(data);
   } catch (_) {
     say('Could not read that image. You can type the bet in below instead.');
   } finally {
@@ -597,82 +689,275 @@ export async function scanBetslip(input) {
   }
 }
 
-// Heuristics over the OCR text. Betslips are clean digital screenshots, so plain
-// pattern-matching gets the big four (selection, odds, stake, book) most of the time.
-function parseBetslipText(raw) {
-  const text = String(raw || '');
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
-  const lower = text.toLowerCase();
-  const out = { selection: '', odds: null, stake: null, book: '', bet_type: 'ml', totalSide: null, line: null };
-
-  for (const [hint, name] of [
-    ['draftkings', 'DraftKings'], ['fanduel', 'FanDuel'], ['betmgm', 'BetMGM'],
-    ['caesars', 'Caesars'], ['bovada', 'Bovada'], ['betonline', 'BetOnline'],
-    ['hard rock', 'Hard Rock'], ['espn bet', 'ESPN BET'], ['betrivers', 'BetRivers'],
-    ['pinnacle', 'Pinnacle'], ['kalshi', 'Kalshi'], ['polymarket', 'Polymarket'],
-  ]) { if (lower.includes(hint)) { out.book = name; break; } }
-
-  const NOISE = /betslip|bet slip|open bets|settled|cash ?out|share|wager|total|payout|returns|to win|odds|selections?|leg/i;
-
-  // Odds: prefer a candidate sharing a line with real words (the selection line).
-  // No lookbehind assertions here: Safari before 16.4 fails to PARSE the whole
-  // module on (?<!...), which would blank the entire app for those users. Group 1
-  // captures the boundary character instead; group 2 is the odds.
-  const oddsRe = /(^|[^\d.])([+-]\d{3,4})(?!\d)/g;
-  const oddsIn = (s) => { const found = []; let m; oddsRe.lastIndex = 0; while ((m = oddsRe.exec(s))) found.push(parseFloat(m[2])); return found; };
-  const stripOdds = (s) => { oddsRe.lastIndex = 0; return s.replace(oddsRe, (all, p1) => p1); };
-  let firstOdds = null;
-  for (const l of lines) {
-    const found = oddsIn(l);
-    if (!found.length) continue;
-    if (firstOdds == null) firstOdds = found[0];
-    if (/[a-z]{3,}/i.test(stripOdds(l))) { out.odds = found[0]; break; }
-  }
-  if (out.odds == null) out.odds = firstOdds;
-
-  const stakeM = lower.match(/(?:total wager|wager|risk|stake|bet amount|bet)[^\d$]{0,12}\$?\s*(\d+(?:\.\d{1,2})?)/);
-  if (stakeM) out.stake = parseFloat(stakeM[1]);
-  else { const d = text.match(/\$\s*(\d+(?:\.\d{1,2})?)/); if (d) out.stake = parseFloat(d[1]); }
-  const winM = lower.match(/(?:to win|payout|potential winnings|returns)[^\d$]{0,12}\$?\s*(\d+(?:\.\d{1,2})?)/);
-  if (out.odds == null && out.stake > 0 && winM) {
-    const ratio = parseFloat(winM[1]) / out.stake;
-    if (isFinite(ratio) && ratio > 0) out.odds = ratio >= 1 ? Math.round(ratio * 100) : -Math.round(100 / ratio);
-  }
-
-  const ou = text.match(/\b(over|under)\s+(\d+(?:\.\d)?)/i);
-  if (ou) { out.bet_type = 'total'; out.totalSide = ou[1].toLowerCase(); out.line = parseFloat(ou[2]); }
-  else if (/parlay/i.test(lower)) out.bet_type = 'parlay';
-  else if (/spread|run ?line|puck ?line|handicap/i.test(lower)) {
-    out.bet_type = 'spread';
-    const sp = text.match(/(^|[^\d.])([+-]\d{1,2}(?:\.5)?)(?![\d.])/); // no lookbehind (Safari < 16.4)
-    if (sp) out.line = parseFloat(sp[2]);
-  } else if (/money ?line/i.test(lower)) out.bet_type = 'ml';
-
-  // Selection: the line carrying the odds, minus the odds token; else the first
-  // real-word line that isn't slip chrome or the book's own name.
-  const oddsStr = out.odds != null ? (out.odds > 0 ? '+' + out.odds : String(out.odds)) : null;
-  let sel = oddsStr ? lines.find(l => l.includes(oddsStr) && /[a-z]{3,}/i.test(stripOdds(l))) : null;
-  if (sel) sel = stripOdds(sel).replace(/[|•·]+/g, ' ').trim();
-  if (!sel) sel = lines.find(l => /[a-z]{3,}/i.test(l) && !NOISE.test(l) && !(out.book && l.toLowerCase().includes(out.book.toLowerCase()))) || '';
-  out.selection = sel.slice(0, 80);
-  return out;
+// One bet goes straight to a confirm screen. Several go to a review list.
+async function routeScanResult(data) {
+  _scan = data;
+  if (data.bets.length === 1) return openScannedBet(data.bets[0], data);
+  renderScanReview(data);
 }
 
-// Prefill the custom form with whatever the scan found; the user confirms.
-function openScannedBet(p) {
-  showCustomForm();
-  if (p.bet_type === 'total') { setFormField('bet_type', 'total'); if (p.totalSide) setFormField('totalSide', p.totalSide); }
-  else if (p.bet_type && p.bet_type !== 'ml') setFormField('bet_type', p.bet_type);
+// ── Single bet ────────────────────────────────────────────────────────────────
+// A matched, still-pregame single rides the REAL confirm slide: we load its board
+// and click its own line button, so the slide is built by the one true render path
+// and the verified badge, the book compare and the start gate all behave exactly as
+// they do for a tapped bet. Everything else falls to the custom form.
+async function openScannedBet(bet, data) {
+  const m = bet.match || {};
+  const canConfirm = m.espn_game_id && m.slot && bet.tracking && bet.tracking.open && bet.verify && bet.verify.eligible;
+  if (canConfirm) {
+    await pickTrackGame(m.espn_game_id);
+    const btn = [...document.querySelectorAll('#track-sheet-body .ob-line')]
+      .find(b => (b.getAttribute('onclick') || '').includes(`'${m.slot}'`) && !b.disabled);
+    if (btn) {
+      btn.click();
+      prefillConfirmFromScan(bet, data);
+      return;
+    }
+    // No live line for that slot: fall through to the custom form rather than
+    // stranding the user on a board with nothing to tap.
+  }
+  openScannedCustom(bet, data);
+}
+
+// Put the slip's own numbers on the confirm slide, then let the existing verified
+// logic judge them. We never assert "verified" from the client.
+function prefillConfirmFromScan(bet, data) {
   const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
-  set('cf-selection', p.selection);
-  set('cf-odds', p.odds);
-  set('cf-stake', p.stake);
-  set('cf-line', p.line);
-  if (p.book) setCustomBook(p.book);
-  const form = document.querySelector('#track-sheet-body .track-form');
-  if (form) form.insertAdjacentHTML('afterbegin', `<div class="track-form-note" style="border:1px solid rgba(167,139,250,.4);border-radius:8px;padding:8px 10px;"><i class="fa-regular fa-image" style="color:#a78bfa;margin-right:6px;"></i>Read from your screenshot. Double-check the numbers before tracking.</div>`);
-  updatePayoutPreview();
+  set('lc-odds', bet.odds);
+  if (bet.line != null) set('lc-line', bet.line);
+  if (bet.stake != null && bet.stake > 0) set('lc-stake', bet.stake);
+  const book = bet.book || (data && data.book);
+  if (book && _confirm) {
+    _confirm.book = book;
+    const bub = document.getElementById('lc-bubbles');
+    if (bub) bub.innerHTML = renderBookBubbles();
+  }
+  onConfirmField('odds');           // re-derive To Win + the verified badge
+  if (bet.stake != null && bet.stake > 0) onConfirmField('risk');
+  scanBanner(bet, data);
 }
+
+// The honest banner. It names the book, flags a low-confidence read, and says out
+// loud when a duplicate already exists.
+function scanBanner(bet, data) {
+  const form = document.querySelector('#track-sheet-body .track-form');
+  if (!form) return;
+  const bits = [];
+  bits.push(data && data.book ? `Read from your ${esc(data.book)} slip.` : 'Read from your screenshot.');
+  if (bet.confidence != null && bet.confidence < 0.6) bits.push('Some of it was hard to read, so check every number.');
+  else bits.push('Double-check the numbers before tracking.');
+  if (bet.stake == null) bits.push('Your book did not show the stake on this one, so we used your unit size.');
+  if (bet.duplicate_of) bits.push('Heads up: this looks like a bet you have already tracked.');
+  if (bet.match && bet.match.ambiguous) bits.push('More than one game fit this, so confirm it is the right one.');
+  form.insertAdjacentHTML('afterbegin',
+    `<div class="track-form-note" id="scan-banner" style="border:1px solid rgba(167,139,250,.4);border-radius:8px;padding:8px 10px;">
+       <i class="fa-regular fa-image" style="color:#a78bfa;margin-right:6px;"></i>${bits.map(esc).join(' ')}
+     </div>`);
+}
+
+// The custom-form fallback: unmatched games, started games, props, parlays, and
+// anything with no line to tap.
+function openScannedCustom(bet, data) {
+  showCustomForm();
+  const type = bet.bet_type === 'over' || bet.bet_type === 'under' ? 'total'
+             : (bet.bet_type === 'ml' || bet.bet_type === 'spread' || bet.bet_type === 'prop') ? bet.bet_type
+             : 'prop';                                    // parlay/future have no pill
+  setFormField('bet_type', type);
+  if (type === 'total') setFormField('totalSide', bet.bet_type === 'under' ? 'under' : 'over');
+
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; };
+  const label = bet.bet_type === 'over' || bet.bet_type === 'under'
+    ? `${bet.bet_type === 'over' ? 'Over' : 'Under'}${bet.line != null ? ' ' + bet.line : ''}`
+    : bet.selection;
+  set('cf-selection', label);
+  set('cf-odds', bet.odds);
+  set('cf-line', bet.line);
+  if (bet.stake != null && bet.stake > 0) set('cf-stake', bet.stake);
+  const book = bet.book || (data && data.book);
+  if (book) setCustomBook(book);
+  if (bet.game && bet.game.label) _form.game = bet.game.label;
+  if (bet.match && bet.match.sport) _form.sport = bet.match.sport;
+  syncCustomTitle();
+  updateCbiRows();
+  onCustomField('odds');
+  if (bet.stake != null && bet.stake > 0) onCustomField('risk');
+
+  // Say WHY this is a personal bet rather than a verified track. Silence here is
+  // what makes a user think the product downgraded their bet for no reason.
+  const why = bet.verify && bet.verify.issue ? bet.verify.issue : null;
+  scanBanner(bet, data);
+  if (why) {
+    const b = document.getElementById('scan-banner');
+    if (b) b.insertAdjacentHTML('beforeend', `<div style="margin-top:6px;opacity:.85;">${esc(why)}</div>`);
+  }
+}
+
+// ── Review list (several bets on one screenshot) ─────────────────────────────
+// A My Bets list or a settled-history screenshot. Every row is checkable, shows
+// what it will become, and nothing is written until the user taps the button.
+function renderScanReview(data) {
+  const body = document.getElementById('track-sheet-body');
+  if (!body) return;
+  data.bets.forEach(b => { b._take = !b.duplicate_of; });
+
+  const rows = data.bets.map((b, i) => {
+    const verified = b.verify && b.verify.verified;
+    const chip = verified
+      ? '<span class="scan-chip scan-chip-ok">Verified</span>'
+      : b.duplicate_of
+        ? '<span class="scan-chip scan-chip-dupe">Already tracked</span>'
+        : '<span class="scan-chip">Personal</span>';
+    const line = b.line != null ? ` ${b.line > 0 && b.bet_type === 'spread' ? '+' : ''}${b.line}` : '';
+    const odds = b.odds == null ? '—' : (b.odds > 0 ? '+' + b.odds : String(b.odds));
+    const sub = [
+      b.game ? b.game.label : (b.matchup ? `${b.matchup.a} v ${b.matchup.b}` : 'No game matched'),
+      b.stake != null ? `$${b.stake}` : null,
+      b.result ? b.result.toUpperCase() : null,
+    ].filter(Boolean).join(' · ');
+    return `
+      <button type="button" class="scan-row${b._take ? ' scan-row-on' : ''}" id="scan-row-${i}" onclick="toggleScanBet(${i})">
+        <span class="scan-row-check"><i class="fa-solid fa-check"></i></span>
+        <span class="scan-row-main">
+          <span class="scan-row-t">${esc(b.selection || 'Bet')}${esc(line)} <span class="scan-row-odds">${esc(odds)}</span></span>
+          <span class="scan-row-d">${esc(sub)}</span>
+        </span>
+        ${chip}
+      </button>`;
+  }).join('');
+
+  const verifiedCount = data.bets.filter(b => b.verify && b.verify.verified).length;
+  body.innerHTML = `
+    <button class="ob-back" onclick="showBetScan()">‹ Back</button>
+    <div class="track-form">
+      <div class="ob-head" style="margin-bottom:4px;">${data.bets.length} bets read${data.book ? ` from ${esc(data.book)}` : ''}</div>
+      <div class="track-form-note">Pick the ones to track. ${verifiedCount ? `${verifiedCount} can go on the leaderboard; the rest ` : 'These '}track on your own record only.</div>
+      <div class="scan-rows">${rows}</div>
+      <button class="track-submit" id="scan-submit" onclick="trackScannedBets()">Track selected</button>
+      <div class="form-error" id="scan-error" style="margin-top:8px;font-size:12px;"></div>
+      <button type="button" class="lc-addnote" onclick="showCustomForm()"><i class="fa-solid fa-pen"></i> Add one by hand instead</button>
+    </div>`;
+}
+
+export function toggleScanBet(i) {
+  if (!_scan || !_scan.bets[i]) return;
+  _scan.bets[i]._take = !_scan.bets[i]._take;
+  const el = document.getElementById(`scan-row-${i}`);
+  if (el) el.classList.toggle('scan-row-on', _scan.bets[i]._take);
+}
+
+// Writes the selected rows. Verified singles go through the SAME vote endpoint a
+// tapped bet uses; everything else batches into /api/betslip/import as a personal
+// bet. The client never claims verification: it asks for the vote and the server
+// decides (and 409s a game that started between the scan and the tap).
+export async function trackScannedBets() {
+  if (!_scan) return;
+  const picked = _scan.bets.filter(b => b._take);
+  const errEl = document.getElementById('scan-error');
+  if (errEl) errEl.textContent = '';
+  if (!picked.length) { if (errEl) errEl.textContent = 'Pick at least one bet.'; return; }
+
+  const btn = document.getElementById('scan-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Tracking...'; }
+
+  let verified = 0, personal = 0, failed = 0;
+  const leftovers = [];
+
+  for (const b of picked) {
+    const m = b.match || {};
+    if (b.verify && b.verify.verified && m.espn_game_id && m.slot) {
+      try {
+        const res = await fetch(`/api/game/${m.espn_game_id}/vote`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slot: m.slot, stake: b.stake || 0, odds: b.odds }),
+        });
+        if (res.ok) { verified++; continue; }
+        // 409 = the game started while they were reviewing. Keep it as history.
+      } catch (_) { /* fall through to the personal path */ }
+    }
+    leftovers.push({
+      bet_type: b.bet_type, selection: b.selection, side: m.side || null,
+      line: b.line, odds: b.odds, stake: b.stake || 0,
+      sport: m.sport || null, espn_game_id: m.espn_game_id || null,
+      book: b.book || _scan.book || null, result: b.result || null,
+      legs: (b.legs || []).filter(l => l.espn_game_id && l.slot).map(l => ({
+        bet_type: l.bet_type, selection: l.selection, side: l.side,
+        line: l.line, odds: l.odds, sport: l.sport, espn_game_id: l.espn_game_id,
+      })),
+    });
+  }
+
+  if (leftovers.length) {
+    try {
+      const res = await fetch('/api/betslip/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bets: leftovers }),
+      });
+      const data = await res.json().catch(() => ({}));
+      personal = (data.created || []).length;
+      failed = (data.failed || []).length;
+    } catch (_) { failed += leftovers.length; }
+  }
+
+  if (!verified && !personal) {
+    if (errEl) errEl.textContent = 'Could not track those. Try again, or add them by hand.';
+    if (btn) { btn.disabled = false; btn.textContent = 'Track selected'; }
+    return;
+  }
+  const parts = [];
+  if (verified) parts.push(`${verified} verified`);
+  if (personal) parts.push(`${personal} personal`);
+  showToast(`Tracked ${parts.join(' and ')}${failed ? `, ${failed} could not be saved` : ''}`);
+  _scan = null;
+  closeTrackSheet();
+  refreshTracking();
+}
+
+// ── Share-sheet intake ────────────────────────────────────────────────────────
+// The native share extension writes the image (or the text a book shared) into the
+// App Group container and deep-links back here. app.js calls this on launch and on
+// every resume; it is a no-op in the browser.
+export async function consumeSharedSlip() {
+  if (!window.CANative || typeof window.CANative.takeSharedSlip !== 'function') return false;
+  let payload = null;
+  try { payload = await window.CANative.takeSharedSlip(); } catch (_) { return false; }
+  if (!payload || (!payload.image && !payload.text)) return false;
+
+  openTrackSheet();
+  showBetScan();
+  const st = document.getElementById('scan-status');
+  if (st) st.textContent = 'Reading the bet you shared...';
+
+  // The extension may have already run Vision on the image, which saves doing it
+  // twice; otherwise we OCR the data URL here.
+  if (payload.text || (payload.blocks && payload.blocks.length)) {
+    try {
+      const res = await fetch('/api/betslip/parse', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: payload.text || '', blocks: payload.blocks || null }),
+      });
+      if (res.status === 401) { window.openLogin && window.openLogin(); return true; }
+      const data = res.ok ? await res.json() : null;
+      if (data && data.bets && data.bets.length) { await routeScanResult(data); return true; }
+      if (st) st.textContent = 'Could not read a bet out of what you shared. Try a screenshot of the slip itself.';
+      return true;
+    } catch (_) {
+      if (st) st.textContent = 'Could not read that. Try again, or type the bet in below.';
+      return true;
+    }
+  }
+  if (payload.image) {
+    try {
+      const blob = await (await fetch(payload.image)).blob();
+      await runScan(new File([blob], 'shared.png', { type: blob.type || 'image/png' }));
+      return true;
+    } catch (_) {
+      if (st) st.textContent = 'Could not read that image. Try again, or type the bet in below.';
+      return true;
+    }
+  }
+  return true;
+}
+
 
 const TRACK_DAY_MIN = -7;   // a week back (past games = custom)
 const TRACK_DAY_MAX = 14;   // two weeks ahead (UFC/soccer cards are often 1-2 weeks out)
@@ -2283,7 +2568,7 @@ Object.assign(window, {
   filterTrackGames, setTrackSport, pickTrackGame, trackLine, showToast,
   openBetDetail, saveBetEdit, confirmDeleteBet, cancelDeleteBet, shareBet,
   setTrackDay, trackFutureGame, toggleSportMenu, stepTrackDay,
-  showBetScan, scanBetslip, backToTrackMenu,
+  showBetScan, scanBetslip, backToTrackMenu, toggleScanBet, trackScannedBets, consumeSharedSlip,
   openLineConfirm, onConfirmField, pickConfirmBook, confirmTrackBet, openTrackForSlot,
   addLegToParlay, removeParlayLeg, clearParlay, reviewParlay, onParlayField,
   setParlayBook, toggleParlayNote, toggleParlayFreeBet, submitParlay, fillFromKalshiEvent,

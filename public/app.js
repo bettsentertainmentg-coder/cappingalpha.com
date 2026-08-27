@@ -9,8 +9,8 @@ import { loadSports } from './modules/sports.js';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=7';
-import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=62';
-import './modules/track.js?v=52';
+import { loadTracking, loadSettings, loadProfile } from './modules/account.js?v=63';
+import { consumeSharedSlip } from './modules/track.js?v=53';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=14';
 import './modules/member_profile.js?v=27';
@@ -404,6 +404,15 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
 
   // Resume checkout if user just signed up with a pending plan
   await resumePendingCheckout();
+
+  // A betslip shared into the app from a sportsbook (the native share extension
+  // parks it in the App Group container and deep-links here). Checked on launch
+  // and on every resume, because iOS keeps the app alive and a share arriving
+  // while it is backgrounded produces a resume, not a cold start. No-op on web.
+  consumeSharedSlip();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') consumeSharedSlip();
+  });
 
   await loadPicks();
   loadTopGames();

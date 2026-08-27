@@ -174,13 +174,26 @@ app.disable('x-powered-by'); // don't advertise Express
 // that do not depend on inline script.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://us.i.posthog.com https://accounts.google.com https://apis.google.com",
+  // 'wasm-unsafe-eval' is the SECOND half of what the betslip scanner needs (the
+  // first is blob: on worker-src below). Tesseract.js is a WebAssembly build, and
+  // without this directive WebAssembly.compile() is refused outright, so the reader
+  // hangs forever at "initializing tesseract". Verified in the browser on
+  // 2026-08-26. It is deliberately NOT 'unsafe-eval': this directive permits wasm
+  // compilation ONLY and still forbids eval() and new Function() on JavaScript.
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://us.i.posthog.com https://accounts.google.com https://apis.google.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
   "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
   "img-src 'self' data: https:",
   "connect-src 'self' https://us.i.posthog.com https://*.posthog.com https://accounts.google.com",
   "frame-src https://accounts.google.com",
-  "worker-src 'self'",
+  // blob: is REQUIRED by the betslip scanner. Tesseract.js spawns its wasm worker
+  // from a Blob URL, so a bare "worker-src 'self'" blocks it outright and the
+  // upload-a-betslip flow dies with "Could not read that image" on every attempt.
+  // That is what the Phase 6 CSP did: the scanner has been broken in production
+  // since it shipped, found while wiring the share-sheet scan (2026-08-26).
+  // It widens nothing meaningful: script-src already allows 'unsafe-inline', so a
+  // page that could mint a hostile blob worker could already run the script inline.
+  "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -232,8 +245,13 @@ app.use('/auth', auth);
 // Write-abuse throttles: cap bet creation (DB-fill) and the schedule fan-out.
 app.use('/api/bets',  makeRateLimit({ max: 240, windowMs: 15 * 60 * 1000, msg: 'Slow down and try again shortly.' }));
 app.use('/api/track', makeRateLimit({ max: 60,  windowMs: 60 * 1000,      msg: 'Slow down and try again shortly.' }));
+// Betslip scan: OCR happens on the user's device, only the TEXT is posted here.
+// Parsing is cheap but not free, and a scan is a deliberate user action, so the
+// cap is well above real use and far below a script's.
+app.use('/api/betslip', makeRateLimit({ max: 60, windowMs: 10 * 60 * 1000, msg: 'Slow down and try again shortly.' }));
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
+app.use('/api/betslip', require('./src/betslip_router')); // screenshot -> parsed bet -> the normal confirm slide
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
@@ -266,7 +284,7 @@ if (MIRROR_URL) {
   // /api/leaderboard + /api/member join them so the whole Socials world reads ONE
   // local dataset — a prod board over local follows/feeds would split numbers the
   // same way the /api/friends + /api/mvp skips already guard against.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/betslip', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
   app.use((req, res, next) => {
     // /results stays LOCAL for the same reason /api/mvp does: it renders the same
     // tracked record the (now-local) CA Rankings tab shows, so the two surfaces
@@ -449,6 +467,27 @@ app.get('/og/game/:id.png', (req, res) => {
       return res.send(png);
     }
   } catch (e) { console.warn('[og] route error:', e.message); }
+  res.redirect(302, '/ca-logo.png');
+});
+
+// Shareable BET card (src/bet_card.js). A tracked bet is private, so the URL
+// carries an HMAC of the bet id keyed on SESSION_SECRET: only a link the owner was
+// handed opens the card, and it says nothing about any other bet. No session is
+// required, on purpose — the whole point is that the recipient can see it.
+app.get('/og/bet/:id.png', (req, res) => {
+  try {
+    const card = require('./src/bet_card');
+    const id = parseInt(req.params.id, 10);
+    if (Number.isFinite(id) && card.tokenValid(id, req.query.t)) {
+      const png = card.renderBetCardPng(id);
+      if (png) {
+        res.type('png');
+        // Private to the holder of the link: never let a CDN or proxy pool it.
+        res.set('Cache-Control', 'private, max-age=300');
+        return res.send(png);
+      }
+    }
+  } catch (e) { console.warn('[bet card] route error:', e.message); }
   res.redirect(302, '/ca-logo.png');
 });
 

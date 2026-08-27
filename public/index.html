@@ -946,6 +946,23 @@
       .track-sheet-grab { display: block; }
     }
 
+    /* ── Betslip scan review list (mirrored in track-sheet.css) ──
+       Several bets read off one screenshot. Each row is a checkable summary of
+       what it becomes when tracked; the chip is the honest label. ── */
+    .scan-rows { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+    .scan-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface2, rgba(255,255,255,.04)); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-family: inherit; color: var(--text); cursor: pointer; transition: border-color .12s, background .12s; }
+    .scan-row:hover { border-color: var(--accent); }
+    .scan-row-on { border-color: var(--accent); background: rgba(59,130,246,0.10); }
+    .scan-row-check { flex: 0 0 20px; height: 20px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; }
+    .scan-row-on .scan-row-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .scan-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .scan-row-t { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scan-row-odds { font-weight: 800; color: var(--muted); margin-left: 4px; }
+    .scan-row-d { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scan-chip { flex: 0 0 auto; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 4px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); }
+    .scan-chip-ok { background: rgba(74,222,128,0.14); border-color: rgba(74,222,128,0.4); color: #4ade80; }
+    .scan-chip-dupe { background: rgba(251,122,86,0.14); border-color: rgba(251,122,86,0.4); color: #fb7a56; }
+
     /* ── Logo-as-tab ──
        The nav bar is ALWAYS the dark velvet (both themes), so the wordmark is
        pinned to its dark-mode colors and never follows the theme. Using var(--text)
@@ -4176,6 +4193,6 @@
   <!-- Track-Bet FAB — floating, omnipresent for logged-in users (shown via auth.js) -->
   <button class="track-fab" id="track-fab" onclick="openTrackSheet()" aria-label="Track a bet"><i class="fa-solid fa-plus"></i> Track Bet</button>
 
-  <script type="module" src="app.js?v=129"></script>
+  <script type="module" src="app.js?v=130"></script>
 </body>
 </html>

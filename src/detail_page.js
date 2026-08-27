@@ -421,7 +421,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <link rel="stylesheet" href="/game-detail.css?v=9" />
   <link rel="stylesheet" href="/gauge.css" />
-  <link rel="stylesheet" href="/track-sheet.css?v=3" />
+  <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script>
     // App-only styling hook (mirror of index.html): Capacitor injects its bridge
@@ -652,7 +652,7 @@ ${buildAuthModals()}
 <script type="module" src="/game-detail.js?v=13"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=52"></script>
+<script type="module" src="/modules/track.js?v=53"></script>
 </body>
 </html>`;
 }
