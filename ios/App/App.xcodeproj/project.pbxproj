@@ -18,6 +18,7 @@
 		762CB36F985C3D940A7FAE5B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42F7E685E436CACF5684DCF8 /* Foundation.framework */; };
 		8CB8CEEF08CCC8B767876E6B /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656CE5A46C96307DA9D4AA12 /* ShareViewController.swift */; };
 		A833489708867DE852BD8D53 /* CappingAlphaShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AE1002BC5D4801A1FA7F49D7 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A92595F11675795BD336F2C /* MainViewController.swift */; };
 		F796C180D55F572475F56447 /* CANativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */; };
 /* End PBXBuildFile section */
 
@@ -59,6 +60,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		656CE5A46C96307DA9D4AA12 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		6A92595F11675795BD336F2C /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
 		7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CappingAlphaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CANativePlugin.swift; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */,
+				6A92595F11675795BD336F2C /* MainViewController.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -135,7 +138,6 @@
 				47FA6DE9D63421790BBF1231 /* Info.plist */,
 				26E8C0C7C43EB68FAB25D9BD /* CappingAlphaShare.entitlements */,
 			);
-			name = CappingAlphaShare;
 			path = CappingAlphaShare;
 			sourceTree = SOURCE_ROOT;
 		};
@@ -257,6 +259,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				F796C180D55F572475F56447 /* CANativePlugin.swift in Sources */,
+				AE1002BC5D4801A1FA7F49D7 /* MainViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -305,6 +308,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = CappingAlphaShare/CappingAlphaShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = CappingAlphaShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -439,6 +443,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -462,6 +467,7 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -483,6 +489,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = CappingAlphaShare/CappingAlphaShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = CappingAlphaShare/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;

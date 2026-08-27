@@ -113,6 +113,37 @@ else
   changed = true
 end
 
+# ── 2b. MainViewController: registers CANativePlugin ─────────────────────────
+# Capacitor only auto-registers plugins that come from npm packages. An app-local
+# plugin is compiled in but never reaches the bridge, so window.Capacitor.Plugins
+# .CANative is absent and the share hand-off silently does nothing. MainViewController
+# registers it; the storyboard has to point at that class for it to run.
+mvc_rel = 'App/MainViewController.swift'
+mvc_on_target = app_target.source_build_phase.files_references.any? { |r| r && r.path.to_s.end_with?('MainViewController.swift') }
+if mvc_on_target
+  puts '= MainViewController.swift already on the App target'
+else
+  g = project.main_group.find_subpath('App', true)
+  ref = g.files.find { |f| f.path.to_s.end_with?('MainViewController.swift') }
+  ref ||= g.new_reference(File.join(ROOT, 'ios', 'App', mvc_rel))
+  app_target.add_file_references([ref])
+  puts '+ added MainViewController.swift to the App target'
+  changed = true
+end
+
+storyboard = File.join(ROOT, 'ios', 'App', 'App', 'Base.lproj', 'Main.storyboard')
+if File.exist?(storyboard)
+  sb = File.read(storyboard)
+  if sb.include?('customClass="CAPBridgedViewController"') || sb.include?('customClass="CAPBridgeViewController"')
+    sb = sb.sub(/<viewController id="BYZ-38-t0r"[^>]*\/>/,
+                '<viewController id="BYZ-38-t0r" customClass="MainViewController" customModule="App" customModuleProvider="target" sceneMemberID="viewController"/>')
+    File.write(storyboard, sb)
+    puts '+ Main.storyboard now uses MainViewController (plugin registration)'
+  else
+    puts '= Main.storyboard already uses MainViewController'
+  end
+end
+
 # ── 3. App target entitlements ───────────────────────────────────────────────
 app_target.build_configurations.each do |config|
   want = 'App/App.entitlements'
