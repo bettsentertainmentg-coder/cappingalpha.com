@@ -14,12 +14,24 @@
 # project. Anything already present is left alone.
 #
 # Run:  ruby scripts/add_share_extension.rb
+#   or: CA_TEAM_ID=XXXXXXXXXX ruby scripts/add_share_extension.rb
 #
-# WHAT THIS SCRIPT CANNOT DO, and Jack has to (both need the Apple Developer
-# account, so they are not automatable from here):
-#   - Register the App Group "group.com.cappingalpha.app" on the developer portal
-#     and tick App Groups on BOTH targets in Signing & Capabilities.
-#   - Pick the team / signing identity for the new CappingAlphaShare target.
+# Passing CA_TEAM_ID also stamps DEVELOPMENT_TEAM on BOTH targets, which is the
+# only project-file change signing needs. Everything after that is automatic:
+#
+#   xcodebuild -project ios/App/App.xcodeproj -scheme App \
+#              -allowProvisioningUpdates -destination 'generic/platform=iOS' build
+#
+# With automatic signing, that command REGISTERS the App Group
+# "group.com.cappingalpha.app" on the developer portal and regenerates both
+# provisioning profiles by itself. There is no website step and no capability
+# checkbox to tick, because App.entitlements and CappingAlphaShare.entitlements
+# already declare the group.
+#
+# THE ONE THING THAT IS NOT AUTOMATABLE: Xcode has to be signed in to an Apple
+# Developer account first (Xcode > Settings > Accounts), which needs a password
+# and a 2FA prompt. App Groups also requires a PAID membership; a free Apple ID
+# can sideload to your own phone but cannot use them.
 
 require 'xcodeproj'
 
@@ -111,6 +123,26 @@ app_target.build_configurations.each do |config|
 end
 puts '= App target points at App/App.entitlements'
 
+# ── 4. Development team (optional) ───────────────────────────────────────────
+# The ONLY project-file setting signing needs. Everything else (registering the
+# App Group, minting profiles) is done by xcodebuild -allowProvisioningUpdates.
+team = ENV['CA_TEAM_ID'].to_s.strip
+if team.empty?
+  puts '= no CA_TEAM_ID given, leaving DEVELOPMENT_TEAM alone'
+elsif team !~ /\A[A-Z0-9]{10}\z/
+  abort "CA_TEAM_ID must be the 10-character Team ID (got #{team.inspect})"
+else
+  [app_target, ext_target].compact.each do |t|
+    t.build_configurations.each do |config|
+      if config.build_settings['DEVELOPMENT_TEAM'] != team
+        config.build_settings['DEVELOPMENT_TEAM'] = team
+        changed = true
+      end
+    end
+  end
+  puts "+ DEVELOPMENT_TEAM = #{team} on App and #{EXT_NAME}"
+end
+
 if changed
   project.save
   puts "\nSaved #{PROJECT_PATH}"
@@ -118,11 +150,28 @@ else
   puts "\nNothing to change."
 end
 
-puts <<~NEXT
+if team.empty?
+  puts <<~NEXT
 
-  Still needs you, in Xcode (both require the Apple Developer account):
-    1. Signing & Capabilities -> App: add "App Groups", tick group.com.cappingalpha.app
-    2. Signing & Capabilities -> #{EXT_NAME}: set the Team, add the same App Group
+    Next, once (needs a password and a 2FA prompt, so it cannot be scripted):
+      Xcode > Settings > Accounts > + > Apple ID, and sign in.
+      App Groups needs a PAID Apple Developer membership.
 
-  Then: share any bet from FanDuel or DraftKings and pick CappingAlpha.
-NEXT
+    Then find your Team ID:
+      security find-identity -p codesigning -v
+    and re-run this with it:
+      CA_TEAM_ID=XXXXXXXXXX ruby scripts/add_share_extension.rb
+  NEXT
+else
+  puts <<~NEXT
+
+    Project is fully configured. This registers the App Group and mints both
+    profiles automatically (no developer portal, no capability checkbox):
+
+      xcodebuild -project ios/App/App.xcodeproj -scheme App \\
+                 -allowProvisioningUpdates \\
+                 -destination 'generic/platform=iOS' build
+
+    Then: share any bet from FanDuel or DraftKings and pick CappingAlpha.
+  NEXT
+end
