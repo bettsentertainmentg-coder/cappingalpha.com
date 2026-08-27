@@ -1697,8 +1697,17 @@ function renderTracking(data) {
     </a>` : '';
 
   // Friends (followed members), each clickable into their profile.
+  // Empty state carries a button, not just a sentence: this is the tab most
+  // members live in, and the invite is the only thing here that works before
+  // anyone else has joined.
   const friendsHtml = friends.length === 0
-    ? `<div style="padding:24px 20px;color:var(--muted);font-size:14px;">You're not following anyone yet. Open a member from the Leaderboard and tap Follow.</div>`
+    ? `<div style="padding:22px 20px;color:var(--muted);font-size:14px;text-align:center;">
+        Your circle is empty. Follow a member from the leaderboard, or invite someone and you both get 3 free days.
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button onclick="viewLeaderboard()" style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:inherit;font-size:12px;font-weight:800;padding:9px 8px;border-radius:999px;cursor:pointer;">Leaderboard</button>
+          <button onclick="switchTab('socials');socialsPane('friends')" style="flex:1;background:linear-gradient(135deg,#FFD700,#f0b400);border:none;color:#1a1205;font-family:inherit;font-size:12px;font-weight:800;padding:9px 8px;border-radius:999px;cursor:pointer;">Invite a friend</button>
+        </div>
+      </div>`
     : friends.map(f => {
         const u = Number(f.units || 0);
         const uCls = u >= 0 ? '#4ade80' : '#f87171';
@@ -2196,7 +2205,7 @@ function renderSettingsApp(data) {
       <div class="as-head"><button class="as-back" onclick="settingsGo('root')" aria-label="Back"><i class="fa-solid fa-chevron-left"></i></button><span class="as-title">Free days</span><span></span></div>
       <div class="as-group as-refhero">
         <div class="as-refhero-days">+3 <span>days</span></div>
-        <div class="as-refhero-line">Give 3 days, get 3 days. Every friend who joins with your code gets 3 free days of full access, and so do you. No limit on friends right now.</div>
+        <div class="as-refhero-line">Bring a friend, both get 3 days. When someone joins with your code, you each get 3 free days of full access.</div>
       </div>
       <div class="as-group-title">Your code</div>
       <div class="as-group" style="padding:13px 14px;">
@@ -2317,7 +2326,7 @@ function renderSettingsApp(data) {
       isPaid
         ? setRow('Manage membership', 'Plan, billing, and access details.', "settingsGo('membership')")
         : setRow('Unlock CappingAlpha', 'The full ranked board, top to bottom.', "switchTab('unlock')"),
-      setRow('Free days', referral ? `Give 3, get 3. ${referral.redemptions || 0} friend${(referral.redemptions || 0) === 1 ? '' : 's'} joined so far.` : 'Share your code and you both get 3 free days.', "settingsGo('referral')"),
+      setRow('Free days', referral ? `Bring a friend, both get 3 days. ${referral.redemptions || 0} joined so far.` : 'Share your code and you both get 3 free days.', "settingsGo('referral')"),
     ])}
     ${setGroup('Preferences', [
       setRow('Notifications', 'Alerts for picks, rankings, and your games.', "settingsGo('notifs')"),
@@ -2571,7 +2580,7 @@ function renderSettingsWeb(data) {
         <div class="card account-reveal" style="margin-bottom:20px;">
           <div class="card-header"><span class="card-title">Refer a Friend</span></div>
           <div style="padding:14px 20px 18px;">
-            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Give 3 days, get 3 days. When a friend joins with your code, you both get 3 free days of full access.</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">Bring a friend, both get 3 days. When a friend joins with your code, you each get 3 free days of full access.</div>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" readonly value="${referral.code}" id="referral-code-input"
                      style="flex:1;font-size:14px;font-weight:700;letter-spacing:.08em;text-align:center;" onclick="this.select()" />

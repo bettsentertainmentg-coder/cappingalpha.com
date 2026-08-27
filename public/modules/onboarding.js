@@ -115,13 +115,19 @@ function finish() {
 window.__caOnboardComplete = finish;
 
 // ── Step navigation: the Onboard Glide ────────────────────────────────────────
-// Steps 2-5 are one carousel screen, so the stage steps are 1, C, 6, 7, 8, 9.
+// Steps 2-5 are one carousel screen, so the stage steps are 1, C, 6, 7, 8, 8.5, 9.
+// 8.5 (the invite screen) is fractional on purpose: it has to sit between the
+// account and the paywall, and goTo's 2-to-5 clamp leaves anything outside that
+// range alone. It also has to stay ABOVE 8 so setSkipVisible keeps Skip hidden
+// on it, because Skip ends onboarding outright and would otherwise hand every
+// new account a one-tap way past the paywall.
 const RENDER = {
   1: renderAgeGate,
   2: renderCarousel,
   6: renderNotifAsk,
   7: renderValueTease,
   8: renderAccount,
+  8.5: renderInvite,
   9: renderPaywall,
 };
 
@@ -254,6 +260,14 @@ const SHOTS = {
       <div class="ob-shot-row"><i class="fa-solid fa-circle-check ob-shot-win" aria-hidden="true"></i><span class="ob-shot-team">Bills ML +135</span><span class="ob-shot-pl">+$27.00</span></div>
       <div class="ob-shot-sample">Sample</div>
     </div>`,
+  friends: `
+    <div class="ob-shot">
+      <div class="ob-shot-eyebrow">Your circle this week</div>
+      <div class="ob-shot-row"><span class="ob-shot-av">N</span><span class="ob-shot-team">@nate</span><span class="ob-shot-score pos">+4.2u</span></div>
+      <div class="ob-shot-row"><span class="ob-shot-av you">Y</span><span class="ob-shot-team">You</span><span class="ob-shot-score pos">+1.9u</span></div>
+      <div class="ob-shot-row"><span class="ob-shot-av">M</span><span class="ob-shot-team">@mika</span><span class="ob-shot-score neg">-0.8u</span></div>
+      <div class="ob-shot-sample">Sample</div>
+    </div>`,
   unlock: `
     <div class="ob-shot">
       <div class="ob-shot-row"><span class="ob-shot-rank gold">1</span><span class="ob-shot-team">Free every day</span><span class="ob-shot-score gold">100</span></div>
@@ -274,8 +288,13 @@ const SLIDES = [
   },
   {
     shot: SHOTS.track,
-    title: 'Track it, share it',
-    body: 'Track your bets, follow friends, and watch your live P/L move as the games play out.',
+    title: 'Track every bet you make',
+    body: 'Log a bet in a few taps and watch your live P/L move as the games play out. Wins and losses both count.',
+  },
+  {
+    shot: SHOTS.friends,
+    title: 'Better with your circle',
+    body: 'Follow people you know and their tracked bets show up next to yours. Everyone on the board is graded the same way, win or lose.',
   },
   {
     shot: SHOTS.unlock,
@@ -628,7 +647,7 @@ async function afterAuth({ redeemRef } = {}) {
     return;
   }
   if (isPaying()) finish();
-  else goTo(9, 'fwd');
+  else goTo(8.5, 'fwd');
 }
 
 async function submitSignup(el, showErr) {
@@ -794,6 +813,101 @@ async function appleGo(birthYear, errEl) {
     await storeTokenIfApp(data);
     await afterAuth({});
   } catch (_) { errEl.textContent = 'Network error. Try again.'; }
+}
+
+// ══ Step 8.5: bring someone ═══════════════════════════════════════════════════
+// The one friend-shaped screen that renders identically on day one and day one
+// thousand: it asks the new member to bring somebody they already know rather
+// than pretending we have a populated graph to suggest from. No permissions, no
+// address book, no list that can come back empty.
+//
+// Skip is hidden here (8.5 > 8 in setSkipVisible), so "Maybe later" is the only
+// way out and it lands on the paywall. Every paywall impression is preserved.
+function renderInvite(el) {
+  el.innerHTML = `
+    <div class="ob-pad ob-center">
+      <div class="ob-icon"><i class="fa-solid fa-user-plus" aria-hidden="true"></i></div>
+      <h1 class="ob-h1" id="ob-inv-h1">Bring someone, you both get 3 days</h1>
+      <p class="ob-body" id="ob-inv-body">Send your code to someone who follows the same games. When they join with it you each get 3 free days of full access, and their tracked bets show up in your feed next to yours.</p>
+      <div id="ob-inv-codewrap" style="display:none;">
+        <div class="ob-code" id="ob-inv-code" role="button" tabindex="0"></div>
+        <div class="ob-code-cap" id="ob-inv-cap">Tap to copy</div>
+      </div>
+      <button type="button" class="ob-btn ob-btn-gold ob-btn-block" id="ob-inv-share">Share my code</button>
+      <button type="button" class="ob-btn ob-btn-ghost ob-btn-block" id="ob-inv-later">Maybe later</button>
+      <p class="ob-fine" id="ob-inv-fine">Share it with as many people as you like. Nothing is sent on your behalf. You choose where it goes.</p>
+    </div>`;
+
+  el.querySelector('#ob-inv-later').addEventListener('click', () => goTo(9, 'fwd'));
+
+  const codeEl  = el.querySelector('#ob-inv-code');
+  const wrapEl  = el.querySelector('#ob-inv-codewrap');
+  const shareEl = el.querySelector('#ob-inv-share');
+  const capEl   = el.querySelector('#ob-inv-cap');
+  let code = null;
+
+  // The failure copy is what renders until a code actually arrives, so the step
+  // can never sit on a spinner. A successful fetch swaps the code box in.
+  function noCode() {
+    el.querySelector('#ob-inv-h1').textContent = 'Bring someone along';
+    el.querySelector('#ob-inv-body').textContent = 'Your invite code lives in Socials, under Friends. Share it whenever you like and you both get 3 free days.';
+    el.querySelector('#ob-inv-fine').textContent = '';
+    shareEl.textContent = 'Continue';
+    shareEl.onclick = () => goTo(9, 'fwd');
+    el.querySelector('#ob-inv-later').style.display = 'none';
+  }
+
+  (async () => {
+    try {
+      const r = await fetch('/api/account');
+      if (!r.ok) throw new Error('account');
+      const a = await r.json();
+      code = a.referral && a.referral.code ? a.referral.code : null;
+    } catch (_) { code = null; }
+    if (!code) { noCode(); return; }
+    window.__caRef = code;                       // the Socials tab reuses this
+    codeEl.textContent = code;
+    wrapEl.style.display = '';
+    codeEl.addEventListener('click', () => copyCode(code, capEl));
+    codeEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyCode(code, capEl); } });
+    shareEl.addEventListener('click', () => shareCode(code, shareEl));
+  })();
+}
+
+// Toasts render at z-index 400 and this overlay sits at 12000, so anything the
+// global toast would say from in here is invisible. Confirm on the element.
+function flashLabel(node, text, restore, ms = 1800) {
+  node.textContent = text;
+  setTimeout(() => { node.textContent = restore; }, ms);
+}
+function copyCode(code, capEl) {
+  const done = () => flashLabel(capEl, 'Copied', 'Tap to copy');
+  try {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(code).then(done, () => {});
+  } catch (_) {}
+}
+
+// Invite text + link. The url rides as its own field so iOS Messages renders a
+// link card instead of raw text, and navigator.share is only ever a fallback:
+// it does not exist in an Android WebView at all.
+function inviteMessage(code) {
+  const url = `https://cappingalpha.com/?ref=${encodeURIComponent(code)}`;
+  const text = "3 free days on CappingAlpha, for both of us. It ranks the day's picks and shows how every one of them settles. My code is already applied at this link:";
+  return { url, text, title: 'CappingAlpha' };
+}
+async function shareCode(code, btn) {
+  const { url, text, title } = inviteMessage(code);
+  const plug = window.Capacitor?.Plugins?.Share;
+  try {
+    if (plug?.share) { await plug.share({ title, text, url }); return; }
+    if (navigator.share) { await navigator.share({ title, text, url }); return; }
+  } catch (_) { return; }                        // a dismissed sheet is not an error
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(`${text} ${url}`);
+      flashLabel(btn, 'Copied', 'Share my code');
+    }
+  } catch (_) {}
 }
 
 // ══ Step 9: soft trial paywall ════════════════════════════════════════════════
