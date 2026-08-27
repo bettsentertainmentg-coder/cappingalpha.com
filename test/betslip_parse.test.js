@@ -493,4 +493,44 @@ Share in the FanDuel Community`);
   eq(tt.line, 110.5, 'split: team total line');
 }
 
+// ── 17. A REAL Apple Vision payload ──────────────────────────────────────────
+// Not transcribed, not imagined: captured out of the App Group container after a
+// genuine share-sheet run through CappingAlphaShare on the iOS Simulator
+// (2026-08-26). This is the single highest-fidelity fixture we have, because it
+// is exactly what the device hands the parser.
+//
+// Note what Vision's READING ORDER does to the plain text: it emits "-136" after
+// the matchup line, nowhere near the "Straight Bet" header it visually sits on.
+// The blocks path exists to undo precisely that.
+{
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'vision_fanduel_share.json'), 'utf8'));
+
+  // The visual rows, rebuilt from the word boxes.
+  const rows = P.linesFromBlocks(raw.blocks);
+  eq(rows[2], 'Straight Bet -136', 'vision: header and price back on one row');
+  eq(rows[3], 'Lorenzo Sonego', 'vision: selection row');
+  eq(rows[4], 'MONEYLINE', 'vision: market row');
+  eq(rows[5], 'Lorenzo Sonego v James Duckworth 6:14PM ET', 'vision: matchup and start time on one row');
+
+  const b = P.parseBetslip({ text: raw.text, blocks: raw.blocks });
+  eq(b.book, 'FanDuel', 'vision: book');
+  eq(b.capture, 'share_card', 'vision: share card');
+  eq(b.bets.length, 1, 'vision: exactly one bet out of the whole share sheet');
+  eq(b.bets[0].bet_type, 'ml', 'vision: moneyline');
+  eq(b.bets[0].selection, 'Lorenzo Sonego', 'vision: selection');
+  eq(b.bets[0].odds, -136, 'vision: odds');
+  eq(b.bets[0].stake, null, 'vision: a share card carries no stake');
+  ok(b.bets[0].matchup && /Duckworth/.test(b.bets[0].matchup.b), 'vision: matchup');
+  ok(b.bets[0].confidence >= 0.85, 'vision: high confidence');
+
+  // The text-only path (no boxes) must still work, because the browser reader
+  // never produces boxes.
+  const t = P.parseBetslip({ text: raw.text });
+  eq(t.bets.length, 1, 'vision text-only: one bet');
+  eq(t.bets[0].odds, -136, 'vision text-only: odds survive the scrambled order');
+  eq(t.bets[0].selection, 'Lorenzo Sonego', 'vision text-only: selection');
+}
+
 console.log(`betslip_parse.test.js: ${n} assertions passed`);

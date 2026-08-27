@@ -1,0 +1,209 @@
+{
+ "text": "My Bets\nOpen\n$0.00\nSettled\nStraight Bet\nLorenzo Sonego\nMONEYLINE\nLorenzo Sonego v James Duckworth\n-136\n6:14PM ET\nShare in the FanDuel Community\nNew Post\nMore ways to share",
+ "blocks": [
+  {
+   "y": 0.067623,
+   "text": "My",
+   "width": 0.075428,
+   "height": 0.023775,
+   "x": 0.043655
+  },
+  {
+   "y": 0.068188,
+   "text": "Bets",
+   "width": 0.117964,
+   "height": 0.024072,
+   "x": 0.124544
+  },
+  {
+   "y": 0.129143,
+   "text": "Open",
+   "height": 0.020783,
+   "x": 0.24512,
+   "width": 0.126112
+  },
+  {
+   "y": 0.071221,
+   "text": "$0.00",
+   "x": 0.81761,
+   "width": 0.113208,
+   "height": 0.018895
+  },
+  {
+   "y": 0.12936,
+   "x": 0.742138,
+   "height": 0.018895,
+   "width": 0.150943,
+   "text": "Settled"
+  },
+  {
+   "y": 0.472384,
+   "text": "Straight",
+   "x": 0.081761,
+   "height": 0.023256,
+   "width": 0.224516
+  },
+  {
+   "y": 0.472384,
+   "height": 0.023256,
+   "x": 0.3125,
+   "width": 0.102594,
+   "text": "Bet"
+  },
+  {
+   "y": 0.528285,
+   "x": 0.200485,
+   "height": 0.024168,
+   "width": 0.197391,
+   "text": "Lorenzo"
+  },
+  {
+   "y": 0.530233,
+   "text": "Sonego",
+   "x": 0.402822,
+   "width": 0.19217,
+   "height": 0.024118
+  },
+  {
+   "y": 0.559593,
+   "text": "MONEYLINE",
+   "height": 0.013081,
+   "x": 0.198113,
+   "width": 0.198113
+  },
+  {
+   "y": 0.5915,
+   "text": "Lorenzo",
+   "height": 0.016058,
+   "width": 0.13422,
+   "x": 0.100629
+  },
+  {
+   "y": 0.5915,
+   "text": "Sonego",
+   "width": 0.125541,
+   "x": 0.239177,
+   "height": 0.016
+  },
+  {
+   "y": 0.5915,
+   "text": "v",
+   "width": 0.021645,
+   "x": 0.369048,
+   "height": 0.016
+  },
+  {
+   "y": 0.5915,
+   "text": "James",
+   "height": 0.016,
+   "x": 0.395022,
+   "width": 0.108225
+  },
+  {
+   "y": 0.5915,
+   "text": "Duckworth",
+   "height": 0.016058,
+   "width": 0.177959,
+   "x": 0.507576
+  },
+  {
+   "y": 0.472384,
+   "text": "-136",
+   "height": 0.020349,
+   "width": 0.128931,
+   "x": 0.786164
+  },
+  {
+   "y": 0.5915,
+   "text": "6:14PM",
+   "x": 0.738994,
+   "height": 0.014605,
+   "width": 0.129648
+  },
+  {
+   "y": 0.5915,
+   "text": "ET",
+   "x": 0.872565,
+   "width": 0.039385,
+   "height": 0.014605
+  },
+  {
+   "y": 0.691923,
+   "text": "Share",
+   "width": 0.141064,
+   "height": 0.020818,
+   "x": 0.040638
+  },
+  {
+   "y": 0.692503,
+   "text": "in",
+   "x": 0.186741,
+   "width": 0.049071,
+   "height": 0.020192
+  },
+  {
+   "y": 0.692718,
+   "text": "the",
+   "width": 0.086949,
+   "x": 0.240852,
+   "height": 0.020343
+  },
+  {
+   "y": 0.693083,
+   "text": "FanDuel",
+   "width": 0.200581,
+   "height": 0.020794,
+   "x": 0.33284
+  },
+  {
+   "y": 0.693898,
+   "text": "Community",
+   "height": 0.021318,
+   "width": 0.266924,
+   "x": 0.538455
+  },
+  {
+   "y": 0.752385,
+   "height": 0.016494,
+   "width": 0.10102,
+   "x": 0.16334,
+   "text": "New"
+  },
+  {
+   "y": 0.752913,
+   "text": "Post",
+   "height": 0.016504,
+   "x": 0.268176,
+   "width": 0.103075
+  },
+  {
+   "y": 0.821,
+   "text": "More",
+   "width": 0.113442,
+   "height": 0.019116,
+   "x": 0.044025
+  },
+  {
+   "y": 0.821,
+   "width": 0.118236,
+   "height": 0.019,
+   "x": 0.162608,
+   "text": "ways"
+  },
+  {
+   "y": 0.821,
+   "text": "to",
+   "width": 0.056548,
+   "x": 0.285985,
+   "height": 0.019
+  },
+  {
+   "y": 0.821,
+   "text": "share",
+   "height": 0.019116,
+   "width": 0.124025,
+   "x": 0.347673
+  }
+ ],
+ "_note": "Captured from a REAL Apple Vision run inside the CappingAlphaShare extension on the iOS Simulator, 2026-08-26. Do not hand-edit: this is what the device actually produces."
+}
