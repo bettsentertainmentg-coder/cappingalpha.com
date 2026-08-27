@@ -275,7 +275,37 @@ imagination, and each names the date and the symptom in a comment:
 - OCR merging a right-aligned "To Win $X" onto the matchup row, which lost the
   game on every total in a My Bets list.
 
-## 9. Adding a book
+## 9. The web-slip gauntlet
+
+Two tools turn any betslip screenshot into a device-fidelity parser test:
+
+- `scripts/vision_ocr.swift` — macOS Apple Vision with the SAME settings as the
+  app's reader (accurate, no language correction, same custom words). Its output
+  is byte-identical to what the iOS app produces on the same image.
+- `scripts/slip_gauntlet.js <dir|images...>` — Vision OCR -> the real parser ->
+  a verdict per image, writing each OCR payload beside the image as
+  `<name>.vision.json` for promotion into `test/betslip_parse.test.js`.
+
+On 2026-08-27 a 44-screenshot sweep across 8 books (found on the public web:
+review sites, how-to articles, Reddit) drove the parser from 6/14 to 40/44, and
+the 4 remaining non-parses are screens with no real bet on them (UK horse racing,
+an odds-browse grid, a marketing montage). Every fix is a regression test in
+section 18 of the parse suite. What the sweep taught, so nobody re-learns it:
+
+- Parlay odds go SEVEN digits (+6576031 paid $1.98M on Hard Rock).
+- Money labels sit on their OWN row with the amount below, or as a column dump
+  ("$700.00 -200 $1,050.00" under a "Stake / Odds / Payout" row).
+- Settled badges fuse onto other rows ("Chargers • Money Line WON",
+  "TOTAL WAGER CASHED OUT", the WINNER WINNER ticket tape).
+- A slip under construction prints its parlay summary at the BOTTOM, so the
+  header claims legs looking backward.
+- OCR folds logos into Cyrillic ("ESPПBET") and trademarks into letters
+  ("Same Game Parlay™" -> "MONEYLINET").
+- The top-bar ACCOUNT BALANCE is money on a row with the book's name: chrome.
+- A settled parlay shows a Void badge on a dropped leg AND the WON banner; the
+  parent takes the span banner, never a leg badge.
+
+## 10. Adding a book
 
 1. Add its tells to `BOOKS` in `src/betslip_parse.js`.
 2. Screenshot it: share card, single, parlay, settled, and the list view.

@@ -533,4 +533,218 @@ Share in the FanDuel Community`);
   eq(t.bets[0].selection, 'Lorenzo Sonego', 'vision text-only: selection');
 }
 
+// ── 18. Real-slip regressions, 2026-08-27 web sweep ──────────────────────────
+// Transcribed from Apple Vision output over real screenshots found on the web
+// (44 images, 8 books). Each block below parsed to ZERO bets before the fix its
+// comment names. The row text is the BLOCKS-rebuilt visual order, verbatim.
+
+// Hard Rock winner ticket: legless parlay. 7-digit odds, "6-Bet Parlay" phrasing,
+// the WINNER tape, and Wager/Paid labels with amounts on the NEXT line.
+{
+  const r = P.parseBetslip(`Hard Rock
+BET
+AD ROCK BET SPORTSBOOK HARD ROCK BET SPORTSB
+'WNER WINNER WINNER WINNER WINNER WINNER WII
+PORTSBOOK HARD ROCK BET SPORTSB
+PARLAY 6-Bet Parlay
++6576031
+Riley Greene Over 0.5 Home Runs, Coby Mayo Over 0.5 Ho
+Wager
+$30.11
+Paid
+$1,980,043.01`);
+  eq(r.book, 'Hard Rock', 'hardrock ticket: book');
+  eq(r.bets.length, 1, 'hardrock ticket: one bet');
+  const b = r.bets[0];
+  eq(b.bet_type, 'parlay', 'hardrock ticket: parlay without segmentable legs');
+  eq(b.odds, 6576031, 'hardrock ticket: 7-digit parlay odds survive');
+  eq(b.stake, 30.11, 'hardrock ticket: stake bound from the next line');
+  eq(b.payout_total, 1980043.01, 'hardrock ticket: Paid is the payout');
+  eq(b.result, 'win', 'hardrock ticket: the WINNER tape is the verdict');
+  ok(/6-leg parlay/.test(b.selection), 'hardrock ticket: leg count from the header');
+}
+
+// BetMGM settled single: selection, market and badge fused on ONE visual row,
+// and the money as a column dump under a label row.
+{
+  const r = P.parseBetslip(`BETMGM KSPONSIBE RG Deposit
+My Bets
+Live Open Settled
+Chargers • Money Line WON
+Result: Chargers
+Denver Broncos at Los Angeles Chargers
+Stake Odds Payout (inc
+Stake)
+$700.00 -200 $1,050.00
+Details V`);
+  eq(r.bets.length, 1, 'mgm settled: one bet');
+  const b = r.bets[0];
+  eq(b.bet_type, 'ml', 'mgm settled: ml off the fused row');
+  eq(b.selection, 'Chargers', 'mgm settled: selection from the fused row');
+  eq(b.result, 'win', 'mgm settled: WON badge read off the fused row');
+  eq(b.stake, 700, 'mgm settled: stake is the FIRST column, not the payout');
+  ok(b.matchup && /Broncos/.test(b.matchup.a), 'mgm settled: matchup');
+}
+
+// ESPN BET settled 4-leg parlay: "Parlay 4 Legs WIN" word order, "Match Spread",
+// per-leg WIN badges, Cyrillic logo fold for book detection.
+{
+  const r = P.parseBetslip(`ESPПBET RG $27.56 CT
+OPEN SETTLED
+Parlay 4 Legs WIN
+Settled on Nov 15, 2023 at 8:52 PM
+Seton Hall -21.5 -110
+Match Spread WIN
+Albany 71
+Seton Hall 96
+Princeton +5.5 -105
+Match Spread WIN
+Princeton 70
+Duquesne 67
+Over 139.5 -115
+Total Points WIN
+Saint Peter's 70
+FDU 71
+Nebraska -15.5 -110
+Match Spread WIN
+Stony Brook 63
+Nebraska 84
+$50.00 +1230 $615.16`);
+  eq(r.book, 'ESPN BET', 'espn parlay: Cyrillic logo folded into the tell');
+  eq(r.bets.length, 1, 'espn parlay: one parlay, not four straights');
+  const b = r.bets[0];
+  eq(b.bet_type, 'parlay', 'espn parlay: type');
+  eq(b.legs.length, 4, 'espn parlay: four legs');
+  eq(b.result, 'win', 'espn parlay: result');
+  eq(b.legs[0].bet_type, 'spread', 'espn parlay: Match Spread is a spread');
+  eq(b.legs[2].bet_type, 'over', 'espn parlay: the total leg');
+  eq(b.stake, 50, 'espn parlay: stake from the money row');
+}
+
+// FanDuel settled SGP: the SGP] chip, trademark-fused MONEYLINET, prop legs, a
+// voided leg, and the WON banner. Win must outrank the leg void at slip level.
+{
+  const r = P.parseBetslip(`My Bets
+Active Settled
+FANDUEL
+SGP] Same Game Parlay™ +702
+Buffalo Bills Moneyline, Josh Allen Over 32.5
+Buffalo Bills @ New Orleans Saints| FINISHED
+Buffalo Bills
+• MONEYLINET
+Josh Allen Over 32.5
+• JOSH ALLEN - RUSHING YDS
+Emmanuel Sanders Under 42.5
+• EMMANUEL SANDERS - RECEIVING YDS
+Zack Moss Under 9.5
+Void
+ZACK MOSS- RECEIVING YDS
+$150.00 $688.22
+WON ON FANDUEL`);
+  eq(r.bets.length, 1, 'fd sgp: one bet');
+  const b = r.bets[0];
+  eq(b.bet_type, 'parlay', 'fd sgp: parlay');
+  eq(b.odds, 702, 'fd sgp: odds from the header chip row');
+  eq(b.result, 'win', 'fd sgp: WON outranks the voided leg');
+  ok(b.legs.length >= 3, 'fd sgp: legs found behind bullets and trademark fusion');
+  eq(b.stake, 150, 'fd sgp: stake');
+}
+
+// FanDuel settled LIST: one WON and two CASHED OUT parlays. Results are per
+// SPAN; the first bet's win must not paint the neighbours.
+{
+  const r = P.parseBetslip(`FANDUEL
+SPORTSBOOK +
+SGP Same Game Parlay™ +1112
+Patrick Mahomes Under 255.5 Patrick Mahomes - Passing Yds,
+Finished
+$1.00 $12.13
+TOTAL WAGER WON ON FANDUEL
+SGP 7 leg Same Game Parlay+ +4554
+$1.00 BONUS BET USED
+Includes: 2 Same Game Parlay™ bets + 2 selections
+$1.00 $6.60
+TOTAL WAGER CASHED OUT
+SGP 7 leg Same Game Parlay+ +2345
+Includes: 2 Same Game Parlay™ bets + 2 selections
+$1.00 $18.73
+TOTAL WAGER CASHED OUT`);
+  eq(r.bets.length, 3, 'fd list: three parlays');
+  eq(r.bets[0].result, 'win', 'fd list: first is the winner');
+  eq(r.bets[1].result, 'void', 'fd list: cashed out reads void, not win');
+  eq(r.bets[2].result, 'void', 'fd list: third also void');
+  eq(r.bets[1].odds, 4554, 'fd list: each keeps its own odds');
+}
+
+// BetRivers under-construction slip: the legs come FIRST, the "Parlay (3 Picks)"
+// summary and money at the BOTTOM. Look-back claiming plus the fused X buttons.
+{
+  const r = P.parseBetslip(`BetRivers
+Clear betslip
+BAL Orioles
+X Moneyline
+BAL Orioles @ TB Rays
+Over 7.5
+X Total Runs
+BAL Orioles @ TB Rays
+Wager
+10.00
+To Win
+75.00
+Parlay (3 Picks)
+Odds:
++750`);
+  eq(r.bets.length, 1, 'betrivers: one parlay from bottom-summary layout');
+  const b = r.bets[0];
+  eq(b.bet_type, 'parlay', 'betrivers: type');
+  eq(b.legs.length, 2, 'betrivers: both legs claimed looking BACK from the header');
+  eq(b.stake, 10, 'betrivers: wager bound from the next line');
+  eq(b.to_win, 75, 'betrivers: to win bound from the next line');
+  eq(b.legs[0].bet_type, 'ml', 'betrivers: X Moneyline still reads as ml');
+}
+
+// DraftKings futures parlay share ticket: "8 PICK PARLAY +163384 WON" header
+// carrying odds AND badge, "Division Winner" futures legs, Wager:/Paid: inline.
+{
+  const r = P.parseBetslip(`DRAFTKINGS
+SPORTSBOOK
+8 PICK PARLAY +163384 WON
+KC Chiefs, HOU Texans, BAL Ravens, LA Rams,
+Wager: $100.00 Paid: $163,484.39 9
+KC CHIEFS -230
+Division Winner
+LA RAMS +330
+Division Winner
+HOU TEXANS +105
+Division Winner`);
+  eq(r.book, 'DraftKings', 'dk futures: book');
+  eq(r.bets.length, 1, 'dk futures: one parlay');
+  const b = r.bets[0];
+  eq(b.odds, 163384, 'dk futures: 6-digit header odds');
+  eq(b.result, 'win', 'dk futures: WON stripped off the header');
+  eq(b.stake, 100, 'dk futures: Wager: inline');
+  eq(b.payout_total, 163484.39, 'dk futures: Paid: inline');
+  ok(b.legs.every(l => l.bet_type === 'future'), 'dk futures: Division Winner legs are futures');
+}
+
+// ESPN BET live slip: a 2nd-period market is partial-game and must come back as
+// a PROP (personal-only), with the remove-button X stripped off the selection.
+{
+  const r = P.parseBetslip(`ESPПBET
+Betslip 1
+STRAIGHT PARLAY TEASER
+LIVE • 1:00 PM
+Detroit Red Wings @ Ottawa Senators
+X DET Red Wings +450
+2nd Period 3 Way
+Bet To Win
+$100 $450.00
+PAYOUT $550.00`);
+  eq(r.bets.length, 1, 'espn live: one bet');
+  const b = r.bets[0];
+  eq(b.bet_type, 'prop', 'espn live: a period market is personal-only, never a slot');
+  ok(/^DET Red Wings/.test(b.selection), 'espn live: the X button is stripped');
+  eq(b.odds, 450, 'espn live: odds');
+}
+
 console.log(`betslip_parse.test.js: ${n} assertions passed`);

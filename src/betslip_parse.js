@@ -93,8 +93,8 @@ function isChrome(line) {
 // on the slip. Order matters — the spread patterns must be tried before the
 // generic total patterns so "Total Points Spread" style labels land correctly.
 const MARKETS = [
-  { type: 'ml',     re: /^(money\s*line|moneyline|ml|match winner|to win (?:the )?(?:game|match|fight|bout)|winner|match result|1x2|result)$/i },
-  { type: 'spread', re: /^(?:alt(?:ernate)?\s+)?(?:point\s+|puck\s+|run\s+|goal\s+|game\s+|set\s+|map\s+)?(?:spread|line|handicap)$/i },
+  { type: 'ml',     re: /^(money\s*linet?|ml|match winner|to win (?:the )?(?:game|match|fight|bout)|winner|match result|full\s*time\s*result|1x2|result)$/i },
+  { type: 'spread', re: /^(?:alt(?:ernate)?\s+)?(?:point\s+|puck\s+|run\s+|goal\s+|game\s+|set\s+|map\s+|match\s+)?(?:spread|line|handicap)$/i },
   { type: 'spread', re: /^(run line|puck line|goal line|asian handicap|handicap|spread betting)$/i },
   { type: 'total',  re: /^(?:alt(?:ernate)?\s+)?(?:game\s+|match\s+)?totals?(?:\s+(?:points|runs|goals|games|sets|maps|rounds|corners|kills))?$/i },
   { type: 'total',  re: /^(over\/under|o\/u|over under|total over\/under)$/i },
@@ -105,8 +105,8 @@ const MARKETS = [
 // them (no prop feed), so they land as personal bets the user settles by hand.
 const PROP_RE = new RegExp([
   'player\\s+(props?|points|rebounds|assists|threes|blocks|steals)',
-  '(points|rebounds|assists|threes|blocks|steals|passing|rushing|receiving|receptions)\\s*(\\+|yards|made|o/u)?$',
-  'anytime\\s+(td|touchdown)', 'first\\s+(td|touchdown)', 'to\\s+(score|record|hit|throw|get)\\b',
+  '(points|rebounds|assists|threes|blocks|steals|passing|rushing|receiving|receptions)\\s*(\\+|y(?:ar)?ds?|made|o/u)?$',
+  'any\\s*time\\s+(td|touchdown)', 'first\\s+(td|touchdown)', 'to\\s+(score|record|hit|throw|get)\\b',
   'strikeouts?', 'home\\s*runs?', 'total\\s+bases', 'hits\\s*\\+?\\s*runs', 'shots\\s+on\\s+goal',
   'double\\s+double', 'triple\\s+double', 'goalscorer', 'to\\s+lift\\s+the', 'method\\s+of\\s+victory',
   'aces', 'games\\s+won', 'sets?\\s+won', 'correct\\s+score', 'both\\s+teams\\s+to\\s+score', 'btts',
@@ -116,14 +116,21 @@ const PROP_RE = new RegExp([
 // Points", "Over 8.5"), and without this guard the prop pattern swallows the
 // selection line as a market and the bet comes back with no selection at all.
 // The exceptions are the handful of labels that legitimately contain a digit.
-const MARKET_DIGIT_OK = /^(1x2|o\/u|f5|1h|2h|[1-4]q|3\s*-?\s*way)$/i;
+const MARKET_DIGIT_OK = /^(1x2|o\/u|f5|1h|2h|[1-4]q|3\s*-?\s*way)$|^\d(?:st|nd|rd|th)\s+(?:period|quarter|half|inning|set|map)\b/i;
 
 function marketOf(line) {
+  // A remove-leg button OCR-fused onto the label ("X Moneyline" on BetRivers)
+  // must not hide the market. A real label never starts with a lone glyph.
+  line = String(line).replace(/^[xX*>\u2022\u00b7-]\s+/, '');
   const t = line.trim().replace(/[.:•·|]+$/, '').trim();
   if (/\d/.test(t) && !MARKET_DIGIT_OK.test(t)) return null;
   for (const m of MARKETS) if (m.re.test(t)) return m.type;
+  // Partial-game markets ("2nd Period 3 Way" on a live slip) grade off a period
+  // score we do not track: personal-bet territory, same as the board's F5/1H
+  // quarantine. Never a full-game slot.
+  if (/^\d(?:st|nd|rd|th)\s+(?:period|quarter|half|inning|set|map)\b/i.test(t)) return 'prop';
   // Futures read as their own thing and never auto-grade.
-  if (/^(futures?|outright|to win (?:the )?(?:division|conference|championship|title|series|award|mvp)|season)/i.test(t)) return 'future';
+  if (/^(futures?|outright|(?:division|conference|championship)\s+winner|to win (?:the )?(?:division|conference|championship|title|series|award|mvp)|season)/i.test(t)) return 'future';
   if (PROP_RE.test(t) && t.length <= 60) return 'prop';
   return null;
 }
@@ -131,11 +138,19 @@ function marketOf(line) {
 // ── Bet headers ───────────────────────────────────────────────────────────────
 // "Straight Bet", "4 Leg Parlay", "Same Game Parlay", "Round Robin".
 const STRAIGHT_RE = /^(straight(?:\s+bet)?|single(?:\s+bet)?|solo|standard(?:\s+bet)?)$/i;
-const PARLAY_RE   = /^(?:(\d{1,2})[\s-]*(?:leg|pick|selection|team)s?[\s-]*)?(same\s*game\s*)?(parlay|accumulator|acca|multi|combo|sgp|sgpx?)(?:\s*(?:\+|x)?)?(?:\s*\((\d{1,2})\s*legs?\))?$/i;
+// Real headers seen in the wild: "3 Leg Parlay", "Same Game Parlay", "PARLAY
+// 6-Bet Parlay" (Hard Rock repeats the word), "Parlay (3 Picks)" (BetRivers).
+const PARLAY_RE   = /^(?:parlay\s+)?(?:(\d{1,2})[\s-]*(?:leg|pick|selection|team|bet)s?[\s-]*)?(same\s*game\s*)?(parlay|accumulator|acca|multi|combo|sgp|sgpx?)(?:\s*(?:\+|x)?)?(?:\s*\((\d{1,2})\s*(?:legs?|picks?|bets?|selections?)\))?$/i;
 const TEASER_RE   = /^(\d{1,2})?[\s-]*(teaser|pleaser|round\s*robin|if\s*bet|reverse)s?$/i;
 
 function betHeaderOf(line) {
-  const t = line.trim().replace(/[.:•·|]+$/, '').trim();
+  // FanDuel's SGP chip OCRs into the header text ("SGP] Same Game Parlay",
+  // "SGP 7 leg Same Game Parlay+"), and a settled header carries its badge
+  // ("8 PICK PARLAY +163384 WON", "Parlay 4 Legs WIN").
+  line = String(line)
+    .replace(/^\[?sgp\]?\s+(?=same|parlay|\d)/i, '')
+    .replace(/\s+(won|win|lost|loss|push|voided?|cashed\s*out)$/i, '');
+  const t = line.trim().replace(/[.:\u2022\u00b7|+]+$/, '').trim();
   if (STRAIGHT_RE.test(t)) return { kind: 'straight', legs: 1 };
   if (TEASER_RE.test(t))   return { kind: 'exotic', legs: null, label: t };
   const m = PARLAY_RE.exec(t);
@@ -143,6 +158,9 @@ function betHeaderOf(line) {
     const n = parseInt(m[1] || m[4], 10);
     return { kind: 'parlay', legs: Number.isFinite(n) ? n : null, sameGame: !!m[2] || /sgp/i.test(t) };
   }
+  // ESPN BET flips the word order: "Parlay 4 Legs".
+  const m2 = /^(?:parlay|sgp|same\s*game\s*parlay\+?)\s*\(?(\d{1,2})\s*(?:legs?|picks?|bets?|selections?)\)?$/i.exec(t);
+  if (m2) return { kind: 'parlay', legs: parseInt(m2[1], 10), sameGame: /sgp|same/i.test(t) };
   return null;
 }
 
@@ -151,15 +169,19 @@ function betHeaderOf(line) {
 // from pending ones and to fill the confirm screen) but we never TRUST it: the
 // importer re-grades anything it can match to a real game. See betslip_router.js.
 const RESULT_RE = [
-  { result: 'win',  re: /^(won|win|winner|cashed|paid|settled\s*[-–]?\s*won)$/i },
+  { result: 'win',  re: /^(won|win|winner|cashed|paid|settled\s*[-–]?\s*won|won\s+on\s+\w+)$/i },
   { result: 'loss', re: /^(lost|loss|lose|no\s*win|settled\s*[-–]?\s*lost)$/i },
   { result: 'push', re: /^(push|tie|tied|draw\s*no\s*bet|refund(?:ed)?)$/i },
   { result: 'void', re: /^(void(?:ed)?|cancell?ed|no\s*action|na)$/i },
   { result: 'void', re: /^cash(?:ed)?\s*out$/i },   // cashed out: not a graded W/L
 ];
 function resultOf(line) {
-  const t = line.trim().replace(/[.:!•·|]+$/, '').trim();
+  const t = line.trim().replace(/[.:!\u2022\u00b7|]+$/, '').trim();
   for (const r of RESULT_RE) if (r.re.test(t)) return r.result;
+  // The winner tape: a Hard Rock ticket's border is WINNER repeated edge to edge,
+  // and OCR clips the outermost tokens ("'WNER WINNER ... WII"), so only a
+  // repeated-token test can see it.
+  if ((t.match(/winner/gi) || []).length >= 2) return 'win';
   return null;
 }
 
@@ -168,10 +190,10 @@ function resultOf(line) {
 // `toWin` is the profit (NOT the return: "Total Payout" includes the stake and is
 // converted below).
 const STAKE_LABEL  = /(total\s+wager|wager|risk(?:ing)?|stake|bet\s+amount|amount\s+bet|you\s+bet|bet)\b/i;
-const RETURN_LABEL = /(total\s+payout|total\s+return|payout|returns?|total)\b/i;
+const RETURN_LABEL = /(total\s+payout|total\s+return|payout|returns?|paid|collected|total)\b/i;
 const PROFIT_LABEL = /(to\s+win|to\s+return|potential\s+win(?:nings)?|profit|winnings)\b/i;
 
-const MONEY_RE = /(?:\$|usd\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)|\b([0-9][0-9,]*\.[0-9]{2})\b/gi;
+const MONEY_RE = /(?:[$\u00a3\u20ac]|usd\s*)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)|\b([0-9][0-9,]*\.[0-9]{2})\b/gi;
 
 function moneysIn(line) {
   const out = [];
@@ -193,7 +215,7 @@ function moneysIn(line) {
 // No lookbehind assertions anywhere in this file: Safari before 16.4 fails to
 // PARSE a module containing (?<!...), and public/modules/track.js imports the
 // same shapes. Group 1 captures the boundary character instead.
-const AM_ODDS_RE = /(^|[^\d.,])([+-]\d{3,5})(?![\d.])/g;
+const AM_ODDS_RE = /(^|[^\d.,])([+-]\d{3,8})(?![\d.])/g;
 // "EVEN" / "EVENS" / "PK" are even money.
 const EVEN_RE = /\b(even|evens|ev|pick\s*'?em|pk)\b/i;
 // Fractional odds are unambiguous in shape: 5/2, 11/4, 1/1.
@@ -204,7 +226,10 @@ function americanIn(line) {
   while ((m = AM_ODDS_RE.exec(line))) {
     const v = parseInt(m[2], 10);
     // ±100 is the floor for a real American price; anything smaller is a score or a year.
-    if (Math.abs(v) >= 100 && Math.abs(v) <= 100000) out.push({ value: v, index: m.index });
+    // Upper bound is generous on purpose: longshot parlays print real 7-digit
+    // prices (a Hard Rock winner ticket read +6576031), and the old 100000 cap
+    // threw the one number that identified the bet.
+    if (Math.abs(v) >= 100 && Math.abs(v) <= 10000000) out.push({ value: v, index: m.index });
   }
   return out;
 }
@@ -243,7 +268,7 @@ function oddsFromMoney(stake, toWin) {
 // A handicap in a selection: "Lakers -4.5", "Over 220.5", "+1.5". Signed values
 // under 100, or any value carrying a decimal, are lines rather than prices.
 const HANDICAP_RE = /(^|[^\d.,])([+-]\d{1,3}(?:\.\d)?)(?![\d])/g;
-const TOTAL_SIDE_RE = /\b(over|under|o|u)\b[\s.:]*([0-9]{1,3}(?:\.[05])?)/i;
+const TOTAL_SIDE_RE = /\b(over|under|o|u)\b[\s.:]*\+?([0-9]{1,3}(?:\.[05])?)/i;
 
 function handicapIn(line) {
   const out = []; let m; HANDICAP_RE.lastIndex = 0;
@@ -270,7 +295,7 @@ const MATCHUP_RE = /^(.{2,60}?)\s+(@|at|vs\.?|v\.?|versus|-)\s+(.{2,60}?)$/i;
 // what is left after the tail is cut. Rejecting any line carrying money instead
 // (the first cut of this) silently lost the game on every TOTAL in a My Bets list:
 // a total's selection is only "Over 174.5", so the matchup is its ONLY way in.
-const MATCHUP_TAIL_RE = /\s*(?:to\s+win|to\s+return|potential\s+win(?:nings)?|payout|returns?|total\s+payout|wager|risk|stake|cash\s*out)\b.*$/i;
+const MATCHUP_TAIL_RE = /\s*(?:to\s+win|to\s+return|potential\s+win(?:nings)?|payout|returns?|total\s+payout|wager|risk|stake|cash\s*out|finished|final|live|settled)\b.*$/i;
 
 function matchupOf(line) {
   let t = line.trim().replace(/[•·|]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -331,8 +356,21 @@ function normalizeSigns(text) {
     .replace(/[\u201c\u201d]/g, '"')
 }
 
+// OCR reads logo glyphs as their nearest lookalike: ESPN BET's stylized N comes
+// back as Cyrillic \u041f ("ESP\u041fBET"), and trademark marks either vanish or
+// fuse into words ("Same Game Parlay\u2122" -> "MONEYLINET"). Fold both before
+// anything tries to match.
+function foldGlyphs(text) {
+  return String(text)
+    .replace(/[\u2122\u00ae\u00a9]/g, '')
+    .replace(/[\u041f\u043f]/g, 'n').replace(/[\u041e\u043e]/g, 'o')
+    .replace(/[\u0410\u0430]/g, 'a').replace(/[\u0415\u0435]/g, 'e')
+    .replace(/[\u0420\u0440]/g, 'p').replace(/[\u0421\u0441]/g, 'c')
+    .replace(/[\u0425\u0445]/g, 'x').replace(/[\u0412\u0432]/g, 'b');
+}
+
 function normalizeOcr(text) {
-  return repairNumeric(normalizeSigns(text))
+  return repairNumeric(normalizeSigns(foldGlyphs(text)))
     .split('\n')
     .map(l => l.replace(/\s{2,}/g, ' ').trim())
     .filter(l => l.length > 0)
@@ -409,7 +447,12 @@ function featurize(raw) {
     chrome: isChrome(text) || (bare !== text && bare !== '' && isChrome(bare)),
     market: marketOf(text) || (bare !== text ? marketOf(bare) : null),
     header: betHeaderOf(text) || (bare !== text ? betHeaderOf(bare) : null),
-    result: resultOf(text) || (bare !== text ? resultOf(bare) : null),
+    // Chrome is never a result: the "Cash Out" BUTTON on every open bet matches
+    // the cashed-out badge pattern and was voiding pending slips wholesale. The
+    // real settled badge reads "Cashed Out", which is not chrome.
+    result: (isChrome(text) || (bare !== text && bare !== '' && isChrome(bare)))
+      ? null
+      : (resultOf(text) || (bare !== text ? resultOf(bare) : null)),
     matchup: matchupOf(text),
     time: timeHintOf(text),
     american: americanIn(text),
@@ -418,6 +461,36 @@ function featurize(raw) {
     moneys: moneysIn(text),
     words: (text.match(/[A-Za-z]{2,}/g) || []).length,
   };
+  // A market fused onto its own row-mate by a separator glyph: BetMGM prints
+  // "Chargers \u2022 Money Line" (selection first), Caesars "Total Games | Bublik vs
+  // Rublev" (matchup after). Neither line matches a bare market test, and both
+  // slips died with no bets until this split.
+  if (!f.market && /[\u2022\u00b7|]/.test(text)) {
+    const segs = text.split(/[\u2022\u00b7|]/).map(x => x.trim()).filter(Boolean);
+    if (segs.length >= 2) {
+      const RESULT_EDGE = /^(won|win|lost|loss|push|void|voided|cashed\s*out)\s+|\s+(won|win|lost|loss|push|void|voided|cashed\s*out)$/i;
+      for (let si = 0; si < segs.length; si++) {
+        let mk = marketOf(segs[si]);
+        // "Money Line WON": the settled badge shares the fused row's segment with
+        // the market label on BetMGM.
+        if (!mk) {
+          const em = RESULT_EDGE.exec(segs[si]);
+          if (em) {
+            mk = marketOf(segs[si].replace(RESULT_EDGE, ' ').trim());
+            if (mk && !f.result) f.result = resultOf((em[1] || em[2] || '').trim());
+          }
+        }
+        if (!mk) continue;
+        f.market = mk;
+        const residual = segs.filter((_, j) => j !== si).join(' ').trim();
+        const mu = matchupOf(residual);
+        if (mu && !f.matchup) f.matchup = mu;
+        else if (residual && /[a-z]{2}/i.test(residual)) f.inlineSelection = residual;
+        break;
+      }
+    }
+  }
+
   // Fractional odds only when nothing American is present (a US slip showing
   // "1/2" is almost always a record, e.g. "1/2 legs won").
   if (!f.american.length && /\d\s*\/\s*\d/.test(text) && !/leg|pick|of/i.test(text)) {
@@ -431,8 +504,31 @@ function featurize(raw) {
   f.stakeLabel  = STAKE_LABEL.test(text) && !PROFIT_LABEL.test(text) && !RETURN_LABEL.test(text);
   f.profitLabel = PROFIT_LABEL.test(text);
   f.returnLabel = RETURN_LABEL.test(text) && !PROFIT_LABEL.test(text);
+  // A settled badge fused onto the END of a short row, no separator: "Match
+  // Spread WIN" (ESPN BET per-leg), "TOTAL WAGER CASHED OUT" (FanDuel list),
+  // "TOTAL WAGER WON ON FANDUEL". Anchored full-line tests cannot see these.
+  // "to win" is excluded: that is a market/label phrase, not a verdict.
+  if (!f.result && f.words <= 6) {
+    const em = /(won\s+on\s+\w+|cashed\s*out|no\s*action|won|win|lost|loss|push|voided?)\s*$/i.exec(text);
+    if (em && !/\bto\s+win$/i.test(text)) {
+      const badge = resultOf(em[1]);
+      if (badge) {
+        f.result = badge;
+        // The prefix may be the market the badge was stapled to.
+        if (!f.market) {
+          const prefix = text.slice(0, em.index).trim();
+          if (prefix) f.market = marketOf(prefix);
+        }
+      }
+    }
+  }
+
+  // A bare money label ("Wager" / "To Win" / "Paid" on its own row, amount on the
+  // next) must never be readable as a selection: Hard Rock and BetRivers tickets
+  // both print them exactly like that.
+  f.bareMoneyLabel = (f.stakeLabel || f.profitLabel || f.returnLabel) && !f.moneys.length && f.words <= 3;
   // A "selection-ish" line: real words, not chrome, not a pure label.
-  f.wordy = !f.chrome && f.words >= 1 && !f.market && !f.header && !f.result;
+  f.wordy = !f.chrome && f.words >= 1 && !f.market && !f.header && !f.result && !f.bareMoneyLabel;
   return f;
 }
 
@@ -440,7 +536,7 @@ function featurize(raw) {
 // Strip the price and any trailing furniture off a selection line, then pull the
 // handicap out of what remains.
 function cleanSelection(text) {
-  let s = String(text || '');
+  let s = String(text || '').replace(/^[xX*>\u2022\u00b7-]\s+/, '');
   AM_ODDS_RE.lastIndex = 0;
   s = s.replace(AM_ODDS_RE, (all, b) => b);              // drop prices
   s = s.replace(MONEY_RE, ' ');                          // drop dollar amounts
@@ -518,7 +614,8 @@ function segment(feats) {
       }
     }
 
-    const selLine = selIdx >= 0 ? feats[selIdx].raw : '';
+    const selLine = f.inlineSelection || (selIdx >= 0 ? feats[selIdx].raw : '');
+    if (f.inlineSelection) selIdx = -1;   // nothing external was claimed
     const leg = {
       market: f.market,
       marketLabel: f.raw,
@@ -538,7 +635,7 @@ function segment(feats) {
     const oddsFrom = (g) => (g && g.oddsTokens.length ? g.oddsTokens[g.oddsTokens.length - 1].value : null);
     leg.odds = oddsFrom(feats[selIdx]) ?? oddsFrom(f);
     if (leg.odds == null) {
-      for (let j = i + 1; j < feats.length && j <= i + 2; j++) {
+      for (let j = i + 1; j < feats.length && j <= i + 4; j++) {
         if (feats[j].market || feats[j].header) break;
         const v = oddsFrom(feats[j]);
         if (v != null) { leg.odds = v; claimed.add(j); break; }
@@ -596,10 +693,35 @@ function assemble(feats, legs) {
     // Legs belonging to this header: the ones after it, up to the next header.
     const nextAt = headers.filter(x => x.at > h.at).reduce((m, x) => Math.min(m, x.at), Infinity);
     let mine = legs.filter(l => l.at > h.at && l.at < nextAt && !used.has(l));
+    // Legs BEFORE the header: a betslip under construction prints the summary at
+    // the BOTTOM ("Parlay (3 Picks)  +750" under the picks — BetRivers, and the
+    // builder flows on most books), so when nothing follows the header, claim the
+    // unclaimed legs above it. Bounded to a short reach so a stray "parlay" word
+    // far below an odds grid cannot vacuum up half the screen.
+    if (mine.length < 2) {
+      const prevAt = headers.filter(x => x.at < h.at).reduce((m, x) => Math.max(m, x.at), -1);
+      const back = legs.filter(l => l.at < h.at && l.at > prevAt && h.at - l.at <= 14 && !used.has(l));
+      mine = back.concat(mine);
+    }
     if (h.legs && mine.length > h.legs) mine = mine.slice(0, h.legs);
-    // A parlay header with nothing after it (cropped screenshot) is dropped rather
-    // than invented: a legless parlay would be an unusable row in the user's record.
-    if (mine.length < 2) continue;
+    if (mine.length < 2) {
+      // EXACTLY ZERO legs plus a price = the settled-ticket shape. ONE leg is
+      // different: that is a cropped screenshot of a normal parlay, and inventing
+      // a legless parlay NEXT TO the leg (which the leftover pass then also emits
+      // as a straight) would mint two bets from one. The one-leg case keeps the
+      // old rule: drop the header, let the leg stand as a straight.
+      if (mine.length === 1) continue;
+      // No legs to claim. When the header carries its OWN price this is still a
+      // real bet — the Hard Rock winner ticket is exactly this shape ("PARLAY
+      // 6-Bet Parlay / +6576031 / <comma-joined legs> / Wager / $30.11"): the leg
+      // summary is one prose line with no market labels, so segmentation finds
+      // nothing, and dropping the header threw away a $1.98M settled parlay. A
+      // header with no price stays dropped (a bare "Parlay" word is not a bet).
+      if ((h.kind === 'parlay' || h.kind === 'exotic') && h.odds != null) {
+        bets.push({ kind: h.kind === 'exotic' ? 'exotic' : 'parlay', header: h, legs: [], at: h.at });
+      }
+      continue;
+    }
     mine.forEach(l => used.add(l));
     bets.push({ kind: h.kind === 'exotic' ? 'exotic' : 'parlay', header: h, legs: mine, at: h.at });
   }
@@ -629,7 +751,13 @@ function assemble(feats, legs) {
 // ── Money assignment ──────────────────────────────────────────────────────────
 // Amounts belong to the bet whose span they fall in. A bet's span runs from its
 // header (or first leg) to the start of the next bet.
-function assignMoney(feats, bets) {
+function assignMoney(feats, bets, book) {
+  // The app's top bar prints the BOOK NAME next to the ACCOUNT BALANCE
+  // ("ESPNBET RG $27.56"), and the first bet's span reaches the top of the
+  // screenshot, so the balance read as the wager. Money on a row that carries the
+  // book's own tell is chrome.
+  const tells = (book && book.key) ? (BOOKS.find(b => b.key === book.key) || {}).tells || [] : [];
+  const isBookBar = (f) => tells.some(t => f.raw.toLowerCase().includes(t));
   // A bet OWNS the lines from its own anchor (its header, or its first leg when
   // there is no header) up to the next bet's anchor. The first bet also reaches
   // back to the top of the slip, where a lone amount above the header sometimes
@@ -648,26 +776,71 @@ function assignMoney(feats, bets) {
   bets.forEach((bet, bi) => {
     const { start, end } = bounds[bi];
     let stake = null, toWin = null, ret = null, loose = [];
+    const claimedNext = new Set();
     for (let i = start; i < end && i < feats.length; i++) {
       const f = feats[i];
       // Chrome carries money too: the account-balance chip at the top of every
       // book's My Bets screen is "$0.00", and reading it as the wager would put a
       // zero-stake bet in the user's record.
-      if (f.chrome || !f.moneys.length) continue;
+      if (f.chrome || (f.moneys.length && isBookBar(f))) continue;
+
+      // A label on its OWN row with the amount on the NEXT row — how a ticket
+      // prints its footer ("Wager" / "$30.11" / "Paid" / "$1,980,043.01" on the
+      // Hard Rock winner slip; "Wager" / "10.00" / "To Win" / "75.00" on
+      // BetRivers). Same-line labels used to be the only shape we read.
+      if (f.bareMoneyLabel && i + 1 < end && i + 1 < feats.length) {
+        const g = feats[i + 1];
+        if (!g.chrome && g.moneys.length && g.words <= 2) {
+          // The bound row can be a COLUMN DUMP ("$700.00 -200 $1,050.00" under a
+          // "Stake / Odds / Payout" header row): the stake is the FIRST figure,
+          // the payout the LAST, and whatever a label does not claim stays loose
+          // so the payout math still happens.
+          const vals = g.moneys.map(m => m.value).filter(v => v > 0);
+          if (vals.length) {
+            if (f.profitLabel && toWin == null) { toWin = vals[vals.length - 1]; vals.pop(); }
+            else if (f.stakeLabel && stake == null) { stake = vals[0]; vals.shift(); }
+            else if (f.returnLabel && ret == null) { ret = vals[vals.length - 1]; vals.pop(); }
+            for (const v of vals) loose.push(v);
+            claimedNext.add(i + 1);
+          }
+        }
+        continue;
+      }
+      if (claimedNext.has(i) || !f.moneys.length) continue;
       const amount = f.moneys[f.moneys.length - 1].value;
       if (!(amount > 0)) continue;
+      // A label line carrying TWO amounts is stake-then-result ("Stake £1.00 To
+      // Return £2.25", "$10 wins $50.00"): the first number is what was risked.
+      const first = f.moneys[0].value;
+      if (f.moneys.length >= 2 && first > 0 && first !== amount && stake == null &&
+          (f.profitLabel || f.returnLabel)) {
+        stake = first;
+      }
       if (f.profitLabel && toWin == null) toWin = amount;
       else if (f.stakeLabel && stake == null) stake = amount;
       else if (f.returnLabel && ret == null) ret = amount;
-      else loose.push(amount);
+      else if (!f.profitLabel && !f.stakeLabel && !f.returnLabel) {
+        // Column dumps put stake AND payout on one unlabeled row; keep them all.
+        for (const m of f.moneys) if (m.value > 0) loose.push(m.value);
+      }
     }
     // "$25.00 → $47.73" style settled rows: two loose amounts, stake then return.
     if (stake == null && loose.length) stake = loose[0];
+    // Column dumps ("$700.00 -200 $1,050.00") land every figure in loose: the
+    // largest trailing amount above the stake is the payout.
+    if (ret == null && stake != null && loose.length >= 2 && loose[loose.length - 1] > stake) {
+      ret = loose[loose.length - 1];
+    }
     if (toWin == null && ret != null && stake != null && ret > stake) toWin = +(ret - stake).toFixed(2);
     if (toWin == null && stake == null && loose.length >= 2) { stake = loose[0]; toWin = null; }
     bet.stake = stake;
     bet.toWin = toWin;
     bet.payoutTotal = ret;
+    // The span's own result, win > loss > push > void: a settled parlay prints a
+    // Void badge on a dropped leg AND the WON banner, and void must not win.
+    const spanSeen = new Set();
+    for (let i = start; i < end && i < feats.length; i++) if (feats[i].result) spanSeen.add(feats[i].result);
+    bet.spanResult = ['win', 'loss', 'push', 'void'].find(r => spanSeen.has(r)) || null;
   });
 }
 
@@ -718,12 +891,17 @@ function parseBetslip(input) {
 
   const { legs } = segment(feats);
   const bets = assemble(feats, legs);
-  assignMoney(feats, bets);
+  assignMoney(feats, bets, book);
 
   // Slip-wide result, used when a settled row does not repeat its badge per bet.
-  const slipResult = feats.map(f => f.result).find(Boolean) || null;
+  // PRECEDENCE, not first-found: a settled parlay with one voided leg shows a
+  // Void badge AND the WON banner (FanDuel prints both), and first-found turned a
+  // $688 winner into no-action. A decided result always outranks void.
+  const seen = new Set(feats.map(f => f.result).filter(Boolean));
+  const slipResult = ['win', 'loss', 'push', 'void'].find(r => seen.has(r)) || null;
 
   const out = bets.map(b => finishBet(b, book, slipResult)).filter(Boolean);
+  if (out.length === 1 && !out[0].result && slipResult) out[0].result = slipResult;
 
   // Capture type is a hint for the UI, not a gate.
   let capture = 'slip';
@@ -769,9 +947,12 @@ function finishBet(b, book, slipResult) {
     };
   }).filter(l => l.selection || l.odds != null);
 
-  if (!legs.length) return null;
+  const isHeaderParlay = b.kind === 'parlay' || b.kind === 'exotic';
+  // Legless is only meaningful for a header-backed parlay (the settled-ticket
+  // shape, where the legs are one prose line segmentation cannot anchor on).
+  if (!legs.length && !(isHeaderParlay && b.header && b.header.odds != null)) return null;
 
-  const isParlay = b.kind === 'parlay' || b.kind === 'exotic' || legs.length > 1;
+  const isParlay = isHeaderParlay || legs.length > 1;
   let odds = null;
   if (isParlay) {
     // Prefer a printed combined price near the header; otherwise multiply the legs.
@@ -787,7 +968,13 @@ function finishBet(b, book, slipResult) {
   }
   if (odds == null) odds = oddsFromMoney(b.stake, b.toWin);
 
-  const result = legs.find(l => l.result)?.result || (b.legs.length ? slipResult : null) || null;
+  // A straight bet owns its leg's badge. A PARLAY does not: leg badges belong to
+  // the legs (a settled FanDuel SGP prints Void on the dropped leg while the
+  // ticket itself says WON), so the parent takes the span banner, falling back to
+  // "any leg lost = lost".
+  const result = isParlay
+    ? (b.spanResult || (legs.some(l => l.result === 'loss') ? 'loss' : null))
+    : (legs.find(l => l.result)?.result || b.spanResult || null);
 
   const bet = {
     bet_type: isParlay ? 'parlay' : legs[0].bet_type,
@@ -797,7 +984,7 @@ function finishBet(b, book, slipResult) {
     market: isParlay ? 'parlay' : legs[0].market,
     market_label: isParlay ? (b.header ? b.header.label || null : null) : legs[0].market_label,
     selection: isParlay
-      ? `${legs.length}-leg ${b.header && b.header.sameGame ? 'same game parlay' : 'parlay'}`
+      ? `${legs.length || (b.header && b.header.legs) || ''}-leg ${b.header && b.header.sameGame ? 'same game parlay' : 'parlay'}`.replace(/^-leg /, '')
       : legs[0].selection,
     line: isParlay ? null : legs[0].line,
     odds,
