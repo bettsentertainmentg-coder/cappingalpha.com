@@ -556,7 +556,7 @@ export function backToTrackMenu() {
 // verifies exactly when a tapped one would.
 //
 // OCR is device-side and free, two ways:
-//   - native shell : Apple Vision / ML Kit through window.CANative.ocr(). Better
+//   - native shell : Apple Vision / ML Kit through Capacitor.Plugins.CANative. Better
 //                    accuracy, and it returns word BOXES so the server can rebuild
 //                    the visual rows (a betslip is a two-column layout, and plain
 //                    OCR reading order splits the selection from its price).
@@ -596,8 +596,27 @@ async function getTessWorker(onProgress) {
   return _tessWorker;
 }
 
+// The native bridge, or null on the plain web.
+//
+// Capacitor injects plugins at window.Capacitor.Plugins.<jsName>; it does NOT
+// create a bare window.<jsName> global. Checking only for window.CANative meant
+// the app silently took the Tesseract path and never consumed a shared slip at
+// all, which is exactly what happened on the simulator the first time the whole
+// chain ran (2026-08-26). The window fallback stays for a plain global if one is
+// ever injected.
+//
+// Read through window rather than importing modules/native.js on purpose: this
+// file ships byte-identical to the web build, where native.js does not exist.
+function nativeBridge() {
+  try {
+    const cap = window.Capacitor;
+    return (cap && cap.Plugins && cap.Plugins.CANative) || window.CANative || null;
+  } catch (_) { return null; }
+}
+
 function hasNativeOcr() {
-  return !!(window.CANative && typeof window.CANative.ocr === 'function');
+  const b = nativeBridge();
+  return !!(b && typeof b.ocr === 'function');
 }
 
 // Read an image and return { text, blocks }. Blocks are only ever produced by the
@@ -606,7 +625,7 @@ async function ocrImage(file, onProgress) {
   if (hasNativeOcr()) {
     if (onProgress) onProgress(10);
     const dataUrl = await fileToDataUrl(file);
-    const res = await window.CANative.ocr({ image: dataUrl });
+    const res = await nativeBridge().ocr({ image: dataUrl });
     if (onProgress) onProgress(100);
     return { text: res && res.text || '', blocks: (res && res.blocks) || null };
   }
@@ -629,7 +648,7 @@ export function showBetScan() {
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
   // On the phone the share sheet is the real entry point, so say so once here.
-  const shareHint = window.CANative
+  const shareHint = nativeBridge()
     ? `<div class="track-form-note" style="margin-top:10px;">You can also share a bet straight from your sportsbook app: tap Share on the slip, then pick CappingAlpha.</div>`
     : '';
   body.innerHTML = `
@@ -916,11 +935,41 @@ export async function trackScannedBets() {
 // The native share extension writes the image (or the text a book shared) into the
 // App Group container and deep-links back here. app.js calls this on launch and on
 // every resume; it is a no-op in the browser.
+let _slipRetryArmed = false;
+
 export async function consumeSharedSlip() {
-  if (!window.CANative || typeof window.CANative.takeSharedSlip !== 'function') return false;
+  const bridge = nativeBridge();
+  if (!bridge || typeof bridge.takeSharedSlip !== 'function') return false;
+
+  // PEEK before taking. takeSharedSlip CLEARS the slip, and openTrackSheet bounces
+  // a logged-out user to the login modal, so taking first destroyed the very bet
+  // they had just shared: they logged in and it was gone. Verified on the
+  // simulator, 2026-08-27.
+  if (typeof bridge.hasSharedSlip === 'function') {
+    try {
+      const peek = await bridge.hasSharedSlip();
+      if (!peek || !peek.pending) return false;
+    } catch (_) { /* fall through and try to take it */ }
+  }
+
+  if (!state.currentUser) {
+    // Leave it parked and come back the moment they are in.
+    if (!_slipRetryArmed) {
+      _slipRetryArmed = true;
+      document.addEventListener('ca:auth', function onAuth(e) {
+        if (!e.detail || !e.detail.user) return;
+        document.removeEventListener('ca:auth', onAuth);
+        _slipRetryArmed = false;
+        consumeSharedSlip();
+      });
+    }
+    window.openLogin && window.openLogin();
+    return false;
+  }
+
   let payload = null;
-  try { payload = await window.CANative.takeSharedSlip(); } catch (_) { return false; }
-  if (!payload || (!payload.image && !payload.text)) return false;
+  try { payload = await bridge.takeSharedSlip(); } catch (_) { return false; }
+  if (!payload || (!payload.image && !payload.text && !(payload.blocks && payload.blocks.length))) return false;
 
   openTrackSheet();
   showBetScan();

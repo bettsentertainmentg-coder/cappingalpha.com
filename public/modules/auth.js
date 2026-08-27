@@ -29,6 +29,12 @@ export async function checkAuth() {
     state.currentUser = null;
   }
   updateNavAuth();
+  // Anyone waiting on "is someone logged in yet" listens for this rather than
+  // polling. The betslip share hand-off uses it: a bet shared while logged out
+  // parks until the login lands, instead of being thrown away at the prompt.
+  try {
+    document.dispatchEvent(new CustomEvent('ca:auth', { detail: { user: state.currentUser || null } }));
+  } catch (_) {}
 }
 
 export function updateNavAuth() {
