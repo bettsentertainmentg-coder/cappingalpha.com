@@ -125,8 +125,8 @@ function resolveGameMatches(rows, opts = {}) {
 // opts (optional): { pickType, side, line, odds, source, capper, picked } lets
 // the resolver confirm an ambiguous match against the pick's own number.
 function findGameByTeams(teamA, teamB, sport, opts) {
-  const t1 = (teamA || '').toLowerCase();
-  const t2 = (teamB || '').toLowerCase();
+  const t1 = (teamA || '').toLowerCase().trim();
+  const t2 = (teamB || '').toLowerCase().trim();
   if (!t1 || !t2) return null;
   const n1 = t1.split(' ').pop();
   const n2 = t2.split(' ').pop();
@@ -140,12 +140,21 @@ function findGameByTeams(teamA, teamB, sport, opts) {
         LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
         OR LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?
       )`;
-    const params = [n1, n1, t1, t1, n2, n2, t2, t2];
     if (sport) {
       if (String(sport).toLowerCase() === 'tennis') sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
-      else { sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport); }
+      else sql += ` AND UPPER(sport) = UPPER(?)`;
     }
-    return resolveGameMatches(db.prepare(sql).all(...params), { sport, ...(opts || {}) });
+    const tail = sport && String(sport).toLowerCase() !== 'tennis' ? [sport] : [];
+    const stmt = db.prepare(sql);
+    // Pass 1: the FULL strings as substrings. A pro name's last word is its
+    // identity ("Yankees"), but a college name's last word is usually "State":
+    // "Washington State @ Kansas State" hit 32 games on that word on one
+    // Saturday, and "Ohio State @ Texas" hit four. The full strings pick out
+    // exactly one game in both cases, before any line check is needed.
+    let rows = stmt.all(t1, t1, t1, t1, t2, t2, t2, t2, ...tail);
+    // Pass 2: last words, the original rule, for nicknames and short forms.
+    if (!rows.length) rows = stmt.all(n1, n1, t1, t1, n2, n2, t2, t2, ...tail);
+    return resolveGameMatches(rows, { sport, ...(opts || {}) });
   } catch (_) { return null; }
 }
 
