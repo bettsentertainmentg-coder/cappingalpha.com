@@ -2,10 +2,10 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=9';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, teamLabel, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican } from './utils.js?v=10';
 import { renderPicks } from './picks.js';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=31';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=32';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -434,7 +434,7 @@ function _renderHistory() {
       // captured_ml/original_ml, not ml_odds); spreads show no juice.
       const odds = (pt === 'ml' || pt === 'over' || pt === 'under') ? pickOddsAmerican(p) : null;
       const oddsStr = odds ? ` · ${odds > 0 ? '+' : ''}${odds}` : '';
-      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
       const click = p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'" style="cursor:pointer;"` : '';
       return `<div class="ca-hrow${voided || r === 'push' ? ' dim' : ''}${outVoid ? ' out' : ''}"${click}>
         <span class="hsc">${p.score ?? '—'}</span>
@@ -705,7 +705,7 @@ function _tipItem(p, unit) {
   const r = (p.result || '').toLowerCase();
   const ret = calcReturn(p, unit);
   const pt = (p.pick_type || '').toLowerCase();
-  const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  const label = (pt === 'over' || pt === 'under') ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
   return { text: `${label}  ·  ${ret >= 0 ? '+' : ''}$${ret.toFixed(2)}`, result: r };
 }
 

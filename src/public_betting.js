@@ -13,7 +13,7 @@ const AN_SPORT_SLUG = {
   NFL:   'nfl',
   MLB:   'mlb',
   NHL:   'nhl',
-  NCAAF: 'college-football',
+  NCAAF: 'ncaaf',            // 'college-football' 404s; verified 2026-09-07
   CBB:   'ncaab',
 };
 

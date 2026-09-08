@@ -7,7 +7,7 @@
 //     settle it yourself, never on the leaderboard.
 
 import { state } from './state.js';
-import { sportBadge, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
+import { sportBadge, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';

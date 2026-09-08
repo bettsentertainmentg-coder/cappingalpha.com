@@ -34,7 +34,7 @@ const BOVADA_TENNIS_URL =
 const SPORTS = ['NBA', 'WNBA', 'MLB', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer'];
 const AN_SLUG = {
   NBA: 'nba', WNBA: 'wnba', NFL: 'nfl', MLB: 'mlb',
-  NHL: 'nhl', NCAAF: 'college-football', CBB: 'ncaab',
+  NHL: 'nhl', NCAAF: 'ncaaf', CBB: 'ncaab', // 'college-football' 404s (2026-09-07)
   // ActionNetwork splits soccer by competition, so Soccer fans out over several
   // pages; every batch relays under the one 'Soccer' sport. Out-of-season pages
   // 404 or come back empty and are skipped; Railway only stores rows matching a

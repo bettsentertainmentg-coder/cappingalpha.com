@@ -3,9 +3,9 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
+import { gameTime, pickLabel, teamNickname, teamLabel, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 import { unlockCtaHtml } from './paywall.js';
-import { winPctColor } from './sport_cards.js?v=31';
+import { winPctColor } from './sport_cards.js?v=32';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -52,8 +52,8 @@ async function _renderTopPick() {
     // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
     // than a bare team name. Logged-out visitors get blurred placeholders.
     const betText = viewer ? 'Yankees Win' : (hasPick ? (pickLabel(pick) || pick.team || '—') : '');
-    const away = (hasPick && pick.away_team) ? teamNickname(pick.away_team, pick.home_team) : '';
-    const home = (hasPick && pick.home_team) ? teamNickname(pick.home_team, pick.away_team) : '';
+    const away = (hasPick && pick.away_team) ? teamLabel(pick, pick.away_team) : '';
+    const home = (hasPick && pick.home_team) ? teamLabel(pick, pick.home_team) : '';
     const matchupText = viewer ? 'New York @ Boston' : ((away && home) ? `${away} @ ${home}` : '');
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).

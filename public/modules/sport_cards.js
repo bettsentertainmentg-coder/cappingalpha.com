@@ -11,7 +11,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, teamLabel, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -67,7 +67,7 @@ function oppFor(p) {
   const isAway = t === String(p.away_team).trim();
   if (!isHome && !isAway) return '';
   const opp = isHome ? p.away_team : p.home_team;
-  const nick = teamNickname(opp, p.team);
+  const nick = teamLabel(p, opp);
   const s = (p.sport || '').toUpperCase();
   const listingOrder = s === 'ATP' || s === 'WTA' || s === 'GOLF';
   return (listingOrder || isHome) ? `vs ${nick}` : `@ ${nick}`;
@@ -142,7 +142,7 @@ export function caPickRowHtml(p, opts = {}) {
   // Main: pick + odds on line 1; sport chip + context on line 2.
   const pt = (p.pick_type || '').toLowerCase();
   const isTotal = pt === 'over' || pt === 'under';
-  const label = isTotal && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  const label = isTotal && p.team ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
   const odds = _pickOdds(p);
   const oddsHtml = odds ? `<span class="ca-row-odds">${odds}</span>` : '';
   let context;
@@ -150,7 +150,7 @@ export function caPickRowHtml(p, opts = {}) {
     const as = p.game_away_score ?? p.away_score, hs = p.game_home_score ?? p.home_score;
     context = (as != null && hs != null) ? `Final ${as}-${hs}` : 'Final';
   } else if (isTotal && p.away_team && p.home_team) {
-    context = `${teamNickname(p.away_team, p.home_team)} @ ${teamNickname(p.home_team, p.away_team)}`;
+    context = `${teamLabel(p, p.away_team)} @ ${teamLabel(p, p.home_team)}`;
   } else {
     context = oppFor(p);
   }

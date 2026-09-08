@@ -7,7 +7,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
 const MS_ALL_SPORTS = ['MLB', 'NBA', 'WNBA', 'NHL', 'NFL', 'NCAAF', 'CBB', 'Soccer', 'Tennis', 'Golf'];

@@ -660,6 +660,10 @@ app.get('/api/picks', (req, res) => {
     SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
+           tg.home_short AS home_short,
+           tg.away_short AS away_short,
+           tg.home_abbr  AS home_abbr,
+           tg.away_abbr  AS away_abbr,
            tg.start_time AS start_time,
            tg.status     AS game_status,
            tg.status_detail AS game_status_detail,
@@ -757,6 +761,10 @@ app.get('/api/picks/top', (req, res) => {
     SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
+           tg.home_short AS home_short,
+           tg.away_short AS away_short,
+           tg.home_abbr  AS home_abbr,
+           tg.away_abbr  AS away_abbr,
            tg.start_time AS start_time,
            tg.status     AS game_status,
            tg.status_detail AS game_status_detail,
@@ -937,7 +945,7 @@ app.get('/api/games', (req, res) => {
   // status_detail rides along so the client can tell a genuinely pregame match from
   // a SUSPENDED one: ESPN files suspensions as 'post' and tennis_espn.js downgrades
   // them to 'pre', so `status` alone reads them as upcoming.
-  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, start_time, status, status_detail, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
+  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, home_abbr, away_abbr, start_time, status, status_detail, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();

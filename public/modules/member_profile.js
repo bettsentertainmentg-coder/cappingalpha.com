@@ -10,8 +10,8 @@
 // through this exact layout (CA avatar, no follow button, no member badges).
 
 import { state } from './state.js';
-import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=9';
-import { winPctColor } from './sport_cards.js?v=31';
+import { avatarFor, sportBadge, pickLabel as typePickLabel, teamNickname, teamLabel, currentBoardDate, fmtOdds, fmtSpread } from './utils.js?v=10';
+import { winPctColor } from './sport_cards.js?v=32';
 
 let _picks = [];           // recent picks for the open profile (for sport filtering)
 let _sportFilter = 'all';
@@ -33,17 +33,18 @@ const BADGE_TIERS = [
   ['bronze', 'bronze', '🥉', 'finished top 10'],
 ];
 
-// Opponent-aware: two sides deriving the same short name (the All-Star squads)
-// display their lead part instead — the shared helper handles that rule.
-function teamNick(name, opponent) {
-  return name ? teamNickname(String(name), opponent ? String(opponent) : undefined) : '';
+// Row-aware: college sports read ESPN's short name, everything else the
+// nickname; two sides deriving the same short name (the All-Star squads)
+// display their lead part instead. The shared helper handles both rules.
+function teamNick(row, name) {
+  return name ? teamLabel(row, String(name)) : '';
 }
 
 function pickLabel(p) {
   // House (CA) rows carry pick_type/team instead of a vote's pick_slot — route
   // them through the shared board label helper.
   if (!p.pick_slot) return typePickLabel(p);
-  const h = teamNick(p.home_team, p.away_team), a = teamNick(p.away_team, p.home_team);
+  const h = teamNick(p, p.home_team), a = teamNick(p, p.away_team);
   switch (p.pick_slot) {
     case 'home_ml':     return `${h} ML`;
     case 'away_ml':     return `${a} ML`;
@@ -462,13 +463,13 @@ function ledgerBodyHtml() {
 // One row of the ledger. Verified mode = board picks only (1u each); True mode =
 // everything with real stakes + book + verified/unverified chip.
 function rowMatchup(r) {
-  if (r.home_team && r.away_team) return `${teamNickname(r.away_team, r.home_team)} @ ${teamNickname(r.home_team, r.away_team)}`;
+  if (r.home_team && r.away_team) return `${teamLabel(r, r.away_team)} @ ${teamLabel(r, r.home_team)}`;
   return r.sport || '';
 }
 function rowPickLabel(r) {
   if (r.kind === 'bet') return r.selection || '';
-  const home = r.home_team ? teamNickname(r.home_team, r.away_team) : 'Home';
-  const away = r.away_team ? teamNickname(r.away_team, r.home_team) : 'Away';
+  const home = r.home_team ? teamLabel(r, r.home_team) : 'Home';
+  const away = r.away_team ? teamLabel(r, r.away_team) : 'Away';
   const s = r.slot;
   if (s === 'home_ml') return `${home} ML`;
   if (s === 'away_ml') return `${away} ML`;
@@ -620,8 +621,8 @@ function drawChart(points, isHouse) {
     let text;
     if (isHouse && p.pick_type) {
       const pt = (p.pick_type || '').toLowerCase();
-      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNick(p.team)} ${typePickLabel(p)}` : typePickLabel(p);
-      const matchup = p.home_team && p.away_team ? `  (${teamNick(p.away_team, p.home_team)} @ ${teamNick(p.home_team, p.away_team)})` : '';
+      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNick(p, p.team)} ${typePickLabel(p)}` : typePickLabel(p);
+      const matchup = p.home_team && p.away_team ? `  (${teamNick(p, p.away_team)} @ ${teamNick(p, p.home_team)})` : '';
       text = `${lbl}${matchup}  ·  ${money(ret, 2)}`;
     } else {
       text = `This pick  ·  ${money(ret, 2)}`;
@@ -646,7 +647,7 @@ function renderPicksList() {
   el.innerHTML = picks.map(p => {
     // House rows may predate the matchup columns — fall back to the picked team,
     // and show the game date when the row carries one (members' votes don't).
-    const base = p.home_team ? `${teamNick(p.away_team, p.home_team)} @ ${teamNick(p.home_team, p.away_team)}`
+    const base = p.home_team ? `${teamNick(p, p.away_team)} @ ${teamNick(p, p.home_team)}`
                : (p.team || `Game ${p.espn_game_id}`);
     const matchup = p.game_date ? `${base} · ${p.game_date}` : base;
     const u = Number(p.units || 0);

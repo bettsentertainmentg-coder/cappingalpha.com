@@ -261,17 +261,35 @@ export function teamNickname(name, opponent) {
   return nick;
 }
 
+// College sports use ESPN's short name ("Florida St", "Ohio St", "Texas A&M"),
+// which today_games already stores as home_short/away_short. teamNickname is a
+// pro-sports rule (drop the city, keep the mascot) and it mangles school names:
+// "Florida State Seminoles" became "State Seminoles", and Ohio State and Penn
+// State both read "State". Every other sport keeps the nickname exactly as
+// before. `row` is any object carrying home_team/away_team (+ the shorts when
+// the API sends them): a game, a pick, a ledger row.
+const SHORT_NAME_SPORTS = new Set(['NCAAF', 'CBB', 'WCBB']);
+export function teamLabel(row, name) {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  const r = row || {};
+  const home = String(r.home_team || '').trim(), away = String(r.away_team || '').trim();
+  const isHome = home && n === home, isAway = away && n === away;
+  const sp = String(r.sport || '').toUpperCase();
+  if (SHORT_NAME_SPORTS.has(sp)) {
+    const short = isHome ? r.home_short : isAway ? r.away_short : null;
+    if (short) return String(short).trim();
+  }
+  const opp = isHome ? away : isAway ? home : undefined;
+  return teamNickname(n, opp || undefined);
+}
+
 export function pickLabel(p) {
   const type   = (p.pick_type || '').toLowerCase();
   const spread = p.spread != null ? p.spread : null;
   // The opponent (when the row carries the matchup) lets teamNickname tell apart
   // two sides whose nicknames are the exact same word (the All-Star squads).
-  const team = (p.team || '').trim();
-  const opp  = team && p.home_team && p.away_team
-    ? (team === p.home_team.trim() ? p.away_team
-      : team === p.away_team.trim() ? p.home_team : null)
-    : null;
-  const nick   = teamNickname(p.team, opp);
+  const nick   = teamLabel(p, p.team);
   const isTennis = ['ATP', 'WTA'].includes((p.sport || '').toUpperCase());
   // Tennis lines need a unit. Totals + game spreads are games; set_spread is sets.
   const totalUnit = isTennis ? ' games' : '';
