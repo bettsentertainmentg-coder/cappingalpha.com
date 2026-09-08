@@ -45,10 +45,17 @@ async function seedPickSlots() {
     upsertSnapshot.run(game.espn_game_id, game.home_team, ml_home, spread_home, ou);
     upsertSnapshot.run(game.espn_game_id, game.away_team, ml_away, spread_away, ou);
 
+    // A neutral-site game has no host, so neither side earns the home bonus.
+    // Suppressing it here rather than in scoring.js keeps every downstream
+    // reader correct too (the v3 side lean and capper_ratings both read
+    // picks.is_home_team, not the game row). College football is the sport this
+    // matters for: ~1.2% of the regular season and effectively all of bowl season.
+    const homeIsHost = game.neutral_site ? 0 : 1;
+
     const slots = [
-      [game.home_team, 'ML',     ml_home,     ml_home, null, game.sport, gameDate, game.espn_game_id, 1],
+      [game.home_team, 'ML',     ml_home,     ml_home, null, game.sport, gameDate, game.espn_game_id, homeIsHost],
       [game.away_team, 'ML',     ml_away,     ml_away, null, game.sport, gameDate, game.espn_game_id, 0],
-      [game.home_team, 'spread', spread_home, null,    null, game.sport, gameDate, game.espn_game_id, 1],
+      [game.home_team, 'spread', spread_home, null,    null, game.sport, gameDate, game.espn_game_id, homeIsHost],
       [game.away_team, 'spread', spread_away, null,    null, game.sport, gameDate, game.espn_game_id, 0],
       // Over/under anchored to home team, is_home_team=0 — no home bonus for totals
       [game.home_team, 'over',   ou,          null,    ou,   game.sport, gameDate, game.espn_game_id, 0],

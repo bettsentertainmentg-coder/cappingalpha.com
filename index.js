@@ -36,7 +36,7 @@ const { fetchTodaysTennisMatches, refreshTennisStartTimes, updateTennisLiveScore
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
-const { fetchTodaysNcaafGames }     = require('./src/ncaaf_espn');
+const { fetchTodaysNcaafGames, fetchForwardNcaafGames } = require('./src/ncaaf_espn');
 const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
@@ -3155,6 +3155,7 @@ app.listen(PORT, () => {
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[startup] fetchTodaysSoccerGames error:', err.message));
   await fetchTodaysNcaafGames().catch(err => console.error('[startup] fetchTodaysNcaafGames error:', err.message));
+  await fetchForwardNcaafGames().catch(err => console.error('[startup] fetchForwardNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
   await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
@@ -3709,6 +3710,10 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[cron] fetchTodaysSoccerGames error:', err.message));
   await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames error:', err.message));
+  // College football is weekly, so its board needs a 7-day window: a pick posted
+  // Tuesday for Saturday has to find a game row or storage.js drops it. Safe at 7
+  // days because no college team appears twice inside one (unlike a daily sport).
+  await fetchForwardNcaafGames().catch(err => console.error('[cron] fetchForwardNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
   await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
@@ -3794,6 +3799,10 @@ cron.schedule('*/30 8-23 * * *', async () => {
 if (!UI_ONLY) cron.schedule('0 6-23 * * *', async () => {
   console.log('[cron] hourly ESPN DK odds refresh');
   await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
+  // refreshEspnOdds only covers espn_live's TODAY_SPORTS, and the college football
+  // scoreboard carries no odds block at all, so NCAAF tops up from ESPN's sports.core
+  // odds endpoint instead. Only games still missing a line are looked up.
+  await fetchTodaysNcaafGames().catch(err => console.error('[cron] NCAAF odds refresh error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // CA official line lock: 1 hour before each game starts, snapshot the market line and
@@ -3830,7 +3839,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Golf already refreshes all active leaderboards below.
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
-  await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames (live scores) error:', err.message));
+  await fetchTodaysNcaafGames({ withOdds: false }).catch(err => console.error('[cron] fetchTodaysNcaafGames (live scores) error:', err.message));
   await updateSoccerLiveScores().catch(err => console.error('[cron] updateSoccerLiveScores error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));

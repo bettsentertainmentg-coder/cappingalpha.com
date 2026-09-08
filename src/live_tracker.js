@@ -51,7 +51,7 @@ async function _fetchEvents(key, url) {
   if (_inflight.has(key)) return _inflight.get(key);
   const p = (async () => {
     try {
-      const res = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const res = await axios.get(url, { timeout: 8000 });
       const events = res.data?.events || [];
       _sb.set(key, { ts: Date.now(), events });
       return events;
