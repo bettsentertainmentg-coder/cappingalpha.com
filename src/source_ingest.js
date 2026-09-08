@@ -176,14 +176,28 @@ function findGameByAbbrs(abbrA, abbrB, sport, opts) {
 }
 
 // Which side of the game a picked name refers to. Returns 'home' | 'away' | null.
+// Scores both sides and takes the better one. The old test was home-first and
+// one-way, so a name that merely brushed a home variant was filed home ("New
+// York" put a Mets pick on the Yankees; "Utah" on a Utah State game went to the
+// wrong Utah). An exact hit outranks any containment; between containments the
+// longer matched variant wins; a dead tie is null and the caller skips the pick.
+function _nameMatchScore(variants, p) {
+  let best = 0;
+  for (const n of variants) {
+    if (n === p) return Infinity;
+    if (n.includes(p) || p.includes(n)) best = Math.max(best, Math.min(n.length, p.length));
+  }
+  return best;
+}
 function sideOf(game, picked) {
   const p = (picked || '').toLowerCase().trim();
   if (!p) return null;
   const home = [game.home_team, game.home_short, game.home_name, game.home_abbr].filter(Boolean).map(s => s.toLowerCase());
   const away = [game.away_team, game.away_short, game.away_name, game.away_abbr].filter(Boolean).map(s => s.toLowerCase());
-  if (home.some(n => n === p || n.includes(p) || p.includes(n))) return 'home';
-  if (away.some(n => n === p || n.includes(p) || p.includes(n))) return 'away';
-  return null;
+  const h = _nameMatchScore(home, p), a = _nameMatchScore(away, p);
+  if (!h && !a) return null;
+  if (h === a) return null;
+  return h > a ? 'home' : 'away';
 }
 
 function gameStartMs(game) {

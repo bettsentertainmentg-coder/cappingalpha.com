@@ -394,9 +394,12 @@ function computeV3(pickId) {
   const mkt = marketSignals(pick, game);
   const marketPts = Math.min(MARKET_CAP, mkt.edge_pts + mkt.steam_pts + mkt.contrarian_pts);
 
-  // Side lean (data-driven home/away, tennis+golf excluded, totals excluded)
+  // Side lean (data-driven home/away, tennis+golf excluded, totals excluded).
+  // A neutral-site game (a bowl, a kickoff classic, the playoff) has no host, so
+  // there is no home or away side to lean toward; without this both sides read
+  // as "away" and could each collect the away lean.
   let leanPts = 0, leanSide = null;
-  if (!isTotal && !NO_VENUE_SPORTS.has(sportU)) {
+  if (!isTotal && !NO_VENUE_SPORTS.has(sportU) && !game?.neutral_site) {
     try {
       const lean = JSON.parse(db.getSetting('v3_side_lean', '{}'))[sportU];
       if (lean) {

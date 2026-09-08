@@ -45,12 +45,12 @@ async function seedPickSlots() {
     upsertSnapshot.run(game.espn_game_id, game.home_team, ml_home, spread_home, ou);
     upsertSnapshot.run(game.espn_game_id, game.away_team, ml_away, spread_away, ou);
 
-    // A neutral-site game has no host, so neither side earns the home bonus.
-    // Suppressing it here rather than in scoring.js keeps every downstream
-    // reader correct too (the v3 side lean and capper_ratings both read
-    // picks.is_home_team, not the game row). College football is the sport this
-    // matters for: ~1.2% of the regular season and effectively all of bowl season.
-    const homeIsHost = game.neutral_site ? 0 : 1;
+    // is_home_team is the SIDE flag, not a bonus flag: every reader maps a slot
+    // to home or away with it (capperBetOdds, ca_line.slotDisplay, the popup's
+    // buildPickBySlot, pickSlotKey). It must stay 1 on the home slot even at a
+    // neutral site; the home bonus and the side lean read today_games.neutral_site
+    // where they are computed (scoring.js, scoring_v3.js) instead.
+    const homeIsHost = 1;
 
     const slots = [
       [game.home_team, 'ML',     ml_home,     ml_home, null, game.sport, gameDate, game.espn_game_id, homeIsHost],
