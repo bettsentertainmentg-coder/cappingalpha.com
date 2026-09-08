@@ -1,6 +1,6 @@
 # College Football: Ship Report
 
-**Date:** 2026-09-07 · **Commits on master:** `55d4817`, `62f4854`, `43f1083`, `9d1482d`, `da9f130` · **Status:** all five deployed to cappingalpha.com
+**Date:** 2026-09-07, updated 2026-09-08 · **Commits on master:** `55d4817`, `62f4854`, `43f1083`, `9d1482d`, `da9f130`, `67ca630`, plus the Sep 8 batch · **Status:** all deployed to cappingalpha.com
 
 Companion to [NCAAF_COVERAGE_AUDIT.md](NCAAF_COVERAGE_AUDIT.md), which holds the root-cause evidence.
 This report lists every change that shipped, sorted by batch, with how each was verified.
@@ -15,7 +15,7 @@ This report lists every change that shipped, sorted by batch, with how each was 
 | 2. Displayed properly | Done. Week view on the Sports tab and `/ncaaf`; school names and real abbreviations on every surface |
 | 3. Betting odds | Done. 53 of 87 priced from ESPN's free DraftKings feed at ship time, the rest fill as books post; the CA Odds Engine's 14 books now match |
 | 3. Public betting + markets | Done. ActionNetwork splits and Polymarket markets now reach college games |
-| 4. Scraping every game | Done for the six scraper sources. **Decisions open** for the Discord path and a grading rule (see the end) |
+| 4. Scraping every game | Done for all seven sources including Discord (Sep 8) |
 
 ---
 
@@ -105,27 +105,38 @@ Two things surfaced within the first hour of Batch C running on prod and from th
 
 ---
 
+## Batch D, the two decisions (Sep 8)
+
+Both approved on Sep 8 and shipped together.
+
+| File | Change | Why |
+|---|---|---|
+| `src/game_match.js` (new), `src/expert_data.js` (import + 4 call sites) | Discord picks resolve inside the sport the reader named, ranked by match quality (exact stored name beats a leading or trailing word, which beats a substring). A tie at the best quality that is not a doubleheader is refused and logged to `source_skips`. If the reader's sport has no candidate and the only match is another sport, that is refused too | `lookupTodayGame` broke multi-sport ties with a priority list that omits college football, so "Tigers" on a Saturday went to the Detroit Tigers and the pick graded on a baseball final. The same quality ranking also fixes "Texas" resolving to Texas A&M inside football. `espn_live.js` itself is untouched |
+| `src/storage.js`, `src/results.js`, `src/scoring_v3.js` | A moneyline pick on a side with a spread of -25 or worse and no posted price grades at -100000, and the display cap treats it as the heaviest favorite (95, silver at best) | Six of Saturday's twelve 25-point favorites carry no moneyline at all; the ratings were substituting -110 and crediting a sure thing with +0.91 units. Where a book does price those spreads it is -4500 to -50000. Derived at grade time only, never written to the public line |
+| `docs/GRADING_RULES.md` | R12 (unpriced favorites) and R13 (Discord names its sport) | The rule book |
+| `docs/ALGO_PLAYBOOK.html` | Sep 8 entry, chapter 7 sentence; Desktop copy and artifact republished | The Playbook rule |
+
+**Verified:** 9 of 9 favorites cases through the real `capperBetOdds` and the display cap on the actual Howard at Indiana row; 12 of 12 Discord cases on the real Saturday slate, including "Texas" now resolving to the Longhorns where the old lookup returned Texas A&M, a Tuesday "Tigers" from a football capper refused instead of landing on Detroit, a CBB pick refused on a football Saturday, the Yankees and a doubleheader unchanged. One expectation of mine was wrong and the code was right: a bare "Tigers" on college football Saturday names six teams (Missouri, Memphis, Towson, LSU, Clemson, Auburn) and is correctly refused.
+
 ## Still open, from the edge-case hunt (30 agents, verified)
 
 Ranked. None of these were in the three batches you confirmed, so none shipped. The first three are correctness, the rest coverage or polish.
 
 | # | What | Where | Why it matters | Size |
 |---|---|---|---|---|
-| 1 | **Huge college favorites grade at -110.** 26.5% of a mature slate (18 of 68 on Sep 5) has a spread but no moneyline, all -37.5 or worse. `capperBetOdds` returns null and the ratings substitute -110, so a near-certain winner is credited +0.91 units when DraftKings actually posts -100000 | `src/results.js:608`, `src/scoring_v3.js:671` | Wrong units and wrong edge into the Wilson pool every Saturday. Fix: at grade time only, if the stored ML is null and the picked side's spread is -25 or worse, price it at -100000. Never write that into `today_games` | ~15 lines, plus GRADING_RULES.md |
-| 2 | **The Discord path is sport-blind and cannot see the forward window.** `lookupTodayGame` resolves ties by a `SPORT_PRIORITY` that omits NCAAF, and its date filter only sees the message date and the next day. Replay of a November Saturday: 18 of 112 college sides wrong, mostly lost to women's basketball | `src/espn_live.js`, `src/expert_data.js` (both do-not-touch) | The hunt's recommendation is a new `src/game_match.js` wrapper wired at four `expert_data.js` call sites, not an edit to `espn_live.js`. Adding NCAAF to `SPORT_PRIORITY` was measured zero-sum (it moves the same 27 errors from football to basketball). **Your call**, since both files are protected by your rule |
-| 3 | **The scanner's own canonicalizer omits `home_abbr`.** "OSU" finds the right game and is handed to the wrong team | `src/expert_data.js:184` | Audit measured NCAAF 449 wrong to 4, CBB 192 to 3, zero regressions. Same protected file as #2 | ~10 lines |
+| 1 | Done Sep 8 (Batch D) | | | |
+| 2 | Done Sep 8 (Batch D) | | | |
+| 3 | **The scanner's own canonicalizer omits `home_abbr`.** "OSU" finds the right game and is handed to the wrong team | `src/expert_data.js:184` | Audit measured NCAAF 449 wrong to 4, CBB 192 to 3, zero regressions. Protected file; same shape of change as Batch D | ~10 lines |
 | 4 | Book rows dropped on shared-mascot games (LSU Tigers @ Auburn Tigers, White Sox @ Red Sox) | `src/odds_ingest.js:50` | Zero book coverage on 7 real CFB games this season | ~8 lines |
 | 5 | `storage.findTodayGame` has no date filter against an 8-day board, so a pick for next Saturday can grade on this Saturday's final | `src/storage.js:227` | Live today: SMU sits on both Sep 7 and Sep 12 | ~20 lines |
 | 6 | Postponed games grade off a phantom 0-0 final (pre-existing, 10 bad prod rows in MLB/WNBA) | `src/results.js` | Known from July; not college-specific | ~12 lines + restatement |
 | 7 | Phase 6 from the original plan: a per-sport "in season but zero games" alert | `src/ops_health.js`, `src/admin.js`, `src/audit.js` | The alarm that would have caught this in August instead of September | 2 to 3 days |
 
-Items 1, 4, 5 and 7 are in files I can edit. Items 2 and 3 are in the two protected files. Item 6 is a separate repair with its own restatement.
+Items 4, 5 and 7 are in files I can edit. Item 3 is in a protected file. Item 6 is a separate repair with its own restatement.
 
-## The one open decision: the Discord path
+## The Discord path, resolved
 
-Discord picks do not go through `source_ingest`. They go through `lookupTodayGame` in **`src/espn_live.js`**, called from **`src/expert_data.js`**, both do-not-touch files. That function resolves a multi-match with `SPORT_PRIORITY = { CBB: 1, NBA: 2, NHL: 3, WCBB: 4, MLB: 5, NFL: 6 }`, which omits NCAAF entirely, so a bare college mascot ("Tigers") resolves to the pro club, and in November a school that plays both sports the same day sends its football pick to the basketball game. The reader's own sport label is then overwritten at `expert_data.js:180`.
-
-This needs three lines across the two protected files: NCAAF added to `SPORT_PRIORITY`, `lookupTodayGame` accepting the reader's sport, and `expert_data.js:140` passing it. Since that is your rule, it is your call. Everything else in Batch C is live.
+Shipped Sep 8 as Batch D. `espn_live.js` is untouched; `expert_data.js` carries one import and four one-line call-site changes; all new logic lives in `src/game_match.js`.
 
 ---
 

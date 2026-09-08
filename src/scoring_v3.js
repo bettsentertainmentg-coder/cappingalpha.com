@@ -670,11 +670,13 @@ function heavyDisplayCapFor(pickRow) {
     }
     if (frozen != null) return frozen ? HEAVY_DISPLAY_CAP : Infinity;
     if ((pt || '').toLowerCase() !== 'ml' || !gid) return Infinity;
-    const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage'); // lazy: avoids a load cycle
-    const g = db.prepare(`SELECT home_team, ml_home, ml_away FROM today_games WHERE espn_game_id = ?`).get(gid);
+    const { heavyMlGateOdds, heavyBracketUnlocked, impliedHeavyMl } = require('./storage'); // lazy: avoids a load cycle
+    const g = db.prepare(`SELECT home_team, ml_home, ml_away, spread_home, spread_away FROM today_games WHERE espn_game_id = ?`).get(gid);
     if (!g) return Infinity;
     const isHome = (g.home_team || '').toLowerCase() === (team || '').toLowerCase();
-    const ml = isHome ? g.ml_home : g.ml_away;
+    // A -25 side with no posted price is the heaviest favorite there is; the
+    // display cap treats it as -100000 so it cannot wear gold (R12).
+    const ml = isHome ? impliedHeavyMl(g.ml_home, g.spread_home) : impliedHeavyMl(g.ml_away, g.spread_away);
     if (ml == null || ml > heavyMlGateOdds()) return Infinity;
     const tracked = db.prepare(`
       SELECT 1 FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ?

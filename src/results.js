@@ -605,7 +605,15 @@ function abbrOf(displayName) {
 // standard juice default so the bet still counts.
 function capperBetOdds(pick) {
   const pt = (pick.pick_type || '').toLowerCase();
-  if (pt === 'ml')     return pick.is_home_team ? (pick.ml_home ?? null) : (pick.ml_away ?? null);
+  if (pt === 'ml') {
+    // A -25 (or worse) side with no posted price is a near-certain win that
+    // pays almost nothing; grade it as -100000, not the -110 default the
+    // ratings would otherwise substitute (GRADING_RULES R12).
+    const { impliedHeavyMl } = require('./storage');
+    return pick.is_home_team
+      ? impliedHeavyMl(pick.ml_home ?? null, pick.spread_home)
+      : impliedHeavyMl(pick.ml_away ?? null, pick.spread_away);
+  }
   if (pt === 'over')   return pick.ou_over_odds  ?? null;
   if (pt === 'under')  return pick.ou_under_odds ?? null;
   if (pt === 'spread') return pick.is_home_team ? (pick.spread_home_odds ?? null) : (pick.spread_away_odds ?? null);
@@ -696,7 +704,7 @@ function writeBackerGrades(pick, result) {
 function backfillBackerGrades() {
   const graded = db.prepare(`
     SELECT p.*, tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
-           tg.spread_home_odds, tg.spread_away_odds
+           tg.spread_home_odds, tg.spread_away_odds, tg.spread_home, tg.spread_away
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.result IN ('win', 'loss', 'push') AND p.mention_count > 0
@@ -777,7 +785,7 @@ async function resolveResults() {
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
            tg.away_team, tg.away_short, tg.away_name, tg.away_abbr, tg.first_inning_runs,
            tg.ml_home, tg.ml_away, tg.over_under, tg.ou_over_odds, tg.ou_under_odds,
-           tg.spread_home_odds, tg.spread_away_odds,
+           tg.spread_home_odds, tg.spread_away_odds, tg.spread_home, tg.spread_away,
            tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail, tg.status_detail, tg.clock
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
@@ -1046,5 +1054,4 @@ module.exports = {
   // Exported for the tennis regrade repair endpoint (admin.js) and the audit
   // pass, so the one-time repair settles rows through the SAME rules as live
   // grading instead of a second hand-written copy.
-  tennisEndedEarly, voidNoteFor, VOID_RETIRED_NOTE, VOID_SWAP_NOTE,
-};
+  tennisEndedEarly, voidNoteFor, VOID_RETIRED_NOTE, VOID_SWAP_NOTE, capperBetOdds };

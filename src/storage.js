@@ -781,6 +781,22 @@ function recomputePickFromMentions(pickId) {
 // heavy_n / heavy_edge_shrunk, nightly). The gate is scaffolding that erodes
 // only with evidence, never by fiat: the first capper who proves they beat
 // heavy prices re-opens tracking for their own picks automatically.
+// A moneyline the books never posted. College football's biggest favorites
+// (a quarter of a Saturday slate, all -25 or worse) ship with a spread and no
+// price, because nobody would bet it. Where a book does post one at those
+// spreads it is -4500 to -50000, so a missing price on a -25 side is treated as
+// -100000 for GRADING and the display cap: a near-certain win pays a few cents,
+// not the +0.91 units the -110 fallback was crediting. Never written into
+// today_games.ml_* (that is the public line and the CA lock basis).
+const NO_ML_HEAVY_SPREAD = -25;
+const NO_ML_SYNTHETIC_ODDS = -100000;
+function impliedHeavyMl(storedMl, sideSpread) {
+  if (storedMl != null) return storedMl;
+  const sp = Number(sideSpread);
+  if (Number.isFinite(sp) && sp <= NO_ML_HEAVY_SPREAD) return NO_ML_SYNTHETIC_ODDS;
+  return null;
+}
+
 function heavyMlGateOdds() {
   try {
     const v = parseFloat(db.getSetting('heavy_ml_gate', '-300'));
@@ -1021,4 +1037,4 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked, getCanonicalTeam, isNeutralSite };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked, getCanonicalTeam, isNeutralSite, impliedHeavyMl };

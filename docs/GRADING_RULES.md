@@ -194,4 +194,43 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   up on a gold Eala pick, and voting plus verified tracking were still open on
   every one of them at the frozen pregame price.
 
-Current as of 2026-08-02.
+## R12. A favorite with no posted price is priced at its spread, not at -110 (2026-09-08)
+
+- A moneyline pick on a side whose spread is -25 or worse, where no book posted a
+  moneyline, grades at -100000 (`storage.impliedHeavyMl`, used by
+  `results.capperBetOdds` and `scoring_v3.heavyDisplayCapFor`). A quarter of a
+  college football Saturday looks like this (six of the 12 games at -25 or worse
+  on 2026-09-12 carried no price at all; where a book did post one at those
+  spreads it was -4500 to -50000).
+- Why: `capperBetOdds` returned null and `capper_ratings.effOdds` substituted
+  -110, so a capper who took Howard at Indiana -56.5 on the moneyline was
+  credited +0.91 units and +0.48 edge for a bet that pays a few cents. Over a
+  season the sure-thing pickers would look like the best records on the site.
+- The synthetic price is derived at grade time only. It is never written into
+  `today_games.ml_*`, which is the public line, the CA lock basis and the
+  betslip VERIFY_TOL band. Spreads and totals are unaffected.
+- The display cap applies too: an unpriced -25 favorite on the moneyline shows
+  at most 95, silver at best, the same as any -300 or heavier price (R7).
+- Not changed: `capper_ratings.effOdds` still substitutes -110 when a stored
+  price is genuinely missing on a normal game. That touches a third of every
+  graded moneyline decision across every sport and needs its own backtest.
+
+## R13. A Discord pick names its sport, and the game must be in it (2026-09-08)
+
+- `expert_data.js` resolves a team name through `game_match.lookupTodayGameForSport`,
+  which keeps `espn_live.lookupTodayGame`'s answer when it agrees with the sport
+  the reader extracted, and otherwise searches inside the reader's sport, ranked
+  by match quality (an exact stored name beats a leading or trailing word, which
+  beats a substring). Two games tying at the best quality that are not a
+  doubleheader are REFUSED and written to `source_skips` with the candidates.
+- Why: `lookupTodayGame` breaks a multi-sport tie with a fixed priority list
+  (CBB, NBA, NHL, WCBB, MLB, NFL) that omits college football, so "Tigers" on a
+  Saturday went to the Detroit Tigers and "Kansas" in November goes to the
+  basketball game, and the pick graded against the wrong final. Measured on a
+  November Saturday: 18 of 112 college sides wrong, then 0, with no change to
+  any other sport. Adding NCAAF to the priority list was measured zero-sum.
+- A reader mislabel (NBA for a WNBA pick) still lands where it always did: the
+  unconstrained answer is kept whenever the reader's sport has no candidate, so
+  the existing WNBA and Soccer guards see the same rows they saw before.
+
+Current as of 2026-09-08.
