@@ -140,7 +140,13 @@ function parsePendingSections(html) {
 function ingestPendingPage(html, capperName, handle, extraMeta) {
   let ingested = 0, dupes = 0;
   for (const p of parsePendingSections(html)) {
-    const game = findGameByTeams(p.away, p.home, p.sport);
+    // The pick's own number rides along so a two-way college collision ("Texas"
+    // and "Oklahoma" fit both Texas @ Oklahoma and Texas Tech @ Oklahoma State)
+    // is settled by the line rather than the earliest kickoff.
+    const game = findGameByTeams(p.away, p.home, p.sport, {
+      pickType: p.parsed?.pickType, line: p.parsed?.line ?? null, odds: p.parsed?.odds ?? null,
+      side: null, source: 'covers', capper: capperName, sport: p.sport, picked: p.parsed?.picked || `${p.away} @ ${p.home}`,
+    });
     if (!game) continue;
     const side = p.parsed.picked ? sideOf(game, p.parsed.picked) : null;
     if (p.parsed.pickType !== 'over' && p.parsed.pickType !== 'under' && !side) continue;

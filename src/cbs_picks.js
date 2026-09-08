@@ -107,7 +107,7 @@ async function pollCbsPicks() {
     const res = await get(page.url);
     if (res.status !== 200 || !res.body) { console.warn(`[cbs] ${page.sport} fetch failed:`, res.status); continue; }
     for (const row of parseRows(res.body)) {
-      const game = findGameByTeams(row.teamA, row.teamB, page.sport);
+      const game = findGameByTeams(row.teamA, row.teamB, page.sport, { source: 'cbs', sport: page.sport, picked: `${row.teamA} vs ${row.teamB}` });
       if (!game) continue;
       rows++;
       for (const p of row.picks) {

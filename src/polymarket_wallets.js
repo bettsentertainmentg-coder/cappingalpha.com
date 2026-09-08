@@ -118,7 +118,7 @@ async function buildMarketMap() {
       if (parts.length !== 2) continue;
       // Constrain the match to the tag's sport — a bare city pair ("Toronto vs
       // Miami") exists in several leagues at once.
-      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null);
+      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null, { source: 'polymarket', sport: TAG_SPORT[tag] || null, picked: title });
       if (!game) continue;
       for (const mkt of (ev.markets || [])) {
         const cid = mkt.conditionId || mkt.condition_id;

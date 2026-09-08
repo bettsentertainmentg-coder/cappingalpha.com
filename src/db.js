@@ -312,6 +312,29 @@ try {
   `);
 } catch (_) {}
 
+// Source picks the matcher REFUSED because more than one game fit the team
+// name and the pick's own line could not settle it (source_ingest.js
+// resolveGameMatches). Kept so an ambiguous college pick is visible and
+// recoverable instead of silently guessed onto the wrong game. Never wiped;
+// pruned at 14 days by pruneStaleGames.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS source_skips (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      source          TEXT,
+      capper          TEXT,
+      sport           TEXT,
+      picked          TEXT,
+      pick_type       TEXT,
+      line            REAL,
+      odds            REAL,
+      reason          TEXT,
+      candidates_json TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_preferences (
