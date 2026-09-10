@@ -7,7 +7,7 @@
 //     settle it yourself, never on the leaderboard.
 
 import { state } from './state.js';
-import { sportBadge, isSuspendedGame, suspendedLabel } from './utils.js?v=9';
+import { sportBadge, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 // Book picker modal + window._myBooks seeding. Imported here (not just app.js)
 // because this module also runs standalone on the game detail page.
 import './books.js?v=2';
@@ -525,6 +525,15 @@ export function closeTrackSheet() {
   setTimeout(() => { const h = document.getElementById('track-sheet-host'); if (h) h.innerHTML = ''; }, 180);
 }
 
+// APP-ONLY surfaces. Jack 2026-09-10: the betslip scan is an app feature, not a
+// site feature, so its entry points render only inside the Capacitor shell. The
+// file itself stays byte-identical across web and app (the sharing rule); the
+// gate is a runtime platform test, not a branch difference.
+function isNativeApp() {
+  try { return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()); }
+  catch (_) { return false; }
+}
+
 function sheetMenuHtml() {
   return `
     <button class="track-opt" onclick="trackFromGame()">
@@ -535,10 +544,11 @@ function sheetMenuHtml() {
       <span class="track-opt-ic" style="background:rgba(251,122,86,.16);color:#fb7a56;"><i class="fa-solid fa-pen"></i></span>
       <span><span class="track-opt-t">Custom bet</span><span class="track-opt-d">Log any bet yourself (props, parlays, anything). Personal tracking only.</span></span>
     </button>
+    ${isNativeApp() ? `
     <button class="track-opt" onclick="showBetScan()">
       <span class="track-opt-ic" style="background:rgba(167,139,250,.16);color:#a78bfa;"><i class="fa-regular fa-image"></i></span>
       <span><span class="track-opt-t">Upload betslip</span><span class="track-opt-d">Snap your betslip and the form fills itself in. Read on your device.</span></span>
-    </button>`;
+    </button>` : ''}`;
 }
 
 export function backToTrackMenu() {
@@ -645,6 +655,7 @@ function fileToDataUrl(file) {
 
 export function showBetScan() {
   stopBoardPoll();
+  if (!isNativeApp()) { backToTrackMenu(); return; }
   const body = document.getElementById('track-sheet-body');
   if (!body) return;
   // On the phone the share sheet is the real entry point, so say so once here.

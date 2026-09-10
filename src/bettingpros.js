@@ -118,9 +118,10 @@ function participantsOf(ev) {
 function matchGame(ev, sport) {
   const ps = participantsOf(ev);
   if (ps.length !== 2) return null;
-  return findGameByAbbrs(ps[0].abbr, ps[1].abbr, sport)
-    || findGameByTeams(ps[0].name, ps[1].name, sport)
-    || findGameByTeams(ps[0].short, ps[1].short, sport);
+  const opts = { source: 'bettingpros', sport, picked: `${ps[0].abbr || ps[0].name} vs ${ps[1].abbr || ps[1].name}` };
+  return findGameByAbbrs(ps[0].abbr, ps[1].abbr, sport, opts)
+    || findGameByTeams(ps[0].name, ps[1].name, sport, opts)
+    || findGameByTeams(ps[0].short, ps[1].short, sport, opts);
 }
 
 // ── Poll: sweep today's events per sport, fan out to each event's picks ──────

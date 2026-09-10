@@ -16,8 +16,8 @@ const LEAGUE_PATH = {
   WNBA:  'basketball/wnba',
   NHL:   'hockey/nhl',
   MLB:   'baseball/mlb',
-  NFL:   'americanfootball/nfl',
-  NCAAF: 'americanfootball/college-football',
+  NFL:   'football/nfl',
+  NCAAF: 'football/college-football',
   CBB:   'basketball/mens-college-basketball',
 };
 const TEAM_SPORTS = new Set(Object.keys(LEAGUE_PATH));

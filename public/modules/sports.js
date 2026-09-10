@@ -15,9 +15,9 @@
 import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
-  onBoardForSport, currentBoardDate, teamNickname, countryColor,
+  onBoardForSport, currentBoardDate, teamNickname, teamLabel, countryColor,
   SPORT_THEMES, flatUnitReturn, isSuspendedGame, suspendedLabel,
-} from './utils.js?v=9';
+} from './utils.js?v=10';
 import { isPaying } from './auth.js';
 import { TEAM_COLORS } from './modal.js?v=13';
 
@@ -33,12 +33,16 @@ let _selSports       = new Set();   // empty = All
 let _openCards       = new Set();   // expanded card ids
 let _bells           = new Set();   // per-game alert toggles (in-memory stub)
 let _query           = '';
-let _curDay          = 0;           // day rail: 0 = Today .. 3
+let _curDay          = 0;           // day rail: 0 = Today .. DAY_RAIL-1 (ET days ahead)
 let _cdTimer         = null;        // the ONE countdown interval
 let _bound           = false;
 
 const SPORT_CATALOG = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'Soccer', 'Tennis', 'Golf'];
 const SOON_MS = 90 * 60 * 1000;
+// Days on the rail. Seven so a weekly sport (college football) can reach its
+// next playing day from any weekday; a chip only renders for a day that has
+// games in the current filter, so daily sports keep their short strip.
+const DAY_RAIL = 7;
 
 // ── Sport key helpers ─────────────────────────────────────────────────────────
 function sportKey(sport) {
@@ -201,8 +205,8 @@ function mono(name, sport) {
   return s.slice(0, 3).toUpperCase();
 }
 
-function displayName(name) {
-  return teamNickname(name || '') || name || '?';
+function displayName(g, name) {
+  return teamLabel(g, name || '') || name || '?';
 }
 
 // ── State cell (band middle) ──────────────────────────────────────────────────
@@ -279,6 +283,13 @@ function tileInner(g, side, name) {
     }
     if (flag) return `<img class="nx-lgi" src="${esc(flag)}" alt="" loading="lazy" onerror="${toLetters}">`;
   }
+  // College teams carry ESPN's real abbreviation (ORE, ASU, TAMU). The derived
+  // monogram reads the first letters of the full name, which for "Arizona State
+  // Sun Devils" is not something to put on a tile.
+  if (sp === 'NCAAF' || sp === 'CBB' || sp === 'WCBB') {
+    const abbr = g[side + '_abbr'];
+    if (abbr) return esc(String(abbr).toUpperCase().slice(0, 4));
+  }
   return esc(mono(name, g.sport));
 }
 
@@ -286,7 +297,7 @@ function bandTeam(g, side) {
   const name = side === 'home' ? g.home_team : g.away_team;
   return `<div class="nx-bt ${side === 'home' ? 'h' : 'a'}">` +
     `<span class="nx-lg">${tileInner(g, side, name)}</span>` +
-    `<span class="nx-bn">${esc(displayName(name))}</span></div>`;
+    `<span class="nx-bn">${esc(displayName(g, name))}</span></div>`;
 }
 
 function chevBtn(g) {
@@ -511,6 +522,15 @@ function golfCardHtml(t) {
 // ── Vitals / bubbles / day rail / ledger ─────────────────────────────────────
 function boardGames() { return _allGames.filter(isBoardGame); }
 
+function _dayIso(i) { return _etDate(Date.now() + i * 86400000); }
+function gamesOnDay(i) {
+  if (i === 0) return boardGames();
+  const iso = _dayIso(i);
+  return _allGames.filter(g => !isBoardGame(g) && _etDate(g.start_time) === iso);
+}
+function _inFilter(g) { return _selSports.size === 0 || _selSports.has(sportKey(g.sport)); }
+function dayCount(i) { return gamesOnDay(i).filter(_inFilter).length; }
+
 function sportStats() {
   const stats = new Map();
   const ensure = (k) => {
@@ -612,20 +632,26 @@ function renderBubbles() {
   el.innerHTML = h;
 }
 
-// Mock renderDays: Today + next 3 days. Only today's data is loaded, so future
-// days carry no count and render the posts-in-the-morning note when selected.
+// Day rail: Today plus the next DAY_RAIL-1 ET days. /api/games already carries
+// the forward rows (2 days for daily sports, 7 for college football), so each
+// future chip shows a real count and only appears when its day has games in the
+// current sport filter. A filter change can strand the selection on a day that
+// no longer has games; that snaps back to Today.
 function renderDays() {
   const el = document.getElementById('nx-days');
   if (!el) return;
   el.classList.toggle('dim', searchActive());
+  if (_curDay !== 0 && dayCount(_curDay) === 0) _curDay = 0;
   let h = '';
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < DAY_RAIL; i++) {
+    const n = i === 0 ? boardGames().length + _golfTournaments.length : dayCount(i);
+    if (i !== 0 && n === 0) continue;
     const d = new Date(Date.now() + i * 86400000);
     const label = i === 0 ? 'Today' : d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
     const sub = i === 0
       ? d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short', month: 'short', day: 'numeric' }).replace(',', '')
       : d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' });
-    const ct = i === 0 ? `<span class="nx-ct n">${boardGames().length + _golfTournaments.length}</span>` : '';
+    const ct = `<span class="nx-ct n">${n}</span>`;
     const on = i === _curDay;
     h += `<button type="button" class="nx-day${on ? ' on' : ''}" data-day="${i}" aria-pressed="${on}">` +
          `<span class="nx-dl">${esc(label)}${ct}</span><span class="nx-ds">${esc(sub)}</span></button>`;
@@ -679,14 +705,24 @@ function renderSections() {
   if (days) days.classList.toggle('dim', searchActive());
   if (searchActive()) { renderSearch(host); return; }
 
+  const ctx = renderCtx();
+  const byStart = (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));
+
+  // A future day: its schedule, soonest first. Lines ride along where a book has
+  // posted them; the CA chips stay quiet because forward days carry no picks yet.
   if (_curDay !== 0) {
-    host.innerHTML = `<div class="nx-postnote">The board for each day posts in the morning.</div>`;
+    const fut = gamesOnDay(_curDay).filter(_inFilter).sort(byStart);
+    if (!fut.length) {
+      host.innerHTML = `<div class="nx-notice">Nothing on the board for this day yet.</div>`;
+      return;
+    }
+    const tag = dayTagFor(fut[0].start_time);
+    host.innerHTML = sectionHtml(tag, fut.map(g => cardHtml(g, ctx, tag)), 'soonest first') +
+      `<div class="nx-postnote">Rankings for this day post the morning of.</div>`;
     return;
   }
 
-  const ctx = renderCtx();
-  const byStart = (a, b) => String(a.start_time || '').localeCompare(String(b.start_time || ''));
-  const games = boardGames().filter(g => _selSports.size === 0 || _selSports.has(sportKey(g.sport)));
+  const games = boardGames().filter(_inFilter);
   const golfOn = _selSports.size === 0 || _selSports.has('Golf');
   const golf = golfOn ? _golfTournaments : [];
 
@@ -778,6 +814,7 @@ function bindEvents() {
       else if (_selSports.has(key)) _selSports.delete(key);
       else _selSports.add(key);
       renderBubbles();
+      renderDays();
       renderSections();
       return;
     }

@@ -241,6 +241,9 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN odds_updated_at TEXT`); } catc
 // the market shows 1 hour before start. lockCaLinesAtT60() (src/ca_line.js) snapshots
 // it once and sets ca_line_locked=1 so no later odds refresh moves it.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_locked INTEGER DEFAULT 0`); } catch (_) {}
+// Neutral-site flag (ESPN competitions[0].neutralSite). Drives the home-bonus
+// suppression in lines.js: a bowl or kickoff-classic game has no host.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN neutral_site INTEGER DEFAULT 0`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_at TEXT`); } catch (_) {}
 
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN espn_game_id TEXT`); } catch (_) {}
@@ -309,6 +312,29 @@ try {
   `);
 } catch (_) {}
 
+// Source picks the matcher REFUSED because more than one game fit the team
+// name and the pick's own line could not settle it (source_ingest.js
+// resolveGameMatches). Kept so an ambiguous college pick is visible and
+// recoverable instead of silently guessed onto the wrong game. Never wiped;
+// pruned at 14 days by pruneStaleGames.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS source_skips (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      source          TEXT,
+      capper          TEXT,
+      sport           TEXT,
+      picked          TEXT,
+      pick_type       TEXT,
+      line            REAL,
+      odds            REAL,
+      reason          TEXT,
+      candidates_json TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS user_preferences (
@@ -328,6 +354,7 @@ try {
       book            TEXT    NOT NULL,
       ml_home         REAL,
       ml_away         REAL,
+      ml_draw         REAL,
       spread_home     REAL,
       spread_away     REAL,
       over_under      REAL,
@@ -2047,3 +2074,7 @@ try {
 module.exports = db;
 module.exports.getSetting = getSetting;
 module.exports.setSetting = setSetting;
+
+// Belt and braces: the ml_draw ALTER near the top runs before book_lines is created,
+// so on a fresh database it no-ops. Repeat it here, after the CREATE TABLE.
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN ml_draw REAL`); } catch (_) {}

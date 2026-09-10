@@ -14,7 +14,9 @@ const TAG_MAP = {
   NHL:   'nhl',
   NFL:   'nfl',
   CBB:   'ncaab',
-  NCAAF: 'ncaaf',
+  // 'ncaaf' is the FUTURES tag (playoff seeds, win totals, no matchups at all);
+  // 'cfb' carries the game events ("Louisville vs. Ole Miss"). Verified 2026-09-07.
+  NCAAF: 'cfb',
   // Polymarket tags both tours under a single 'tennis' slug (the 'tennis-atp' /
   // 'tennis-wta' slugs return nothing). Events are player-vs-player; matching is
   // by player last name, same as team nicknames.
@@ -63,8 +65,10 @@ async function _syncGames(games) {
       // The 'tennis' tag has 100+ active events (and the API caps at 100/page),
       // so page through several to cover today's AND upcoming matches. Free API,
       // generous rate limit — extra pages are cheap.
-      const pages  = tag === 'tennis' ? 6 : tag === 'soccer' ? 4 : 1;
-      const events = await fetchEvents(tag, pages, tag === 'soccer');
+      // College football is 80 games in a week plus next week's and the futures
+      // board, so it pages by volume like soccer (real matchups float up).
+      const pages  = tag === 'tennis' ? 6 : tag === 'soccer' ? 4 : tag === 'cfb' ? 3 : 1;
+      const events = await fetchEvents(tag, pages, tag === 'soccer' || tag === 'cfb');
       if (!events.length) continue;
 
       // Accumulate markets across events — first match per type wins
@@ -82,7 +86,7 @@ async function _syncGames(games) {
         // Soccer: only true match events. The tag also carries futures ("...: Winner",
         // "Stage of Elimination") and derivative boards ("X vs. Y - Player Props",
         // "- Exact Score", "- Total Corners"), which share the team names.
-        if (tag === 'soccer' && (!/ vs\.? /i.test(ev.title || '') || / - /.test(ev.title || ''))) continue;
+        if ((tag === 'soccer' || tag === 'cfb') && (!/ vs\.? /i.test(ev.title || '') || / - /.test(ev.title || ''))) continue;
 
         const matched = matchGameToEvent(ev, sportGames);
         if (!matched) continue;
@@ -338,12 +342,32 @@ function _eventEtDate(ev) {
 // locked onto a stale, days-old event whose prices never move (the reported
 // "Yankees 49%/line +104, not updating" bug). Disambiguate by game date; fail
 // open to the name match only when no date is available on either side.
+// The string a Polymarket title would contain for one side of a game. Pro teams
+// are named by mascot ("Yankees vs. Red Sox"), so the last word of the team name
+// is the key. College teams are named by SCHOOL ("SMU vs. Florida State"), never
+// by mascot, so the key is the display name with ESPN's mascot (home_name /
+// away_name) stripped: "Florida State Seminoles" -> "florida state",
+// "Miami (OH) RedHawks" -> "miami (oh)", "Texas A&M Aggies" -> "texas a&m".
+const COLLEGE = new Set(['NCAAF', 'CBB', 'WCBB']);
+function _titleKey(g, side) {
+  const full = String(g[side + '_team'] || '').trim();
+  if (!full) return '';
+  if (COLLEGE.has(String(g.sport || '').toUpperCase())) {
+    const mascot = String(g[side + '_name'] || '').trim();
+    const school = mascot && full.toLowerCase().endsWith(mascot.toLowerCase())
+      ? full.slice(0, full.length - mascot.length).trim()
+      : full;
+    return school.toLowerCase();
+  }
+  return full.split(' ').pop().toLowerCase();
+}
+
 function matchGameToEvent(ev, games) {
   const title = (ev.title || ev.question || '').toLowerCase();
   const nameMatches = games.filter(g => {
-    const homeNick = (g.home_team || '').split(' ').pop().toLowerCase();
-    const awayNick = (g.away_team || '').split(' ').pop().toLowerCase();
-    return homeNick && awayNick && title.includes(homeNick) && title.includes(awayNick);
+    const homeKey = _titleKey(g, 'home');
+    const awayKey = _titleKey(g, 'away');
+    return homeKey && awayKey && title.includes(homeKey) && title.includes(awayKey);
   });
   if (!nameMatches.length) return null;
 

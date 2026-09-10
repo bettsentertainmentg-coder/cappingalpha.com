@@ -260,17 +260,42 @@ function findTodayGame(team) {
   return null;
 }
 
+// Neutral-site flag for a game (today_games.neutral_site, set by ncaaf_espn).
+// The v2 scorer suppresses the home bonus on it; is_home_team stays the side flag.
+function isNeutralSite(espnGameId) {
+  if (!espnGameId) return false;
+  try { return !!db.prepare(`SELECT neutral_site FROM today_games WHERE espn_game_id = ?`).get(espnGameId)?.neutral_site; }
+  catch (_) { return false; }
+}
+
 // ── Resolve the canonical team name (home_team or away_team) from today_games ─
+// Scores BOTH sides and takes the better one. The old rule tested the home side
+// only, one-way, and returned it on any brush: "Kovacevic" contains "vac" so a
+// Kovacevic pick was filed on Vacherot, and "Islanders" contains LA's abbr. With
+// 172 college names in play ("Ohio State" vs "Oklahoma State", "Texas" inside
+// three other schools) a one-sided test files a lot of picks on the opponent.
+// Tier: exact or normalized-exact 3, stored variant contains the input 2, input
+// contains the variant 1; the longer matched variant wins inside a tier; a dead
+// tie stays home (never null: a null would mint a seventh unseeded row).
+function _sideScore(variants, t, tn) {
+  let best = 0, bestLen = 0;
+  for (const v of variants) {
+    const vn = normalizeTeam(v);
+    let tier = 0;
+    if (v === t || vn === tn) tier = 3;
+    else if (t && v.includes(t) || tn && vn.includes(tn)) tier = 2;
+    else if (v && t.includes(v) || vn && tn.includes(vn)) tier = 1;
+    if (tier > best || (tier === best && v.length > bestLen)) { best = tier; bestLen = v.length; }
+  }
+  return best * 1000 + bestLen;
+}
 function getCanonicalTeam(game, team) {
   const t  = (team || '').toLowerCase().trim();
   const tn = normalizeTeam(team);
-
-  const homeVariants = [game.home_team, game.home_short, game.home_name, game.home_abbr]
-    .filter(Boolean).map(n => n.toLowerCase());
-
-  return homeVariants.some(n => n === t || normalizeTeam(n) === tn || n.includes(tn) || tn.includes(normalizeTeam(n)))
-    ? game.home_team
-    : game.away_team;
+  const homeVariants = [game.home_team, game.home_short, game.home_name, game.home_abbr].filter(Boolean).map(n => n.toLowerCase());
+  const awayVariants = [game.away_team, game.away_short, game.away_name, game.away_abbr].filter(Boolean).map(n => n.toLowerCase());
+  const h = _sideScore(homeVariants, t, tn), a = _sideScore(awayVariants, t, tn);
+  return a > h ? game.away_team : game.home_team;
 }
 
 // ── Find slot using team name (picked_side from AI is unreliable for home/away) ─
@@ -423,7 +448,7 @@ function updateSlot(slot, pick) {
     { channel, is_home_team: isTotal ? false : slot.is_home_team, sport: slot.sport },
   ];
 
-  const scored = scorePick({ mentions });
+  const scored = scorePick({ mentions, neutral: isNeutralSite(slot.espn_game_id) });
 
   db.prepare(`
     UPDATE picks
@@ -532,7 +557,7 @@ function insertNewPick(pick) {
     ? (snapshot?.original_ou     ?? (parseFloat(spread_value) || null))
     : (snapshot?.original_spread ?? (parseFloat(spread_value) || null));
   const isTotal2 = (pick_type || '').toLowerCase() === 'over' || (pick_type || '').toLowerCase() === 'under';
-  const scored = scorePick({ mentions: [{ channel, is_home_team: isTotal2 ? false : (is_home_team || false), sport }] });
+  const scored = scorePick({ mentions: [{ channel, is_home_team: isTotal2 ? false : (is_home_team || false), sport }], neutral: isNeutralSite(espn_game_id) });
 
   const result = db.prepare(`
     INSERT INTO picks
@@ -733,7 +758,7 @@ function recomputePickFromMentions(pickId) {
     is_home_team: isTotal ? false : pick.is_home_team,
     sport:        pick.sport,
   }));
-  const scored = scorePick({ mentions });
+  const scored = scorePick({ mentions, neutral: isNeutralSite(pick.espn_game_id) });
   const firstCapper = rows.find(r => r.capper_name)?.capper_name ?? null;
   db.prepare(`
     UPDATE picks SET score = ?, mention_count = ?, capper_name = ?, score_breakdown = ? WHERE id = ?
@@ -756,6 +781,22 @@ function recomputePickFromMentions(pickId) {
 // heavy_n / heavy_edge_shrunk, nightly). The gate is scaffolding that erodes
 // only with evidence, never by fiat: the first capper who proves they beat
 // heavy prices re-opens tracking for their own picks automatically.
+// A moneyline the books never posted. College football's biggest favorites
+// (a quarter of a Saturday slate, all -25 or worse) ship with a spread and no
+// price, because nobody would bet it. Where a book does post one at those
+// spreads it is -4500 to -50000, so a missing price on a -25 side is treated as
+// -100000 for GRADING and the display cap: a near-certain win pays a few cents,
+// not the +0.91 units the -110 fallback was crediting. Never written into
+// today_games.ml_* (that is the public line and the CA lock basis).
+const NO_ML_HEAVY_SPREAD = -25;
+const NO_ML_SYNTHETIC_ODDS = -100000;
+function impliedHeavyMl(storedMl, sideSpread) {
+  if (storedMl != null) return storedMl;
+  const sp = Number(sideSpread);
+  if (Number.isFinite(sp) && sp <= NO_ML_HEAVY_SPREAD) return NO_ML_SYNTHETIC_ODDS;
+  return null;
+}
+
 function heavyMlGateOdds() {
   try {
     const v = parseFloat(db.getSetting('heavy_ml_gate', '-300'));
@@ -996,4 +1037,4 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked, getCanonicalTeam, isNeutralSite, impliedHeavyMl };

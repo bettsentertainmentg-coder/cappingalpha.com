@@ -135,7 +135,10 @@ async function pollWagerTalk() {
     if (!ev) continue; // futures/props carry no matchup
     const pick = parsePlay(card.play, ev.market);
     if (!pick) continue;
-    const game = findGameByTeams(ev.teamA, ev.teamB, sport);
+    const game = findGameByTeams(ev.teamA, ev.teamB, sport, {
+      pickType: pick.pickType, line: pick.line ?? null, odds: pick.odds ?? null, side: null,
+      source: 'wagertalk', capper: card.name, sport, picked: pick.picked || `${ev.teamA} vs ${ev.teamB}`,
+    });
     if (!game) continue;
     const isTotal = pick.pickType === 'over' || pick.pickType === 'under';
     const side = isTotal ? null : sideOf(game, pick.picked);

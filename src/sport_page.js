@@ -151,6 +151,26 @@ function todaysGames(sports) {
   ).all(...sports).filter(g => etDayOf(g.start_time) === today);
 }
 
+// The next seven ET days for the page's sports, grouped by day. College football
+// is weekly, so a Monday /ncaaf page with one game and no view of Saturday's 80
+// is useless to the reader; the 7-day forward window (ncaaf_espn.js) means the
+// rows exist. Only days that have games are returned.
+function weekGames(sports) {
+  const ph = sports.map(() => '?').join(',');
+  const today = etTodayIso();
+  const rows = db.prepare(
+    `SELECT * FROM today_games WHERE sport IN (${ph}) ORDER BY start_time ASC, id ASC`
+  ).all(...sports);
+  const byDay = new Map();
+  for (const g of rows) {
+    const d = etDayOf(g.start_time);
+    if (!d || d <= today) continue;
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d).push(g);
+  }
+  return [...byDay.entries()].slice(0, 7).map(([day, games]) => ({ day, games }));
+}
+
 // Golf: current + upcoming tournaments with their leaderboards.
 function golfTournaments() {
   return db.prepare(
@@ -267,8 +287,8 @@ function buildBoard(games) {
 
 // ── Section renderers ─────────────────────────────────────────────────────────
 
-function gamesSectionHtml(label, games) {
-  const rows = games.map(g => {
+function gameRowsHtml(games) {
+  return games.map(g => {
     const status = (g.status || 'pre').toLowerCase();
     let right;
     if (status === 'in') {
@@ -291,14 +311,32 @@ function gamesSectionHtml(label, games) {
       <div class="sp-game-status">${right}</div>
     </a>`;
   }).join('\n');
+}
 
+function gamesSectionHtml(label, games) {
   const body = games.length
-    ? `<div class="sp-games">${rows}</div>`
+    ? `<div class="sp-games">${gameRowsHtml(games)}</div>`
     : `<div class="sp-empty">No ${esc(label)} games on the board today.</div>`;
 
   return `<section class="sp-section">
     <h2 class="sp-h2">Today's games</h2>
     ${body}
+  </section>`;
+}
+
+// "This week": one block per upcoming day that has games. Rendered for every
+// team sport, but it is college football that needs it (see weekGames).
+function weekSectionHtml(days) {
+  if (!days.length) return '';
+  const blocks = days.map(({ day, games }) => {
+    const d = new Date(`${day}T12:00:00Z`);
+    const head = d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' });
+    return `<h3 class="sp-h3">${esc(head)} <span class="sp-count ca-num">${games.length}</span></h3>
+      <div class="sp-games">${gameRowsHtml(games)}</div>`;
+  }).join('\n');
+  return `<section class="sp-section">
+    <h2 class="sp-h2">This week</h2>
+    ${blocks}
   </section>`;
 }
 
@@ -506,6 +544,7 @@ const PAGE_CSS = `
 .sp-tagline { color: var(--text-secondary); margin-top: 10px; max-width: 660px; font-size: 15px; }
 .sp-section { margin-top: 38px; }
 .sp-h2 { font-size: 17px; font-weight: 700; margin-bottom: 12px; }
+.sp-count { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 6px; }
 .sp-h3 { font-size: 14px; font-weight: 700; margin: 18px 0 10px; color: var(--text-secondary); }
 .sp-note { color: var(--text-tertiary); font-size: 13px; margin-bottom: 12px; }
 .sp-empty { color: var(--muted); font-size: 14px; padding: 18px 0; }
@@ -600,7 +639,10 @@ async function buildSportPageHtml(pageDef, opts = {}) {
   const sections = [];
   if (isGolf)      sections.push(golfSectionHtml(tournaments));
   else if (isMma)  sections.push(mmaSectionHtml(engineFights, kalshiFights));
-  else             sections.push(gamesSectionHtml(label, games));
+  else {
+    sections.push(gamesSectionHtml(label, games));
+    sections.push(weekSectionHtml(weekGames(sports)));
+  }
   if (!isGolf && !isMma) sections.push(boardSectionHtml(board));
   sections.push(mvpSectionHtml(label, slug, mvpPicks, record));
   sections.push(infoSectionHtml(label, info));

@@ -74,7 +74,7 @@ async function syncLiveSituations() {
     if (!url) continue;   // sport not wired for situation yet — leaves period/clock fallback
     let events;
     try {
-      const res = await axios.get(url, { timeout: 8000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const res = await axios.get(url, { timeout: 8000 });
       events = res.data?.events || [];
     } catch (e) {
       console.warn(`[live_situation] ${sport} scoreboard fetch failed:`, e.message);

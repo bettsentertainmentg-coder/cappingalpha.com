@@ -16,7 +16,7 @@ const SPORT_KEY_MAP = {
   NBA:   'basketball_nba',
   NHL:   'icehockey_nhl',
   NFL:   'americanfootball_nfl',
-  NCAAF: 'americanfootball_ncaaf',
+  NCAAF: null, // ESPN sports.core odds + the CA Odds Engine cover CFB for free
   CBB:   'basketball_ncaab',
   WCBB:  null, // not available on Odds API
   ATP:   'tennis_atp',
