@@ -4806,6 +4806,46 @@ router.post('/api/regrade-tennis', adminLoginRateLimit, express.json(), async (r
   }
 });
 
+// ── POST /admin/api/regrade-ledger — the wrong-line restatement (2026-09-10) ─
+// Re-settles every capper_history row that carries a LINE against the line that
+// capper actually quoted. Before the ownLine fix, evaluatePick read the game's
+// locked CA line first, so a capper's +3.5 was graded as the CA's 3 (NE/SEA,
+// 2026-09-09: every spread on the game graded PUSH). See src/ledger_regrade.js.
+// Body: { dry_run: true|false, since: 'YYYY-MM-DD', until: 'YYYY-MM-DD',
+//         sports: ['MLB',...], game_ids: [...], max_games: 400 }
+// Defaults to a DRY RUN. Header-auth so it can be driven from the Mac.
+// Idempotent: a second run over the same window reports zero changes.
+router.post('/api/regrade-ledger', adminLoginRateLimit, express.json(), async (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const ymd    = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  const dryRun = req.body?.dry_run !== false;
+  const since  = ymd(req.body?.since) || '2026-01-01';
+  const until  = ymd(req.body?.until) || '2099-12-31';
+  const sports = Array.isArray(req.body?.sports) ? req.body.sports.map(String) : null;
+  const gameIds = Array.isArray(req.body?.game_ids) ? req.body.game_ids.map(String) : null;
+  const maxGames = Math.min(Math.max(parseInt(req.body?.max_games, 10) || 400, 1), 2000);
+  try {
+    const { regradeLedger } = require('./ledger_regrade');
+    const report = await regradeLedger({ since, until, dryRun, sports, gameIds, maxGames });
+    console.log(`[regrade-ledger] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_changed} row(s) ` +
+                `(${report.win_loss_flips} win/loss flips) across ${report.games_examined} game(s) ${since}..${until}`);
+    // The Wilson ladder is materialized from capper_history, so a real run has
+    // to rebuild ratings before the leaderboard and the scorer agree with the
+    // repaired ledger.
+    if (!dryRun && report.rows_changed > 0) {
+      try { require('./capper_ratings').recomputeCapperRatings(); }
+      catch (e) { console.warn('[regrade-ledger] ratings recompute failed:', e.message); }
+    }
+    res.json(report);
+  } catch (err) {
+    console.error('[regrade-ledger] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─
 router.post('/import-mvp', adminLoginRateLimit, express.json({ limit: '5mb' }), (req, res) => {
   const pw = req.headers['x-admin-password'];
