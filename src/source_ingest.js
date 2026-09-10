@@ -18,15 +18,78 @@
 
 const db = require('./db');
 const { resolveCapperName, ensureRegistered, savePick } = require('./storage');
+const { hasGameStarted } = require('./pick_cutoff');
 
-// Multi-match resolver: a doubleheader (same two teams twice today) or a
-// cross-sport city collision (Toronto/Miami/Dallas exist in 3+ leagues) makes
-// the team-name match return several games. A source's pending pick is for the
-// upcoming game, so prefer the nearest one that hasn't started; if every
-// candidate has already started, the pick is genuinely ambiguous — return null
-// and drop it rather than guess (a game-2 pick graded on game 1's final is
-// exactly the corruption this blocks).
-function resolveGameMatches(rows) {
+// ── Multi-match resolver ──────────────────────────────────────────────────────
+// A team-name match can return several games:
+//   (a) a doubleheader: the SAME two teams twice (MLB). The source's pending
+//       pick is for the upcoming one, so the nearest unstarted game wins, as it
+//       always has. If every candidate has started the pick is ambiguous.
+//   (b) DIFFERENT team pairs sharing a name fragment. This is the college case
+//       ("Texas" hits Texas, Texas A&M, Texas State and Texas Tech on one
+//       Saturday; "Tigers" hits five schools plus Detroit) and the cross-sport
+//       city case (Toronto/Miami/Dallas exist in three leagues at once).
+//       The old rule took the earliest kickoff, which is a coin flip that lands
+//       a graded row in the wrong capper pool. The rule now (Jack, 2026-09-07):
+//         1. the caller's sport constraint has already narrowed the pool;
+//         2. if the pick carries a line, keep the candidates whose market is
+//            within LINE_TOL of it (spread against the picked side's spread,
+//            total against over_under, moneyline against the side's price);
+//         3. if exactly one survives, take it; otherwise REFUSE and log the
+//            candidates to source_skips so the case is visible and recoverable.
+//       A dropped pick costs one data point. A misgraded one poisons a rating
+//       pool and is very hard to unwind.
+const LINE_TOL = 4;      // points, spreads and totals (college lines move all week)
+const ML_TOL   = 60;     // American-odds distance for a moneyline confirmation
+
+function _pairKey(g) {
+  return [String(g.home_team || '').toLowerCase(), String(g.away_team || '').toLowerCase()].sort().join('|');
+}
+
+// Does this candidate's market agree with the pick's posted number?
+// Returns true / false, or null when the candidate has no line to compare
+// against (a forward game the books have not priced yet).
+function lineAgrees(g, opts) {
+  const pt = String(opts.pickType || '').toLowerCase();
+  const line = opts.line != null && Number.isFinite(+opts.line) ? +opts.line : null;
+  const odds = opts.odds != null && Number.isFinite(+opts.odds) ? +opts.odds : null;
+  // Sources that parse the pick before they know the game pass the picked name
+  // instead of a side; resolve it against THIS candidate (it can differ per game).
+  if (!opts.side && opts.picked && (pt === 'spread' || pt === 'ml')) {
+    opts = { ...opts, side: sideOf(g, opts.picked) };
+  }
+  if (pt === 'over' || pt === 'under') {
+    if (g.over_under == null) return null;
+    return line != null && Math.abs(+g.over_under - line) <= LINE_TOL;
+  }
+  if (pt === 'spread') {
+    const mkt = opts.side === 'home' ? g.spread_home : opts.side === 'away' ? g.spread_away : null;
+    if (mkt == null) return null;
+    return line != null && Math.abs(+mkt - line) <= LINE_TOL;
+  }
+  if (pt === 'ml') {
+    const mkt = opts.side === 'home' ? g.ml_home : opts.side === 'away' ? g.ml_away : null;
+    if (mkt == null) return null;
+    return odds != null && Math.abs(+mkt - odds) <= ML_TOL;
+  }
+  return null;
+}
+
+function logAmbiguous(cands, opts, why) {
+  const names = cands.map(g => `${g.sport} ${g.away_team} @ ${g.home_team} (${g.espn_game_id})`).join(' | ');
+  console.warn(`[source_ingest] refused ${opts.source || 'source'} pick "${opts.picked || ''}" (${opts.pickType || '?'} ${opts.line ?? ''}): ${why}: ${names}`);
+  try {
+    db.prepare(`
+      INSERT INTO source_skips (source, capper, sport, picked, pick_type, line, odds, reason, candidates_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(opts.source || null, opts.capper || null, opts.sport || null, opts.picked || null,
+           opts.pickType || null, opts.line ?? null, opts.odds ?? null, why,
+           JSON.stringify(cands.map(g => ({ id: g.espn_game_id, sport: g.sport, home: g.home_team, away: g.away_team, start: g.start_time,
+             spread_home: g.spread_home, over_under: g.over_under, ml_home: g.ml_home, ml_away: g.ml_away }))));
+  } catch (_) {}
+}
+
+function resolveGameMatches(rows, opts = {}) {
   if (!rows || rows.length === 0) return null;
   if (rows.length === 1) return rows[0];
   const now = Date.now();
@@ -37,16 +100,33 @@ function resolveGameMatches(rows) {
       return start != null && start > now;
     })
     .sort((a, b) => (gameStartMs(a) || Infinity) - (gameStartMs(b) || Infinity));
-  return upcoming.length ? upcoming[0] : null;
+  if (!upcoming.length) return null;
+  if (upcoming.length === 1) return upcoming[0];
+
+  // (a) doubleheader: one team pair, several games. Nearest unstarted, as before.
+  const pairs = new Set(upcoming.map(_pairKey));
+  if (pairs.size === 1) return upcoming[0];
+
+  // (b) different pairs. Let the pick's own number decide.
+  const verdicts = upcoming.map(g => lineAgrees(g, opts));
+  const agree = upcoming.filter((_, i) => verdicts[i] === true);
+  if (agree.length === 1) return agree[0];
+  const why = agree.length > 1 ? 'several games agree with the line'
+            : verdicts.some(v => v === true || v === false) ? 'no game agrees with the line'
+            : 'ambiguous team match and no line to confirm';
+  logAmbiguous(upcoming, opts, why);
+  return null;
 }
 
 // Fuzzy today_games matcher by two team names (the proven odds_api.js pattern).
 // sport (optional) constrains the match to one league — pass it whenever the
 // caller knows it ('Tennis' blends ATP+WTA); without it a bare city pair can
 // hit the wrong sport's game.
-function findGameByTeams(teamA, teamB, sport) {
-  const t1 = (teamA || '').toLowerCase();
-  const t2 = (teamB || '').toLowerCase();
+// opts (optional): { pickType, side, line, odds, source, capper, picked } lets
+// the resolver confirm an ambiguous match against the pick's own number.
+function findGameByTeams(teamA, teamB, sport, opts) {
+  const t1 = (teamA || '').toLowerCase().trim();
+  const t2 = (teamB || '').toLowerCase().trim();
   if (!t1 || !t2) return null;
   const n1 = t1.split(' ').pop();
   const n2 = t2.split(' ').pop();
@@ -60,16 +140,25 @@ function findGameByTeams(teamA, teamB, sport) {
         LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
         OR LOWER(home_abbr) = ? OR LOWER(away_abbr) = ?
       )`;
-    const params = [n1, n1, t1, t1, n2, n2, t2, t2];
     if (sport) {
       if (String(sport).toLowerCase() === 'tennis') sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
-      else { sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport); }
+      else sql += ` AND UPPER(sport) = UPPER(?)`;
     }
-    return resolveGameMatches(db.prepare(sql).all(...params));
+    const tail = sport && String(sport).toLowerCase() !== 'tennis' ? [sport] : [];
+    const stmt = db.prepare(sql);
+    // Pass 1: the FULL strings as substrings. A pro name's last word is its
+    // identity ("Yankees"), but a college name's last word is usually "State":
+    // "Washington State @ Kansas State" hit 32 games on that word on one
+    // Saturday, and "Ohio State @ Texas" hit four. The full strings pick out
+    // exactly one game in both cases, before any line check is needed.
+    let rows = stmt.all(t1, t1, t1, t1, t2, t2, t2, t2, ...tail);
+    // Pass 2: last words, the original rule, for nicknames and short forms.
+    if (!rows.length) rows = stmt.all(n1, n1, t1, t1, n2, n2, t2, t2, ...tail);
+    return resolveGameMatches(rows, { sport, ...(opts || {}) });
   } catch (_) { return null; }
 }
 
-function findGameByAbbrs(abbrA, abbrB, sport) {
+function findGameByAbbrs(abbrA, abbrB, sport, opts) {
   const a = (abbrA || '').toLowerCase(), b = (abbrB || '').toLowerCase();
   if (!a || !b) return null;
   try {
@@ -82,19 +171,33 @@ function findGameByAbbrs(abbrA, abbrB, sport) {
       if (String(sport).toLowerCase() === 'tennis') sql += ` AND UPPER(sport) IN ('ATP','WTA')`;
       else { sql += ` AND UPPER(sport) = UPPER(?)`; params.push(sport); }
     }
-    return resolveGameMatches(db.prepare(sql).all(...params));
+    return resolveGameMatches(db.prepare(sql).all(...params), { sport, ...(opts || {}) });
   } catch (_) { return null; }
 }
 
 // Which side of the game a picked name refers to. Returns 'home' | 'away' | null.
+// Scores both sides and takes the better one. The old test was home-first and
+// one-way, so a name that merely brushed a home variant was filed home ("New
+// York" put a Mets pick on the Yankees; "Utah" on a Utah State game went to the
+// wrong Utah). An exact hit outranks any containment; between containments the
+// longer matched variant wins; a dead tie is null and the caller skips the pick.
+function _nameMatchScore(variants, p) {
+  let best = 0;
+  for (const n of variants) {
+    if (n === p) return Infinity;
+    if (n.includes(p) || p.includes(n)) best = Math.max(best, Math.min(n.length, p.length));
+  }
+  return best;
+}
 function sideOf(game, picked) {
   const p = (picked || '').toLowerCase().trim();
   if (!p) return null;
   const home = [game.home_team, game.home_short, game.home_name, game.home_abbr].filter(Boolean).map(s => s.toLowerCase());
   const away = [game.away_team, game.away_short, game.away_name, game.away_abbr].filter(Boolean).map(s => s.toLowerCase());
-  if (home.some(n => n === p || n.includes(p) || p.includes(n))) return 'home';
-  if (away.some(n => n === p || n.includes(p) || p.includes(n))) return 'away';
-  return null;
+  const h = _nameMatchScore(home, p), a = _nameMatchScore(away, p);
+  if (!h && !a) return null;
+  if (h === a) return null;
+  return h > a ? 'home' : 'away';
 }
 
 function gameStartMs(game) {
@@ -118,10 +221,28 @@ function recordSourcePick(pick) {
   const isTotal = pt === 'over' || pt === 'under';
   if (!isTotal && !pick.side) return 'skipped:no-side';
 
-  // Pregame rule: the SOURCE timestamp decides. In-game entries are still logged
-  // (capper record only) but flagged live in provenance.
+  // Pregame rule: the SOURCE timestamp decides, AND the game itself gets a vote.
+  //
+  // In-play entries are DROPPED ENTIRELY (Jack 2026-07-31: "NOTHING IS TRACKED
+  // PAST THAT EVEN IF A CAPPER POSTS AT ANY POINT AFTER THAT IT IS NOT ADDED TO
+  // CAPPER HISTORY OR NOTHING"). They used to be inserted as capper_history
+  // rows flagged live in provenance, on the theory that they were record-only.
+  // They were not harmless: d3af377 later had to exclude them from the ratings
+  // pool after finding 7,787 of ~19k graded rows were in-play, WTA 82% and ATP
+  // 62%, which had been quietly shaping every capper's rank. A row we refuse to
+  // judge on should not exist.
+  //
+  // hasGameStarted() is the second half, and a SUSPENDED match is why (2026-08-02).
+  // The timestamp test alone trusts start_time to stay put, and it does not:
+  // tennis_espn takes ESPN's freshest date on every upsert, so a halted match gets
+  // re-dated to its resumption. The moment that lands, a pick posted while the
+  // match sat 1-1 in sets reads as PREGAME (posted before the new start) and earns
+  // a capper_history row that grades into the Wilson pool. The Discord path never
+  // had this hole because savePick gates on hasGameStarted; this one does now too.
   const startMs = gameStartMs(game);
-  const live = !!(startMs && pick.postedAtMs && pick.postedAtMs >= startMs);
+  const live = !!(startMs && pick.postedAtMs && pick.postedAtMs >= startMs)
+            || hasGameStarted(game);
+  if (live) return 'skipped:in-play';
 
   const team = isTotal ? game.home_team : (pick.side === 'home' ? game.home_team : game.away_team);
   const gameDate = (game.start_time || '').slice(0, 10) || null;
@@ -223,6 +344,23 @@ function recordSourcePick(pick) {
 function removeSourceEntry({ canonical, espn_game_id, pickType, team }) {
   const pt = (pickType || '').toLowerCase();
   const isTotal = pt === 'over' || pt === 'under';
+
+  // NOT ONCE THE GAME IS UNDER WAY (Jack 2026-07-31). A wallet hedging or
+  // flipping mid-game is trading its own position, not retracting the read it
+  // published before first pitch — and the withdrawal used to run anyway, on a
+  // live slot, with no start check anywhere in the path. It deleted the pending
+  // capper_history row (so the capper lost credit for a call they made in time)
+  // and deleted the board mention, then re-scored the slot from the survivors
+  // against whatever the ratings pool looked like at that minute. Same rule as
+  // the score itself: what a pick is worth at first pitch is what it is worth.
+  try {
+    const g = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score
+                          FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+    if (g && require('./pick_cutoff').hasGameStarted(g)) {
+      console.log(`[ingest] withdrawal ignored for ${canonical} on ${espn_game_id} ${pt} — game already started`);
+      return { removed: false, reason: 'game_started' };
+    }
+  } catch (_) { /* unknown game state: fall through to the existing behaviour */ }
   const hist = db.prepare(`
     SELECT id, source FROM capper_history
     WHERE capper_name = ? AND espn_game_id = ? AND LOWER(pick_type) = ?
@@ -279,4 +417,24 @@ function americanFromPrice(p) {
   return Math.round(x >= 0.5 ? (-100 * x) / (1 - x) : (100 * (1 - x)) / x);
 }
 
-module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice, removeSourceEntry, findPendingOpposite };
+// Source league labels -> CappingAlpha sport labels. Unknown leagues return
+// null so the caller matches unconstrained (and the resolver still refuses a
+// real ambiguity) instead of silently dropping a pick from a league we simply
+// have not mapped yet.
+const LEAGUE_TO_SPORT = {
+  mlb: 'MLB', nfl: 'NFL', nba: 'NBA', nhl: 'NHL', wnba: 'WNBA',
+  ncaaf: 'NCAAF', cfb: 'NCAAF', 'college-football': 'NCAAF',
+  ncaab: 'CBB', cbb: 'CBB', 'college-basketball': 'CBB', ncaaw: 'WCBB', wcbb: 'WCBB',
+  atp: 'Tennis', wta: 'Tennis', tennis: 'Tennis',
+  soccer: 'Soccer', mls: 'Soccer', epl: 'Soccer', uefa: 'Soccer', ucl: 'Soccer', laliga: 'Soccer',
+  seriea: 'Soccer', bundesliga: 'Soccer', ligue1: 'Soccer', ligamx: 'Soccer',
+};
+function sportForLeague(name) {
+  const k = String(name || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  if (!k) return null;
+  if (LEAGUE_TO_SPORT[k]) return LEAGUE_TO_SPORT[k];
+  if (/soccer|premier|liga|serie|bundes|ligue|champions|europa|cup|fifa/.test(k)) return 'Soccer';
+  return null;
+}
+
+module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice, removeSourceEntry, findPendingOpposite, sportForLeague, LINE_TOL };

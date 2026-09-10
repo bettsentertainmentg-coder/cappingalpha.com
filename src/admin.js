@@ -134,9 +134,104 @@ function page(title, body) {
     /* ── Code gen ── */
     .code-gen-card { background:#171b24; border:1px solid #252c3b; border-radius:10px; padding:22px; max-width:480px; margin-bottom:28px; }
     .code-gen-card h3 { font-size:15px; font-weight:700; margin-bottom:16px; color:#e2e8f0; }
+    /* ── Grab-and-drag side scrolling (auto-applied to every wide table) ── */
+    .hscroll { overflow-x:auto; overflow-y:hidden; -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; }
+    .hscroll::-webkit-scrollbar { height:9px; }
+    .hscroll::-webkit-scrollbar-track { background:#12161f; border-radius:6px; }
+    .hscroll::-webkit-scrollbar-thumb { background:#2f3849; border-radius:6px; }
+    .hscroll::-webkit-scrollbar-thumb:hover { background:#3b4560; }
+    .ca-grabbable { cursor:grab; }
+    body.ca-grabbing, body.ca-grabbing * { cursor:grabbing !important; user-select:none !important; }
   </style>
 </head>
-<body>${body}</body>
+<body>${body}
+<script>
+/* Drag-to-scroll: any horizontally scrollable box can be grabbed and pulled side to side.
+   Wide tables get wrapped automatically, so this covers panels rendered later by JS too. */
+(function(){
+  var THRESHOLD = 4;
+  var drag = null, hint = null, suppressClick = false;
+
+  function scrollerFor(el){
+    for (; el && el.nodeType === 1 && el !== document.body; el = el.parentElement){
+      if (el.scrollWidth - el.clientWidth > 1){
+        var ox = getComputedStyle(el).overflowX;
+        if (ox === 'auto' || ox === 'scroll') return el;
+      }
+    }
+    return null;
+  }
+
+  function wrapTables(){
+    var tables = document.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++){
+      var t = tables[i], p = t.parentElement;
+      if (!p || p.classList.contains('hscroll')) continue;
+      var cs = getComputedStyle(p);
+      // Already inside a scroll box (e.g. a sticky-header panel or a modal body) — leave it alone.
+      if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowY === 'auto' || cs.overflowY === 'scroll') continue;
+      var w = document.createElement('div');
+      w.className = 'hscroll';
+      p.insertBefore(w, t);
+      w.appendChild(t);
+    }
+  }
+
+  function scheduleWrap(){
+    if (scheduleWrap._q) return;
+    scheduleWrap._q = true;
+    requestAnimationFrame(function(){ scheduleWrap._q = false; wrapTables(); });
+  }
+
+  function endDrag(){
+    if (!drag) return;
+    var moved = drag.moved;
+    drag = null;
+    document.body.classList.remove('ca-grabbing');
+    if (moved){ suppressClick = true; setTimeout(function(){ suppressClick = false; }, 0); }
+  }
+
+  document.addEventListener('pointerdown', function(e){
+    if (e.button !== 0 || e.pointerType !== 'mouse') return;
+    var t = e.target;
+    if (t.closest && t.closest('input,textarea,select,button,a,[contenteditable="true"]')) return;
+    var el = scrollerFor(t);
+    if (!el) return;
+    drag = { el: el, x: e.clientX, left: el.scrollLeft, moved: false };
+  });
+
+  document.addEventListener('pointermove', function(e){
+    if (!drag){
+      if (e.pointerType !== 'mouse') return;
+      var el = scrollerFor(e.target);
+      if (hint && hint !== el){ hint.classList.remove('ca-grabbable'); hint = null; }
+      if (el){ el.classList.add('ca-grabbable'); hint = el; }
+      return;
+    }
+    if (e.buttons === 0){ endDrag(); return; }
+    var dx = e.clientX - drag.x;
+    if (!drag.moved){
+      if (Math.abs(dx) < THRESHOLD) return;
+      drag.moved = true;
+      document.body.classList.add('ca-grabbing');
+    }
+    drag.el.scrollLeft = drag.left - dx;
+    e.preventDefault();
+  });
+
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+  window.addEventListener('blur', endDrag);
+  document.addEventListener('dragstart', function(e){ if (drag && drag.moved) e.preventDefault(); });
+  document.addEventListener('click', function(e){
+    if (suppressClick){ e.stopPropagation(); e.preventDefault(); }
+  }, true);
+
+  wrapTables();
+  new MutationObserver(scheduleWrap).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+</body>
 </html>`;
 }
 
@@ -342,16 +437,16 @@ router.get('/dashboard', requireAuth, (req, res) => {
     try { bd = p.v3_json ? JSON.parse(p.v3_json) : null; } catch (_) {}
     const v3score = p.v3_total != null ? Math.round(p.v3_total) : null;
     const shownScore = v3Now ? (v3score != null ? v3score : (p.score ?? '—')) : (p.score ?? '—');
-    // Reconcile with the public board: while any bonus component is still ahead
-    // of its seeded reveal moment, members see a lower number. Show it next to
-    // the true score so admin and the live site never LOOK out of sync (they
-    // converge when the last reveal fires, always before game start).
+    // Reconcile with the public board: until T-60 the general bonuses are held
+    // back, so members see a lower number. Show it next to the true score so
+    // admin and the live site never LOOK out of sync (they converge an hour
+    // before start, when the bonus block lands in one step).
     let publicNote = '';
     if (v3Now && v3score != null) {
       try {
         const disp = require('./scoring_v3').effectiveDisplayScore(p);
         if (disp < v3score) {
-          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="Part of this score has not surfaced publicly yet. Members currently see this lower number; the remaining points land at their scheduled reveal moments before game start.">public ${disp}↗</div>`;
+          publicNote = `<div style="font-size:10px;font-weight:600;color:#f59e0b;" title="The general bonuses have not surfaced publicly yet. Members currently see this lower number; the whole bonus block lands in one step at T-60, an hour before the scheduled start.">public ${disp}↗</div>`;
         }
       } catch (_) {}
     }
@@ -1092,6 +1187,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
                  chipIn: Math.round(chipIn * 10) / 10,
                  sportBonus: sr?.sport_bonus_pts ?? 0,
                  decisionsR: sr?.decisions ?? decided,
+                 neededPct: sr?.needed_pct ?? null, edgeShrunk: sr?.edge_shrunk ?? null,
+                 priceGated: !!(r?.price_gated),
                  srcList: [...srcUnion].sort() };
       }
       const total = c.wins + c.losses + c.pushes;
@@ -1109,6 +1206,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
                pctile: r?.percentile ?? null, band: r?.band ?? 'new',
                pts: r?.pts ?? null, stackAdd: r?.stack_add ?? null,
                decisionsR: r?.decisions ?? decided,
+               neededPct: r?.needed_pct ?? null, edgeShrunk: r?.edge_shrunk ?? null,
+               priceGated: !!(r?.price_gated),
                srcList: [...srcUnion].sort() };
     })
     .filter(Boolean)
@@ -1200,6 +1299,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
     polymarket:    ['PM', '#8b5cf6', 'Polymarket pro wallet. Real positions from a top-P/L trader; entries before game start count as picks.'],
     covers:        ['CV', '#f59e0b', 'Covers.com contest player. Contest picks are platform-graded and lock at game start.'],
     wagertalk:     ['WT', '#14b8a6', 'WagerTalk pro. Free picks from their public page, graded by us; pregame picks join the board through normal scoring.'],
+    bettingpros:   ['BP', '#2563eb', 'BettingPros community bettor. Their public picks carry an exact post time and unit size; pregame ones join the board like any other source.'],
+    cbs:           ['CBS', '#0f766e', 'CBS Sports writer. Their weekly NFL and college football expert grid, graded by us.'],
+    sportsbookwire:['SBW', '#c2410c', 'SportsbookWire (USA TODAY) writer. Free bylined picks published hours before kickoff.'],
+    thespread:     ['TS', '#7c3aed', 'TheSpread writer. Free bylined game picks with the price.'],
+    sportsbettingdime: ['SBD', '#db2777', 'SportsBettingDime writer. Free bylined game picks.'],
+    sportsbookreview:  ['SBR', '#65a30d', 'Sportsbook Review writer. Free bylined picks with unit sizing.'],
     telegram:      ['TG', '#0ea5e9', 'Telegram channel (wave 2, not live yet)'],
     reddit:        ['RD', '#f97316', 'Reddit (wave 2, not live yet)'],
   };
@@ -1248,6 +1353,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
     if (c.fade && FADE_TIPS[c.fade]) {
       const f = FADE_TIPS[c.fade];
       chips.push(`<span title="${escHtml(f[2])}" style="background:${f[1]}22;color:${f[1]};border:1px solid ${f[1]}44;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">${f[0]}</span>`);
+    }
+    if (c.priceGated) {
+      chips.push(`<span title="PRICE GATE: over 100+ graded decisions this capper wins less often than their own odds required (shrunk edge -2% or worse). Their backing pays the flat 10 regardless of rank — winning a lot at prices that demand even more is a losing record in disguise." style="background:#ef444422;color:#ef4444;border:1px solid #ef444444;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:800;">PRICE GATE</span>`);
     }
     if (!chips.length && t) {
       chips.push(`<span title="${escHtml(t[2])}" style="color:${t[1]};font-size:9px;font-weight:700;">${t[0]}</span>`);
@@ -1326,10 +1434,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
       ${fadeCount ? `<button class="btn-sm band-filter-btn" data-band="fade" onclick="filterCapperBand('fade', this)"
         style="border:1px solid #ef444444;color:#ef4444;background:#ef444411;">FADE · ${fadeCount}</button>` : ''}
     </div>
-    <div style="overflow-x:auto;">
+    <div class="hscroll">
     <table id="capper-leaderboard">
       <thead><tr>
-        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below.')}${sortable('Wilson', 'num', 'The 99% Wilson lower bound itself: the worst-case win rate the record still supports. Volume raises it, thin perfection does not.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide and the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
+        ${sortable('#', 'num')}${sortable('Capper', 'str')}${sortable('Rank', 'num', 'Position in the all-capper Wilson ranking (99% lower bound on win rate over graded decisions). This rank decides the points below. Hover a rank for the raw Wilson value.')}${sortable('Needed%', 'num', 'The average win rate their own odds REQUIRED. Heavy favorites push it up (-1000 needs 90.9%), dogs pull it down (+150 needs 40%). Compare with Win%: winning a lot means nothing if the prices demanded more.')}${sortable('Edge', 'num', 'Win rate minus Needed%, shrunk by 25 phantom decisions so thin samples sit near zero. Positive = beats their own prices. At -2 or worse with 100+ decisions the PRICE GATE fires and their backing pays the flat 10.')}${sortable('Band', 'str', 'Percentile band on the points ladder. Hover a chip for the point range.')}${sortable('Pts/Pick', 'num', 'What the next pick from this capper is worth as the best backer, after the band slide, the volume cap (under 10 decisions caps at 50, 10-29 at 70, 30+ uncapped), and the gates (win%, money, price).')}${lbSport ? sortable('Chip-in', 'num', 'What this capper adds as a JOINER on a pick someone stronger already leads: the quality-weighted chip (scales with their own proven win rate; the band pair taper then halves repeats). 0 = not qualified to boost.') : ''}${sortable('Status', 'str', 'Tier and fade badges. Hover any badge for what it means and how it is computed.')}${sortable('Record', 'num')}${sortable('Win%', 'num')}${sortable('Units', 'num')}
         ${sortable('Money ($' + betUnit + '/u)', 'num', 'Odds-weighted profit/loss at the unit size below')}
         ${sportHeaders}
         ${sortable('Pending', 'num')}
@@ -1361,8 +1469,9 @@ router.get('/dashboard', requireAuth, (req, res) => {
             <div style="white-space:nowrap;">${escHtml(c.name)}</div>
             <div style="margin-top:2px;line-height:1;">${srcChips(c.srcList)}</div>
           </td>
-          <td data-sv="${c.wrank != null ? -c.wrank : -99999}" style="color:${c.wrank != null && c.wrank <= 10 ? '#FFD700' : '#8892a4'};font-weight:700;">${c.wrank != null ? '#' + c.wrank : '—'}</td>
-          <td data-sv="${c.wilson ?? -1}" style="color:#b7c0d0;font-size:12px;">${c.wilson != null ? c.wilson.toFixed(3) : '—'}</td>
+          <td data-sv="${c.wrank != null ? -c.wrank : -99999}" title="${c.wilson != null ? 'Wilson lower bound: ' + c.wilson.toFixed(3) : ''}" style="color:${c.wrank != null && c.wrank <= 10 ? '#FFD700' : '#8892a4'};font-weight:700;">${c.wrank != null ? '#' + c.wrank : '—'}</td>
+          <td data-sv="${c.neededPct ?? -1}" style="color:${c.neededPct == null ? '#3b4560' : c.neededPct >= 65 ? '#f59e0b' : '#8892a4'};font-size:12px;">${c.neededPct != null ? c.neededPct.toFixed(0) + '%' : '—'}</td>
+          <td data-sv="${c.edgeShrunk ?? -9}" style="color:${c.edgeShrunk == null ? '#3b4560' : c.edgeShrunk > 0.005 ? '#16a34a' : c.edgeShrunk < -0.005 ? '#ef4444' : '#8892a4'};font-weight:700;font-size:12px;">${c.edgeShrunk != null ? (c.edgeShrunk >= 0 ? '+' : '') + (c.edgeShrunk * 100).toFixed(1) : '—'}</td>
           <td data-sv="${escHtml(c.band || 'new')}" style="white-space:nowrap;">${bandChip(c.band)}</td>
           <td data-sv="${c.pts ?? -1}" style="color:${ptsColor};font-weight:700;white-space:nowrap;">${c.pts != null ? Math.round(c.pts) : '—'}${capNote}</td>
           ${lbSport ? `<td data-sv="${c.chipIn ?? 0}" style="color:${(c.chipIn ?? 0) >= 40 ? '#FFD700' : (c.chipIn ?? 0) >= 15 ? '#16a34a' : (c.chipIn ?? 0) > 0 ? '#8892a4' : '#3b4560'};font-weight:600;">${c.chipIn > 0 ? '+' + Math.round(c.chipIn) : '0'}</td>` : ''}
@@ -1800,7 +1909,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         <tbody>
           ${sourceFeed.map(r => {
             const ts = (r.saved_at || '').slice(0, 16).replace('T', ' ');
-            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'], wagertalk: ['WT', '#14b8a6'] };
+            const SRC = { actionnetwork: ['AN', '#16a34a'], polymarket: ['PM', '#8b5cf6'], covers: ['CV', '#f59e0b'], wagertalk: ['WT', '#14b8a6'], bettingpros: ['BP', '#2563eb'], cbs: ['CBS', '#0f766e'], sportsbookwire: ['SBW', '#c2410c'], thespread: ['TS', '#7c3aed'], sportsbettingdime: ['SBD', '#db2777'], sportsbookreview: ['SBR', '#65a30d'] };
             const [srcLabel, srcColor] = SRC[r.source] || [r.source, '#8892a4'];
             const srcChip = `<span style="background:${srcColor}22;color:${srcColor};border:1px solid ${srcColor}44;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;">${srcLabel}</span>`;
             const pt = (r.pick_type || '').toUpperCase();
@@ -2972,7 +3081,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           if (v3.total != null && m.score != null && Math.round(v3.total) !== Math.round(m.score)) notes.push('Board total now. The tracked bet froze at ' + Math.round(m.score) + ' when the game started.');
           capperHtml = \`<div style="background:#0f1117;border:1px solid #252c3b;border-radius:8px;padding:16px;font-size:13px;">\${rows.join('')}\${notes.length ? '<div style="color:#64748b;font-size:11px;margin-top:8px;">' + esc(notes.join(' ')) + '</div>' : ''}</div>\`;
         } else if (capperRows.length) {
-          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], bettingpros:['BP','#2563eb'], cbs:['CBS','#0f766e'], sportsbookwire:['SBW','#c2410c'], thespread:['TS','#7c3aed'], sportsbettingdime:['SBD','#db2777'], sportsbookreview:['SBR','#65a30d'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const bySrc = new Map();
           for (const r of capperRows) {
             if (!r.capper_name) continue;
@@ -3367,17 +3476,22 @@ router.get('/dashboard', requireAuth, (req, res) => {
               const lastCell = isIns
                 ? '<td style="text-align:right;font-weight:700;color:' + ((sr && sr.pts >= 61) ? '#FFD700' : (sr && sr.pts > 10) ? '#16a34a' : '#8892a4') + ';" title="' + s + ' scores in-sport: no rank bonus; this is their ladder Pts/Pick from the ' + s + ' pool (quality-capped by their own shrunk win rate).">' + (sr && sr.pts != null ? Math.round(sr.pts) + ' pts' : '—') + '</td>'
                 : '<td style="text-align:right;color:' + bColor + ';font-weight:700;">' + (bonus ? '+' + bonus : '—') + '</td>';
+              const sNeeded = sr && sr.needed_pct != null ? sr.needed_pct.toFixed(0) + '%' : '—';
+              const sEdge = sr && sr.edge_shrunk != null ? sr.edge_shrunk * 100 : null;
+              const sEdgeColor = sEdge == null ? '#3b4560' : sEdge > 0.5 ? '#16a34a' : sEdge < -0.5 ? '#ef4444' : '#8892a4';
               return '<tr>'
               + '<td style="font-weight:600;">' + s + '</td>'
               + '<td><span style="color:#16a34a;">' + a.wins + '</span>-<span style="color:#ef4444;">' + a.losses + '</span>' + (a.pushes ? '-' + a.pushes + 'P' : '') + '</td>'
               + '<td style="text-align:right;color:' + moneyColor(a.money) + ';font-weight:600;">' + money(a.money) + '</td>'
+              + '<td style="text-align:right;color:#8892a4;font-size:12px;">' + sNeeded + '</td>'
+              + '<td style="text-align:right;color:' + sEdgeColor + ';font-weight:700;font-size:12px;">' + (sEdge != null ? (sEdge >= 0 ? '+' : '') + sEdge.toFixed(1) : '—') + '</td>'
               + '<td style="text-align:right;font-weight:700;">' + rankStr + '</td>'
               + lastCell
               + '</tr>';
             }).join('');
           const sportTableHtml = sportRows
             ? '<div style="margin-bottom:18px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:#8892a4;letter-spacing:0.5px;margin-bottom:8px;">By Sport ($' + unit + '/unit)</div>'
-              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
+              + '<table style="width:auto;min-width:400px;"><thead><tr><th>Sport</th><th>Record</th><th style="text-align:right;">Money</th><th style="text-align:right;" title="Average win rate their own odds required in this sport">Needed%</th><th style="text-align:right;" title="Win rate minus Needed%, shrunk (+25 phantom decisions). Positive = beats their prices in this sport. Display only — the price gate judges the overall ledger.">Edge</th><th style="text-align:right;" title="Wilson rank inside this sport pool">Sport rank</th><th style="text-align:right;" title="Bonus a pick gets when this capper is its best backer: +20 sport #1 or top 5%, +10 top 25%. In-sport sports (e.g. MLB) show ladder Pts/Pick instead — the bonus is retired there.">Bonus / Pts</th></tr></thead><tbody>'
               + sportRows + '</tbody></table></div>'
             : '';
 
@@ -3422,7 +3536,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
           // ── v3 profile extensions: ratings, chips, equity curve, type table, fade ──
           const rating = data.rating || null;
-          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
+          const SRC_COLORS = { discord:['DC','#5865F2'], actionnetwork:['AN','#16a34a'], polymarket:['PM','#8b5cf6'], covers:['CV','#f59e0b'], wagertalk:['WT','#14b8a6'], bettingpros:['BP','#2563eb'], cbs:['CBS','#0f766e'], sportsbookwire:['SBW','#c2410c'], thespread:['TS','#7c3aed'], sportsbettingdime:['SBD','#db2777'], sportsbookreview:['SBR','#65a30d'], telegram:['TG','#0ea5e9'], reddit:['RD','#f97316'] };
           const chip = (label, color) => '<span style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:800;">' + label + '</span>';
           let headerChips = '';
           if (rating) {
@@ -3439,6 +3553,13 @@ router.get('/dashboard', requireAuth, (req, res) => {
             const pv = rating.pts != null ? Math.round(rating.pts) : 10;
             headerChips += ' ' + chip('PTS/PICK ' + pv, pv >= 76 ? '#FFD700' : pv >= 51 ? '#16a34a' : '#8892a4');
             if (rating.wilson != null) headerChips += ' ' + chip('WILSON ' + Number(rating.wilson).toFixed(3), '#8892a4');
+            // Price-beaten verdict: win% vs the win% their own odds required.
+            if (rating.edge_shrunk != null) {
+              const ev = rating.edge_shrunk * 100;
+              const ec = ev > 0.5 ? '#16a34a' : ev < -0.5 ? '#ef4444' : '#8892a4';
+              headerChips += ' ' + chip('EDGE ' + (ev >= 0 ? '+' : '') + ev.toFixed(1), ec);
+            }
+            if (rating.price_gated) headerChips += ' ' + chip('PRICE GATE', '#ef4444');
             for (const s of (rating.sources || '').split(',').filter(Boolean)) {
               const sc = SRC_COLORS[s] || [s.slice(0,2).toUpperCase(), '#8892a4'];
               headerChips += ' ' + chip(sc[0], sc[1]);
@@ -3530,6 +3651,42 @@ router.get('/dashboard', requireAuth, (req, res) => {
               + (badTypes ? '<br>Bleeding spots: ' + badTypes : '') + '</div></div>';
           }
 
+          // The points pipeline: how this capper's Pts/Pick is actually made.
+          // Band value -> volume cap -> the three gates -> what a pick collects.
+          // Mirrors capper_ratings.js constants; the failing stage shows in red.
+          let pipelineHtml = '';
+          if (rating && rating.decisions > 0) {
+            const dec = rating.decisions, w = rating.wins || 0, u = rating.units || 0;
+            const shrunkWin = (w + 12.5) / (dec + 25);
+            const shrunkRoi = u / (dec + 25);
+            const cap = dec >= 30 ? null : dec >= 10 ? 70 : 50;
+            const winOk   = shrunkWin > 0.50 && (rating.win_pct ?? 100) > 49;
+            const moneyOk = shrunkRoi > -0.05;
+            const priceOk = !rating.price_gated;
+            const stage = (label, ok, detail) =>
+              '<span title="' + detail.replace(/"/g, '&quot;') + '" style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;'
+              + (ok ? 'background:#16a34a18;color:#16a34a;border:1px solid #16a34a44;' : 'background:#ef444418;color:#ef4444;border:1px solid #ef444444;')
+              + '">' + label + (ok ? ' ✓' : ' ✗') + '</span>';
+            const needed = rating.needed_pct != null ? rating.needed_pct.toFixed(0) : null;
+            const heavy = (rating.heavy_n || 0) > 0
+              ? '<div style="font-size:11px;color:#8892a4;margin-top:5px;">Heavy favorites (past the tracked-bet price gate): ' + rating.heavy_n + ' decisions, edge '
+                + (rating.heavy_edge_shrunk != null ? ((rating.heavy_edge_shrunk >= 0 ? '+' : '') + (rating.heavy_edge_shrunk * 100).toFixed(1)) : '—')
+                + (rating.heavy_n >= 30 && (rating.heavy_edge_shrunk || 0) > 0
+                  ? ' — <span style="color:#16a34a;font-weight:700;">UNLOCKED: their heavy-priced golds track as bets</span>'
+                  : ' — needs 30+ decisions and positive edge to unlock heavy-price tracking') + '</div>'
+              : '';
+            pipelineHtml = '<div style="margin-bottom:18px;padding:10px 12px;border:1px solid #2a3142;border-radius:8px;background:#12151d;">'
+              + '<div style="font-size:11px;font-weight:800;color:#8892a4;letter-spacing:0.5px;margin-bottom:6px;">HOW THEIR POINTS ARE MADE</div>'
+              + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:#b7c0d0;">'
+              + '<span>Band <b style="color:#e5e9f0;">' + (rating.band || 'new') + '</b></span><span style="color:#3b4560;">→</span>'
+              + '<span>volume cap <b style="color:' + (cap ? '#f59e0b' : '#16a34a') + ';">' + (cap ? cap : 'none') + '</b></span><span style="color:#3b4560;">→</span>'
+              + stage('WIN% GATE', winOk, 'Shrunk win rate ' + (100 * shrunkWin).toFixed(1) + '% must clear 50% (full value at 53%), and raw win% must beat 49.')
+              + stage('MONEY GATE', moneyOk, 'Shrunk flat-stake ROI ' + (100 * shrunkRoi).toFixed(1) + '% must stay above -5% (full value at 0%).')
+              + stage('PRICE GATE', priceOk, 'Wins ' + (rating.win_pct != null ? rating.win_pct : '—') + '% vs the ' + (needed ? needed + '%' : '—') + ' their own odds required. 100+ decisions with shrunk edge at -2% or worse pins their backing to the flat 10.')
+              + '<span style="color:#3b4560;">→</span><span>pays <b style="color:' + ((rating.pts ?? 10) >= 51 ? '#16a34a' : '#e5e9f0') + ';">' + (rating.pts != null ? Math.round(rating.pts) : 10) + '/pick</b></span>'
+              + '</div>' + heavy + '</div>';
+          }
+
           content.innerHTML =
             '<div style="margin-bottom:20px;">'
             + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;">'
@@ -3546,6 +3703,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             + pendingStr
             + '</div></div>'
             + fadePanelHtml
+            + pipelineHtml
             + equityCurveSvg()
             + monthlyBarsSvg()
             + mvpSectionHtml
@@ -3783,7 +3941,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const chShort = ch => ch === 'free-plays' ? 'free' : ch === 'pod-thread' ? 'pod' : ch === 'community-leaks' ? 'leaks' : (ch || '—');
         const chColor = ch => ch === 'free-plays' ? '#f59e0b' : ch === 'pod-thread' ? '#a78bfa' : '#64748b';
 
-        wrap.innerHTML = \`<div style="overflow-x:auto;">
+        wrap.innerHTML = \`<div class="hscroll">
           <table id="ph-table">
             <thead><tr>
               <th>Date</th>
@@ -4521,7 +4679,8 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
     `);
     // A source that has never written a row must still show up (as zero) — an
     // absent line is exactly how the AN discovery block went unnoticed.
-    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers', 'wagertalk'];
+    const EXPECTED_SOURCES = ['discord', 'actionnetwork', 'polymarket', 'covers', 'wagertalk',
+      'bettingpros', 'cbs', 'sportsbookwire', 'thespread', 'sportsbettingdime', 'sportsbookreview'];
     const sources = [
       ...sourceRows,
       ...EXPECTED_SOURCES.filter(s => !sourceRows.some(r => r.source === s))
@@ -4550,20 +4709,35 @@ router.get('/api/capper-sources.json', requireAuth, (_req, res) => {
       SELECT canonical_name, fade, picks, ROUND(units, 1) units, ROUND(blend * 100, 1) blend_pct
       FROM capper_ratings WHERE scope = 'overall' AND fade IS NOT NULL ORDER BY blend ASC LIMIT 8
     `);
-    // Drift: trailing 30d record of the publicly tracked tier. Scale-aware:
-    // after the v3 flip + history rescale the tier line is 100 on every row.
+    // Drift: trailing 30d record of the publicly tracked tier.
+    //
+    // Reads mvp_picks — THE tracked ledger — with the same filters every other
+    // record surface uses. It used to read pick_history, which was wrong twice
+    // over: (1) pick_history.score holds each pick's RAW V2 score on v3-era rows
+    // (index.js:855 compensates with COALESCE(v3_total, score); this query never
+    // did), so `score >= 100` selected roughly "picks with 3+ premium Discord
+    // mentions" and made anything sourced from AN/Polymarket/Covers invisible
+    // because those earn zero v2 channel points; and (2) a startup mirror in
+    // db.js gives most gold picks a SECOND pick_history row under a synthetic
+    // negative pick_id, so 18% of the sample was double-counted and some pairs
+    // disagreed on the result. The card was labelled "tracked tier" while
+    // measuring something else entirely — on 2026-07-31 it implied 49.4% and a
+    // firing alarm when the real tracked record was 52.8% and fine.
     const tierLine = db.getSetting('scoring_version', 'v2') === 'v3' ? 100 : 65;
     const drift = one(`
       SELECT SUM(result='win') w, SUM(result='loss') l
-      FROM pick_history
-      WHERE score >= ${tierLine} AND result IN ('win','loss') AND game_date >= date('now','-30 days')
+      FROM mvp_picks
+      WHERE score >= ${tierLine} AND result IN ('win','loss')
+        AND COALESCE(retired, 0) = 0
+        AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
+        AND game_date >= date('now','-30 days')
     `);
     const registry = one(`SELECT (SELECT COUNT(*) FROM capper_registry) cappers, (SELECT COUNT(*) FROM capper_source_handles) handles`);
     res.json({
       generatedAt: new Date().toISOString(),
       sources, discordToday, unresolved24h: unresolved24h?.n ?? 0,
       ratings, fadeList, registry,
-      drift: { window: '30d', tier: 'v2-65plus', wins: drift?.w ?? 0, losses: drift?.l ?? 0,
+      drift: { window: '30d', tier: `tracked ${tierLine}+`, wins: drift?.w ?? 0, losses: drift?.l ?? 0,
                alarm: (drift?.w ?? 0) + (drift?.l ?? 0) >= 20 && (drift?.w ?? 0) / Math.max(1, (drift?.w ?? 0) + (drift?.l ?? 0)) < 0.524 },
     });
   } catch (err) {
@@ -4604,6 +4778,42 @@ router.post('/api/retire-mvp', adminLoginRateLimit, express.json({ limit: '1mb' 
   const totals = db.prepare(`SELECT COALESCE(SUM(CASE WHEN retired = 1 THEN 1 ELSE 0 END), 0) AS retired, COUNT(*) AS total FROM mvp_picks`).get();
   console.log(`[restate] retire-mvp: ${changed} rows set retired=${flag} (${totals.retired}/${totals.total} retired total)`);
   res.json({ changed, retired_total: totals.retired, table_total: totals.total });
+});
+
+// ── POST /admin/api/regrade-tennis — repair grades minted on a stopped match ─
+// Re-derives every settled tennis row from ESPN and re-settles it through the
+// live grader (results.evaluatePick), which now voids matches that ended early
+// (GRADING_RULES R8). Fixes both failure modes of the old naive set counter: a
+// partial set credited as a won set, and a retirement graded as a real result.
+// Body: { dry_run: true|false, since: 'YYYY-MM-DD', game_ids: [...] }
+// Defaults to a DRY RUN so the change list can be read before anything moves.
+// Header-auth so it can be driven from the Mac. Idempotent: a second run with
+// the same inputs reports zero changes.
+router.post('/api/regrade-tennis', adminLoginRateLimit, express.json(), async (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const dryRun  = req.body?.dry_run !== false;
+  const since   = typeof req.body?.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.since)
+    ? req.body.since : '2026-07-09';
+  const gameIds = Array.isArray(req.body?.game_ids) ? req.body.game_ids.map(String) : null;
+  try {
+    const { regradeTennis } = require('./tennis_regrade');
+    const report = await regradeTennis({ since, dryRun, gameIds });
+    console.log(`[regrade-tennis] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_changed} row(s) across ${report.games_examined} game(s) since ${since}`);
+    // Capper records feed off capper_history, so a real run needs the ratings
+    // rebuilt before the leaderboard agrees with the repaired ledger.
+    if (!dryRun && report.rows_changed > 0) {
+      try { require('./capper_ratings').recomputeCapperRatings(); } catch (e) {
+        console.warn('[regrade-tennis] ratings recompute failed:', e.message);
+      }
+    }
+    res.json(report);
+  } catch (err) {
+    console.error('[regrade-tennis] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── POST /admin/import-mvp — import MVP picks from JSON (use after redeploy) ─

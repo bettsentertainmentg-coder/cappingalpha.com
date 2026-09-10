@@ -342,7 +342,7 @@ function pageShell({ title, desc, canonical, jsonLd, body, user }) {
   <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=8" />
   <style>${TOOLS_CSS}</style>
   <script type="application/ld+json">${jsonLd}</script>
 </head>

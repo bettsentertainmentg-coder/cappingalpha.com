@@ -10,7 +10,7 @@
 // verified vote records the tail.
 
 import { state } from './state.js';
-import { avatarFor, fmtOdds, fmtSpread, teamNickname, skelRows } from './utils.js?v=7';
+import { avatarFor, fmtOdds, fmtSpread, teamNickname, teamLabel, skelRows } from './utils.js?v=10';
 import { loadLeaderboard } from './leaderboard.js?v=17';
 import { haptic } from './native.js?v=2';
 
@@ -48,8 +48,8 @@ const OPP = { home_ml: 'away_ml', away_ml: 'home_ml', home_spread: 'away_spread'
 // Pick label off the slot + snapshot lines (mirrors utils.pickLabel intent).
 function slotLabel(g, pick) {
   const slot = pick.slot;
-  const homeNick = g.home_team ? teamNickname(g.home_team, g.away_team) : 'Home';
-  const awayNick = g.away_team ? teamNickname(g.away_team, g.home_team) : 'Away';
+  const homeNick = g.home_team ? teamLabel(g, g.home_team) : 'Home';
+  const awayNick = g.away_team ? teamLabel(g, g.away_team) : 'Away';
   if (slot === 'home_ml') return `${homeNick} ML`;
   if (slot === 'away_ml') return `${awayNick} ML`;
   if (slot === 'home_spread') return `${homeNick} ${fmtSpread(pick.spread)}`;
@@ -69,7 +69,7 @@ function slotOdds(pick) {
 function matchupLine(g) {
   if (!g) return '';
   const bits = [];
-  if (g.away_team && g.home_team) bits.push(`${teamNickname(g.away_team, g.home_team)} @ ${teamNickname(g.home_team, g.away_team)}`);
+  if (g.away_team && g.home_team) bits.push(`${teamLabel(g, g.away_team)} @ ${teamLabel(g, g.home_team)}`);
   if (g.sport) bits.push(g.sport);
   if (g.status === 'post' && g.home_score != null) bits.push(`Final ${g.away_score}-${g.home_score}`);
   else if (g.status === 'in') bits.push('Live');

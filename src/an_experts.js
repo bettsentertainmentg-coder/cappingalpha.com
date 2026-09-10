@@ -10,7 +10,7 @@
 
 const https = require('https');
 const db = require('./db');
-const { recordSourcePick, findGameByAbbrs, findGameByTeams } = require('./source_ingest');
+const { recordSourcePick, findGameByAbbrs, findGameByTeams , sportForLeague } = require('./source_ingest');
 const { ensureRegistered } = require('./storage');
 
 const HEADERS = {
@@ -141,8 +141,17 @@ async function pollAnExperts() {
       const mapped = TYPE_MAP[(p.type || '').toLowerCase()];
       if (!mapped) continue; // draw/custom/unknown -> not slot-shaped
       const teams = p.game?.teams || [];
-      const game = findGameByAbbrs(teams[0]?.abbr, teams[1]?.abbr)
-                || findGameByTeams(teams[0]?.full_name || teams[0]?.display_name, teams[1]?.full_name || teams[1]?.display_name);
+      // AN tells us the league on every pick. Constrain the match to it, the way
+      // every other source already does; unconstrained, a college "Tigers" side
+      // could land on the Detroit Tigers and grade against the wrong final.
+      const sport = sportForLeague(p.league_name || p.game?.league_name);
+      const opts = {
+        pickType: mapped[0], side: mapped[1], line: p.value ?? null, odds: p.odds ?? null,
+        source: 'actionnetwork', capper: ex.name || ex.username, sport,
+        picked: `${teams[0]?.abbr || teams[0]?.display_name || ''} vs ${teams[1]?.abbr || teams[1]?.display_name || ''}`,
+      };
+      const game = findGameByAbbrs(teams[0]?.abbr, teams[1]?.abbr, sport, opts)
+                || findGameByTeams(teams[0]?.full_name || teams[0]?.display_name, teams[1]?.full_name || teams[1]?.display_name, sport, opts);
       if (!game) continue;
       const postedAtMs = p.created_at ? new Date(p.created_at).getTime() : Date.now();
       const out = recordSourcePick({

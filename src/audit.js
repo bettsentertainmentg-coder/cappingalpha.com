@@ -7,6 +7,16 @@
 //   R2 one game = ONE tracked bet per dimension (margin / total)
 //   R3 a graded result must equal what the final score + locked line imply
 //   R4 a finished game must not leave board picks ungraded for long
+//   R9 no tracked bet CREATED at or after its game's start (a bet is placed
+//      before first pitch or it is not a bet — docs/RANKINGS_AUDIT_2026_07_30.md)
+//   R10 no tracked bet DELETED after its game started (membership locks at
+//      first pitch; mvp_deletions is the trail)
+//   R7 no tracked ML bet priced past the heavy gate at tracking time
+//      (docs/GRADING_RULES.md R7; current cycle only, restated rows exempt)
+//   R8 no tennis grade standing on a final no player could have won
+//      (winner must hold 2+ completed sets, else the match ended early)
+//   R11 a pick's SCORE never moves after its game starts (picks.score_at_start,
+//      stamped at first pitch, vs the live v3 total)
 //
 // FLAG ONLY — this module never mutates picks, results, or history. Each
 // violation is stored in audit_flags WITH A FULL ROW SNAPSHOT (detail_json),
@@ -96,6 +106,7 @@ function runGradingAudit() {
     const rows = db.prepare(`
       SELECT * FROM mvp_picks
       WHERE game_date >= ? AND result IN ('win','loss','push') AND espn_game_id IS NOT NULL
+        AND COALESCE(retired, 0) = 0
     `).all(cutoff);
     for (const m of rows) {
       const game = {
@@ -115,7 +126,7 @@ function runGradingAudit() {
   try {
     const rows = db.prepare(`
       SELECT * FROM mvp_picks
-      WHERE result != 'void' AND (
+      WHERE result != 'void' AND COALESCE(retired, 0) = 0 AND (
         (LOWER(pick_type) IN ('over','under') AND captured_total  IS NOT NULL AND spread IS NOT captured_total) OR
         (LOWER(pick_type) =  'spread'         AND captured_spread IS NOT NULL AND spread IS NOT captured_spread)
       )
@@ -128,14 +139,19 @@ function runGradingAudit() {
 
   // ── R2: one tracked bet per game per dimension ──────────────────────────────
   try {
+    // Retired rows are off the record and no longer claim a bet slot (mvp.js
+    // resolver filters them the same way), so they must not read as a duplicate
+    // against the row that legitimately owns the game. Without this, the
+    // 2026-07-30 restatement made every restored bet look like a live conflict
+    // with the in-play row it had just replaced.
     const games = db.prepare(`
       SELECT espn_game_id FROM mvp_picks
-      WHERE espn_game_id IS NOT NULL AND result != 'void'
+      WHERE espn_game_id IS NOT NULL AND result != 'void' AND COALESCE(retired, 0) = 0
       GROUP BY espn_game_id HAVING COUNT(*) > 1
     `).all();
     for (const { espn_game_id } of games) {
       const rows = db.prepare(`
-        SELECT * FROM mvp_picks WHERE espn_game_id = ? AND result != 'void'
+        SELECT * FROM mvp_picks WHERE espn_game_id = ? AND result != 'void' AND COALESCE(retired, 0) = 0
       `).all(espn_game_id);
       const totals = rows.filter(r => _isTotal(r.pick_type));
       const hasOver = totals.some(r => (r.pick_type || '').toLowerCase() === 'over');
@@ -162,6 +178,78 @@ function runGradingAudit() {
     }
   } catch (_) {}
 
+  // ── R7: no tracked ML bet priced past the heavy gate (Jack 2026-07-28) ─────
+  // Judged on gate_ml_odds, the TRACKING-TIME price saveMvpPick stamped at
+  // insert — never ml_odds, which the T-60 lock overwrites with the locked
+  // line by design, so a blessed drift-ride (tracked -270, locks -320) would
+  // false-flag forever if we read it. NULL gate_ml_odds = a pre-gate-era row,
+  // skipped. Current cycle only (today_games join) so restated history never
+  // re-flags; a row here means the saveMvpPick gate let a heavy tracking-time
+  // price through without a bracket unlock — a regression, not a judgment call.
+  try {
+    const { heavyMlGateOdds, heavyBracketUnlocked } = require('./storage');
+    const gateOdds = heavyMlGateOdds();
+    const rows = db.prepare(`
+      SELECT m.* FROM mvp_picks m
+      JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+      WHERE LOWER(m.pick_type) = 'ml' AND m.gate_ml_odds IS NOT NULL AND m.gate_ml_odds <= ?
+        AND COALESCE(m.retired, 0) = 0 AND COALESCE(m.result, '') != 'void'
+    `).all(gateOdds);
+    for (const r of rows) {
+      if (heavyBracketUnlocked(r.espn_game_id, r.team, r.pick_type)) continue;
+      _flag(found, 'price_gate', 'mvp_picks', r.id, r.espn_game_id,
+        `tracked ML judged at ${r.gate_ml_odds} — past the ${gateOdds} heavy-price gate with no bracket unlock`, r);
+    }
+  } catch (_) {}
+
+  // ── R9: no tracked bet created at or after its game's start ────────────────
+  // Jack's rule 2: "everything stops at the start of the match." A tracked bet
+  // is a bet PLACED, so it cannot be created on a game already in progress, and
+  // certainly not on one that has finished. saved_at is stamped by the column
+  // default at INSERT and never updated; game_start_at is stamped alongside it
+  // from today_games, so the pair survives the daily wipe and this rule can
+  // judge history as well as today.
+  //
+  // This is the rule that would have caught the 2026-07-30 Tabilo void on the
+  // first pass: an Atmane ML tracked 90 seconds after first serve, which then
+  // outscored the legitimate pregame bet and voided it. 48 of 457 v4-era rows
+  // were minted this way. Retired rows are exempt (already off the record).
+  try {
+    const rows = db.prepare(`
+      SELECT id, team, pick_type, sport, espn_game_id, score, result, saved_at, game_start_at
+      FROM mvp_picks
+      WHERE game_start_at IS NOT NULL AND saved_at IS NOT NULL
+        AND COALESCE(retired, 0) = 0
+        AND datetime(saved_at) >= datetime(game_start_at)
+      ORDER BY saved_at DESC LIMIT 200
+    `).all();
+    for (const r of rows) {
+      const lateMin = Math.round(
+        (new Date(String(r.saved_at).replace(' ', 'T') + 'Z') - new Date(String(r.game_start_at).replace(' ', 'T').replace(/Z?$/, 'Z'))) / 60000
+      );
+      _flag(found, 'inplay_tracked_bet', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} tracked ${Number.isFinite(lateMin) ? lateMin : '?'} min AFTER first pitch (bet placed on a game in progress)`, r);
+    }
+  } catch (_) {}
+
+  // ── R10: no tracked bet deleted after its game started ─────────────────────
+  // Membership locks at first pitch. The pregame sweeps in mvp.js may drop a
+  // row while the game is still pregame (that is the flip rule working), but a
+  // deletion once play has begun means a bet was removed from the record after
+  // it was live — which is how rows used to vanish from the Rankings list with
+  // no trace at all. mvp_deletions is the audit trail; it is never wiped.
+  try {
+    const rows = db.prepare(`
+      SELECT * FROM mvp_deletions
+      WHERE game_started = 1 AND deleted_at >= datetime('now', '-45 days')
+      ORDER BY deleted_at DESC LIMIT 200
+    `).all();
+    for (const r of rows) {
+      _flag(found, 'inplay_ledger_delete', 'mvp_deletions', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} (${r.score}) deleted by '${r.reason}' AFTER its game started`, r);
+    }
+  } catch (_) {}
+
   // ── R4: finished game with board picks still ungraded 90+ min later ────────
   try {
     const rows = db.prepare(`
@@ -175,6 +263,91 @@ function runGradingAudit() {
     for (const r of rows) {
       _flag(found, 'stale_pending', 'picks', r.id, r.espn_game_id,
         `${r.team} ${r.pick_type} ${r.spread ?? ''} still ungraded 90+ min after final ${r.away_score}-${r.home_score}`, r);
+    }
+  } catch (_) {}
+
+  // ── R8: a tennis grade that the final score cannot support ─────────────────
+  // Every tour format is best-of-3 or best-of-5, so a real completed match ends
+  // with a winner holding 2+ COMPLETED sets. A win/loss standing on a final
+  // where neither player got there means the match stopped early (retirement,
+  // walkover) and the row should be void, or a set counter credited an
+  // unfinished set. Both were live on 2026-07-30: results.js counted a partial
+  // 3-0 first set as a set won and minted a LOSS on Darderi's retirement.
+  // Structural on purpose — it needs no status string, so it catches the next
+  // variant of this bug even if ESPN renames the status.
+  try {
+    const rows = db.prepare(`
+      SELECT m.id, m.team, m.pick_type, m.espn_game_id, m.result, m.game_date,
+             m.home_score, m.away_score, m.home_team, m.away_team, m.annotation
+      FROM mvp_picks m
+      WHERE m.sport IN ('ATP', 'WTA')
+        AND m.result IN ('win', 'loss', 'push')
+        AND COALESCE(m.retired, 0) = 0
+        AND m.home_score IS NOT NULL AND m.away_score IS NOT NULL
+        AND MAX(m.home_score, m.away_score) < 2
+        AND m.game_date >= date('now', '-45 days')
+    `).all();
+    for (const r of rows) {
+      _flag(found, 'tennis_incomplete_grade', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} graded ${r.result} on a ${r.away_score}-${r.home_score} set score — no player reached 2 sets, so the match did not finish`, r);
+    }
+  } catch (_) {}
+
+  // ── R8b: a tennis moneyline grade that contradicts its OWN stored score ────
+  // The cheapest invariant there is: if the picked player holds more sets on the
+  // row, the row must say win. Michael Zheng's ML sat at 'loss' beside a 2-1 set
+  // score he was leading (2026-07-29) because ESPN briefly reported the match
+  // final mid-play, the grade stuck, and the score column was refreshed later
+  // while the result never re-ran. A grade and the score printed next to it can
+  // never disagree on a phone screen again without this firing.
+  try {
+    const rows = db.prepare(`
+      SELECT m.id, m.team, m.pick_type, m.espn_game_id, m.result, m.game_date,
+             m.home_score, m.away_score, m.home_team, m.away_team
+      FROM mvp_picks m
+      WHERE m.sport IN ('ATP', 'WTA')
+        AND LOWER(m.pick_type) = 'ml'
+        AND m.result IN ('win', 'loss')
+        AND COALESCE(m.retired, 0) = 0
+        AND m.home_score IS NOT NULL AND m.away_score IS NOT NULL
+        AND m.home_score != m.away_score
+        AND m.home_team IS NOT NULL AND m.away_team IS NOT NULL
+        AND m.game_date >= date('now', '-45 days')
+    `).all();
+    for (const r of rows) {
+      const pickedHome = r.team === r.home_team;
+      const pickedAway = r.team === r.away_team;
+      if (!pickedHome && !pickedAway) continue;         // replacement/void territory, not this rule
+      const implied = (pickedHome ? r.home_score > r.away_score : r.away_score > r.home_score) ? 'win' : 'loss';
+      if (implied === r.result) continue;
+      _flag(found, 'tennis_result_vs_score', 'mvp_picks', r.id, r.espn_game_id,
+        `${r.team} ML graded ${r.result} but the stored set score ${r.away_score}-${r.home_score} says ${implied}`, r);
+    }
+  } catch (_) {}
+
+  // ── R11: a pick's score never moves after its game starts ───────────────────
+  // Every other invariant Jack hardened got a detector. This one shipped without
+  // one, which is why the 2026-07-31 WNBA under going 100+ to 84 mid-game had to
+  // be caught by watching the screen. picks.score_at_start is stamped once at
+  // first pitch (pick_timeline.freezeTimelinesForGame); anything that moves the
+  // live total away from it afterwards is a rule violation by definition.
+  // Flag-only, like every rule here — it never rewrites the score.
+  try {
+    const drifted = db.prepare(`
+      SELECT p.id, p.team, p.pick_type, p.espn_game_id, p.score_at_start,
+             sb.v3_total, tg.status, tg.home_team, tg.away_team, tg.actual_start_at
+      FROM picks p
+      JOIN score_breakdown sb ON sb.pick_id = p.id
+      JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
+      WHERE p.score_at_start IS NOT NULL
+        AND sb.v3_total IS NOT NULL
+        AND ABS(sb.v3_total - p.score_at_start) >= 1
+    `).all();
+    for (const r of drifted) {
+      const dir = r.v3_total > r.score_at_start ? 'up' : 'down';
+      const move = Math.round(Math.abs(r.v3_total - r.score_at_start));
+      _flag(found, 'score_moved_after_start', 'picks', r.id, r.espn_game_id,
+        `${r.team} ${r.pick_type} moved ${dir} ${move} point(s) after first pitch (${Math.round(r.score_at_start)} at start, ${Math.round(r.v3_total)} now)`, r);
     }
   } catch (_) {}
 

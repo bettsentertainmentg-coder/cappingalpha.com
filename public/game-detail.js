@@ -6,7 +6,7 @@ import { checkAuth, updateNavAuth, isPaying, isViewer,
          openLogin, closeLogin, doLogin, openSignup, closeSignup, doSignup,
          doLogout, showForgotPassword, showLoginForm, doForgotPassword } from '/modules/auth.js';
 import { state } from '/modules/state.js';
-import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale } from '/modules/utils.js?v=7';
+import { fmtOdds, fmtSpread, PICK_HEAT_COLOR, setHeatScale, isSuspendedGame, suspendedLabel } from '/modules/utils.js?v=10';
 import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js?v=3';
@@ -165,8 +165,8 @@ async function init() {
   // Mobile section-tab bar: expand/brighten once it pins to the top.
   initStickyTabs();
 
-  // Countdown for pre-game
-  if (_data.game.status === 'pre') startCountdown();
+  // Countdown for pre-game (never for a suspended match — its start time is past)
+  if (_data.game.status === 'pre' && !isSuspendedGame(_data.game)) startCountdown();
 
   // The payload status can lag ESPN (it's mirrored from prod in local dev, and on
   // a fresh start the cron hasn't flipped 'pre' -> 'in' yet). Probe the live
@@ -484,6 +484,19 @@ function renderStatusPill() {
   const { game } = _data;
   const s = game.status;
 
+  // Suspended before anything else. A halted match is filed 'pre' on our side
+  // (see utils.isSuspendedGame), so the pill would otherwise count down to a
+  // start time that has already come and gone.
+  if (isSuspendedGame(game)) {
+    const sport = (game.sport || '').toUpperCase();
+    const scoreStr = (sport === 'ATP' || sport === 'WTA')
+      ? _tennisScoreStr(game, true)
+      : `${game.away_score ?? 0}–${game.home_score ?? 0}`;
+    pill.className = 'ca-gh-status-pill ca-status-susp';
+    pill.innerHTML = `<span class="ca-num">${scoreStr}</span> · ${suspendedLabel(game)}`;
+    return;
+  }
+
   if (s === 'post') {
     pill.className = 'ca-gh-status-pill ca-status-final';
     const sport = (game.sport || '').toUpperCase();
@@ -720,6 +733,11 @@ window.selectSlot = selectSlot;
 // ── Live game feed (shown in the pick panel once the game has started) ────────
 function liveStatusLabel(game) {
   const sport = (game.sport || '').toUpperCase();
+  if (isSuspendedGame(game)) {
+    // "Suspended in set 2" beats a bare set number next to a stopped match.
+    if (sport === 'ATP' || sport === 'WTA') return game.period ? `${suspendedLabel(game)} in set ${game.period}` : suspendedLabel(game);
+    return suspendedLabel(game);
+  }
   if (game.status === 'post') return 'Final';
   if (sport === 'ATP' || sport === 'WTA') return game.period ? `Set ${game.period}` : 'Live';
   const p = game.period;
@@ -763,9 +781,13 @@ function liveFeedHtml() {
       `</div>`;
   }
 
+  // Not live and not final: a suspended match sits between the two, and calling
+  // it FINAL next to a part-played score is the same lie the board used to tell.
   const badge = live
     ? `<span class="ca-live-badge ca-live-badge--live">● LIVE</span>`
-    : `<span class="ca-live-badge ca-live-badge--final">FINAL</span>`;
+    : isSuspendedGame(game)
+      ? `<span class="ca-live-badge ca-live-badge--susp">${esc(suspendedLabel(game).toUpperCase())}</span>`
+      : `<span class="ca-live-badge ca-live-badge--final">FINAL</span>`;
   return `<div class="ca-live-feed">
     <div class="ca-live-head">${badge}<span class="ca-live-status">${esc(liveStatusLabel(game))}</span></div>
     ${scoreRow}
@@ -798,80 +820,64 @@ function liveBetsInlineHtml() {
   }).join('');
 }
 
-// Time label (ET) for the conviction curve axis.
-function ccTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' });
-}
-
 // Annotated conviction curve (image-2 style, compact): the score steps over time, the
 // y-window framed to the data so the line fills the box (no dead space). Each step is
 // labelled with the points it added (+35, +5, +10) above and its time below, plus a
 // dashed MVP line when it falls in view. Accurate to the pick's real timeline.
-function convCurveSvg(timeline) {
-  const W = 232, H = 58, padL = 4, padR = 4, padT = 12, padB = 12;
-  const innerW = W - padL - padR, innerH = H - padT - padB;
-  const scores = timeline.map(e => e.score);
-  const n = scores.length;
-  const smin = Math.min(...scores), smax = Math.max(...scores);
-  const padv = Math.max(4, (smax - smin) * 0.18);
-  const lo = smin - padv, hi = smax + padv, span = Math.max(1, hi - lo);
-  const x = (i) => padL + (n === 1 ? innerW / 2 : (i / (n - 1)) * innerW);
-  const y = (v) => padT + (1 - (v - lo) / span) * innerH;
-  const anchor = (i) => i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
-  const baseY = (padT + innerH).toFixed(1);
-  const pts = scores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  const area = `${x(0).toFixed(1)},${baseY} ${pts} ${x(n - 1).toFixed(1)},${baseY}`;
-  const mvp = (MVP_THRESHOLD > lo && MVP_THRESHOLD < hi)
-    ? `<line x1="${padL}" y1="${y(MVP_THRESHOLD).toFixed(1)}" x2="${W - padR}" y2="${y(MVP_THRESHOLD).toFixed(1)}" class="ca-cc-mvp"/>` : '';
-  const dots = scores.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2" fill="#FFD700"/>`).join('');
-  const deltas = timeline.map((e, i) => e.label
-    ? `<text x="${x(i).toFixed(1)}" y="${(y(e.score) - 4).toFixed(1)}" class="ca-cc-delta" text-anchor="${anchor(i)}">${esc(e.label)}</text>` : '').join('');
-  const times = timeline.map((e, i) => {
-    const t = ccTime(e.ts).replace(/\s?[AP]M$/, '');   // compact "8:47", no meridiem
-    return t ? `<text x="${x(i).toFixed(1)}" y="${(H - 2).toFixed(1)}" class="ca-cc-time" text-anchor="${anchor(i)}">${esc(t)}</text>` : '';
-  }).join('');
-  return `<svg class="ca-cc" viewBox="0 0 ${W} ${H}">
-    ${mvp}
-    <polygon points="${area}" fill="#FFD700" fill-opacity="0.10"/>
-    <polyline points="${pts}" fill="none" stroke="#FFD700" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-    ${dots}${deltas}${times}
-  </svg>`;
-}
+// Conviction widget for the live header (per-pick): a bordered bubble carrying the
+// CA-branded curve. No score (already on the far right), no "Learn how" (that lives
+// on pre-game cards). Non-paid users get the curve blurred behind a lock, exactly
+// like the pre-game conviction chart.
+//
+// This used to draw its own inline SVG. It now mounts a canvas and runs the SAME
+// renderer as the popup and the pre-game page in compact mode, so the bubble
+// gained hover, tooltips, a first-pitch marker, carried delta labels and a
+// zero-based y axis in one go, and there is no second implementation left to
+// drift. The canvas is drawn by mountConvictionCurve after the HTML is in the DOM.
+const CONV_CANVAS_ID = 'ca-dp-hdr-conv-chart';
+let _convMount = null;   // {kind:'curve'|'teaser'|'none', timeline, startTs, seed}
 
-// Synthetic teaser curve for non-paid users (never the real timeline — same approach
-// as the pre-game drawLockedTeaser, so a blurred curve can't be read off the wire).
-const CONV_TEASER = [
-  { score: 30, label: '+30' }, { score: 35, label: '+5' },
-  { score: 45, label: '+10' }, { score: 50, label: '+5' },
-];
-
-// Self-contained conviction widget for the live header (per-pick): a bordered bubble
-// with the CA-branded annotated curve. No score (already on the far right), no "Learn
-// how" (that lives on pre-game cards). Non-paid users get the curve blurred behind a
-// lock, exactly like the pre-game conviction chart.
-function convictionHeaderHtml(p, timelineVisible, hasTimeline) {
+function convictionHeaderHtml(p, timelineVisible, hasTimeline, startTs) {
   const head = `<span class="ca-dp-hdr-conv-lbl"><img src="/ca-logo.png" alt="CA" class="ca-dp-hdr-conv-logo" onerror="this.style.display='none'">Conviction</span>`;
+  const canvas = `<canvas id="${CONV_CANVAS_ID}"></canvas>`;
   let body;
   if (!timelineVisible) {
     // Non-paid: blurred teaser on EVERY slot (so it never reveals which sides have picks).
+    _convMount = { kind: 'teaser' };
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--locked" onclick="openSignup()" title="Full access only">
-      <div class="ca-dp-hdr-conv-blur">${convCurveSvg(CONV_TEASER)}</div>
+      <div class="ca-dp-hdr-conv-blur">${canvas}</div>
       <div class="ca-dp-hdr-conv-lockover"><i class="fa-solid fa-lock"></i><span>Full access</span></div>
     </div>`;
   } else if (!p) {
+    _convMount = { kind: 'none' };
     body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">No pick on this side</div>`;
+  } else if (hasTimeline && p.timeline.length > 0) {
+    _convMount = { kind: 'curve', timeline: p.timeline, startTs };
+    body = `<div class="ca-dp-hdr-conv-graph">${canvas}</div>`;
   } else {
-    body = (hasTimeline && p.timeline.length > 0)
-      ? `<div class="ca-dp-hdr-conv-graph">${convCurveSvg(p.timeline)}</div>`
-      : `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
+    _convMount = { kind: 'none' };
+    body = `<div class="ca-dp-hdr-conv-graph ca-dp-hdr-conv-graph--msg">Building...</div>`;
   }
-  return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score evolves all day as more cappers weigh in.">
+  const startNote = startTs ? ` The dashed line is first pitch, where the score locks.` : '';
+  return `<div class="ca-dp-hdr-conv" title="Conviction curve. A pick's score builds through the day as more cappers weigh in.${startNote}">
     <div class="ca-dp-hdr-conv-top">${head}</div>
     ${body}
   </div>`;
+}
+
+// Draw whatever convictionHeaderHtml decided on, once its canvas is in the DOM.
+function mountConvictionCurve(gameId) {
+  const m = _convMount;
+  _convMount = null;
+  if (!m || m.kind === 'none' || typeof Chart === 'undefined') return;
+  requestAnimationFrame(() => {
+    if (m.kind === 'teaser') {
+      const seed = String(gameId || '').split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+      drawLockedTeaser(CONV_CANVAS_ID, MVP_THRESHOLD, seed);
+    } else {
+      drawPickTimeline(m.timeline, MVP_THRESHOLD, CONV_CANVAS_ID, { startTs: m.startTs, compact: true });
+    }
+  });
 }
 
 function renderDetailPanel() {
@@ -886,7 +892,9 @@ function renderDetailPanel() {
   if (!slot) { el.innerHTML = ''; return; }
 
   const line = slotLineCurrent(_activeSlot, game);
-  const gameStarted = game.status === 'in' || game.status === 'post';
+  // Suspended counts as started for every line/tracking decision below: the
+  // numbers on file are frozen at the moment play stopped.
+  const gameStarted = game.status === 'in' || game.status === 'post' || isSuspendedGame(game);
   const gameId      = game.espn_game_id;
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -922,8 +930,23 @@ function renderDetailPanel() {
     return null; // ML: the line value itself is the odds
   })();
 
+  // ── One result vocabulary (Jack 2026-07-30) ────────────────────────────────
+  // The server now overlays the TRACKED LEDGER's verdict onto any pick that is
+  // a tracked bet (index.js overlayLedgerResult), so this page can no longer
+  // say WIN while the Rankings list says VOID for the same pick. A pick that
+  // won its match but was outvoted on points renders the same soft-yellow
+  // "not counted" state the rail has always used, with the same reason text.
+  const _isVoid   = p && ((p.result || '').toLowerCase() === 'void'
+                    || /not counted/i.test(String(p.annotation || '')));
+  const _outVoid  = _isVoid && /had more points|had less points|outscored/i.test(String(p.annotation || ''));
   const resultBadge = showRealScore && p?.result && p.result !== 'pending'
-    ? `<div class="ca-dp-result-badge ca-dp-result-${p.result}">${p.result.toUpperCase()}</div>`
+    ? (_outVoid
+        ? `<div class="ca-dp-result-badge ca-dp-result-outvoid">NOT COUNTED</div>`
+        : `<div class="ca-dp-result-badge ca-dp-result-${p.result}">${p.result.toUpperCase()}</div>`)
+    : '';
+  // The reason, in the ledger's own words, so both screens read identically.
+  const resultNote = showRealScore && _isVoid && p.annotation
+    ? `<div class="ca-dp-result-note${_outVoid ? ' out' : ''}">${esc(p.annotation)}</div>`
     : '';
 
   const rankBadge = p && rank === 1
@@ -987,7 +1010,7 @@ function renderDetailPanel() {
           ${juice ? `<span class="ca-dp-hdr-juice ca-num">${esc(juice)}</span>` : ''}
         </div>
       </div>
-      ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline) : ''}
+      ${liveNow ? convictionHeaderHtml(p, convVisible, hasTimeline, game.actual_start_at || game.start_time || null) : ''}
     </div>
     ${liveUnlockBadge}
     <div class="ca-dp-hdr-right">
@@ -998,6 +1021,7 @@ function renderDetailPanel() {
       </div>
       ${rankBadge}
       ${resultBadge}
+      ${resultNote}
     </div>
   </div>`;
 
@@ -1098,6 +1122,10 @@ function renderDetailPanel() {
     el.innerHTML = classicBodyHtml;
   }
 
+  // Live: the header bubble's canvas is now in the DOM, so draw it (same renderer,
+  // compact mode). Pre-game falls through to the full chart below.
+  if (isTrackerLive) mountConvictionCurve(gameId);
+
   // Render the chart after innerHTML has settled. Always draw, even when
   // locked or empty, so the chart frame is visible with the overlay. Locked
   // users get a synthetic teaser (no real data on the canvas), not the real
@@ -1106,7 +1134,8 @@ function renderDetailPanel() {
   if (!isTrackerLive && typeof Chart !== 'undefined') {
     requestAnimationFrame(() => {
       if (timelineVisible) {
-        drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart');
+        const startTs = _data?.game?.actual_start_at || _data?.game?.start_time || null;
+        drawPickTimeline(p?.timeline || [], MVP_THRESHOLD, 'ca-dp-timeline-chart', { startTs });
       } else {
         const seed = String(gameId || '').split('').reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 0);
         drawLockedTeaser('ca-dp-timeline-chart', MVP_THRESHOLD, seed);
@@ -1840,7 +1869,8 @@ function renderCommunity() {
   };
 
   // Pre-game games are votable: the gauge chips themselves are the vote buttons.
-  const votable = game?.status === 'pre';
+  // A suspended match is filed 'pre' but is not votable (the server 409s it too).
+  const votable = game?.status === 'pre' && !isSuspendedGame(game);
 
   const blocks = betTypes.map(bt => {
     const { leftPct, rightPct } = votePair(bt.leftKey, bt.rightKey);

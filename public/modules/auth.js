@@ -1,7 +1,7 @@
 // modules/auth.js — Auth state, tier helpers, login/signup/logout
 
 import { state } from './state.js';
-import { avatarFor } from './utils.js?v=7';
+import { avatarFor } from './utils.js?v=10';
 import { isNative, appleSignIn, setToken, deregisterPush, haptic } from './native.js?v=2';
 
 // Inside the app shell the auth endpoints return a bearer token when the body
@@ -40,6 +40,12 @@ export async function checkAuth() {
     state.currentUser = null;
   }
   updateNavAuth();
+  // Anyone waiting on "is someone logged in yet" listens for this rather than
+  // polling. The betslip share hand-off uses it: a bet shared while logged out
+  // parks until the login lands, instead of being thrown away at the prompt.
+  try {
+    document.dispatchEvent(new CustomEvent('ca:auth', { detail: { user: state.currentUser || null } }));
+  } catch (_) {}
 }
 
 export function updateNavAuth() {

@@ -80,10 +80,14 @@ function buildOgSvg(g) {
   let pickStrip = null;
   if (status === 'post') {
     try {
+      // Same exclusion as every other public record surface (2026-07-30): an
+      // outvoted "not counted" row is not the game's CA pick, and a share card
+      // must never print a result the Rankings list refuses to count.
       const mvp = db.prepare(`
         SELECT team, pick_type, spread, result FROM mvp_picks
         WHERE espn_game_id = ? AND result IN ('win', 'loss', 'push')
           AND COALESCE(retired, 0) = 0
+          AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
         ORDER BY score DESC LIMIT 1
       `).get(g.espn_game_id);
       if (mvp) {

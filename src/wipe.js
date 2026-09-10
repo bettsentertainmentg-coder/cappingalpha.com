@@ -43,6 +43,7 @@ function toMs(s) {
 
 // ── Per-game prune: remove games past their retention, with FK-safe child cleanup ─
 function pruneStaleGames() {
+  try { db.prepare(`DELETE FROM source_skips WHERE created_at < datetime('now', '-14 days')`).run(); } catch (_) {}
   const clearHour  = db.getSetting('cycle_clear_hour', '04:58');
   const graceHours = parseFloat(db.getSetting('post_game_grace_hours', '4')) || 4;
   const now        = Date.now();

@@ -394,9 +394,12 @@ function computeV3(pickId) {
   const mkt = marketSignals(pick, game);
   const marketPts = Math.min(MARKET_CAP, mkt.edge_pts + mkt.steam_pts + mkt.contrarian_pts);
 
-  // Side lean (data-driven home/away, tennis+golf excluded, totals excluded)
+  // Side lean (data-driven home/away, tennis+golf excluded, totals excluded).
+  // A neutral-site game (a bowl, a kickoff classic, the playoff) has no host, so
+  // there is no home or away side to lean toward; without this both sides read
+  // as "away" and could each collect the away lean.
   let leanPts = 0, leanSide = null;
-  if (!isTotal && !NO_VENUE_SPORTS.has(sportU)) {
+  if (!isTotal && !NO_VENUE_SPORTS.has(sportU) && !game?.neutral_site) {
     try {
       const lean = JSON.parse(db.getSetting('v3_side_lean', '{}'))[sportU];
       if (lean) {
@@ -455,7 +458,64 @@ function computeV3(pickId) {
 }
 
 // ── Persist alongside v2 (dual logging) ───────────────────────────────────────
+// ── THE FREEZE (Jack 2026-07-31) ─────────────────────────────────────────────
+// "THE TRACKING AND POINTS TALLYING ENDS AT THE START OF THE GAME FOR ANY PICK
+// EVER. NOTHING IS TRACKED PAST THAT."
+//
+// Whatever a pick is worth at first pitch is what it is worth forever. This is
+// the single rule the whole board rests on, and until now it was enforced on
+// the tracked-bet INSERT only — the SCORE itself kept moving. Two leaks fed it:
+// a mention landing inside the old 5-minute grace, and (much larger) capper
+// ratings recomputing and rescoring the entire board with no start check at
+// all, so a pick could climb past gold hours after the game went off with
+// nobody posting anything. That is how Diana Shnaider crossed 100 mid-match on
+// 2026-07-31 and appeared as a gold pick that was never bettable.
+//
+// Frozen means frozen: no new points, no re-rank, no late backer. The last
+// pregame value stands. Games with no today_games row (post-wipe history) are
+// left alone — the daily wipe already ended their scoring.
+//
+// FAILS CLOSED. Every ambiguous answer here means "frozen", because the cost of
+// the two mistakes is not symmetric: freezing a pick that could still legally
+// score leaves it a few points light, while rescoring a pick whose game is under
+// way puts a number on the board that was never bettable. The one exception is a
+// pick with no espn_game_id at all — the reader could not match it to a game, so
+// it is not on the board, has no clock to be past, and must stay scoreable.
+function _gameStartedForScoring(pickId) {
+  try {
+    const p = db.prepare(`SELECT espn_game_id FROM picks WHERE id = ?`).get(pickId);
+    if (!p) return true;                 // no pick row: nothing legitimate to score
+    if (!p.espn_game_id) return false;   // never matched to a game: no start to be past
+    const g = db.prepare(`
+      SELECT status, start_time, actual_start_at, sport, home_score, away_score
+      FROM today_games WHERE espn_game_id = ?
+    `).get(p.espn_game_id);
+    // Game-tied pick whose game is no longer on the board (pruned, or the daily
+    // wipe): its scoring window closed with the game. Freeze.
+    if (!g) return true;
+    return require('./pick_cutoff').hasGameStarted(g);
+  } catch (err) {
+    // Schema-shaped failures hit every pick at once and would silently un-freeze
+    // the entire board, so this is loud and it freezes.
+    console.warn('[scoringV3] start check failed, freezing pick', pickId, err.message);
+    return true;
+  }
+}
+
 function computeAndLogV3(pickId) {
+  // Frozen at first pitch. Return the stored total so callers still get a
+  // number, they just never get a NEW one.
+  if (_gameStartedForScoring(pickId)) {
+    try {
+      const cur = db.prepare(`SELECT v3_total, v3_json FROM score_breakdown WHERE pick_id = ?`).get(pickId);
+      if (cur && cur.v3_total != null) {
+        let breakdown = {};
+        try { breakdown = JSON.parse(cur.v3_json || '{}'); } catch (_) {}
+        return { total: cur.v3_total, breakdown, frozen: true };
+      }
+    } catch (_) {}
+    return null;
+  }
   const scored = computeV3(pickId);
   if (!scored) return null;
   try {
@@ -481,34 +541,39 @@ function computeAndLogV3(pickId) {
 }
 
 // ── The reveal plan: WHEN each scoring component surfaces publicly ────────────
-// Backer/fade/offset points show the moment they happen (the conviction curve
-// replays the real mentions). The four formula-shaped components each get ONE
-// deterministic seeded-random reveal moment per pick:
-//   normal case: uniform inside [first mention, game start - 3h]
-//   pick born inside that 3h window: a short trickle within ~20 min of birth
-//     (still finishing at least 3 min before start when a start time exists)
-//   no start time on file: same short trickle after birth
-// Seeded by (pick id, component), so every request — the picks list, the game
-// popup, the conviction curve — replays identical moments without storing a
-// schedule, and the moment never moves for the life of the pick.
-const REVEAL_LEAD_MS = 3 * 60 * 60 * 1000;   // bonuses fully visible 3h before start
-const REVEAL_SOFT_MS = 20 * 60 * 1000;       // late-born picks: reveal within ~20 min
+// TWO KINDS OF POINTS, and they behave differently on purpose (Jack 2026-08-02:
+// "have all general bonuses get added 1 hour before the game tallied up to a
+// total. Capper bonuses obviously add right away").
+//
+//   CAPPER POINTS — the best backer, the stack, fade from the other side, the
+//   conflict offset. These ARE the news. They surface the instant they happen,
+//   at the real message timestamp, and the conviction curve replays them exactly.
+//
+//   GENERAL BONUSES — in-sport rank, market signals, side lean, sport bonus.
+//   These are formula-shaped: they describe the spot, not a person backing it,
+//   and drip-feeding them made the curve look like conviction was arriving when
+//   nothing had actually happened. They are now withheld and land TOGETHER as
+//   ONE tallied step at T-60, exactly one hour before the scheduled start.
+//
+// T-60 is not an arbitrary hour. It is when ca_line.js locks the CA official
+// line, the moment we treat the bet as placed. The whole spot now prices in one
+// step, at the same instant the price does.
+//
+// Edge cases: a pick born inside the last hour reveals its bonuses at birth
+// (there is no earlier moment left), and so does a pick with no start time on
+// file. Nothing is ever withheld past the start.
+//
+// Retired 2026-08-02: the four independent seeded-random moments (uniform inside
+// [first mention, start - 3h], with a ~20 min trickle for late-born picks) and
+// the mulberry32 seeding that made them reproducible. One fixed moment needs no
+// seed, which is also why the list/popup/curve can no longer disagree.
+const REVEAL_LEAD_MS = 60 * 60 * 1000;   // general bonuses all land at T-60
 const REVEAL_COMPONENTS = [
-  { key: 'sport_pct',   salt: 0x9E3779B1, label: 'Sport rank', pts: bd => Math.round(bd?.sport_pct?.pts ?? 0) },
-  { key: 'market',      salt: 0x7F4A7C15, label: 'Market',     pts: bd => Math.round(bd?.market?.pts ?? 0) },
-  { key: 'lean',        salt: 0x94D049BB, label: 'Side lean',  pts: bd => Math.round(bd?.lean?.pts ?? 0) },
-  { key: 'sport_bonus', salt: 0xBF58476D, label: 'Sport',      pts: bd => Math.round(bd?.sport_bonus ?? 0) },
+  { key: 'sport_pct',   pts: bd => Math.round(bd?.sport_pct?.pts ?? 0) },
+  { key: 'market',      pts: bd => Math.round(bd?.market?.pts ?? 0) },
+  { key: 'lean',        pts: bd => Math.round(bd?.lean?.pts ?? 0) },
+  { key: 'sport_bonus', pts: bd => Math.round(bd?.sport_bonus ?? 0) },
 ];
-
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0; a = (a + 0x6D2B79F5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function parseDbMs(s) {
   if (!s) return null;
@@ -548,32 +613,79 @@ function revealContext(pickId) {
   return out;
 }
 
-// The deterministic reveal moments for a pick's bonus components. Only
-// components currently worth points appear (values come from the live
-// breakdown, so a component that changes value redraws at the same moment).
+// The single reveal moment for a pick's general bonuses: one event carrying the
+// whole tallied block, stamped at T-60. Returns [] when the pick has no bonus
+// points at all, so a pick made entirely of capper points draws no phantom step.
+//
+// Deliberately ONE event, not four. Four separate reveals meant the same points
+// could surface in a different order on the list, the popup and the curve if any
+// one of them drifted, and it made the curve step four times for a spot that was
+// never re-evaluated. This is a fixed clock time, so every surface agrees by
+// construction.
 function bonusRevealEvents(pickId, ctx = null) {
   const c = ctx || revealContext(pickId);
   if (!c || !c.bd) return [];
-  const born = c.firstMentionMs ?? Date.now();
-  const hardEnd = c.startMs != null ? c.startMs - REVEAL_LEAD_MS : null;
-  const out = [];
+  let pts = 0;
   for (const comp of REVEAL_COMPONENTS) {
-    const pts = comp.pts(c.bd);
-    if (!pts || pts <= 0) continue;
-    const rnd = mulberry32(((pickId * 2654435761) ^ comp.salt) >>> 0);
-    let ts;
-    if (hardEnd != null && hardEnd > born) {
-      ts = born + rnd() * (hardEnd - born);
-    } else {
-      // Born inside the 3h window (or no start time): short trickle after birth,
-      // never past 3 min before a known start.
-      let soft = born + rnd() * REVEAL_SOFT_MS;
-      if (c.startMs != null) soft = Math.min(soft, c.startMs - 3 * 60 * 1000);
-      ts = Math.max(born, soft);
-    }
-    out.push({ key: comp.key, label: comp.label, pts, ts: Math.round(ts) });
+    const p = comp.pts(c.bd);
+    if (p > 0) pts += p;
   }
-  return out;
+  if (pts <= 0) return [];
+
+  const born = c.firstMentionMs ?? Date.now();
+  // T-60, or birth when the pick is younger than that (or the start is unknown).
+  // Never earlier than the first mention: points cannot exist before the pick.
+  const ts = c.startMs != null ? Math.max(born, c.startMs - REVEAL_LEAD_MS) : born;
+  return [{ key: 'bonuses', label: 'Bonuses', pts, ts: Math.round(ts) }];
+}
+
+// THE HEAVY DISPLAY CAP (Jack 2026-07-29): a pick the heavy-price gate keeps
+// off the bet record must not WEAR the tracked tier either — gold styling is
+// publicly synonymous with "we tracked this bet". An ML board pick whose
+// current canonical price sits at or past the heavy gate, with no bracket
+// unlock and no live tracked row, shows at most 95 (silver range) on every
+// public surface. The TRUE total is untouched (capper credit, conflict logic,
+// admin views all keep the real number); a drift-riding tracked gold keeps its
+// gold — it IS a bet, so the badge is honest. Returns the cap or Infinity.
+// FROZEN AT FIRST PITCH TOO (Jack 2026-08-02). Every input this reads moves
+// during a live game: today_games.ml_* (refreshEspnOdds will COALESCE an in-play
+// price onto a game in progress), the tracked-row check (the conflict pass voids
+// rows once ESPN flips the game live), and heavyBracketUnlocked (capper_ratings
+// rebuilds on every graded pass). So a gold ML sitting at 109 silently dropped to
+// a displayed 95 and re-styled from gold to silver mid-game with nobody posting
+// anything, which is the same rule violation as the score moving. The cap is now
+// decided once, stamped by pick_timeline.freezeTimelinesForGame at first pitch,
+// and read from that stamp forever after. Unstamped picks compute live as before,
+// which is also how the stamp itself gets its value.
+const HEAVY_DISPLAY_CAP = 95;
+function heavyDisplayCapFor(pickRow) {
+  try {
+    let team = pickRow?.team, pt = pickRow?.pick_type, gid = pickRow?.espn_game_id;
+    let frozen = pickRow?.heavy_capped_at_start;
+    if ((team == null || pt == null || gid === undefined || frozen === undefined) && pickRow?.id != null) {
+      const p = db.prepare(
+        `SELECT team, pick_type, espn_game_id, heavy_capped_at_start FROM picks WHERE id = ?`
+      ).get(pickRow.id);
+      if (p) { team = p.team; pt = p.pick_type; gid = p.espn_game_id; frozen = p.heavy_capped_at_start; }
+    }
+    if (frozen != null) return frozen ? HEAVY_DISPLAY_CAP : Infinity;
+    if ((pt || '').toLowerCase() !== 'ml' || !gid) return Infinity;
+    const { heavyMlGateOdds, heavyBracketUnlocked, impliedHeavyMl } = require('./storage'); // lazy: avoids a load cycle
+    const g = db.prepare(`SELECT home_team, ml_home, ml_away, spread_home, spread_away FROM today_games WHERE espn_game_id = ?`).get(gid);
+    if (!g) return Infinity;
+    const isHome = (g.home_team || '').toLowerCase() === (team || '').toLowerCase();
+    // A -25 side with no posted price is the heaviest favorite there is; the
+    // display cap treats it as -100000 so it cannot wear gold (R12).
+    const ml = isHome ? impliedHeavyMl(g.ml_home, g.spread_home) : impliedHeavyMl(g.ml_away, g.spread_away);
+    if (ml == null || ml > heavyMlGateOdds()) return Infinity;
+    const tracked = db.prepare(`
+      SELECT 1 FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ?
+        AND COALESCE(retired, 0) = 0 AND COALESCE(result, '') != 'void' LIMIT 1
+    `).get(gid, team, pt);
+    if (tracked) return Infinity;
+    if (heavyBracketUnlocked(gid, team, pt)) return Infinity;
+    return HEAVY_DISPLAY_CAP;
+  } catch (_) { return Infinity; }
 }
 
 // Read-side: the score any public surface should show right now — the true v3
@@ -584,10 +696,11 @@ function effectiveDisplayScore(pickRow, nowMs = Date.now()) {
   const trueTotal = Math.round(
     pickRow?.v3_total ?? ctx?.v3_total ?? pickRow?.leak_target ?? pickRow?.display_score ?? pickRow?.score ?? 0
   );
-  if (!ctx || !ctx.bd) return trueTotal;
+  const cap = heavyDisplayCapFor(pickRow);
+  if (!ctx || !ctx.bd) return Math.min(trueTotal, cap);
   let pending = 0;
   for (const ev of bonusRevealEvents(pickRow.id, ctx)) if (ev.ts > nowMs) pending += ev.pts;
-  return Math.max(0, trueTotal - pending);
+  return Math.min(Math.max(0, trueTotal - pending), cap);
 }
 
 // The single, canonical "score to show right now" for a pick under v3. EVERY
@@ -601,7 +714,7 @@ function v3DisplayScore(p) {
 }
 
 module.exports = {
-  computeV3, computeAndLogV3, effectiveDisplayScore, v3DisplayScore,
+  computeV3, computeAndLogV3, effectiveDisplayScore, v3DisplayScore, heavyDisplayCapFor,
   backerAggregate, replaySubtotal, fadeFromCappers, oppositeSlot,
   bonusRevealEvents, revealContext, parseDbMs,
 };

@@ -105,6 +105,21 @@ export function currentBoardDate() {
   return date;
 }
 
+// EVERY board day currently in play. There are two clocks in the product and
+// they disagree for four and a half hours a night: a pick's game_date is
+// stamped by cycleDateForInstant (src/cycle.js), which rolls at 12:30am ET,
+// while the board itself does not roll until the ~5am wipe. So between 12:30am
+// and 5am ET a late game's own stamp has already advanced to the next day while
+// the board still shows the current one, and any surface filtering on a single
+// currentBoardDate() made those picks invisible until 5am, then popped them
+// into existence. Late-session and overnight European tennis lands here nightly.
+// Filter with this, not with a single date.
+export function boardDayKeys() {
+  const cur = currentBoardDate();
+  const p = _etParts(new Date());
+  return parseInt(p.hour, 10) < 5 ? [cur, _addDays(cur, 1)] : [cur];
+}
+
 // A game's ET cycle date. Late games finishing 12:00–12:30am ET belong to the
 // previous cycle (mirror of cycleDateForInstant).
 function _gameBoardDate(iso) {
@@ -142,11 +157,47 @@ export function onBoardForSport(startTime, sport) {
   return false;
 }
 
+// ── Suspended / postponed games ───────────────────────────────────────────────
+// ESPN files a halted event as state 'post' with a partial (or empty) linescore,
+// so tennis_espn.js downgrades it to 'pre' — otherwise grading would settle a
+// half-played match off a partial score. The side effect is that `status` alone
+// reads a suspended match as UPCOMING, which is how three Toronto matches sat on
+// the board showing a start time while one player was already a set up
+// (2026-08-02). Every surface asks here instead of reading the status string.
+// status_detail is ESPN's raw status name (STATUS_SUSPENDED); clock is its label.
+const SUSPEND_RE = /postpone|suspend|cancel|delay|rain|abandon/i;
+
+export function isSuspendedGame(g) {
+  if (!g) return false;
+  const detail = g.game_status_detail ?? g.status_detail ?? '';
+  const clock  = g.game_clock ?? g.clock ?? '';
+  return SUSPEND_RE.test(String(detail)) || SUSPEND_RE.test(String(clock));
+}
+
+// Which word to show. A match halted mid-play is Suspended; one that never got
+// under way is Postponed. Never a start time either way.
+export function suspendedLabel(g) {
+  const s = `${g?.game_status_detail ?? g?.status_detail ?? ''} ${g?.game_clock ?? g?.clock ?? ''}`.toLowerCase();
+  if (/postpone/.test(s))    return 'Postponed';
+  if (/cancel/.test(s))      return 'Canceled';
+  if (/abandon/.test(s))     return 'Abandoned';
+  if (/rain|delay/.test(s))  return 'Delayed';
+  return 'Suspended';
+}
+
 export function scoreDisplay(p) {
   const status = p.game_status;
   const away   = p.game_away_score ?? 0;
   const home   = p.game_home_score ?? 0;
   const result = p.result;
+
+  // Checked before 'post' on purpose: a postponed team-sport game keeps ESPN's
+  // 'post' status on our side (espn_live.js is untouchable), and rendering that
+  // as "0-0 Final" is the same lie in a different costume.
+  if (isSuspendedGame(p)) {
+    const played = (away || home) ? `${away}-${home} · ` : '';
+    return `<span style="font-size:0.88em;font-weight:600;color:var(--amber,#f2c14e);margin-left:8px;">${played}${suspendedLabel(p)}</span>`;
+  }
 
   if (status === 'post') {
     if (result === 'win')
@@ -210,17 +261,35 @@ export function teamNickname(name, opponent) {
   return nick;
 }
 
+// College sports use ESPN's short name ("Florida St", "Ohio St", "Texas A&M"),
+// which today_games already stores as home_short/away_short. teamNickname is a
+// pro-sports rule (drop the city, keep the mascot) and it mangles school names:
+// "Florida State Seminoles" became "State Seminoles", and Ohio State and Penn
+// State both read "State". Every other sport keeps the nickname exactly as
+// before. `row` is any object carrying home_team/away_team (+ the shorts when
+// the API sends them): a game, a pick, a ledger row.
+const SHORT_NAME_SPORTS = new Set(['NCAAF', 'CBB', 'WCBB']);
+export function teamLabel(row, name) {
+  const n = String(name || '').trim();
+  if (!n) return '';
+  const r = row || {};
+  const home = String(r.home_team || '').trim(), away = String(r.away_team || '').trim();
+  const isHome = home && n === home, isAway = away && n === away;
+  const sp = String(r.sport || '').toUpperCase();
+  if (SHORT_NAME_SPORTS.has(sp)) {
+    const short = isHome ? r.home_short : isAway ? r.away_short : null;
+    if (short) return String(short).trim();
+  }
+  const opp = isHome ? away : isAway ? home : undefined;
+  return teamNickname(n, opp || undefined);
+}
+
 export function pickLabel(p) {
   const type   = (p.pick_type || '').toLowerCase();
   const spread = p.spread != null ? p.spread : null;
   // The opponent (when the row carries the matchup) lets teamNickname tell apart
   // two sides whose nicknames are the exact same word (the All-Star squads).
-  const team = (p.team || '').trim();
-  const opp  = team && p.home_team && p.away_team
-    ? (team === p.home_team.trim() ? p.away_team
-      : team === p.away_team.trim() ? p.home_team : null)
-    : null;
-  const nick   = teamNickname(p.team, opp);
+  const nick   = teamLabel(p, p.team);
   const isTennis = ['ATP', 'WTA'].includes((p.sport || '').toUpperCase());
   // Tennis lines need a unit. Totals + game spreads are games; set_spread is sets.
   const totalUnit = isTennis ? ' games' : '';
@@ -301,7 +370,9 @@ export function voteOdds(v) {
 
 export function calcVoteReturn(v, unit) {
   const r = (v.result || '').toLowerCase();
-  if (r === 'push' || r === 'pending' || !r) return 0;
+  // 'void' returns nothing, same as a push. Without it a voided vote fell
+  // through to the win payout below and paid out as a winner.
+  if (r === 'push' || r === 'void' || r === 'pending' || !r) return 0;
   if (r === 'loss') return -unit;
   const odds = voteOdds(v) || -115;
   if (odds < 0) return +(unit * (100 / Math.abs(odds))).toFixed(2);

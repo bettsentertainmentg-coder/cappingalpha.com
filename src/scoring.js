@@ -35,7 +35,11 @@ function scorePick(pick) {
   const first = mentions[0] ?? {};
   const sport      = (first.sport || '').toUpperCase();
   const sport_bonus = SPORT_BONUS_SPORTS.has(sport) ? 5 : 0;
-  const home_bonus  = (first.is_home_team && !NO_HOME_BONUS_SPORTS.has(sport)) ? 5 : 0;
+  // A neutral-site game (a bowl, a kickoff classic, the playoff) has no host, so
+  // the home side earns no venue edge. is_home_team itself stays 1 on that slot:
+  // it is the side selector every reader uses, so the flag cannot carry this.
+  const neutral     = !!(pick.neutral ?? first.neutral);
+  const home_bonus  = (first.is_home_team && !neutral && !NO_HOME_BONUS_SPORTS.has(sport)) ? 5 : 0;
 
   const total  = channel_points + sport_bonus + home_bonus;
   const is_mvp = total >= MVP_THRESHOLD;

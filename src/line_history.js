@@ -15,9 +15,9 @@ const ESPN_PATH = {
   WNBA:  { sport: 'basketball',       league: 'wnba' },
   MLB:   { sport: 'baseball',         league: 'mlb' },
   NHL:   { sport: 'hockey',           league: 'nhl' },
-  NFL:   { sport: 'americanfootball', league: 'nfl' },
+  NFL:   { sport: 'football',         league: 'nfl' },
   CBB:   { sport: 'basketball',       league: 'mens-college-basketball' },
-  NCAAF: { sport: 'americanfootball', league: 'college-football' },
+  NCAAF: { sport: 'football',         league: 'college-football' },
 };
 
 async function syncLineHistory(games) {

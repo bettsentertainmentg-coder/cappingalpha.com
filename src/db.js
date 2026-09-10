@@ -241,6 +241,9 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN odds_updated_at TEXT`); } catc
 // the market shows 1 hour before start. lockCaLinesAtT60() (src/ca_line.js) snapshots
 // it once and sets ca_line_locked=1 so no later odds refresh moves it.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_locked INTEGER DEFAULT 0`); } catch (_) {}
+// Neutral-site flag (ESPN competitions[0].neutralSite). Drives the home-bonus
+// suppression in lines.js: a bowl or kickoff-classic game has no host.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN neutral_site INTEGER DEFAULT 0`); } catch (_) {}
 try { db.exec(`ALTER TABLE today_games ADD COLUMN ca_line_at TEXT`); } catch (_) {}
 
 try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN espn_game_id TEXT`); } catch (_) {}
@@ -285,6 +288,11 @@ try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_start_at TEXT`); } catc
 // prune to keep a finished game for a grace tail past its actual end. NULL until final.
 try { db.exec(`ALTER TABLE today_games ADD COLUMN actual_end_at TEXT`); } catch (_) {}
 try { db.exec(`CREATE INDEX IF NOT EXISTS idx_tg_status_end ON today_games (status, actual_end_at)`); } catch (_) {}
+// ESPN's raw status type name (STATUS_FINAL, STATUS_RETIRED, STATUS_WALKOVER...).
+// `status` is our own coarse pre/in/post and `clock` is display text; grading needs
+// the machine name to tell a match that FINISHED from one that merely STOPPED
+// (tennis retirement — see src/tennis_score.js). NULL for feeds that don't set it.
+try { db.exec(`ALTER TABLE today_games ADD COLUMN status_detail TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ml REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN original_ou REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN is_home_team INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
@@ -300,6 +308,29 @@ try {
       content    TEXT    NOT NULL,
       reason     TEXT,
       skipped_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+} catch (_) {}
+
+// Source picks the matcher REFUSED because more than one game fit the team
+// name and the pick's own line could not settle it (source_ingest.js
+// resolveGameMatches). Kept so an ambiguous college pick is visible and
+// recoverable instead of silently guessed onto the wrong game. Never wiped;
+// pruned at 14 days by pruneStaleGames.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS source_skips (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      source          TEXT,
+      capper          TEXT,
+      sport           TEXT,
+      picked          TEXT,
+      pick_type       TEXT,
+      line            REAL,
+      odds            REAL,
+      reason          TEXT,
+      candidates_json TEXT,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
 } catch (_) {}
@@ -323,6 +354,7 @@ try {
       book            TEXT    NOT NULL,
       ml_home         REAL,
       ml_away         REAL,
+      ml_draw         REAL,
       spread_home     REAL,
       spread_away     REAL,
       over_under      REAL,
@@ -1548,6 +1580,24 @@ try { db.exec(`ALTER TABLE picks ADD COLUMN display_score   REAL`); } catch (_) 
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_target     REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_started_at TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE picks ADD COLUMN leak_window_sec INTEGER`); } catch (_) {}
+// The conviction curve, snapshotted at first pitch (pick_timeline.freezeTimelinesForGame).
+// The curve's interior points are replayed against live capper_ratings, and those
+// re-rank every 5 minutes, so without this a settled pick redraws a different
+// history on every page load. Written once, never updated.
+try { db.exec(`ALTER TABLE picks ADD COLUMN timeline_frozen TEXT`); } catch (_) {}
+// What the pick was worth at first pitch. Stamped alongside the curve freeze and
+// never updated. Audit R11 compares the live v3_total against it: any difference
+// is a score that moved after the game started, which the rules do not allow.
+try { db.exec(`ALTER TABLE picks ADD COLUMN score_at_start REAL`); } catch (_) {}
+// What the pick was worth the moment THIS mention landed. Written once by
+// storage.js, never updated. The conviction curve reads these instead of
+// re-deriving history against whatever capper_ratings say at page-load time
+// (that table is rebuilt on every graded results pass, so the replay drifted).
+try { db.exec(`ALTER TABLE raw_messages ADD COLUMN subtotal_after REAL`); } catch (_) {}
+// Was the heavy-price display cap in force at first pitch? 1 = capped at 95,
+// 0 = uncapped, NULL = not stamped yet (compute live). Frozen with the score, so
+// a live odds refresh or a mid-game void can no longer re-style a gold ML silver.
+try { db.exec(`ALTER TABLE picks ADD COLUMN heavy_capped_at_start INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE mvp_picks    ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 try { db.exec(`ALTER TABLE pick_history ADD COLUMN scale_version TEXT NOT NULL DEFAULT 'v2'`); } catch (_) {}
 // When each tracked pick was GRADED (≈ game end). The single-day CA P/L graphs
@@ -1676,6 +1726,62 @@ try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN stack_add       REAL`); } c
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN decisions       INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN win_pct         REAL`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN sport_bonus_pts INTEGER`); } catch (_) {}
+// Price-beaten edge columns (Jack 2026-07-28): needed_pct = avg break-even the
+// capper's own odds required; edge_shrunk = win rate minus that bar, shrunk by
+// +25 decisions (the edge-gate shadow log); heavy_* = the -300-or-worse ML
+// bracket record that can unlock tracking past the heavy price gate;
+// price_gated = the reduce-only gate flag (100+ decisions, clearly negative).
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN needed_pct        REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN edge_shrunk       REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_n           INTEGER`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN heavy_edge_shrunk REAL`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_ratings ADD COLUMN price_gated       INTEGER`); } catch (_) {}
+// The tracking-time ML price the heavy gate judged (storage.saveMvpPick).
+// ml_odds gets overwritten by the T-60 lock (ca_line.js _updMvp, by design:
+// the bet is PRICED at the lock), so this stamp is the only surviving record
+// of the price the gate saw — audit R7 judges it, never ml_odds.
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN gate_ml_odds REAL`); } catch (_) {}
+
+// ── game_start_at: when the bet's game actually began (2026-07-30) ────────────
+// Stamped by storage.saveMvpPick from today_games at insert time. saved_at
+// already records when the bet was created; this is the other half of the
+// pair, and together they prove a tracked bet was placed BEFORE first pitch —
+// permanently, long after today_games is wiped. Audit R5 compares the two.
+// Backfilled from today_games for any row whose game is still on the board.
+try { db.exec(`ALTER TABLE mvp_picks ADD COLUMN game_start_at TEXT`); } catch (_) {}
+try {
+  db.exec(`
+    UPDATE mvp_picks SET game_start_at = (
+      SELECT tg.start_time FROM today_games tg WHERE tg.espn_game_id = mvp_picks.espn_game_id
+    )
+    WHERE game_start_at IS NULL AND espn_game_id IS NOT NULL
+  `);
+} catch (_) {}
+
+// ── mvp_deletions: every tracked bet ever removed from the ledger ────────────
+// The three pregame sweeps in mvp.js DELETE rows outright, which until now left
+// zero forensic trace: no annotation, no flag, nothing to autopsy when a row
+// vanished from the Rankings list. `retired = 1` was built to be reversible and
+// visible; deletes were neither. This table is the audit trail for them, and
+// audit R6 reads it. Never wiped.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS mvp_deletions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      mvp_id        INTEGER,
+      espn_game_id  TEXT,
+      team          TEXT,
+      pick_type     TEXT,
+      score         REAL,
+      reason        TEXT NOT NULL,
+      game_started  INTEGER NOT NULL DEFAULT 0,
+      row_json      TEXT,
+      deleted_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_mvp_del_game ON mvp_deletions(espn_game_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_mvp_del_at ON mvp_deletions(deleted_at)`);
+} catch (_) {}
 
 // ── Wave-1 scraper tables (v3 Phase 3, docs/CA_ALGORITHM_V3.md) ───────────────
 // AN experts registry (discovered from public expert pages; picks land in
@@ -1860,6 +1966,68 @@ try {
   console.warn('[db] cappertek removal failed:', err.message);
 }
 
+// ── One-time repair of two wave-2 ingestion bugs (2026-08-26, flag-guarded) ──
+// Found by auditing the live prod ledger, both in data the scrapers wrote:
+//  1. Polymarket holders backfill graded YES/NO PROP markets that ride inside a
+//     dated game event ("both teams to score?") as if they were side bets. 299
+//     of 3,725 backfill rows (every soccer one) landed on 74 wallets' resumes,
+//     one wallet 24 of its 25. The scorer reads those resumes, so the rows are
+//     deleted outright; the walk now skips Yes/No markets at the source.
+//  2. WagerTalk capper names arrived HTML-escaped ("Marco D&#039;Angelo"),
+//     which is a different identity to the registry — it could never merge with
+//     the same person from another source. Decode in place everywhere a
+//     canonical name is stored.
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'wave2_ingest_repair'`).get();
+  if (!done) {
+    const props = db.prepare(`
+      DELETE FROM capper_history
+      WHERE source = 'polymarket' AND sources_json LIKE '%backfill%'
+        AND LOWER(TRIM(team)) IN ('yes','no')
+    `).run();
+
+    const decode = (s) => String(s || '')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+
+    const mangled = new Set();
+    for (const t of ['capper_history', 'capper_registry', 'capper_source_handles', 'capper_ratings']) {
+      const col = t === 'capper_history' ? 'capper_name' : 'canonical_name';
+      try {
+        for (const r of db.prepare(`SELECT DISTINCT ${col} n FROM ${t} WHERE ${col} LIKE '%&%;%'`).all()) {
+          if (r.n && decode(r.n) !== r.n) mangled.add(r.n);
+        }
+      } catch (_) {}
+    }
+    let renamed = 0;
+    for (const bad of mangled) {
+      const good = decode(bad);
+      // A decoded twin may already exist (same person seen after the fix):
+      // fold into it rather than colliding on the registry's unique name.
+      const twin = db.prepare(`SELECT 1 FROM capper_registry WHERE canonical_name = ?`).get(good);
+      try {
+        db.prepare(`UPDATE capper_history SET capper_name = ? WHERE capper_name = ?`).run(good, bad);
+        db.prepare(`UPDATE capper_source_handles SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+        if (twin) {
+          db.prepare(`DELETE FROM capper_registry WHERE canonical_name = ?`).run(bad);
+          db.prepare(`DELETE FROM capper_ratings WHERE canonical_name = ?`).run(bad);
+        } else {
+          db.prepare(`UPDATE capper_registry SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+          db.prepare(`UPDATE capper_ratings SET canonical_name = ? WHERE canonical_name = ?`).run(good, bad);
+        }
+        renamed++;
+      } catch (_) {}
+    }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('wave2_ingest_repair', datetime('now'))`).run();
+    console.log(`[db] wave2 ingest repair: ${props.changes} prop backfill rows deleted, ${renamed} escaped capper names decoded`);
+  }
+} catch (err) {
+  console.warn('[db] wave2 ingest repair failed:', err.message);
+}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -1873,6 +2041,85 @@ function setSetting(key, value) {
   } catch (_) {}
 }
 
+// ── One-time purge of wallets admitted under the old loose bar (2026-08-26) ──
+// Jack's rule when the profit gate went in: don't just screen new wallets,
+// REMOVE the ones that trade rather than bet. 284 wallets had been admitted on
+// behaviour alone; judged on everything we now know about them (their imported
+// history AND every live pick we have graded since), only 104 clear the new bar
+// of 10+ decisions and a profit at flat stakes. The other 180 ran 47.5% for
+// -372 units.
+// Judging on the TOTAL record on purpose: 17 of the keepers had a thin import
+// but proved themselves live (one is 30-20, +9.2u off 47 live picks), and a
+// backfill-only test would have thrown them out.
+// What this does and does not touch:
+//   - untracks the failures (removed from pm_wallets) so they stop feeding new
+//     picks; that is the operative meaning of "remove".
+//   - deletes the backfill rows they were gifted under the looser bar.
+//   - LEAVES their real graded picks alone. Those are honest history we bought
+//     with real grading, and deleting them would silently restate the ledger.
+//     The scorer already neutralises losers (hard zero, fade list, money gate).
+//   - only touches wallets discovered by the holders sweep. The top-50 P/L
+//     leaderboard set is a separate lane and re-seeds itself every morning.
+try {
+  const done = db.prepare(`SELECT value FROM settings WHERE key = 'pm_holders_quality_purge'`).get();
+  if (!done) {
+    const unitReturn = (odds, result) => {
+      if (result === 'push') return 0;
+      const o = parseFloat(odds);
+      if (!Number.isFinite(o)) return result === 'win' ? 0 : -1;
+      if (result === 'win') return o > 0 ? o / 100 : 100 / Math.abs(o);
+      return -1;
+    };
+    const minDec = parseInt(getSetting('pm_screen_min_decisions', '10'), 10);
+    const minUnits = parseFloat(getSetting('pm_screen_min_units', '0'));
+    let wallets = [];
+    try {
+      wallets = db.prepare(`
+        SELECT w.wallet, h.canonical_name
+        FROM pm_wallets w
+        LEFT JOIN capper_source_handles h ON h.source = 'polymarket' AND h.handle = w.wallet
+        WHERE w.meta_json LIKE '%"discovery":"holders"%'
+      `).all();
+    } catch (_) {}
+
+    const gradedFor = db.prepare(`
+      SELECT result, odds, sources_json FROM capper_history
+      WHERE capper_name = ? AND source = 'polymarket' AND result IN ('win','loss','push')
+    `);
+    const delWallet = db.prepare(`DELETE FROM pm_wallets WHERE wallet = ?`);
+    const delBackfill = db.prepare(`
+      DELETE FROM capper_history
+      WHERE capper_name = ? AND source = 'polymarket' AND sources_json LIKE '%backfill%'
+    `);
+
+    let rejected = {};
+    try { rejected = JSON.parse(getSetting('pm_holders_rejected', '{}')); } catch (_) {}
+
+    let kept = 0, dropped = 0, rowsDeleted = 0;
+    for (const w of wallets) {
+      if (!w.canonical_name) continue; // unmapped handle: leave it alone
+      const rows = gradedFor.all(w.canonical_name);
+      const wins = rows.filter((r) => r.result === 'win').length;
+      const losses = rows.filter((r) => r.result === 'loss').length;
+      const units = rows.reduce((s, r) => s + unitReturn(r.odds, r.result), 0);
+      if ((wins + losses) >= minDec && units > minUnits) { kept++; continue; }
+      delWallet.run(w.wallet);
+      rowsDeleted += delBackfill.run(w.canonical_name).changes;
+      rejected[w.wallet] = Date.now();
+      dropped++;
+    }
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('pm_holders_rejected', ?)`).run(JSON.stringify(rejected));
+    db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('pm_holders_quality_purge', datetime('now'))`).run();
+    console.log(`[db] pm holders quality purge: kept ${kept} proven wallets, untracked ${dropped}, removed ${rowsDeleted} gifted backfill rows`);
+  }
+} catch (err) {
+  console.warn('[db] pm holders quality purge failed:', err.message);
+}
+
 module.exports = db;
 module.exports.getSetting = getSetting;
 module.exports.setSetting = setSetting;
+
+// Belt and braces: the ml_draw ALTER near the top runs before book_lines is created,
+// so on a fresh database it no-ops. Repeat it here, after the CREATE TABLE.
+try { db.exec(`ALTER TABLE book_lines ADD COLUMN ml_draw REAL`); } catch (_) {}

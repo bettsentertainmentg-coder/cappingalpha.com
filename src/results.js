@@ -5,11 +5,35 @@
 
 const db    = require('./db');
 const axios = require('axios');
+const { countSets, setDone, hasMatchWinner, endedEarlyStatus } = require('./tennis_score');
 
 // ── Evaluate a single pick against final scores ───────────────────────────────
-// Annotation stamped on picks voided by the tennis replacement guard below.
-// Must contain 'not counted' — the record queries and void styling key on it.
-const VOID_SWAP_NOTE = '*not counted: a listed player was replaced before this match';
+// Annotations stamped on voided picks. Each MUST contain 'not counted' — the
+// record queries (mvp.js, leaderboard.js, db.js) and the void styling key on it.
+const VOID_SWAP_NOTE    = '*not counted: a listed player was replaced before this match';
+const VOID_RETIRED_NOTE = '*not counted: the match ended early (retirement or walkover), so no side bet was settled';
+
+// Which void note belongs on a pick the grader just voided. The reason matters:
+// a replacement and a retirement are different events and the note is the only
+// thing the member ever sees explaining why their pick did not count.
+function voidNoteFor(pick, game) {
+  const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
+  if (isTennis && tennisEndedEarly(game)) return VOID_RETIRED_NOTE;
+  return VOID_SWAP_NOTE;
+}
+
+// ESPN explicitly says this match stopped before it was played out (retired,
+// walkover, default). `clock` is the display fallback for rows written before
+// status_detail existed — it already carries "Retired".
+function tennisEndedEarly(game) {
+  return endedEarlyStatus(game.status_detail || game.clock);
+}
+
+// The scoreboard shows a match nobody could have won (no player holds 2+
+// completed sets). Structural, so it needs no status string.
+function tennisNoWinnerYet(game) {
+  return !hasMatchWinner({ homeSetsWon: game.home_score, awaySetsWon: game.away_score });
+}
 
 function evaluatePick(pick, game) {
   const type = (pick.pick_type || '').toLowerCase();
@@ -21,18 +45,69 @@ function evaluatePick(pick, game) {
 
   // Tennis sanity guard: a finished tennis match can't end 0-0 on sets AND 0 total games.
   // If we see all zeros, the snapshot is incomplete — refuse to grade, try again later.
+  // UNLESS ESPN explicitly says the match ended early: a walkover really does end
+  // 0-0 with no games played, and holding those pending forever would strand the
+  // picks (they belong in the void branch below, exactly as books settle them).
   if (isTennis) {
     const noSets   = (game.home_score == null || game.home_score === 0) &&
                      (game.away_score == null || game.away_score === 0);
     const noGames  = (game.tennis_home_games == null || game.tennis_home_games === 0) &&
                      (game.tennis_away_games == null || game.tennis_away_games === 0);
-    if (noSets && noGames) return 'pending';
+    if (noSets && noGames && !endedEarlyStatus(game.status_detail || game.clock)) return 'pending';
   }
 
   // Determine which side was picked
   const homeNames = [game.home_team, game.home_short, game.home_name, game.home_abbr]
     .filter(Boolean).map(n => n.toLowerCase());
   const pickedHome = homeNames.some(n => n === (pick.team || '').toLowerCase());
+
+  // ── Tennis: a scoreboard nobody could have won never grades ────────────────
+  // Every tour format is best-of-3 or best-of-5, so a real final leaves a winner
+  // holding 2+ COMPLETED sets. If ESPN reports 'final' without one, the payload
+  // is partial or premature — ESPN tennis does occasionally flip a live match to
+  // completed carrying a half-written linescore, which is how Michael Zheng's ML
+  // graded a LOSS on 2026-07-29 in a match he won 6-4 6-3. Hold it pending: the
+  // next pass re-checks against corrected data, and audit R8/R4 surfaces it if it
+  // never resolves. Never guess a result off a score that cannot be real.
+  if (isTennis && !tennisEndedEarly(game) && tennisNoWinnerYet(game)) return 'pending';
+
+  // ── Tennis match that never played out (retirement / walkover / default) ────
+  // ESPN reports these completed:true with a winner, so they read exactly like a
+  // finished match here (Darderi retired at 0-3 down on 2026-07-30 and the pick
+  // graded a LOSS). No book settles a side market on a match that did not finish
+  // — they void, and so do we. Only an EXPLICIT early-end status voids, so a
+  // merely suspicious payload holds pending above instead of burning a void onto
+  // a match still in play.
+  //
+  // The one exception is a market already decided by play that DID happen: an
+  // over whose total games were passed before the stoppage is unconditionally
+  // determined, which is how books settle it too. An under can never be
+  // determined early (stopping play artificially suppresses the total), and a
+  // side/handicap needs the match, so both void.
+  if (isTennis && tennisEndedEarly(game)) {
+    if (['ml', 'spread', 'set_spread', 'under'].includes(type)) return 'void';
+
+    if (type === 'over') {
+      const ou = pick.captured_total ?? pick.live_total ?? pick.spread;
+      const played = (game.tennis_home_games ?? 0) + (game.tennis_away_games ?? 0);
+      if (ou == null) return 'void';
+      return played > ou ? 'win' : 'void';
+    }
+
+    if (type === 'set_ml') {
+      // A set that finished before the retirement still settles; anything else voids.
+      const setNum = Math.round(pick.spread);
+      let setDetails;
+      try { setDetails = JSON.parse(game.tennis_score_detail || '[]'); } catch { return 'void'; }
+      const set = setNum ? setDetails[setNum - 1] : null;
+      if (!set) return 'void';
+      if (setDone(set.home, set.away)) return pickedHome ? 'win' : 'loss';
+      if (setDone(set.away, set.home)) return pickedHome ? 'loss' : 'win';
+      return 'void';
+    }
+
+    return 'void';
+  }
 
   // Tennis replacement guard (Jack 2026-07-13): withdrawals and lucky losers
   // swap a listed player after picks land, so a side pick can name a player in
@@ -149,12 +224,26 @@ function evaluateVote(slot, line, game) {
   const hs = game.home_score, as = game.away_score;
   if (hs == null || as == null) return 'pending';
 
-  // Tennis all-zeros guard — incomplete snapshot, refuse to grade yet.
+  // Tennis all-zeros guard — incomplete snapshot, refuse to grade yet. Same
+  // walkover exception as evaluatePick: an explicit early-end status is real data.
   if (isTennis) {
     const noSets  = (hs === 0 || hs == null) && (as === 0 || as == null);
     const noGames = (game.tennis_home_games == null || game.tennis_home_games === 0) &&
                     (game.tennis_away_games == null || game.tennis_away_games === 0);
-    if (noSets && noGames) return 'pending';
+    if (noSets && noGames && !endedEarlyStatus(game.status_detail || game.clock)) return 'pending';
+  }
+
+  // Same two-step the pick grader uses: an impossible 'final' waits, an explicit
+  // early end voids. flatUnitReturn() treats 'void' as zero P/L, so a voided vote
+  // costs the member nothing, exactly like the book returning their stake.
+  if (isTennis && !tennisEndedEarly(game) && tennisNoWinnerYet(game)) return 'pending';
+
+  if (isTennis && tennisEndedEarly(game)) {
+    if (slot === 'over') {
+      const played = (game.tennis_home_games ?? 0) + (game.tennis_away_games ?? 0);
+      if (line != null && played > line) return 'win'; // already determined
+    }
+    return 'void';
   }
 
   const pickedHome = slot === 'home_ml' || slot === 'home_spread';
@@ -232,7 +321,10 @@ function votePushPayload(pickSlot, result, homeTeam, awayTeam) {
     home_spread: `${home} spread`, away_spread: `${away} spread`,
     over: 'Over', under: 'Under',
   }[pickSlot] || 'Your pick';
-  const title = result === 'win' ? 'Your pick won' : result === 'loss' ? 'Your pick lost' : 'Your pick pushed';
+  const title = result === 'win'  ? 'Your pick won'
+              : result === 'loss' ? 'Your pick lost'
+              : result === 'void' ? 'Your pick was voided'
+              : 'Your pick pushed';
   return { title, body: `${slotLabel} · ${away} @ ${home}`, tag: 'pick-grade', url: '/' };
 }
 
@@ -246,7 +338,7 @@ async function resolveVotes() {
            tg.sport, tg.status, tg.home_score, tg.away_score,
            tg.spread_home, tg.spread_away, tg.over_under,
            tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
-           tg.tennis_home_games, tg.tennis_away_games,
+           tg.tennis_home_games, tg.tennis_away_games, tg.status_detail, tg.clock,
            tg.home_team AS g_home, tg.away_team AS g_away
     FROM game_votes gv
     JOIN today_games tg ON tg.espn_game_id = gv.espn_game_id
@@ -366,7 +458,8 @@ async function fetchGameResult(espnGameId, sport, gameDate = null) {
       const awayDisplay = away.team?.displayName || '';
 
       return {
-        status:     'post',
+        status:        'post',
+        status_detail: comp.status?.type?.name || comp.status?.type?.description || null,
         sport:      sportKey,
         home_score: parseInt(home.score) || 0,
         away_score: parseInt(away.score) || 0,
@@ -428,8 +521,15 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
             if (String(comp.id) !== String(espnGameId)) continue;
             const statusName = (comp.status?.type?.name || '').toLowerCase();
             const stateName  = (comp.status?.type?.state || '').toLowerCase();
-            const isFinal = statusName.includes('final') || statusName.includes('complete')
-                         || statusName === 'post'        || stateName === 'post';
+            // Postponed / suspended / canceled matches can carry state 'post'
+            // with an empty linescore. tennis_espn.js has always downgraded
+            // those so an unplayed match never reaches grading; this path is
+            // the one that resolves games with no board row left, so it has to
+            // apply the same rule or it hands back a 0-0 "final".
+            const notFinal = /postpone|suspend|cancel|delay|rain|abandon/.test(statusName);
+            const isFinal = !notFinal
+                         && (statusName.includes('final') || statusName.includes('complete')
+                          || statusName === 'post'        || stateName === 'post');
             if (!isFinal) return null;
 
             const home = comp.competitors?.find(c => c.homeAway === 'home') || comp.competitors?.[0];
@@ -441,23 +541,23 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
             const homeDisplay = homeAth.displayName || homeAth.fullName || home.team?.displayName || '';
             const awayDisplay = awayAth.displayName || awayAth.fullName || away.team?.displayName || '';
 
+            // ONE set counter, shared with tennis_espn.js (src/tennis_score.js).
+            // This block used to credit a set to whoever merely LED it, so a
+            // retirement at 0-3 in set one came back as a 1-0 "final" and minted
+            // a loss (ATP 178921, 2026-07-30). Never re-implement it locally.
+            // The linescores must be read off the competitors HERE: the refactor
+            // that moved counting into tennis_score.js deleted the block that
+            // used to define them and left the call referencing the dead names,
+            // so every tennis re-fetch threw ReferenceError into the catch below
+            // and reported itself as a scoreboard failure.
             const homeLs = home.linescores || [];
             const awayLs = away.linescores || [];
-            const numSets = Math.max(homeLs.length, awayLs.length);
-            let homeSetsWon = 0, awaySetsWon = 0;
-            const setDetails = [];
-            for (let i = 0; i < numSets; i++) {
-              const h = Number(homeLs[i]?.value) || 0;
-              const a = Number(awayLs[i]?.value) || 0;
-              setDetails.push({ set: i + 1, home: h, away: a });
-              if (h > a) homeSetsWon++;
-              else if (a > h) awaySetsWon++;
-            }
-            const homeGames = homeLs.reduce((s, l) => s + (Number(l.value) || 0), 0);
-            const awayGames = awayLs.reduce((s, l) => s + (Number(l.value) || 0), 0);
+            const { homeSetsWon, awaySetsWon, setDetails, homeGames, awayGames, numSets } =
+              countSets(homeLs, awayLs);
 
             return {
               status:              'post',
+              status_detail:       comp.status?.type?.name || comp.status?.type?.description || null,
               sport:               path === 'tennis/atp' ? 'ATP' : 'WTA',
               home_score:          homeSetsWon,
               away_score:          awaySetsWon,
@@ -477,7 +577,12 @@ async function fetchTennisGameByDate(espnGameId, path, gameDate) {
         }
       }
     } catch (err) {
-      console.warn(`[results] tennis scoreboard ${path} ${ymd} failed:`, err.message);
+      // A ReferenceError/TypeError in here is OUR bug, not ESPN's. Logging it
+      // with the same wording as a network timeout is what let a dead-variable
+      // crash sit in production looking like a flaky upstream, so name it.
+      const ours = err instanceof ReferenceError || err instanceof TypeError;
+      console.warn(`[results] tennis scoreboard ${path} ${ymd} ${ours ? 'CODE ERROR' : 'failed'}:`,
+        ours ? (err.stack || err.message) : err.message);
     }
   }
   return null;
@@ -500,7 +605,15 @@ function abbrOf(displayName) {
 // standard juice default so the bet still counts.
 function capperBetOdds(pick) {
   const pt = (pick.pick_type || '').toLowerCase();
-  if (pt === 'ml')     return pick.is_home_team ? (pick.ml_home ?? null) : (pick.ml_away ?? null);
+  if (pt === 'ml') {
+    // A -25 (or worse) side with no posted price is a near-certain win that
+    // pays almost nothing; grade it as -100000, not the -110 default the
+    // ratings would otherwise substitute (GRADING_RULES R12).
+    const { impliedHeavyMl } = require('./storage');
+    return pick.is_home_team
+      ? impliedHeavyMl(pick.ml_home ?? null, pick.spread_home)
+      : impliedHeavyMl(pick.ml_away ?? null, pick.spread_away);
+  }
   if (pt === 'over')   return pick.ou_over_odds  ?? null;
   if (pt === 'under')  return pick.ou_under_odds ?? null;
   if (pt === 'spread') return pick.is_home_team ? (pick.spread_home_odds ?? null) : (pick.spread_away_odds ?? null);
@@ -591,7 +704,7 @@ function writeBackerGrades(pick, result) {
 function backfillBackerGrades() {
   const graded = db.prepare(`
     SELECT p.*, tg.ml_home, tg.ml_away, tg.ou_over_odds, tg.ou_under_odds,
-           tg.spread_home_odds, tg.spread_away_odds
+           tg.spread_home_odds, tg.spread_away_odds, tg.spread_home, tg.spread_away
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE p.result IN ('win', 'loss', 'push') AND p.mention_count > 0
@@ -645,6 +758,10 @@ async function resolveResults() {
       UPDATE today_games
       SET status = 'post',
           home_score = ?, away_score = ?,
+          -- Carry ESPN's status name across too. This pass is what promotes a
+          -- stalled row to final, so without it a retirement reconciled here
+          -- would reach grading with no record that the match stopped early.
+          status_detail       = COALESCE(?, status_detail),
           tennis_home_games   = COALESCE(?, tennis_home_games),
           tennis_away_games   = COALESCE(?, tennis_away_games),
           tennis_score_detail = COALESCE(?, tennis_score_detail),
@@ -653,6 +770,7 @@ async function resolveResults() {
     `).run(
       final.home_score ?? null,
       final.away_score ?? null,
+      final.status_detail ?? null,
       final.tennis_home_games ?? null,
       final.tennis_away_games ?? null,
       final.tennis_score_detail ?? null,
@@ -667,8 +785,8 @@ async function resolveResults() {
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
            tg.away_team, tg.away_short, tg.away_name, tg.away_abbr, tg.first_inning_runs,
            tg.ml_home, tg.ml_away, tg.over_under, tg.ou_over_odds, tg.ou_under_odds,
-           tg.spread_home_odds, tg.spread_away_odds,
-           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
+           tg.spread_home_odds, tg.spread_away_odds, tg.spread_home, tg.spread_away,
+           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail, tg.status_detail, tg.clock
     FROM picks p
     JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
     WHERE tg.status = 'post'
@@ -714,17 +832,19 @@ async function resolveResults() {
     // Match mvp_picks by the game key first (espn_game_id + team + type — immune
     // to a game_date re-stamp), then the legacy team + game_date + type key.
     // Never overwrite a voided pick — conflict resolver already settled it
+    // Retired rows are off the record; grading them back to life would undo a
+    // restatement on the next results pass.
     const mvp = (pick.espn_game_id ? db.prepare(
-      `SELECT id FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ? AND result != 'void'`
+      `SELECT id FROM mvp_picks WHERE espn_game_id = ? AND team = ? AND pick_type = ? AND result != 'void' AND COALESCE(retired, 0) = 0`
     ).get(pick.espn_game_id, pick.team, pick.pick_type ?? null) : null)
       || db.prepare(
-        `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void'`
+        `SELECT id FROM mvp_picks WHERE team = ? AND game_date = ? AND pick_type = ? AND result != 'void' AND COALESCE(retired, 0) = 0`
       ).get(pick.team, pick.game_date, pick.pick_type ?? null);
 
     if (mvp) {
       // Never overwrite score — the original MVP score is what qualified it
       db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
-        .run(result, pick.home_score, pick.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
+        .run(result, pick.home_score, pick.away_score, result === 'void' ? voidNoteFor(pick, pick) : null, mvp.id);
     }
 
     resolved++;
@@ -735,17 +855,19 @@ async function resolveResults() {
     SELECT m.*, tg.sport AS sport, tg.home_score, tg.away_score, tg.status,
            tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
            tg.away_team, tg.away_short, tg.away_name, tg.away_abbr, tg.first_inning_runs,
-           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
+           tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail, tg.status_detail, tg.clock
     FROM mvp_picks m
     JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
-    WHERE tg.status = 'post' AND m.result = 'pending'
+    WHERE tg.status = 'post' AND m.result = 'pending' AND COALESCE(m.retired, 0) = 0
   `).all();
 
   for (const mvp of directMvps) {
     const result = evaluatePick(mvp, mvp);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
-      .run(result, mvp.home_score, mvp.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
+    // Re-assert result = 'pending' in the WHERE: the conflict resolver runs on
+    // its own 5-minute cron and may have voided this row since the SELECT.
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ? AND result = 'pending'`)
+      .run(result, mvp.home_score, mvp.away_score, result === 'void' ? voidNoteFor(mvp, mvp) : null, mvp.id);
     resolved++;
   }
 
@@ -754,6 +876,7 @@ async function resolveResults() {
     SELECT m.* FROM mvp_picks m
     LEFT JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
     WHERE m.result = 'pending' AND tg.espn_game_id IS NULL AND m.espn_game_id IS NOT NULL
+      AND COALESCE(m.retired, 0) = 0
   `).all();
 
   for (const mvp of staleMvps) {
@@ -761,8 +884,13 @@ async function resolveResults() {
     if (!gameData) continue;
     const result = evaluatePick(mvp, gameData);
     if (result === 'pending') continue;
-    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ?`)
-      .run(result, gameData.home_score, gameData.away_score, result === 'void' ? VOID_SWAP_NOTE : null, mvp.id);
+    // This loop awaits a network fetch per row, so the row set is stale by the
+    // time we write. Without re-asserting 'pending' the write lands on top of a
+    // void the conflict resolver set during the await, producing a row that
+    // reads 'win' while still carrying a '*not counted:' annotation — counted
+    // by the history list, excluded from the record, styled as a void.
+    db.prepare(`UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?, resolved_at = COALESCE(resolved_at, datetime('now')), annotation = COALESCE(annotation, ?) WHERE id = ? AND result = 'pending'`)
+      .run(result, gameData.home_score, gameData.away_score, result === 'void' ? voidNoteFor(mvp, gameData) : null, mvp.id);
     resolved++;
   }
 
@@ -921,4 +1049,9 @@ async function resolveResults() {
   return resolved;
 }
 
-module.exports = { resolveResults, resolveVotes, evaluatePick, evaluateVote, fetchGameResult, backfillBackerGrades };
+module.exports = {
+  resolveResults, resolveVotes, evaluatePick, evaluateVote, fetchGameResult, backfillBackerGrades,
+  // Exported for the tennis regrade repair endpoint (admin.js) and the audit
+  // pass, so the one-time repair settles rows through the SAME rules as live
+  // grading instead of a second hand-written copy.
+  tennisEndedEarly, voidNoteFor, VOID_RETIRED_NOTE, VOID_SWAP_NOTE, capperBetOdds };

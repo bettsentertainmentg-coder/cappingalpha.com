@@ -3,8 +3,9 @@
 // Also exports loadHeadlines() for the right-column headlines section.
 
 import { isViewer } from './auth.js';
-import { gameTime, pickLabel, teamNickname, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName } from './utils.js?v=7';
+import { gameTime, pickLabel, teamNickname, teamLabel, liveStateHtml, onBoardForSport, currentBoardDate, flatUnitReturn, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 import { unlockCtaHtml } from './paywall.js';
+import { winPctColor } from './sport_cards.js?v=32';
 import { state } from './state.js';
 
 let _sidebarSport = 'MLB';
@@ -51,8 +52,8 @@ async function _renderTopPick() {
     // Headline the actual bet (e.g. "Over 8.5", "Knicks Win", "Twins -1.5") rather
     // than a bare team name. Logged-out visitors get blurred placeholders.
     const betText = viewer ? 'Yankees Win' : (hasPick ? (pickLabel(pick) || pick.team || '—') : '');
-    const away = (hasPick && pick.away_team) ? teamNickname(pick.away_team, pick.home_team) : '';
-    const home = (hasPick && pick.home_team) ? teamNickname(pick.home_team, pick.away_team) : '';
+    const away = (hasPick && pick.away_team) ? teamLabel(pick, pick.away_team) : '';
+    const home = (hasPick && pick.home_team) ? teamLabel(pick, pick.home_team) : '';
     const matchupText = viewer ? 'New York @ Boston' : ((away && home) ? `${away} @ ${home}` : '');
 
     // Once the game finishes, results.js writes pick.result (win/loss/push).
@@ -91,6 +92,15 @@ async function _renderTopPick() {
       cardState = ' ca-tp-live';
     }
 
+    // Suspended: the card's time line would otherwise read like an upcoming game
+    // (a halted match is filed 'pre' on our side — see utils.isSuspendedGame).
+    if (hasPick && !resultBadge && !isLive && isSuspendedGame(pick)) {
+      const aScore = pick.game_away_score ?? 0;
+      const hScore = pick.game_home_score ?? 0;
+      const sc = (aScore || hScore) ? `<span class="ca-tp-live-score">${aScore}-${hScore}</span>` : '';
+      liveLine = `<div class="ca-tp-live-line ca-tp-susp">${sc}<span class="bb-half">${suspendedLabel(pick)}</span></div>`;
+    }
+
     // ── P/L block (only when there's enough resolved history) ─────────────────
     const betUnit = parseFloat(state.CONFIG?.bet_unit) || 10;
     const best = _bestWindow(_resolvedMvp(mvp && mvp.picks));
@@ -99,7 +109,8 @@ async function _renderTopPick() {
       const s    = plSeries = _series(best.picks, betUnit);
       const sign = s.total >= 0 ? 'pos' : 'neg';
       const amt  = (s.total >= 0 ? '+' : '') + '$' + Math.abs(s.total).toFixed(2);
-      const wr   = best.decided ? Math.round(best.winRate * 100) + '%' : '0%';
+      const wrPct = best.decided ? Math.round(best.winRate * 100) : null;
+      const wr    = wrPct == null ? '—' : wrPct + '%';
       // ROI on money risked (decided bets, flat stakes) — same basis as the graph total.
       const roi    = best.decided ? 100 * s.total / (betUnit * best.decided) : null;
       const roiStr = roi == null ? '—' : (roi >= 0 ? '+' : '') + roi.toFixed(1) + '%';
@@ -114,7 +125,7 @@ async function _renderTopPick() {
         <div class="ca-tp-record">
           <div><b class="green">${best.wins}</b><span>Wins</span></div>
           <div><b class="red">${best.losses}</b><span>Losses</span></div>
-          <div><b class="gold">${wr}</b><span>Win%</span></div>
+          <div><b style="color:${winPctColor(wrPct)};">${wr}</b><span>Win%</span></div>
           <div><b class="${roiCls}">${roiStr}</b><span>ROI</span></div>
         </div>`;
     }

@@ -7,6 +7,9 @@
 const { Client } = require('discord.js-selfbot-v13');
 const db = require('./db');
 const { lookupTodayGame } = require('./espn_live');
+// Sport-aware wrapper: the reader names the sport, and a college name that also
+// fits a pro game must not be handed to the pro game (src/game_match.js).
+const { lookupTodayGameForSport } = require('./game_match');
 const { readMessage, readMessages } = require('./reader');
 const { savePick }    = require('./storage');
 const { getCycleWindow, cycleDateForInstant, ET_OFFSET_MS } = require('./cycle');
@@ -137,7 +140,7 @@ async function processMessage(msg, channelConfig, window) {
     }
 
     // ESPN lookup — validates team has a game today
-    let todayGame = lookupTodayGame(pick.team, msgDateET);
+    let todayGame = lookupTodayGameForSport(pick.team, msgDateET, pick.sport);
 
     // Fallback: if the full string didn't match, try each word individually
     // Handles "CIN Reds" → try "CIN" then "Reds"; "Reds" finds Cincinnati Reds
@@ -145,7 +148,7 @@ async function processMessage(msg, channelConfig, window) {
       const words = pick.team.trim().split(/\s+/);
       for (const word of words) {
         if (word.length < 3) continue;
-        const g = lookupTodayGame(word, msgDateET);
+        const g = lookupTodayGameForSport(word, msgDateET, pick.sport);
         if (g) {
           console.log(`[Scanner] Word fallback: "${pick.team}" matched via "${word}" → ${g.home_team} vs ${g.away_team}`);
           todayGame = g;
@@ -443,12 +446,12 @@ async function rescanSkipped() {
     for (let pick of picks) {
       if (pick.team) pick.team = titleCase(pick.team);
 
-      let todayGame = lookupTodayGame(pick.team, null);
+      let todayGame = lookupTodayGameForSport(pick.team, null, pick.sport);
       if (!todayGame) {
         const words = pick.team.trim().split(/\s+/);
         for (const word of words) {
           if (word.length < 3) continue;
-          const g = lookupTodayGame(word, null);
+          const g = lookupTodayGameForSport(word, null, pick.sport);
           if (g) { todayGame = g; pick.team = word; break; }
         }
       }

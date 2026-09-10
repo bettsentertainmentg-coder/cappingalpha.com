@@ -10,6 +10,7 @@ const axios         = require('axios');
 const db            = require('./db');
 const { getCycleDate } = require('./cycle');
 const { fetchScoreboardForDate } = require('./espn_live');
+const { countSets } = require('./tennis_score');
 
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 
@@ -89,27 +90,14 @@ function upsertTennisMatch(comp, sportLabel) {
   const homeLinescores = homeComp.linescores || [];
   const awayLinescores = awayComp.linescores || [];
 
-  // Sets won = count of COMPLETED sets this player won: 6+ games with a 2-game
-  // lead, or a 7-6 tiebreak (super tiebreaks like 10-8 pass the first clause).
-  // ESPN's per-set winner flag wins when present. Never credit a set to whoever
-  // merely leads it — a live 4-3 set used to count as won in home_score/
-  // away_score, which the board tiles show and ML/set-handicap grading read
-  // (Jul 14). Same rule as live_state.js.
-  const setDone = (g, o) => (g >= 6 && g - o >= 2) || (g === 7 && o === 6);
-  const numSets = Math.max(homeLinescores.length, awayLinescores.length);
-  let homeSetsWon = 0, awaySetsWon = 0;
-  const setDetails = [];
-  for (let i = 0; i < numSets; i++) {
-    const h = Number(homeLinescores[i]?.value) || 0;
-    const a = Number(awayLinescores[i]?.value) || 0;
-    setDetails.push({ set: i + 1, home: h, away: a });
-    if (homeLinescores[i]?.winner === true || setDone(h, a)) homeSetsWon++;
-    else if (awayLinescores[i]?.winner === true || setDone(a, h)) awaySetsWon++;
-  }
-
-  // Total games for spread/O-U grading
-  const homeGames = homeLinescores.reduce((s, l) => s + (Number(l.value) || 0), 0);
-  const awayGames = awayLinescores.reduce((s, l) => s + (Number(l.value) || 0), 0);
+  // Sets won = count of COMPLETED sets this player won. Never credit a set to
+  // whoever merely leads it — a live 4-3 set used to count as won in
+  // home_score/away_score, which the board tiles show and ML/set-handicap
+  // grading read (Jul 14). The rule now lives in ONE place (tennis_score.js)
+  // because results.js kept its own naive copy and mis-graded a retirement
+  // (2026-07-30, ATP 178921). Totals below come from the same call.
+  const { homeSetsWon, awaySetsWon, setDetails, homeGames, awayGames, numSets } =
+    countSets(homeLinescores, awayLinescores);
 
   // Score detail string e.g. "7-5, 6-4" (home perspective)
   const scoreDetailJson = numSets > 0 ? JSON.stringify(setDetails) : null;
@@ -120,7 +108,7 @@ function upsertTennisMatch(comp, sportLabel) {
 
   db.prepare(`
     INSERT INTO today_games (
-      espn_game_id, sport, status, period, clock, start_time,
+      espn_game_id, sport, status, period, clock, status_detail, start_time,
       home_score, away_score,
       home_team, home_short, home_name, home_abbr,
       away_team, away_short, away_name, away_abbr,
@@ -128,11 +116,14 @@ function upsertTennisMatch(comp, sportLabel) {
       home_flag, away_flag, home_country, away_country,
       home_athlete_id, away_athlete_id,
       fetched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(espn_game_id) DO UPDATE SET
       status               = excluded.status,
       period               = excluded.period,
       clock                = excluded.clock,
+      -- ESPN's raw status name (STATUS_RETIRED, STATUS_WALKOVER, ...). Grading
+      -- reads it to void side markets on a match that never played out.
+      status_detail        = excluded.status_detail,
       -- Tennis start times shift all day (matches are "not before" / follow the
       -- previous match on court). ESPN firms them up over time, so always take the
       -- freshest value. COALESCE guards against a rare null wiping a good time.
@@ -163,6 +154,7 @@ function upsertTennisMatch(comp, sportLabel) {
     state,
     comp.status?.period                                   || null,
     comp.status?.type?.shortDetail || comp.status?.displayClock || null,
+    stType.name || stType.description                     || null,
     comp.date || comp.startDate                           || null,
     homeSetsWon,
     awaySetsWon,

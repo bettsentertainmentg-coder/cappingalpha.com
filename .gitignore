@@ -26,3 +26,6 @@ android/app/build/
 android/build/
 android/app/src/main/assets/public/
 android/local.properties
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
