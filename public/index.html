@@ -92,7 +92,7 @@
   <link rel="stylesheet" href="/vendor/fonts/fonts.css?v=1" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
-  <link rel="stylesheet" href="/onboarding.css?v=2" />
+  <link rel="stylesheet" href="/onboarding.css?v=3" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
   <!-- PostHog analytics. Guarded OFF inside the native (Capacitor) shell so the
        app ships analytics-free; Capacitor injects its bridge before page scripts
@@ -1599,6 +1599,42 @@
     .soc-invite .row { display: flex; gap: 8px; }
     .soc-invite .code { flex: 1; min-width: 0; background: var(--surface2); border: 1px dashed var(--soc-line); border-radius: 9px; padding: 9px 12px; font-weight: 800; letter-spacing: .06em; font-size: 13px; text-align: center; overflow: hidden; text-overflow: ellipsis; }
     .soc-invite .go { background: linear-gradient(135deg,#FFD700,#f0b400); border: none; color: #1a1205; font-family: inherit; font-weight: 800; font-size: 12px; padding: 9px 16px; border-radius: 9px; cursor: pointer; white-space: nowrap; }
+    .soc-invite .go.ghost { background: none; border: 1px solid var(--soc-line); color: var(--text); }
+    .soc-inv-prog { margin-top: 10px; font-size: 12px; font-weight: 700; color: var(--soc); }
+    .soc-inv-alt { display: flex; gap: 8px; margin-top: 12px; }
+    .soc-inv-alt button { flex: 1; min-width: 0; background: none; border: 1px solid var(--border); color: var(--muted); font-family: inherit; font-size: 11.5px; font-weight: 700; padding: 8px 6px; border-radius: 9px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .soc-inv-alt button:hover { color: var(--text); border-color: var(--muted); }
+
+    /* Honest empty states: one row tall, and every one of them points at a
+       surface that is actually populated. Never render nothing. */
+    .soc-quiet { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 14px; margin-bottom: 10px; text-align: center; }
+    .soc-quiet b { display: block; font-size: 13.5px; margin-bottom: 4px; }
+    .soc-quiet p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .soc-quiet-go { margin-top: 10px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-family: inherit; font-size: 12px; font-weight: 800; padding: 8px 18px; border-radius: 999px; cursor: pointer; }
+    .soc-quiet-go:hover { border-color: var(--soc); color: var(--soc); }
+
+    /* Your week: solo card at n=1, versus board once the circle has members. */
+    .soc-wk { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 14px; margin-bottom: 10px; text-align: center; }
+    .soc-wk-big { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1; }
+    .soc-wk-sub { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .soc-wk-note { font-size: 12px; color: var(--muted); line-height: 1.5; margin: 10px 0 0; }
+    .soc-vs { display: flex; align-items: center; gap: 8px; }
+    .soc-vs .side { flex: 1; min-width: 0; }
+    .soc-vs .side .nm { font-size: 12.5px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .soc-vs .side .u { font-size: 20px; font-weight: 800; margin-top: 2px; }
+    .soc-vs .side .r { font-size: 11px; color: var(--muted); }
+    .soc-vs .mid { flex: 0 0 auto; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+    .soc-wkrow { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-top: 1px solid var(--border); font-size: 12.5px; text-align: left; cursor: pointer; }
+    .soc-wkrow:first-of-type { margin-top: 10px; }
+    .soc-wkrow.me { font-weight: 800; }
+    .soc-wkrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .soc-wkrow .r { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
+    .soc-wkrow .u { flex: 0 0 auto; font-weight: 800; min-width: 52px; text-align: right; }
+
+    /* Feed starter: shown only when the server says you follow nobody. */
+    .soc-fcard.starter { border-color: var(--soc-line); background: linear-gradient(135deg, var(--soc-soft), var(--surface) 70%); }
+    .soc-fcard.starter h4 { margin: 0 0 4px; font-size: 14.5px; }
+    .soc-fcard.starter p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
 
     /* Board sub-tab: scope + sport filters above the existing leaderboard. */
     .soc-scopes { display: flex; gap: 6px; margin: 0 0 10px; }
@@ -2565,18 +2601,33 @@
     /* the home end mirrors the away end, so both badges sit on the outside */
     #panel-sports .nx-pubpanel .nx-dd-lab--h {flex-direction:row-reverse;}
 
-    #panel-sports .nx-pubpanel .nx-dd-logo {width:19px;height:19px;flex:none;object-fit:contain;display:block;}
+    /* ---- the side mark ----
+       Our own roundel, never a club crest: a hairline ring carrying the
+       abbreviation, drawn in currentColor so it takes no team colour and
+       borrows no trade dress. The double ring is the only ornament and it is
+       what makes it read as a mark rather than a chip at 19px. */
+    #panel-sports .nx-pubpanel .nx-dd-logo {width:19px;height:19px;flex:none;display:block;}
 
-    #panel-sports .nx-pubpanel .nx-dd-logo--txt {
+    #panel-sports .nx-pubpanel .nx-dd-logo--img {object-fit:contain;border-radius:50%;}
+
+    #panel-sports .nx-pubpanel .nx-dd-logo--mark {
       display:inline-flex;align-items:center;justify-content:center;
-      border-radius:5px;background:var(--nx-dd-track);
-      font-size:9px;font-weight:800;letter-spacing:.2px;color:var(--nx-dd-dim);
+      box-sizing:border-box;
+      border-radius:50%;
+      border:1px solid currentColor;
+      box-shadow:inset 0 0 0 2.5px transparent, inset 0 0 0 3px rgba(255,255,255,.10);
+      background:none;
+      color:var(--nx-dd-dim);
+      font-size:6.5px;font-weight:800;letter-spacing:.1px;line-height:1;
+      opacity:.92;
     }
 
-    /* totals have no crest: an arrow carries over and under instead */
-    #panel-sports .nx-pubpanel .nx-dd-logo--txt.ov {color:#3fb950;background:rgba(63,185,80,.14);font-size:11px;}
+    /* totals have no club: the ring carries an arrow, and here the colour is
+       ours and means something (over / under), so it stays */
+    #panel-sports .nx-pubpanel .nx-dd-logo--ov {color:#3fb950;font-size:10px;}
 
-    #panel-sports .nx-pubpanel .nx-dd-logo--txt.un {color:#f0553a;background:rgba(240,85,58,.14);font-size:11px;}
+    #panel-sports .nx-pubpanel .nx-dd-logo--un {color:#f0553a;font-size:10px;}
+
 
     #panel-sports .nx-pubpanel .nx-dd-meta {display:flex;flex-direction:column;gap:1px;min-width:0;}
 
@@ -4452,11 +4503,18 @@
       <div id="soc-pane-friends" class="soc-pane">
         <div class="soc-search">
           <i class="fa-solid fa-magnifying-glass"></i>
-          <input id="soc-search-input" type="text" placeholder="Search members" autocomplete="off" />
+          <input id="soc-search-input" type="text" placeholder="Search members by username" autocomplete="off" />
         </div>
         <div id="soc-search-results"></div>
-        <div id="soc-suggested"></div>
+        <!-- Order matters here. Before launch the rails and the friends list are
+             both empty, and the invite card is the only thing on this pane that
+             works with zero members, so socials.js floats it to the top of the
+             slots below when the circle is empty and drops it to the bottom as a
+             standing offer once it is not. -->
+        <div id="soc-week"></div>
+        <div id="soc-invite-top"></div>
         <div id="soc-friends-list"></div>
+        <div id="soc-suggested"></div>
         <div id="soc-invite"></div>
       </div>
 
@@ -4801,6 +4859,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=163"></script>
+  <script type="module" src="app.js?v=166"></script>
 </body>
 </html>

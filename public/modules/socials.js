@@ -18,9 +18,16 @@ import { haptic } from './native.js?v=2';
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function uStr(u) { if (u == null) return '—'; const s = (u >= 0 ? '+' : '') + u.toFixed(2).replace(/\.00$/, '') + 'u'; return s; }
 function uCls(u) { return u == null ? '' : (u >= 0 ? 'soc-u-pos' : 'soc-u-neg'); }
-// A settled push nets 0u but is neither a win nor a loss — render it neutral,
-// never green, so "+0u" doesn't read as a win.
-function resCls(result, u) { return result === 'push' ? 'soc-u-push' : uCls(u); }
+// A settled push nets 0u but is neither a win nor a loss, so it renders neutral,
+// never green. The result word is the authority on colour: a free-bet loss nets
+// 0u and still has to read as a loss, and no data slip should ever paint a loss
+// green.
+function resCls(result, u) {
+  if (result === 'push') return 'soc-u-push';
+  if (result === 'win') return 'soc-u-pos';
+  if (result === 'loss') return 'soc-u-neg';
+  return uCls(u);
+}
 function recStr(r) { if (!r) return ''; return `${r.wins}-${r.losses}${r.pushes ? '-' + r.pushes : ''}`; }
 function pctStr(p) { return p == null ? '—' : `${Math.round(p)}%`; }
 function timeAgo(iso) {
@@ -159,11 +166,17 @@ function renderFeed(data, fresh) {
   const items = data.items || [];
   if (fresh && !items.length) {
     feed.innerHTML = `<div class="empty"><div class="empty-icon">👋</div><h3>Your feed is quiet</h3>
-      <p>Follow a few members to see their picks, results, and streaks here. Try the Friends tab.</p>
+      <p>Follow a member or invite someone, and their picks and results land here.</p>
       <button class="soc-tail" style="max-width:220px;margin:14px auto 0;display:block;" onclick="socialsPane('friends')">Find members</button></div>`;
     return;
   }
-  const html = items.map(feedCard).join('');
+  // You are always your own author, so the empty state above almost never fires
+  // and a brand-new member just sees one house card with no prompt. Pin a
+  // starter card instead, gated on the SERVER's following count: a client-side
+  // guess pins "it is just you" over the populated feed of someone who follows
+  // twenty people who happened to be quiet.
+  const starter = (fresh && data.following_count === 0) ? feedStarter() : '';
+  const html = starter + items.map(feedCard).join('');
   const moreBtn = data.nextCursor
     ? `<button id="soc-more" class="soc-scope" style="width:100%;margin-top:6px;" onclick="socialsMore()">Load more</button>` : '';
   if (fresh) feed.innerHTML = html + moreBtn;
@@ -171,6 +184,17 @@ function renderFeed(data, fresh) {
     const old = document.getElementById('soc-more'); if (old) old.remove();
     feed.insertAdjacentHTML('beforeend', html + moreBtn);
   }
+}
+
+function feedStarter() {
+  return `<div class="soc-fcard starter">
+    <h4>Fill your feed</h4>
+    <p>Right now this is you and the board. Follow a member or invite someone, and their picks, results, and streaks land here as they happen.</p>
+    <div class="soc-verbs">
+      <button class="soc-tail" onclick="socialsPane('friends')">Find members</button>
+      <button class="soc-fade" onclick="socialsPane('friends')">Invite a friend</button>
+    </div>
+  </div>`;
 }
 
 export function socialsMore() { loadFeed(false); }
@@ -419,9 +443,25 @@ export async function socBlock(userId) {
 }
 
 // ══ FRIENDS ════════════════════════════════════════════════════════════════════
+// One /api/friends fetch drives the whole pane, because the friend COUNT decides
+// the layout: at zero the invite card is the empty state and sits up top, above
+// a solo "your week" card; past zero it drops to the bottom as a standing offer
+// and the week card turns into a circle scoreboard.
+//
+// _friendsLoaded is only latched once the fetch settles. Latching it first meant
+// a deep link that beat checkAuth left three empty panes with no way to retry.
 async function loadFriendsHub() {
-  _friendsLoaded = true;
-  await Promise.all([renderSuggested(), renderFriends(), renderInvite()]);
+  let friends = [];
+  let failed = false;
+  try {
+    const res = await fetch('/api/friends');
+    const d = res.ok ? await res.json() : { friends: [] };
+    friends = d.friends || [];
+  } catch (_) { failed = true; }
+  if (!failed) _friendsLoaded = true;
+
+  renderFriends(friends, failed);
+  await Promise.all([renderInvite(friends.length), renderWeek(friends.length), renderSuggested()]);
   wireSearch();
 }
 
@@ -447,26 +487,40 @@ async function renderSuggested() {
     const d = res.ok ? await res.json() : {};
     const rail = (title, more, arr) => (arr && arr.length)
       ? `<div class="soc-eyebrow">${title} <span class="rule"></span>${more}</div><div class="soc-hrail">${arr.map(memberCard).join('')}</div>` : '';
-    el.innerHTML =
+    const html =
       rail('Hot streaks', '', d.hot_streaks) +
       rail('Top this week', `<button class="more" onclick="socialsPane('board')">Board</button>`, d.top_week) +
       rail('Most followed', '', d.most_followed);
-  } catch (_) { el.innerHTML = ''; }
+    // Every rail gates on a streak, a weekly vote minimum, or existing follower
+    // counts, so all three come back empty before launch and this block used to
+    // render as an empty string. Say so instead, and point at a surface that is
+    // actually populated.
+    el.innerHTML = html || emptySuggested();
+  } catch (_) { el.innerHTML = emptySuggested(); }
 }
 
-async function renderFriends() {
+function emptySuggested() {
+  return `<div class="soc-eyebrow">Members to follow <span class="rule"></span></div>
+    <div class="soc-quiet">
+      <b>Nobody to suggest yet</b>
+      <p>Suggestions show up here as members build a graded record. The leaderboard is the place to look meanwhile.</p>
+      <button class="soc-quiet-go" onclick="socialsPane('board')">Board</button>
+    </div>`;
+}
+
+function renderFriends(friends, failed) {
   const el = document.getElementById('soc-friends-list');
   if (!el) return;
   try {
-    const res = await fetch('/api/friends');
-    const d = res.ok ? await res.json() : { friends: [] };
-    const friends = d.friends || [];
-    if (!friends.length) {
-      el.innerHTML = `<div class="soc-eyebrow">Your friends <span class="rule"></span></div>
-        <div class="empty" style="padding:22px;"><div class="empty-icon">👥</div><h3>No friends yet</h3>
-        <p>Follow members above or search by name. When you both follow each other, you're friends.</p></div>`;
+    if (failed) {
+      el.innerHTML = `<div class="soc-eyebrow">Your circle <span class="rule"></span></div>
+        <div class="soc-quiet"><b>Couldn't load your circle</b><p>Please try again in a moment.</p>
+        <button class="soc-quiet-go" onclick="socialsPane('friends', true)">Retry</button></div>`;
       return;
     }
+    // Zero friends is not a dead end any more: the invite card renders above
+    // this slot and IS the empty state, so there is nothing useful to say here.
+    if (!friends.length) { el.innerHTML = ''; return; }
     const rows = friends.map(f => {
       const mutual = f.mutual ? `<span class="soc-chip mutual">Mutual</span>` : '';
       const priv = f.is_public === 0 ? ` · private` : '';
@@ -478,47 +532,170 @@ async function renderFriends() {
           <div class="s">${f.roi == null ? '—' : (f.roi >= 0 ? '+' : '') + f.roi.toFixed(1) + '% ROI'}</div></div>
       </div>`;
     }).join('');
-    el.innerHTML = `<div class="soc-eyebrow">Your friends · ${friends.length} <span class="rule"></span></div>${rows}`;
+    el.innerHTML = `<div class="soc-eyebrow">Your circle · ${friends.length} <span class="rule"></span></div>${rows}`;
   } catch (_) { el.innerHTML = ''; }
 }
 
-async function renderInvite() {
-  const el = document.getElementById('soc-invite');
-  if (!el) return;
+// The invite card lives in two slots and only ever fills one. With an empty
+// circle it is the pane's empty state and renders high; once there are friends
+// it drops to the bottom as a standing offer.
+async function renderInvite(friendCount) {
+  const top = document.getElementById('soc-invite-top');
+  const bottom = document.getElementById('soc-invite');
+  if (!top || !bottom) return;
   if (!_referral) {
     try { const res = await fetch('/api/account'); if (res.ok) { const a = await res.json(); _referral = a.referral || null; } } catch (_) {}
   }
   const code = _referral && _referral.code ? _referral.code : null;
-  el.innerHTML = `<div class="soc-invite">
-    <h4>Bring a friend, both get 3 days</h4>
-    <p>Share your code. When a friend joins with it, you each get 3 free days of full access.</p>
-    <div class="row"><div class="code">${code ? esc(code) : '…'}</div>
-      <button class="go" onclick="socInviteShare('${code ? esc(code) : ''}')">Share</button></div>
-  </div>`;
+  const empty = !friendCount;
+  top.innerHTML = empty ? inviteCard(code, _referral, true) : '';
+  bottom.innerHTML = empty ? '' : inviteCard(code, _referral, false);
 }
 
-export function socInviteShare(code) {
-  if (!code) return;
-  const { message } = referralInvite(code);
-  if (navigator.share) { navigator.share({ title: 'CappingAlpha', text: message }).catch(() => {}); return; }
-  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(message).then(
-    () => { if (window.showToast) window.showToast('Invite message copied'); },
-    () => {}
-  );
+function inviteCard(code, ref, lead) {
+  const c = code ? esc(code) : '…';
+  // "people", never "friends": friends means a mutual follow everywhere else in
+  // this app, and someone who redeemed your code is not that. Days come from the
+  // server's own days_earned rather than a redemptions x 3 guess, so the number
+  // stays right if the grant ever changes.
+  const uses = ref && ref.redemptions ? ref.redemptions : 0;
+  const days = ref && ref.days_earned != null ? ref.days_earned : uses * 3;
+  const progress = uses > 0
+    ? `<div class="soc-inv-prog">${uses === 1
+        ? `1 person has joined with your code. That is ${days} free ${days === 1 ? 'day' : 'days'} so far.`
+        : `${uses} people have joined with your code. That is ${days} free ${days === 1 ? 'day' : 'days'} so far.`}</div>`
+    : '';
+  const head = lead
+    ? `<h4>Right now it is just you and the board</h4>
+       <p>Invite someone who follows the same games. When they join with your code you both get 3 free days of full access.</p>`
+    : `<h4>Bring a friend, both get 3 days</h4>
+       <p>Share your code. When a friend joins with it, you each get 3 free days of full access.</p>`;
+  const alt = lead
+    ? `<div class="soc-inv-alt">
+         <button onclick="socialsPane('board')">Browse the leaderboard</button>
+         <button onclick="socFocusSearch()">Search a username</button>
+       </div>`
+    : '';
+  return `${lead ? '<div class="soc-eyebrow">Your circle <span class="rule"></span></div>' : ''}
+    <div class="soc-invite">
+      ${head}
+      <div class="row"><div class="code">${c}</div>
+        <button class="go" onclick="socInviteShare('${c}')">Share</button>
+        <button class="go ghost" onclick="socCopyCode('${c}')">Copy</button></div>
+      ${progress}
+      ${alt}
+    </div>`;
+}
+
+export function socCopyCode(code) {
+  if (!code || code === '…') return;
+  haptic('light');
+  try {
+    navigator.clipboard?.writeText(code).then(
+      () => { if (window.showToast) window.showToast('Code copied'); }, () => {});
+  } catch (_) {}
+}
+
+export function socFocusSearch() {
+  const input = document.getElementById('soc-search-input');
+  if (!input) return;
+  // 'center', not 'start': the sub-nav is sticky at a different offset under
+  // html.ca-app than on web, and 'start' tucks the input under it in the app.
+  input.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  setTimeout(() => input.focus(), 260);
+}
+
+// ── Your week ─────────────────────────────────────────────────────────────────
+// The versus layout only appears once the circle has more than one member. At
+// n=1 a two-column scoreboard puts a brand-new member against the house, which
+// either humiliates them or leads the pane with CappingAlpha's losing week.
+// A member with no graded picks sits at exactly 0u, and uCls paints anything
+// >= 0 green. "0-0  +0u" in green reads as a winning week that never happened,
+// so no-decision rows stay neutral.
+function wkCls(r) { return (r && (r.wins || r.losses)) ? uCls(r.units) : ''; }
+
+async function renderWeek(friendCount) {
+  const el = document.getElementById('soc-week');
+  if (!el) return;
+  let rows = [];
+  try {
+    const res = await fetch('/api/leaderboard?window=week&scope=friends');
+    const d = res.ok ? await res.json() : {};
+    rows = (d.rows || []).filter(r => !r.is_house);
+  } catch (_) { el.innerHTML = ''; return; }
+
+  const me = rows.find(r => r.is_me);
+  const mine = me ? `<div class="soc-wk-big ${wkCls(me)}">${uStr(me.units)}</div>
+      <div class="soc-wk-sub">${recStr(me)} · ${pctStr(me.win_pct)} win</div>` : '';
+
+  if (!friendCount) {
+    el.innerHTML = !me || !(me.wins || me.losses)
+      ? `<div class="soc-eyebrow">Your week <span class="rule"></span></div>
+         <div class="soc-quiet"><b>No graded picks yet this week</b>
+           <p>Vote on a pick or track a bet and your week starts showing up here.</p>
+           <button class="soc-quiet-go" onclick="switchTab('mvp')">See today's board</button></div>`
+      : `<div class="soc-eyebrow">Your week <span class="rule"></span></div>
+         <div class="soc-wk">${mine}
+           <p class="soc-wk-note">Add someone to your circle and this card keeps score for them too.</p></div>`;
+    return;
+  }
+
+  const sorted = [...rows].sort((a, b) => (b.units ?? -1e9) - (a.units ?? -1e9));
+  const leader = sorted[0];
+  const myIdx = sorted.findIndex(r => r.is_me);
+  const versus = (me && leader && leader !== me)
+    ? `<div class="soc-vs">
+         <div class="side"><div class="nm">You</div><div class="u ${wkCls(me)}">${uStr(me.units)}</div><div class="r">${recStr(me)}</div></div>
+         <div class="mid">vs</div>
+         <div class="side"><div class="nm">@${esc(leader.username || '')}</div><div class="u ${wkCls(leader)}">${uStr(leader.units)}</div><div class="r">${recStr(leader)}</div></div>
+       </div>` : `<div class="soc-wk">${mine}</div>`;
+  const place = (me && myIdx >= 0 && sorted.length > 1)
+    ? `<div class="soc-wk-note">You are #${myIdx + 1} of ${sorted.length} in your circle this week.</div>` : '';
+  const list = sorted.slice(0, 3).map(r => `<div class="soc-wkrow ${r.is_me ? 'me' : ''}" onclick="${r.is_me ? '' : `openMemberModal(${r.user_id}, 'all')`}">
+      <span class="nm">${r.is_me ? 'You' : '@' + esc(r.username || '')}</span>
+      <span class="r">${recStr(r)}</span>
+      <span class="u ${wkCls(r)}">${uStr(r.units)}</span>
+    </div>`).join('');
+  el.innerHTML = `<div class="soc-eyebrow">Your week in your circle <span class="rule"></span></div>
+    <div class="soc-wk">${versus}${place}${list}</div>`;
+}
+
+// Share order matters. navigator.share does not exist in an Android WebView at
+// all and is unreliable in the iOS one, so the Capacitor plugin comes first and
+// the Web Share API is only a web fallback. The url rides as its own field so
+// iOS Messages renders a link card instead of raw text.
+export async function socInviteShare(code) {
+  if (!code || code === '…') return;
+  haptic('light');
+  const { url, message } = referralInvite(code);
+  const plug = window.Capacitor?.Plugins?.Share;
+  try {
+    if (plug?.share) { await plug.share({ title: 'CappingAlpha', text: message, url }); return; }
+    if (navigator.share) { await navigator.share({ title: 'CappingAlpha', text: message, url }); return; }
+  } catch (_) { return; }              // a dismissed share sheet is not an error
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(`${message} ${url}`);
+      if (window.showToast) window.showToast('Invite message copied');
+    }
+  } catch (_) {}
 }
 
 // Shared referral copy: a ready-to-send message with the ref link that lands the
 // recipient right on the signup form with the code already applied (app.js opens
 // signup on a ?ref= visit; unlock.js shows the "code applied" banner). Prod domain
 // so a link shared from any environment reaches the live site.
+// The url is returned separately, never baked into the message, because the
+// share sheet wants it as its own field. Only the clipboard fallback joins them.
 function referralInvite(code) {
   const url = `https://cappingalpha.com/?ref=${encodeURIComponent(code)}`;
-  const message = `I'm using CappingAlpha for ranked sports betting picks. Sign up with my code and we both get 3 free days of full access. Create your account here and the code applies automatically: ${url}`;
+  const message = `3 free days on CappingAlpha, for both of us. It ranks the day's picks and shows how every one of them settles. My code is already applied at this link:`;
   return { url, message };
 }
 
 export async function socFollow(btn, userId) {
   if (!state.currentUser) { window.openLogin && window.openLogin(); return; }
+  haptic('light');   // the only social verb in the app that had no tap feedback
   const following = btn.classList.contains('following');
   btn.disabled = true;
   try {
@@ -552,7 +729,17 @@ async function runSearch(q) {
     const res = await fetch(`/api/members/search?q=${encodeURIComponent(q)}`);
     const d = res.ok ? await res.json() : { members: [] };
     const members = d.members || [];
-    if (!members.length) { box.innerHTML = `<div style="font-size:12.5px;color:var(--muted);padding:6px 4px 10px;">No members match “${esc(q)}”.</div>`; return; }
+    // A search miss is the highest-intent invite moment in the app: you looked
+    // for someone by name and they are not here. Convert it instead of dead-ending.
+    if (!members.length) {
+      const code = _referral && _referral.code ? esc(_referral.code) : '';
+      box.innerHTML = `<div class="soc-quiet" style="margin-top:6px;">
+        <b>No member named “${esc(q)}”</b>
+        <p>If that is someone you know, send them your code and you both get 3 free days.</p>
+        ${code ? `<button class="soc-quiet-go" onclick="socInviteShare('${code}')">Invite</button>` : ''}
+      </div>`;
+      return;
+    }
     const rows = members.map(u => {
       const mutual = u.mutual ? `<span class="soc-chip mutual">Mutual</span>` : '';
       return `<div class="soc-frow" style="margin-bottom:6px;">
@@ -597,6 +784,6 @@ export function socialsBoardSport(sport) {
 // ── expose onclick handlers ────────────────────────────────────────────────────
 Object.assign(window, {
   socialsPane, socialsMore, socBoost, socTail, socToggleComments, socSendComment,
-  socDeleteComment, socReport, socBlock, socFollow, socInviteShare,
-  socialsBoardScope, socialsBoardSport, viewLeaderboard,
+  socDeleteComment, socReport, socBlock, socFollow, socInviteShare, socCopyCode,
+  socFocusSearch, socialsBoardScope, socialsBoardSport, viewLeaderboard,
 });

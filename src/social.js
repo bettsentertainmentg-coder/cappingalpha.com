@@ -22,9 +22,34 @@ const db = require('./db');
 const {
   gradedRows, aggregate, statify, voteReturn, userIsPublic, getLeaderboard,
 } = require('./leaderboard');
+const { settledProfit } = require('./odds_math');
 
 const COMMENT_MAX = 400;
 const COMMENTS_PER_HOUR = 20;
+
+// ── Tracked-bet P/L ───────────────────────────────────────────────────────────
+// user_bets.units is the bet's SIZE (stake / unit size), never its outcome, so
+// a settled bet's units have to be derived from the payout the way
+// user_bets.betSummary does. Reading the column straight rendered every loss as
+// a positive green number ("LOSS +0.75u" on a 0.75u stake).
+const DEFAULT_UNIT = 20;
+function unitSizes(ids) {
+  const m = new Map(ids.map(id => [id, DEFAULT_UNIT]));
+  if (!ids.length) return m;
+  const ph = ids.map(() => '?').join(',');
+  for (const r of db.prepare(`SELECT user_id, unit_size FROM user_preferences WHERE user_id IN (${ph})`).all(...ids)) {
+    if (r.unit_size != null && r.unit_size > 0) m.set(r.user_id, r.unit_size);
+  }
+  return m;
+}
+// Net units on the author's own unit scale. Pending bets have no number yet.
+function betNetUnits(b, unit) {
+  const r = String(b.result || '').toLowerCase();
+  if (!['win', 'loss', 'push'].includes(r)) return null;
+  const p = b.payout != null ? b.payout : settledProfit(r, b.odds, b.stake);
+  const u = unit > 0 ? unit : DEFAULT_UNIT;
+  return p == null ? null : +(p / u).toFixed(2);
+}
 
 // ── Graph helpers ─────────────────────────────────────────────────────────────
 function followeeIds(meId) {
@@ -190,7 +215,11 @@ function getFeed(meId, { cursor = null, limit = FEED_PAGE } = {}) {
     if (id === meId) return true;
     return m.is_public === 1 || mutuals.has(id);
   });
-  if (!authors.length) return { items: [], nextCursor: null, empty: true };
+  // following_count lets the client tell "you follow nobody" from "the people
+  // you follow were quiet this week". A client-side guess at that (counting
+  // authors in the payload) pins a starter card over a populated feed.
+  const following_count = followees.length;
+  if (!authors.length) return { items: [], nextCursor: null, empty: true, following_count };
 
   const ph = authors.map(() => '?').join(',');
 
@@ -258,6 +287,7 @@ function getFeed(meId, { cursor = null, limit = FEED_PAGE } = {}) {
       tails: tailCount(v.user_id, v.espn_game_id, v.pick_slot),
     });
   }
+  const betUnits = unitSizes([...new Set(bets.map(b => b.user_id))]);
   for (const b of bets) {
     items.push({
       key: `bet:${b.id}`, kind: 'bet', _ts: ts(b.settled_at || b.placed_at),
@@ -271,7 +301,7 @@ function getFeed(meId, { cursor = null, limit = FEED_PAGE } = {}) {
         line: b.line, odds: b.odds, book: b.book, notes: b.notes,
       },
       result: b.result || 'pending',
-      units: b.units != null ? +Number(b.units).toFixed(2) : null,
+      units: betNetUnits(b, betUnits.get(b.user_id)),
       payout: b.payout, stake: b.stake || null, stake_owner: b.user_id,
       verified: !!b.verified,
     });
@@ -338,7 +368,7 @@ function getFeed(meId, { cursor = null, limit = FEED_PAGE } = {}) {
     return o;
   });
 
-  return { items: out, nextCursor, streakRail: streakRail(meId, authors, streaks, metas) };
+  return { items: out, nextCursor, following_count, streakRail: streakRail(meId, authors, streaks, metas) };
 }
 
 // The Clubhouse streak rail: me first, then followed members with a live graded
@@ -580,6 +610,7 @@ function trueHistory(userId, viewerId) {
     ORDER BY COALESCE(settled_at, placed_at) DESC, id DESC LIMIT 80
   `).all(userId);
 
+  const unit = unitSizes([userId]).get(userId);
   const rows = [];
   for (const v of votes) {
     const graded = ['win', 'loss', 'push'].includes(v.result);
@@ -607,7 +638,7 @@ function trueHistory(userId, viewerId) {
       stake: hide ? null : (b.stake || null),
       payout: hide ? null : (b.payout != null ? b.payout : null),
       result: b.result || 'pending',
-      units: b.units != null ? +Number(b.units).toFixed(2) : null,
+      units: betNetUnits(b, unit),
       verified: !!b.verified, at: b.placed_at,
     });
   }

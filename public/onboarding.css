@@ -222,6 +222,40 @@ html.ob-lock, html.ob-lock body { overflow: hidden; }
 .ob-shot-lockrow i { font-size: 10px; color: var(--muted, #8892a4); }
 .ob-shot-blur { flex: 1; height: 9px; border-radius: 999px; background: var(--surface2, #1d2330); filter: blur(2.5px); }
 
+/* Circle preview (friends slide): member rows with initial avatars. */
+.ob-shot-eyebrow {
+  font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted, #8892a4); margin-bottom: 8px;
+}
+.ob-shot-av {
+  width: 18px; height: 18px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; color: var(--text, #e2e8f0);
+  background: var(--surface2, #1d2330); border: 1px solid var(--border, #252c3b);
+}
+.ob-shot-av.you { color: #1a1205; background: var(--gold, #FFD700); border-color: transparent; }
+.ob-shot-score.pos { color: #4ade80; }
+.ob-shot-score.neg { color: #f87171; }
+
+/* ── Invite step (8.5) ── */
+.ob-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px; font-weight: 800; letter-spacing: .16em;
+  /* --soc, not --soc-ink: the -ink token is the colour that sits ON the sky
+     fill (near-black in dark, white in light), so it vanishes on a surface. */
+  color: var(--soc, var(--text));
+  background: var(--overlay-2, rgba(255, 255, 255, 0.07));
+  border: 1px dashed var(--soc, var(--border));
+  border-radius: 12px;
+  padding: 14px 10px;
+  margin: 2px 0 6px;
+  cursor: pointer;
+  user-select: all;
+  touch-action: manipulation;
+}
+.ob-code:active { filter: brightness(1.12); }
+.ob-code-cap { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+
 .ob-dots { flex: 0 0 auto; display: flex; justify-content: center; gap: 8px; padding: 6px 0 2px; }
 .ob-dot {
   width: 8px;

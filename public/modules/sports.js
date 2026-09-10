@@ -175,6 +175,19 @@ function tennisBandPair(g) {
 // secondary is black/grey/white (no color at all) washes pale instead.
 function _near(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 110; }
 
+// _teamC lifts a dark colour by mixing it toward WHITE, which is right for a
+// wash-behind-text band but wrong for a solid bar: it desaturates. Boston's
+// navy #0C2340 came out rgb(85,101,121), a slate grey that reads as "no team"
+// next to a saturated orange. Scaling the channels up instead keeps the hue, so
+// navy stays navy (Jack spotted the grey Red Sox bar, 2026-08-27).
+function _vivid(hex) {
+  const c = _hx(hex);
+  const mx = Math.max(c[0], c[1], c[2]);
+  if (mx >= 150) return c;                       // already bright enough
+  const k = 190 / Math.max(mx, 1);
+  return c.map(v => Math.min(255, Math.round(v * k)));
+}
+
 function sideColorPair(g) {
   const sp = (g.sport || '').toUpperCase();
   const tennis = sp === 'ATP' || sp === 'WTA';
@@ -192,7 +205,7 @@ function sideColorPair(g) {
   let ca = _teamC(away), ch = _teamC(home);
   if (_near(ca, ch)) {
     const sec = tennis ? null : (TEAM_COLORS[g.away_team] || [])[1];
-    const cs = sec ? _teamC(sec) : null;
+    const cs = sec ? _vivid(sec) : null;
     ca = (cs && _chromaHex(sec) >= 40 && !_near(cs, ch)) ? cs : _mix(ca, _WHITE, 0.55);
   }
   return { away: _rgb(ca), home: _rgb(ch) };
@@ -318,20 +331,23 @@ function tileInner(g, side, name) {
   return esc(abbrOf(g, side));
 }
 
-// ESPN team logos are deterministic from the abbreviation the board already
-// stores, but only for the leagues whose logo path is keyed by abbr. NCAA and
-// soccer need numeric team ids we do not persist, so they fall back to the
-// lettered badge. Tennis has no team at all: the player's face (or their flag)
-// is the logo.
-const LOGO_LEAGUE = { MLB: 'mlb', NBA: 'nba', WNBA: 'wnba', NFL: 'nfl', NHL: 'nhl' };
-
+// NO THIRD-PARTY TEAM CRESTS (Jack 2026-08-27). Club and league logos are
+// trademarks their owners license commercially: the books that show them pay for
+// the right, the data feeds that ship them disclaim it, and App Review rejects
+// unlicensed use under 4.1 ("content that resembles one or multiple third-party
+// sports teams and/or leagues"), asking for documentary evidence or removal.
+// Approval does not carry forward either: a build accepted once has been
+// rejected on the same marks at the next release.
+// So every team wears a mark WE draw instead: a hairline roundel carrying the
+// abbreviation, monochrome, no team colour and no borrowed shape. Naming a team
+// in text stays exactly as it was, that is nominative use of a fact about a real
+// game and is not the risk. Only the crest was.
+// Tennis is untouched here: players have no club crest, and their photo/flag is
+// a separate question Jack has parked.
 function sideLogo(g, side) {
   const sp = (g.sport || '').toUpperCase();
   if (sp === 'ATP' || sp === 'WTA') return g[side + '_photo'] || g[side + '_flag'] || null;
-  const lg = LOGO_LEAGUE[sp];
-  const ab = side === 'home' ? g.home_abbr : g.away_abbr;
-  if (!lg || !ab) return null;
-  return `https://a.espncdn.com/i/teamlogos/${lg}/500/${String(ab).trim().toLowerCase()}.png`;
+  return null;
 }
 
 function bandTeam(g, side) {
@@ -587,10 +603,13 @@ function _ddLabel(sd, side) {
   const abbr = side === 'a' ? sd.aAbbr : sd.hAbbr;
   const line = side === 'a' ? sd.aLine : sd.hLine;
   const logo = side === 'a' ? sd.aLogo : sd.hLogo;
+  // One badge shape everywhere: a hairline roundel. Colour only where it carries
+  // meaning (over green, under red); a team's ring stays monochrome.
+  const ring = sd.ou ? ` nx-dd-logo--${side === 'a' ? 'ov' : 'un'}` : '';
   const badge = logo
-    ? `<img class="nx-dd-logo" src="${esc(logo)}" alt="" loading="lazy" onerror="this.remove()">`
-    : `<span class="nx-dd-logo nx-dd-logo--txt${sd.ou ? ' ' + (side === 'a' ? 'ov' : 'un') : ''}">` +
-      `${sd.ou ? (side === 'a' ? '&uarr;' : '&darr;') : esc(String(abbr).slice(0, 2))}</span>`;
+    ? `<img class="nx-dd-logo nx-dd-logo--img" src="${esc(logo)}" alt="" loading="lazy" onerror="this.remove()">`
+    : `<span class="nx-dd-logo nx-dd-logo--mark${ring}">` +
+      `${sd.ou ? (side === 'a' ? '&uarr;' : '&darr;') : esc(String(abbr).slice(0, 3))}</span>`;
   const num = (line == null || line === '') ? '' : `<i class="nx-dd-ln">${esc(String(line))}</i>`;
   return `<span class="nx-dd-lab nx-dd-lab--${side}">${badge}` +
     `<span class="nx-dd-meta"><b class="nx-dd-tm">${esc(String(abbr))}</b>${num}</span></span>`;
@@ -634,18 +653,22 @@ function ddRender(g) {
 
   const aLogo = sideLogo(g, 'away'), hLogo = sideLogo(g, 'home');
 
+  // Fixed order, top down: Moneyline, Spread, Total (Jack 2026-08-27). The panel
+  // reads the same on every game, so the eye learns one shape and stops hunting
+  // for the market it came to check. A game missing a market closes that gap
+  // rather than reshuffling the rest.
   const body =
+    _ddMarket('Moneyline', '',
+      { aAbbr: am, aLine: g.ml_away == null ? '' : fmtOdds(g.ml_away), aLogo,
+        hAbbr: hm, hLine: g.ml_home == null ? '' : fmtOdds(g.ml_home), hLogo },
+      pr(p.away_ml, p.home_ml), pr(p.away_ml_money, p.home_ml_money)) +
     _ddMarket('Spread', '',
       { aAbbr: am, aLine: spA == null ? '' : fmtSpread(spA), aLogo,
         hAbbr: hm, hLine: spH == null ? '' : fmtSpread(spH), hLogo },
       pr(p.away_spread, p.home_spread), pr(p.away_spread_money, p.home_spread_money)) +
     _ddMarket('Total', ' nx-dd-mkt--ou',
       { aAbbr: 'Over', aLine: tot, hAbbr: 'Under', hLine: tot, ou: true },
-      pr(p.over, p.under), pr(p.over_money, p.under_money)) +
-    _ddMarket('Moneyline', '',
-      { aAbbr: am, aLine: g.ml_away == null ? '' : fmtOdds(g.ml_away), aLogo,
-        hAbbr: hm, hLine: g.ml_home == null ? '' : fmtOdds(g.ml_home), hLogo },
-      pr(p.away_ml, p.home_ml), pr(p.away_ml_money, p.home_ml_money));
+      pr(p.over, p.under), pr(p.over_money, p.under_money));
 
   if (!body) return '';
   const c = sideColorPair(g);
