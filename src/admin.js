@@ -1044,16 +1044,34 @@ router.get('/dashboard', requireAuth, (req, res) => {
     return o > 0 ? stake * (o / 100) : stake * (100 / Math.abs(o));
   }
 
+  // "Active" = tracked at least one bet recently. A bet's moment is its GAME
+  // DATE (saved_at falls back for rows without one) so backfilled history
+  // (a wallet's 90-day import lands with today's saved_at) never reads as
+  // fresh activity. Pending bets on upcoming games count as activity too.
+  const _tsMs = (v) => {
+    if (!v) return 0;
+    const t = String(v).trim();
+    let ms;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) ms = Date.parse(t + 'T12:00:00Z');
+    else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(t)) ms = Date.parse(t.replace(' ', 'T') + (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(t) ? '' : 'Z'));
+    else ms = Date.parse(t);
+    return Number.isFinite(ms) ? ms : 0;
+  };
+  const ACTIVE_7D_MS  = Date.now() - 7  * 86400e3;
+  const ACTIVE_14D_MS = Date.now() - 14 * 86400e3;
+
   // Aggregate per capper from capper_history
   const capperMap = new Map();
   for (const row of allHistoryRows) {
     if (!row.capper_name) continue;
     const display = resolveCapperDisplay(row.capper_name);
     if (!capperMap.has(display)) {
-      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, money: 0, sports: {}, srcs: new Set() });
+      capperMap.set(display, { wins: 0, losses: 0, pushes: 0, pending: 0, money: 0, sports: {}, srcs: new Set(), lastAt: 0 });
     }
     const c = capperMap.get(display);
     c.srcs.add(row.source || 'discord');
+    const betAt = _tsMs(row.game_date) || _tsMs(row.saved_at);
+    if (betAt > c.lastAt) c.lastAt = betAt;
     const r = (row.result || '').toLowerCase();
     if (r === 'win')       c.wins++;
     else if (r === 'loss') c.losses++;
@@ -1062,7 +1080,8 @@ router.get('/dashboard', requireAuth, (req, res) => {
     const profit = pickProfit(r, row.odds, row.pick_type, betUnit);
     c.money += profit;
     const s = row.sport || 'Unknown';
-    if (!c.sports[s]) c.sports[s] = { wins: 0, losses: 0, pushes: 0, money: 0 };
+    if (!c.sports[s]) c.sports[s] = { wins: 0, losses: 0, pushes: 0, money: 0, lastAt: 0 };
+    if (betAt > c.sports[s].lastAt) c.sports[s].lastAt = betAt;
     if (r === 'win')       c.sports[s].wins++;
     else if (r === 'loss') c.sports[s].losses++;
     else if (r === 'push') c.sports[s].pushes++;
@@ -1145,7 +1164,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
       // decisions in the sport drop out of the view.
       if (lbSport) {
         const sr = sportRatingsMap.get(name) || null;
-        const sRec = c.sports[lbSport] || { wins: 0, losses: 0, pushes: 0, money: 0 };
+        const sRec = c.sports[lbSport] || { wins: 0, losses: 0, pushes: 0, money: 0, lastAt: 0 };
         const total = sRec.wins + sRec.losses + sRec.pushes;
         if (!sr && !total) return null;
         const decided = sRec.wins + sRec.losses;
@@ -1166,7 +1185,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
             chipIn = ((r?.pts ?? 0) / 2) * Math.max(0, Math.min(1, (oShrunk - 0.50) / 0.08));
           }
         }
-        return { name, sports: c.sports, pending: c.pending,
+        return { name, sports: c.sports, pending: c.pending, lastAt: sRec.lastAt || 0,
                  wins: sRec.wins, losses: sRec.losses, pushes: sRec.pushes, money: sRec.money,
                  total, winPct, units: sRec.wins - sRec.losses,
                  rating: r ? (r.resume_points ?? 0) : null,
@@ -1375,6 +1394,24 @@ router.get('/dashboard', requireAuth, (req, res) => {
     }).join(' ');
   const fadeCount = sortedCappers.filter(c => c.fade).length;
 
+  // Active cappers: at least one tracked bet in the past 7 / 14 days (game
+  // date). Each row is stamped 7 (active this week), 14 (active only in days
+  // 8-14), or 0 so the pill's click-to-filter matches these counts exactly.
+  const activeBucket = (c) => c.lastAt >= ACTIVE_7D_MS ? 7 : c.lastAt >= ACTIVE_14D_MS ? 14 : 0;
+  const active7  = sortedCappers.filter(c => activeBucket(c) === 7).length;
+  const active14 = sortedCappers.filter(c => activeBucket(c) !== 0).length;
+  const activeScope = lbSport ? escHtml(lbSport) + ' ' : '';
+  const activeIndicatorHtml = `
+    <div id="active-cappers" style="flex:none;display:flex;align-items:center;gap:6px;padding:4px 8px 4px 10px;border:1px solid #3b82f644;border-radius:999px;background:#3b82f60f;white-space:nowrap;"
+      title="Active cappers: at least one tracked ${activeScope}bet in the past 7 or 14 days (by game date). Click a count to filter the table to those cappers, click again to clear.">
+      <span class="active-dot"></span>
+      <span style="color:#93c5fd;font-size:11px;font-weight:800;letter-spacing:0.5px;">ACTIVE</span>
+      <button class="btn-sm active-filter-btn" data-days="7" onclick="filterCapperActive(7, this)"
+        style="border:1px solid #3b82f655;color:#93c5fd;background:#3b82f61a;padding:2px 8px;">7d · ${active7}</button>
+      <button class="btn-sm active-filter-btn" data-days="14" onclick="filterCapperActive(14, this)"
+        style="border:1px solid #3b82f655;color:#93c5fd;background:#3b82f61a;padding:2px 8px;">14d · ${active14}</button>
+    </div>`;
+
   // Ladder scope chips: Overall + one per sport pool with a materialized ladder.
   const ladderChips = [`<a href="/admin/dashboard?tab=cappers" class="btn-sm" style="text-decoration:none;${!lbSport ? 'background:#93c5fd22;border:1px solid #93c5fd66;color:#93c5fd;font-weight:800;' : 'border:1px solid #3b4560;color:#8892a4;'}">Overall</a>`]
     .concat(ladderSports.map(s => {
@@ -1400,9 +1437,12 @@ router.get('/dashboard', requireAuth, (req, res) => {
   })() : '';
 
   const capperLeaderboardHtml = sortedCappers.length ? `
-    <p style="color:#8892a4;font-size:12px;margin-bottom:10px;">${lbSport
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
+    <p style="color:#8892a4;font-size:12px;margin:0;flex:1;">${lbSport
       ? `Ranked by the <b style="color:#e5e9f0;">${escHtml(lbSport)}</b> pool's Wilson interval (99% lower bound on the ${escHtml(lbSport)} record only). Record, win%, units, and money below are ${escHtml(lbSport)}-only.`
       : 'Ranked by the Wilson score interval (99% lower bound on win rate): the ranking that decides what every capper\'s picks are worth.'} Click a column to sort (click again to reverse). Click any row for the full capper profile. <button class="btn-sm" style="margin-left:8px;" onclick="recomputeRatings(this)">Recompute ratings</button></p>
+    ${activeIndicatorHtml}
+    </div>
     <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <span style="color:#8892a4;font-size:11px;font-weight:700;letter-spacing:0.5px;">LADDER</span>
       ${ladderChips}
@@ -1453,7 +1493,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const capNote = c.pts != null && c.decisionsR < 30 && c.band !== 'bottom25' && c.band !== 'new' && !c.fade
           ? `<span title="Volume cap: under 10 decisions caps at 50 points, 10-29 at 70. Uncapped at 30." style="color:#f59e0b;font-size:9px;font-weight:700;"> CAP</span>` : '';
         const ptsColor = c.pts == null ? '#3b4560' : c.pts >= 76 ? '#FFD700' : c.pts >= 51 ? '#16a34a' : c.pts > 0 ? '#8892a4' : '#ef4444';
-        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" data-sources="${escHtml((c.srcList || []).join(','))}" data-band="${escHtml(c.band || 'new')}" data-fade="${c.fade ? 1 : 0}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
+        return `<tr class="capper-row" style="cursor:pointer;${fadeRow}" data-capper="${escHtml(c.name)}" data-sources="${escHtml((c.srcList || []).join(','))}" data-band="${escHtml(c.band || 'new')}" data-fade="${c.fade ? 1 : 0}" data-active="${activeBucket(c)}" onclick="showCapperDetail(this.getAttribute('data-capper'))">
           <td data-sv="${i}" style="color:#8892a4;font-size:12px;">${i + 1}</td>
           <td data-sv="${escHtml(c.name.toLowerCase())}" style="font-weight:600;">
             <div style="white-space:nowrap;">${escHtml(c.name)}</div>
@@ -3240,7 +3280,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
       // ── Click-to-sort the capper leaderboard ───────────────────────────────────
       let capperSort = { col: -1, dir: -1 };
-      let _capFilter = { src: 'all', band: 'all', q: '' };
+      let _capFilter = { src: 'all', band: 'all', q: '', active: 0 };
       function applyCapperFilters() {
         const table = document.getElementById('capper-leaderboard');
         if (!table) return;
@@ -3254,7 +3294,10 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const okBand = _capFilter.band === 'all'
             || (_capFilter.band === 'fade' ? r.getAttribute('data-fade') === '1' : band === _capFilter.band);
           const okQ = !q || name.includes(q);
-          const show = okSrc && okBand && okQ;
+          // data-active: 7 = bet in the past week, 14 = only in days 8-14, 0 = idle.
+          const act = parseInt(r.getAttribute('data-active') || '0', 10) || 0;
+          const okActive = !_capFilter.active || (act > 0 && act <= _capFilter.active);
+          const show = okSrc && okBand && okQ && okActive;
           r.style.display = show ? '' : 'none';
           if (show) { shown++; r.cells[0].textContent = shown; } // re-rank visible rows
         });
@@ -3280,6 +3323,19 @@ router.get('/dashboard', requireAuth, (req, res) => {
         applyCapperFilters();
       }
       function searchCappers(v) { _capFilter.q = v || ''; applyCapperFilters(); }
+      // The ACTIVE pill: click a count to filter to cappers with a tracked bet
+      // in that window, click the same count again to clear.
+      function filterCapperActive(days, btn) {
+        const on = _capFilter.active === days ? 0 : days;
+        document.querySelectorAll('.active-filter-btn').forEach(b => {
+          const mine = on && parseInt(b.getAttribute('data-days'), 10) === on;
+          b.classList.toggle('active', !!mine);
+          b.style.boxShadow = mine ? 'inset 0 -2px 0 currentColor' : '';
+          b.style.background = mine ? '#3b82f640' : '#3b82f61a';
+        });
+        _capFilter.active = on;
+        applyCapperFilters();
+      }
 
       function sortCapperLB(th) {
         const table = document.getElementById('capper-leaderboard');
@@ -3987,7 +4043,11 @@ router.get('/dashboard', requireAuth, (req, res) => {
       // button onclick handler only fires on click, so direct nav needs a kick.
       if (${JSON.stringify(activeTab)} === 'archive') archiveLoad();
     </script>
-    <style>@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }</style>
+    <style>
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+      @keyframes activeBlink { 0%,100%{opacity:1;box-shadow:0 0 0 2px #3b82f633, 0 0 8px #3b82f6} 50%{opacity:0.25;box-shadow:none} }
+      .active-dot { width:9px;height:9px;border-radius:50%;background:#3b82f6;flex:none;animation:activeBlink 1.4s ease-in-out infinite; }
+    </style>
   `));
 });
 
