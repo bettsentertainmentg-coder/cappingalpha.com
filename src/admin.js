@@ -4914,6 +4914,8 @@ router.post('/api/regrade-ledger', adminLoginRateLimit, express.json(), async (r
 // names another market (Polymarket set markets). Graded rows keep their prior
 // result in result_before_void; a pending pregame row is withdrawn with its
 // board mention. Body: { dry_run: true|false, since, until }
+//   or { dry_run, ids: [capper_history ids], reason: '<slug>' } to void an
+//      explicit list (rows only the source's own market label can expose)
 //   or { restore: true, reason: '<void_reason>' | null } to reverse.
 // Defaults to a DRY RUN. Header-auth so it can be driven from the Mac.
 router.post('/api/sanitize-ledger', adminLoginRateLimit, express.json(), (req, res) => {
@@ -4937,7 +4939,10 @@ router.post('/api/sanitize-ledger', adminLoginRateLimit, express.json(), (req, r
       if (out.restored) recompute();
       return res.json(out);
     }
-    const report = sanitizeLedger({ dryRun, since, until });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(n => parseInt(n, 10)).filter(Number.isFinite) : null;
+    const reason = typeof req.body?.reason === 'string' && /^[a-z0-9_]{3,40}$/.test(req.body.reason) ? req.body.reason : null;
+    if (ids && !reason) return res.status(400).send('ids need a reason slug');
+    const report = sanitizeLedger({ dryRun, since, until, ids, reason });
     console.log(`[sanitize-ledger] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_flagged} flagged of ${report.rows_scanned} ` +
                 `(${report.rows_voided} voided, ${report.rows_withdrawn} withdrawn) across ${report.cappers_affected} capper(s) ${since}..${until}`);
     if (!dryRun && (report.rows_voided || report.rows_withdrawn)) recompute();

@@ -297,6 +297,18 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   `competitor_id`; Polymarket's market screen (`SKIP_Q`) now excludes set
   markets, handicaps, exhibitions and every prop phrasing, on the live map
   and the holders backfill alike.
+- Heavy prices are not picks (Jack, 2026-09-15: "if someone's placing a bet
+  like -2000, ignore it"). A moneyline at -2000 or heavier is refused at
+  ingest (`heavy_price`) and the restatement voids the ones already graded
+  (386 on the prod export, nearly all Polymarket wallets at -2400 and beyond,
+  plus ten Covers -10000s). Spreads and totals past +-1000 were already out.
+- Rows only the source's own market label can expose (a BettingPros "5th
+  Inning Moneyline" carries an ordinary price and no line, so no band sees
+  it) are voided in LIST mode: `{ ids, reason }` to the sanitize endpoint,
+  from a cross-check that re-reads BettingPros' market ids per event. Their
+  picks endpoint pages at 50, and a busy NFL game carries ~1,000 picks; the
+  live poll now walks pages down to the previous poll's watermark instead of
+  reading the 50 most recent picks only.
 - Why refuse rather than re-file: a first-five total is a real bet, but it is
   not a bet on the game total, and the ledger has one slot per game market.
   A dropped pick costs one data point. A misfiled one is a coin flip counted

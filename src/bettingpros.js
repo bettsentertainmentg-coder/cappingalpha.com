@@ -173,6 +173,28 @@ function matchGame(ev, sport) {
     || findGameByTeams(ps[0].short, ps[1].short, sport, opts);
 }
 
+// Their picks endpoint pages at 50 (a larger limit is ignored) and a busy NFL
+// game carries ~1,000 picks, so reading page 1 alone saw only the 50 most
+// recent picks per poll (found 2026-09-15). Walk pages newest-first until a
+// page dips below the previous poll's watermark (with slack for late
+// arrivals), capped so one runaway game cannot stall the cron.
+const BP_PAGE = 50, BP_MAX_PAGES = 8, BP_WATERMARK_SLACK_MS = 30 * 60e3;
+async function fetchEventPicks(bpSport, eventId, key, watermarkMs) {
+  const out = [];
+  for (let page = 1; page <= BP_MAX_PAGES; page++) {
+    const res = await getJson(`https://api.bettingpros.com/v3/picks?sport=${bpSport}&event_id=${eventId}&limit=${BP_PAGE}&page=${page}`, key);
+    await sleep(150);
+    const picks = (res.json && res.json.picks) || [];
+    out.push(...picks);
+    if (picks.length < BP_PAGE) break;
+    const pg = (res.json && res.json._pagination) || {};
+    if (pg.total_pages && page >= pg.total_pages) break;
+    const oldest = Math.min(...picks.map((p) => bpTimeMs(p.created || p.published) || Infinity));
+    if (watermarkMs && Number.isFinite(oldest) && oldest < watermarkMs - BP_WATERMARK_SLACK_MS) break;
+  }
+  return out;
+}
+
 // ── Poll: sweep today's events per sport, fan out to each event's picks ──────
 // Their picks endpoint only answers per event_id (a date-only query returns an
 // empty list), so the event sweep is mandatory.
@@ -183,6 +205,8 @@ async function pollBettingPros() {
 
   const today = etDate(Date.now());
   const minUnits = parseFloat(db.getSetting('bp_min_units', '0'));
+  const watermark = Date.parse(db.getSetting('bp_poll_watermark', '')) || 0;
+  const pollStart = Date.now();
   let inserted = 0, dupes = 0, skipped = 0;
   const refusedMarkets = {}; // "NFL m327 Game Props" -> count, for the log line
 
@@ -199,9 +223,8 @@ async function pollBettingPros() {
     for (const e of events) {
       const game = matchGame(e, ourSport);
       if (!game) continue;
-      const res = await getJson(`https://api.bettingpros.com/v3/picks?sport=${bpSport}&event_id=${e.id}&limit=100`, key);
-      await sleep(150);
-      for (const p of ((res.json && res.json.picks) || [])) {
+      const eventPicks = await fetchEventPicks(bpSport, e.id, key, watermark);
+      for (const p of eventPicks) {
         // Skip what we cannot grade as one board slot: player props and parlays.
         if (p.player_id) { skipped++; continue; }
         if (Array.isArray(p.parlay) ? p.parlay.length : p.parlay) { skipped++; continue; }
@@ -255,6 +278,7 @@ async function pollBettingPros() {
       }
     }
   }
+  db.setSetting('bp_poll_watermark', new Date(pollStart).toISOString());
   if (inserted || dupes) console.log(`[bettingpros] poll: ${inserted} new picks, ${dupes} known, ${skipped} skipped (props/parlays/other markets/unmatched)`);
   const rk = Object.entries(refusedMarkets).sort((a, b) => b[1] - a[1]);
   if (rk.length) console.log(`[bettingpros] non-full-game markets refused: ${rk.slice(0, 12).map(([k, n]) => `${k} x${n}`).join(', ')}${rk.length > 12 ? ` (+${rk.length - 12} more)` : ''}`);

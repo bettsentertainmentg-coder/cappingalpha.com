@@ -51,6 +51,10 @@ const SPREAD_TOL = { MLB: 1.5, NHL: 1.5, NBA: 5, WNBA: 5, CBB: 6, WCBB: 6, NFL: 
 const SIDE_PRICE_MAX = 300;
 const SIDE_PRICE_IMPOSSIBLE = 1000;   // restatement bar for rows already graded
 const ML_PRICE_MAX = 2500;
+// Jack, 2026-09-15: "if someone's placing a bet like -2000, ignore it." A
+// pregame moneyline at that price is not a read on the game; it is a free
+// win in a win-rate ladder (407 Polymarket rows at -2400 and beyond).
+const HEAVY_ML_REFUSE = 2000;
 const ML_IMPLIED_TOL = 0.10;          // recorded vs market, in implied probability
 
 function sportKey(sport) {
@@ -106,6 +110,10 @@ function implausibleLedgerRow(row) {
     const max = SPREAD_MAX[sp];
     if (max != null && Math.abs(line) > max) return 'spread_out_of_band';
     if (odds != null && Math.abs(odds) >= SIDE_PRICE_IMPOSSIBLE) return 'side_price_impossible';
+    return null;
+  }
+  if (pt === 'ml') {
+    if (odds != null && odds <= -HEAVY_ML_REFUSE) return 'heavy_price';
     return null;
   }
   return null;
@@ -180,6 +188,7 @@ function checkSourcePick({ game, sport, pickType, side, line, odds, trustPrice =
     } else if (!plausible && O != null) {
       return { ok: false, reason: 'ml_price_implausible', line: null, odds: O, notes };
     }
+    if (O != null && O <= -HEAVY_ML_REFUSE) return { ok: false, reason: 'heavy_price', line: null, odds: O, notes };
     return { ok: true, reason: null, line: null, odds: O, notes };
   }
   return { ok: false, reason: 'unsupported_type', line: L, odds: O, notes };
@@ -194,15 +203,34 @@ function checkSourcePick({ game, sport, pickType, side, line, odds, trustPrice =
 // mention), the same path a Polymarket flip already uses: pending pregame rows
 // are not public and the ingest would never have minted them now.
 // Dry run by default. Idempotent: rows already void are skipped.
-function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-31', limitChanges = 5000 } = {}) {
+// Two modes. Rule mode (default) judges every row by its number and
+// provenance. List mode ({ ids, reason }) voids an explicit set under one
+// reason slug: the path for rows only the source's own market label can
+// expose (a BettingPros "5th Inning Moneyline" carries a perfectly ordinary
+// price and no line, so no band can see it; the cross-check that reads their
+// market ids per event produces the list).
+function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-31', limitChanges = 5000, ids = null, reason: listReason = null } = {}) {
   const db = require('./db');
   const { hasGameStarted } = require('./pick_cutoff');
   const { removeSourceEntry } = require('./source_ingest');
-  const rows = db.prepare(`
-    SELECT * FROM capper_history
-    WHERE result IN ('win','loss','push','pending')
-      AND COALESCE(game_date, substr(saved_at,1,10)) >= ? AND COALESCE(game_date, substr(saved_at,1,10)) <= ?
-  `).all(since, until);
+  let rows;
+  if (Array.isArray(ids)) {
+    if (!listReason) throw new Error('list mode needs a reason slug');
+    rows = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      rows.push(...db.prepare(`
+        SELECT * FROM capper_history
+        WHERE id IN (${chunk.map(() => '?').join(',')}) AND result IN ('win','loss','push','pending')
+      `).all(...chunk));
+    }
+  } else {
+    rows = db.prepare(`
+      SELECT * FROM capper_history
+      WHERE result IN ('win','loss','push','pending')
+        AND COALESCE(game_date, substr(saved_at,1,10)) >= ? AND COALESCE(game_date, substr(saved_at,1,10)) <= ?
+    `).all(since, until);
+  }
 
   const upd = db.prepare(`UPDATE capper_history SET result_before_void = result, result = 'void', void_reason = ? WHERE id = ?`);
   const gameRow = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score FROM today_games WHERE espn_game_id = ?`);
@@ -212,7 +240,7 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
   let scanned = 0, withdrawn = 0, voided = 0;
   for (const r of rows) {
     scanned++;
-    const reason = implausibleLedgerRow(r) || otherMarketFromProvenance(r);
+    const reason = Array.isArray(ids) ? listReason : (implausibleLedgerRow(r) || otherMarketFromProvenance(r));
     if (!reason) continue;
     let action = 'void';
     if (r.result === 'pending' && r.espn_game_id) {
@@ -241,6 +269,7 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
   }
   return {
     started: new Date().toISOString(), dry_run: dryRun, since, until,
+    mode: Array.isArray(ids) ? 'list' : 'rules', ids_requested: Array.isArray(ids) ? ids.length : null, list_reason: listReason,
     rows_scanned: scanned, rows_flagged: changes.length,
     rows_voided: voided, rows_withdrawn: withdrawn,
     cappers_affected: Object.keys(byCapper).length,
@@ -263,7 +292,7 @@ function restoreLedger({ reason = null } = {}) {
 }
 
 module.exports = {
-  TOTAL_BAND, SPREAD_MAX, TOTAL_TOL, SPREAD_TOL, SIDE_PRICE_MAX, SIDE_PRICE_IMPOSSIBLE, ML_PRICE_MAX,
+  TOTAL_BAND, SPREAD_MAX, TOTAL_TOL, SPREAD_TOL, SIDE_PRICE_MAX, SIDE_PRICE_IMPOSSIBLE, ML_PRICE_MAX, HEAVY_ML_REFUSE,
   checkSourcePick, implausibleLedgerRow, otherMarketFromProvenance, marketLine, marketPrice,
   sanitizeLedger, restoreLedger,
 };
