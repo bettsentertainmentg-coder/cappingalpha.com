@@ -47,9 +47,12 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
 - Same team ML + spread is one direction, not a conflict; both can ride.
 
 ## R4. Grades = final score vs the locked line
-- Order of truth at grade time: line_snapshots (the lock record), then the
-  locked stamp on the row itself (captured_*/live_*), then the display line
+- Order of truth at grade time FOR A CA ROW (board picks, tracked bets, the
+  permanent archive): line_snapshots (the lock record), then the locked stamp
+  on the row itself (captured_*/live_*), then the display line
   (src/results.js evaluatePick).
+- That order is for CA rows ONLY. A capper ledger row grades at its own number
+  and nothing else (R6) — `evaluatePick(row, game, { ownLine: true })`.
 - Soccer ML is 3-way: a draw grades both ML sides as losses.
 - Tennis totals and game-spreads grade on GAMES, set markets on sets.
 - Voids: tennis player replacement, tennis match ended early (R8),
@@ -65,6 +68,19 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
 - The CA tracked-bet record (MVP history) is the hypothetical bet ledger ruled
   by R1-R5. The two can legitimately disagree on a line; they can never
   disagree on what the final score was.
+- ENFORCED (2026-09-10): `evaluatePick` takes `{ ownLine: true }` for ledger
+  rows, which skips the line_snapshots lookup and every captured_/live_ stamp.
+  Audit rule R6 regrades same-day ledger rows against their own line and flags
+  any that disagree (`ledger_line_mismatch`).
+- Why it needed enforcing: the snapshot lookup only needs a game id and a team
+  name, both of which a capper_history row has, so it won every time and each
+  capper was graded at the CA's locked line. On 2026-09-09 Seattle beat New
+  England by exactly 3 with the CA line at 3, and all 146 spread rows on the
+  game graded PUSH (+4.5, +3.5, -2.5 and -3.5 alike). Totals graded against the
+  game's 44.5, so a 21.5 under on a 23-point game came back a WIN. 1,687 grades
+  across 473 cappers were wrong, 813 of them win/loss flips, in the table the
+  Wilson ladder is built from. Restated by src/ledger_regrade.js
+  (POST /admin/api/regrade-ledger).
 
 ## R7. Heavy prices require proven backers (2026-07-28)
 - An ML gold priced at or past the heavy gate (settings heavy_ml_gate, default
@@ -233,4 +249,16 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   unconstrained answer is kept whenever the reader's sport has no candidate, so
   the existing WNBA and Soccer guards see the same rows they saw before.
 
-Current as of 2026-09-08.
+## R14. A ledger line must be possible for its sport and market (2026-09-10)
+
+- A capper_history row whose quoted number cannot be a full-game line for its
+  sport is not a bet we can grade: an MLB "game total" of 0.5 or 1 is a team
+  total or a prop, a 184.5 filed under MLB is a basketball line on a
+  wrong-game match. Audit rule R14 flags them (`implausible_line`); the bands
+  are deliberately wide so a real line is never argued with.
+- Flag only. Voiding these rows is Jack's call, and the repair belongs on the
+  ingest side (whichever scraper handed a team total over as a game total).
+- Found in the same 2026-09-10 autopsy as R6: 569 graded rows carry a line
+  their market cannot have.
+
+Current as of 2026-09-10.

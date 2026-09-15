@@ -35,7 +35,14 @@ function tennisNoWinnerYet(game) {
   return !hasMatchWinner({ homeSetsWon: game.home_score, awaySetsWon: game.away_score });
 }
 
-function evaluatePick(pick, game) {
+// `opts.ownLine` = grade this row against the line IT quotes, never the game's
+// locked CA line. Capper ledger rows (capper_history) record the price a capper
+// actually took; the CA official line belongs to the CA's own bet. Grading a
+// capper's +3.5 at the CA's 3 rewrites their bet into a bet they never made
+// (2026-09-09 NE/SEA: SEA won by 3, and every spread row on the game — +4.5,
+// +3.5, -2.5, -3.5 alike — graded PUSH off the one locked 3).
+function evaluatePick(pick, game, opts = {}) {
+  const ownLine = opts.ownLine === true;
   const type = (pick.pick_type || '').toLowerCase();
   const isTennis = ['atp', 'wta'].includes((game.sport || pick.sport || '').toLowerCase());
 
@@ -127,7 +134,7 @@ function evaluatePick(pick, game) {
   const margin      = pickedScore - oppScore; // sets for tennis, score diff for other sports
 
   // Get locked line
-  const snapshot = pick.espn_game_id ? db.prepare(`
+  const snapshot = (!ownLine && pick.espn_game_id) ? db.prepare(`
     SELECT original_spread, original_ml, original_ou
     FROM line_snapshots WHERE game_id = ? AND LOWER(team) = LOWER(?)
   `).get(pick.espn_game_id, pick.team) : null;
@@ -145,9 +152,9 @@ function evaluatePick(pick, game) {
     // Line priority: the game's locked snapshot, then the line the lock stamped
     // onto this row (captured_* on picks/mvp_picks, live_* on pick_history —
     // survives the daily wipe of line_snapshots), then the display line.
-    // capper_history rows have none of the stamps and correctly grade against
-    // their own quoted line.
-    const line = snapshot?.original_spread ?? pick.captured_spread ?? pick.live_spread ?? pick.spread;
+    // Ledger rows (ownLine) skip all of that and grade at their own number.
+    const line = ownLine ? pick.spread
+      : (snapshot?.original_spread ?? pick.captured_spread ?? pick.live_spread ?? pick.spread);
     if (line == null) return 'pending';
     let spreadMargin;
     if (isTennis) {
@@ -166,7 +173,7 @@ function evaluatePick(pick, game) {
 
   if (type === 'set_spread') {
     // Tennis set handicap — margin measured in SETS won (home_score/away_score = sets)
-    const line = snapshot?.original_spread ?? pick.spread;
+    const line = ownLine ? pick.spread : (snapshot?.original_spread ?? pick.spread);
     if (line == null) return 'pending';
     if (game.home_score == null || game.away_score == null) return 'pending';
     const setMargin = pickedHome ? (game.home_score - game.away_score)
@@ -180,7 +187,8 @@ function evaluatePick(pick, game) {
   if (type === 'over' || type === 'under') {
     // Same priority as spreads: locked snapshot, then the row's own locked
     // stamp, then the display line (see spread comment above).
-    const ou = snapshot?.original_ou ?? pick.captured_total ?? pick.live_total ?? pick.spread;
+    const ou = ownLine ? pick.spread
+      : (snapshot?.original_ou ?? pick.captured_total ?? pick.live_total ?? pick.spread);
     if (ou == null) return 'pending';
     // Tennis O/U = total games in match, not sets
     const total = isTennis
@@ -1016,7 +1024,7 @@ async function resolveResults() {
       if (tooOld) db.prepare(`UPDATE capper_history SET result = 'void' WHERE id = ?`).run(row.id);
       continue;
     }
-    const result = evaluatePick(row, game);
+    const result = evaluatePick(row, game, { ownLine: true });
     if (result === 'pending') {
       if (tooOld) db.prepare(`UPDATE capper_history SET result = 'void' WHERE id = ?`).run(row.id);
       continue;

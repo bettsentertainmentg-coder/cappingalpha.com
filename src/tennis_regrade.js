@@ -136,8 +136,10 @@ function candidateGames(since) {
 // A settled row is "wrong" only when the corrected verdict differs. `pending`
 // from the evaluator means it could not decide, which is never a reason to
 // overwrite an existing grade.
-function verdictFor(row, truth) {
-  const result = evaluatePick(row, { ...truth, sport: truth.sport || row.sport });
+// `opts.ownLine` for ledger rows: a capper_history row is graded at the number
+// THAT capper quoted, never the CA's locked line (GRADING_RULES R12).
+function verdictFor(row, truth, opts = {}) {
+  const result = evaluatePick(row, { ...truth, sport: truth.sport || row.sport }, opts);
   if (!result || result === 'pending') return null;
   return result === row.result ? null : result;
 }
@@ -220,7 +222,7 @@ async function regradeTennis({ since = '2026-07-09', dryRun = true, gameIds = nu
     for (const row of db.prepare(
       `SELECT * FROM capper_history WHERE espn_game_id = ? AND result IN ('win','loss','push')`
     ).all(g.espn_game_id)) {
-      const next = verdictFor(row, truth);
+      const next = verdictFor(row, truth, { ownLine: true });
       if (!next) continue;
       changes.push({ table: 'capper_history', id: row.id, capper: row.capper_name, team: row.team,
                      pick_type: row.pick_type, game_date: row.game_date, from: row.result, to: next });

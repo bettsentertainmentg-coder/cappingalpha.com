@@ -17,6 +17,11 @@
 //      (winner must hold 2+ completed sets, else the match ended early)
 //   R11 a pick's SCORE never moves after its game starts (picks.score_at_start,
 //      stamped at first pitch, vs the live v3 total)
+//   R6 a capper ledger grade must match the line THAT CAPPER quoted, never the
+//      CA's locked line (docs/GRADING_RULES.md R6)
+//   R14 a ledger row's quoted line must be possible for its sport and market
+//      (a 0.5 "game total" on an MLB game is a team total or prop, not a bet
+//      we can grade)
 //
 // FLAG ONLY — this module never mutates picks, results, or history. Each
 // violation is stored in audit_flags WITH A FULL ROW SNAPSHOT (detail_json),
@@ -53,6 +58,28 @@ const _isMargin = t => ['ml', 'spread'].includes((t || '').toLowerCase());
 // Mirrors mvp.js conflict math (kept tiny on purpose).
 const _hasIntBetween = (lo, hi) => (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
 
+// Widest-possible bands per sport, deliberately loose: this must never argue
+// with a real line, only catch a number that cannot be a full-game line at all.
+const _SPREAD_MAX = { MLB: 4.5, NHL: 4.5, NBA: 30, WNBA: 30, NFL: 28, NCAAF: 60, CBB: 40, Soccer: 5 };
+const _TOTAL_BAND = { MLB: [6, 20], NHL: [4.5, 10], NBA: [150, 290], WNBA: [120, 220],
+                      NFL: [26, 70], NCAAF: [26, 100], CBB: [90, 200], Soccer: [1.5, 8] };
+function _implausibleLine(row) {
+  const sport = String(row.sport || '').toUpperCase();
+  const type  = String(row.pick_type || '').toLowerCase();
+  const n = Number(row.spread);
+  if (!Number.isFinite(n)) return null;
+  if (type === 'spread') {
+    const max = _SPREAD_MAX[sport === 'SOCCER' ? 'Soccer' : sport];
+    if (max == null) return null;
+    return Math.abs(n) > max ? `is past any real ${sport} spread (max ${max})` : null;
+  }
+  const band = _TOTAL_BAND[sport === 'SOCCER' ? 'Soccer' : sport];
+  if (!band) return null;
+  if (n < band[0]) return `is below any real ${sport} game total (likely a team total or prop)`;
+  if (n > band[1]) return `is above any real ${sport} game total (likely another sport's line)`;
+  return null;
+}
+
 function _flag(out, kind, table, id, gid, summary, row) {
   out.push({ kind, ref_table: table, ref_id: id, espn_game_id: gid ?? null, summary, detail: row });
 }
@@ -60,7 +87,7 @@ function _flag(out, kind, table, id, gid, summary, row) {
 // R3 for a row whose game data we can reconstruct. Skips (returns null) when
 // the recompute can't be trusted: pending/void, missing scores, or a side pick
 // whose team string matches neither side (name drift would false-flag).
-function _recheckResult(evaluatePick, row, game) {
+function _recheckResult(evaluatePick, row, game, opts = {}) {
   const res = (row.result || '').toLowerCase();
   if (!['win', 'loss', 'push'].includes(res)) return null;
   if (game.home_score == null || game.away_score == null) return null;
@@ -72,7 +99,7 @@ function _recheckResult(evaluatePick, row, game) {
       .filter(Boolean).map(s => s.toLowerCase());
     if (!names.includes(team)) return null;
   }
-  const fresh = evaluatePick(row, game);
+  const fresh = evaluatePick(row, game, opts);
   if (fresh === 'pending' || fresh === 'void') return null; // incomplete data — not a verdict
   return fresh === res ? 'ok' : fresh;
 }
@@ -351,6 +378,63 @@ function runGradingAudit() {
     }
   } catch (_) {}
 
+  // ── R6: a capper ledger grade rides the line THAT CAPPER quoted ────────────
+  // capper_history is the record of the bet a capper actually made. Grading it
+  // at the CA's locked line rewrites their bet: on 2026-09-09 Seattle beat New
+  // England by exactly 3, and every spread row on that game (+4.5, +3.5, -2.5,
+  // -3.5) graded PUSH off the single locked 3, because evaluatePick read the
+  // line_snapshots row before the row's own number. 1,687 grades across 473
+  // cappers were wrong the same way, and the Wilson ladder is built on them.
+  // The fix is the ownLine flag in results.evaluatePick; this is its detector.
+  // Same-day only (the join to today_games is what keeps it free).
+  try {
+    const rows = db.prepare(`
+      SELECT ch.*, tg.home_score, tg.away_score, tg.status, tg.sport AS g_sport,
+             tg.home_team, tg.home_short, tg.home_name, tg.home_abbr,
+             tg.away_team, tg.away_short, tg.away_name, tg.away_abbr,
+             tg.tennis_home_games, tg.tennis_away_games, tg.tennis_score_detail
+      FROM capper_history ch
+      JOIN today_games tg ON tg.espn_game_id = ch.espn_game_id
+      WHERE tg.status = 'post' AND ch.result IN ('win','loss','push')
+        AND ch.spread IS NOT NULL
+        AND LOWER(COALESCE(ch.pick_type,'')) IN ('spread','over','under','set_spread')
+    `).all();
+    for (const r of rows) {
+      // Rows R14 owns (a line their market cannot have) are already flagged as
+      // what they are; regrading them here would only add a second, wronger
+      // flag on the same row.
+      if (_implausibleLine(r)) continue;
+      const game = { ...r, sport: r.g_sport || r.sport, status: 'post' };
+      const fresh = _recheckResult(evaluatePick, r, game, { ownLine: true });
+      if (fresh && fresh !== 'ok') {
+        _flag(found, 'ledger_line_mismatch', 'capper_history', r.id, r.espn_game_id,
+          `${r.capper_name}: ${r.team} ${r.pick_type} ${r.spread} graded ${r.result} but that line vs the final ${r.away_score}-${r.home_score} implies ${fresh}`, r);
+      }
+    }
+  } catch (_) {}
+
+  // ── R14: a ledger row's quoted line must be possible for its market ────────
+  // The same NE/SEA autopsy turned up MLB "game totals" of 0.5 and 1, and
+  // basketball numbers (184.5) filed under MLB: team totals, prop lines, and
+  // wrong-game matches that a scraper handed us as full-game lines. Whatever
+  // they are, they are not the bet we graded. Flag-only — voiding them is
+  // Jack's call, and the ingest side is the real repair.
+  try {
+    const rows = db.prepare(`
+      SELECT id, capper_name, source, sport, pick_type, team, spread, espn_game_id, game_date, result
+      FROM capper_history
+      WHERE result IN ('win','loss','push') AND spread IS NOT NULL
+        AND game_date >= date('now', '-3 day')
+        AND LOWER(COALESCE(pick_type,'')) IN ('spread','over','under')
+    `).all();
+    for (const r of rows) {
+      const why = _implausibleLine(r);
+      if (!why) continue;
+      _flag(found, 'implausible_line', 'capper_history', r.id, r.espn_game_id,
+        `${r.capper_name}: ${r.sport} ${r.team} ${r.pick_type} ${r.spread} ${why}`, r);
+    }
+  } catch (_) {}
+
   // ── Persist ─────────────────────────────────────────────────────────────────
   const seen = new Set();
   for (const f of found) {
@@ -376,4 +460,4 @@ function getAuditFlags({ includeResolved = false } = {}) {
   `).all();
 }
 
-module.exports = { runGradingAudit, getAuditFlags };
+module.exports = { runGradingAudit, getAuditFlags, implausibleLine: _implausibleLine };
