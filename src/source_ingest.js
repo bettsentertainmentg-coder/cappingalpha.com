@@ -19,6 +19,7 @@
 const db = require('./db');
 const { resolveCapperName, ensureRegistered, savePick } = require('./storage');
 const { hasGameStarted } = require('./pick_cutoff');
+const { checkSourcePick } = require('./ledger_sanity');
 
 // ── Multi-match resolver ──────────────────────────────────────────────────────
 // A team-name match can return several games:
@@ -86,6 +87,24 @@ function logAmbiguous(cands, opts, why) {
            opts.pickType || null, opts.line ?? null, opts.odds ?? null, why,
            JSON.stringify(cands.map(g => ({ id: g.espn_game_id, sport: g.sport, home: g.home_team, away: g.away_team, start: g.start_time,
              spread_home: g.spread_home, over_under: g.over_under, ml_home: g.ml_home, ml_away: g.ml_away }))));
+  } catch (_) {}
+}
+
+// A pick the market gate refused: say why, and keep it (source_skips is the
+// same table the ambiguous-match resolver writes, so one query shows both).
+function logRefusal(pick, game, pt, v) {
+  const why = v.reason + (v.market != null ? ` (market ${v.market})` : '');
+  console.warn(`[source_ingest] refused ${pick.source} pick by ${pick.capperName}: ${game.sport} ${game.away_team} @ ${game.home_team} ${pt}${pick.line != null ? ' ' + pick.line : ''}${pick.odds != null ? ' @' + pick.odds : ''}: ${why}`);
+  try {
+    db.prepare(`
+      INSERT INTO source_skips (source, capper, sport, picked, pick_type, line, odds, reason, candidates_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(pick.source || null, pick.capperName || null, game.sport || null,
+           `${game.away_team} @ ${game.home_team}${pick.side ? ' [' + pick.side + ']' : ''}`,
+           pt, pick.line ?? null, pick.odds ?? null, why,
+           JSON.stringify([{ id: game.espn_game_id, sport: game.sport, home: game.home_team, away: game.away_team, start: game.start_time,
+             spread_home: game.spread_home, over_under: game.over_under, ml_home: game.ml_home, ml_away: game.ml_away,
+             meta: pick.meta || null }]));
   } catch (_) {}
 }
 
@@ -244,6 +263,28 @@ function recordSourcePick(pick) {
             || hasGameStarted(game);
   if (live) return 'skipped:in-play';
 
+  // THE FULL-GAME MARKET GATE (Jack 2026-09-15, src/ledger_sanity.js). Every
+  // source hands us "over 5 +800" sooner or later: a team total, a quarter
+  // line, a drive prop, a set market, another sport's number on a wrong-game
+  // match. Graded against the full-game final, each one is a coin flip filed as
+  // a decision, and the Wilson ladder is built on those decisions. The number
+  // has to be one this sport's full-game market can carry, agree with the
+  // game's own line when we hold one, and be priced like that market. A
+  // refusal is logged to source_skips so it stays visible; a replaced price is
+  // noted in provenance. A missed pick is free. A wrong one is not.
+  const verdict = checkSourcePick({
+    game, sport: game.sport, pickType: pt, side: pick.side,
+    line: pick.line, odds: pick.odds, trustPrice: pick.trustPrice !== false,
+  });
+  if (!verdict.ok) {
+    logRefusal(pick, game, pt, verdict);
+    return 'skipped:' + verdict.reason;
+  }
+  const line = verdict.line;
+  const odds = verdict.odds;
+  const meta = { ...(pick.meta || {}) };
+  for (const n of verdict.notes) Object.assign(meta, n);
+
   const team = isTotal ? game.home_team : (pick.side === 'home' ? game.home_team : game.away_team);
   const gameDate = (game.start_time || '').slice(0, 10) || null;
 
@@ -270,7 +311,7 @@ function recordSourcePick(pick) {
     }
   } catch (_) {}
 
-  const provenance = JSON.stringify([{ source, at: new Date().toISOString(), live, meta: pick.meta || null }]);
+  const provenance = JSON.stringify([{ source, at: new Date().toISOString(), live, meta: Object.keys(meta).length ? meta : null }]);
   let historyId = null;
   try {
     const r = db.prepare(`
@@ -283,11 +324,11 @@ function recordSourcePick(pick) {
       game.sport ?? null,
       pt,
       team,
-      pick.line ?? null,
+      line,
       game.espn_game_id,
       gameDate,
       source,
-      pick.odds ?? null,
+      odds,
       source,
       isTotal ? 0 : (pick.side === 'home' ? 1 : 0),
       provenance
@@ -314,7 +355,7 @@ function recordSourcePick(pick) {
         // Board slot convention (lines.js): 'ML' uppercase, spread/over/under lowercase
         pick_type: pt === 'ml' ? 'ML' : pt,
         sport: game.sport ?? null,
-        spread_value: pick.line ?? null,
+        spread_value: line,
         capper_name: canonical,
         espn_game_id: game.espn_game_id,
         game_date: gameDate,
@@ -324,7 +365,7 @@ function recordSourcePick(pick) {
         raw_message: {
           id: `src:${source}:${historyId}`,
           author: canonical,
-          content: `[${source}] ${canonical}: ${team} ${pt}${pick.line != null ? ' ' + pick.line : ''}${pick.odds != null ? ' @' + pick.odds : ''}`,
+          content: `[${source}] ${canonical}: ${team} ${pt}${line != null ? ' ' + line : ''}${odds != null ? ' @' + odds : ''}`,
           createdAt: pick.postedAtMs || Date.now(),
         },
       });

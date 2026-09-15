@@ -140,6 +140,15 @@ async function pollAnExperts() {
       if (p.result && p.result !== 'pending') continue;
       const mapped = TYPE_MAP[(p.type || '').toLowerCase()];
       if (!mapped) continue; // draw/custom/unknown -> not slot-shaped
+      // FULL GAME ONLY (2026-09-15): AN tags every pick with its period
+      // ('game', 'firstfiveinnings', 'firsthalf', ...) and puts a competitor_id
+      // on a TEAM total. Both used to ingest as full-game totals, so an F5
+      // "under 4.5" graded against the nine-inning final. 374 rows in the
+      // 2026-09-15 export. The shared market gate in source_ingest is the
+      // backstop; this is the source's own word for what the market was.
+      if (p.period && String(p.period).toLowerCase() !== 'game') continue;
+      if (p.player_id) continue;
+      if ((mapped[0] === 'over' || mapped[0] === 'under') && p.competitor_id) continue;
       const teams = p.game?.teams || [];
       // AN tells us the league on every pick. Constrain the match to it, the way
       // every other source already does; unconstrained, a college "Tigers" side

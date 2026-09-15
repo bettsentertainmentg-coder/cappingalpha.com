@@ -58,26 +58,22 @@ const _isMargin = t => ['ml', 'spread'].includes((t || '').toLowerCase());
 // Mirrors mvp.js conflict math (kept tiny on purpose).
 const _hasIntBetween = (lo, hi) => (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
 
-// Widest-possible bands per sport, deliberately loose: this must never argue
-// with a real line, only catch a number that cannot be a full-game line at all.
-const _SPREAD_MAX = { MLB: 4.5, NHL: 4.5, NBA: 30, WNBA: 30, NFL: 28, NCAAF: 60, CBB: 40, Soccer: 5 };
-const _TOTAL_BAND = { MLB: [6, 20], NHL: [4.5, 10], NBA: [150, 290], WNBA: [120, 220],
-                      NFL: [26, 70], NCAAF: [26, 100], CBB: [90, 200], Soccer: [1.5, 8] };
+// The bands live in src/ledger_sanity.js, the same module the ingest gate and
+// the restatement use, so the audit can never disagree with the gate about
+// what a full-game line is. This turns the gate's slug into the flag's phrase.
+const { implausibleLedgerRow } = require('./ledger_sanity');
+const _WHY = {
+  total_no_line:         'has no total to grade against',
+  total_below_band:      'is below any real game total for the sport (a team total, a period line, or a prop)',
+  total_above_band:      'is above any real game total for the sport (another sport\'s line on a wrong-game match)',
+  spread_no_line:        'has no spread to grade against',
+  spread_out_of_band:    'is past any real spread for the sport',
+  side_price_impossible: 'carries a price no spread or total market quotes (an alternate line or a typo)',
+};
 function _implausibleLine(row) {
-  const sport = String(row.sport || '').toUpperCase();
-  const type  = String(row.pick_type || '').toLowerCase();
-  const n = Number(row.spread);
-  if (!Number.isFinite(n)) return null;
-  if (type === 'spread') {
-    const max = _SPREAD_MAX[sport === 'SOCCER' ? 'Soccer' : sport];
-    if (max == null) return null;
-    return Math.abs(n) > max ? `is past any real ${sport} spread (max ${max})` : null;
-  }
-  const band = _TOTAL_BAND[sport === 'SOCCER' ? 'Soccer' : sport];
-  if (!band) return null;
-  if (n < band[0]) return `is below any real ${sport} game total (likely a team total or prop)`;
-  if (n > band[1]) return `is above any real ${sport} game total (likely another sport's line)`;
-  return null;
+  if (!Number.isFinite(Number(row.spread))) return null;
+  const k = implausibleLedgerRow(row);
+  return k ? (_WHY[k] || k) : null;
 }
 
 function _flag(out, kind, table, id, gid, summary, row) {
@@ -431,7 +427,7 @@ function runGradingAudit() {
       const why = _implausibleLine(r);
       if (!why) continue;
       _flag(found, 'implausible_line', 'capper_history', r.id, r.espn_game_id,
-        `${r.capper_name}: ${r.sport} ${r.team} ${r.pick_type} ${r.spread} ${why}`, r);
+        `${r.capper_name} (${r.source || 'discord'}): ${r.sport} ${r.team} ${r.pick_type} ${r.spread}${r.odds != null ? ' @' + r.odds : ''} ${why}`, r);
     }
   } catch (_) {}
 

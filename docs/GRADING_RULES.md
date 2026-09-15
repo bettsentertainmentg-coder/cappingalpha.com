@@ -249,16 +249,58 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   unconstrained answer is kept whenever the reader's sport has no candidate, so
   the existing WNBA and Soccer guards see the same rows they saw before.
 
-## R14. A ledger line must be possible for its sport and market (2026-09-10)
+## R14. A ledger line must be possible for its sport and market (2026-09-10, enforced 2026-09-15)
 
 - A capper_history row whose quoted number cannot be a full-game line for its
   sport is not a bet we can grade: an MLB "game total" of 0.5 or 1 is a team
   total or a prop, a 184.5 filed under MLB is a basketball line on a
-  wrong-game match. Audit rule R14 flags them (`implausible_line`); the bands
-  are deliberately wide so a real line is never argued with.
-- Flag only. Voiding these rows is Jack's call, and the repair belongs on the
-  ingest side (whichever scraper handed a team total over as a game total).
-- Found in the same 2026-09-10 autopsy as R6: 569 graded rows carry a line
-  their market cannot have.
+  wrong-game match. Audit rule R14 flags them (`implausible_line`).
+- The bands live in ONE place, `src/ledger_sanity.js` (TOTAL_BAND, SPREAD_MAX),
+  shared by the audit, the ingest gate (R15) and the restatement, so the three
+  can never disagree about what a full-game line is. Generous at the real
+  edges (a Coors 15, FAMU @ Miami -56.5), closed to everything else.
+- The 2026-09-15 restatement (`POST /admin/api/sanitize-ledger`, dry run by
+  default) voided every graded row the bands refuse, every spread or total
+  priced past +-1000, and every row whose own provenance names another market
+  (Polymarket "Total Sets", "Set Handicap", the All-Star exhibition). Voided
+  rows keep the grade they had in `result_before_void` and carry the reason in
+  `void_reason`; `{ restore: true, reason }` reverses one reason. 2,734 rows
+  across 521 cappers on the prod export, 1,300 wins to 1,294 losses, which is
+  what a coin flip filed as a decision looks like.
 
-Current as of 2026-09-10.
+## R15. Only a full-game market joins the ledger (2026-09-15)
+
+- The Felix317 profile: 6-3 and +29.2 units on NFL "overs" that read "over 5
+  +800", "over 1 +550", "over 40". BettingPros serves game props, quarter and
+  inning lines, team totals, drive-result bets and alternates with the SAME
+  `line.type` values as the full-game markets, and only player props carry a
+  `player_id`. Action Network's first-five totals (`period != 'game'`) and team
+  totals (`competitor_id`), Polymarket's tennis set markets, and Covers'
+  pre-September cross-sport matches reached the ledger the same way. 7,950
+  rows across 926 cappers were flagged in the export that day.
+- Every source pick now clears the gate in `src/ledger_sanity.js` inside
+  `source_ingest.recordSourcePick`, after the pregame check and before the
+  insert: the number must sit inside the sport's full-game band, agree with
+  the game's own line when the board holds one (per-sport tolerance:
+  TOTAL_TOL / SPREAD_TOL, so an alternate line or a period line is refused
+  even when it is inside the band), and be priced like that market. A spread
+  or total past +-300 takes the board's juice (or standard juice) and notes
+  `price_replaced` in provenance; a moneyline past +-2500 takes the board's
+  price or is refused. Hand-typed prices (BettingPros, `trustPrice: false`)
+  are also replaced when they disagree with the board by more than 10 points
+  of implied probability. A refusal is logged to `source_skips` with the
+  reason and the board's line, so nothing is dropped silently.
+- Each source also refuses on its own word for the market, before the gate:
+  BettingPros keeps one learned market id per full-game market per sport
+  (`BP_FULL_GAME`) plus a label shape ("Over 44.5", never "Ravens o36.5");
+  Action Network drops `period != 'game'`, `player_id`, and totals with a
+  `competitor_id`; Polymarket's market screen (`SKIP_Q`) now excludes set
+  markets, handicaps, exhibitions and every prop phrasing, on the live map
+  and the holders backfill alike.
+- Why refuse rather than re-file: a first-five total is a real bet, but it is
+  not a bet on the game total, and the ledger has one slot per game market.
+  A dropped pick costs one data point. A misfiled one is a coin flip counted
+  as a decision, and the Wilson ladder that prices every pick is built on
+  decisions.
+
+Current as of 2026-09-15.

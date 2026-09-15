@@ -3418,7 +3418,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
           const wins    = picks.filter(p => p.result === 'win').length;
           const losses  = picks.filter(p => p.result === 'loss').length;
           const pushes  = picks.filter(p => p.result === 'push').length;
-          const pending = picks.filter(p => p.result !== 'win' && p.result !== 'loss' && p.result !== 'push').length;
+          const pending = picks.filter(p => p.result !== 'win' && p.result !== 'loss' && p.result !== 'push' && p.result !== 'void').length;
           // Decided-only win% — matches the cappers table and the public record pages.
           const decided = wins + losses;
           const winPct  = decided > 0 ? Math.round((wins / decided) * 100) : null;
@@ -3558,7 +3558,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
                     + '<td style="color:#8892a4;font-size:12px;">' + (p.sport || '—') + '</td>'
                     + '<td style="font-size:12px;">' + (pickDesc || '—') + '</td>'
                     + '<td style="text-align:right;font-weight:700;color:' + scoreColor(p.score) + ';">' + sc + '</td>'
-                    + '<td><span style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;">' + (p.result || 'pending').toUpperCase() + '</span></td>'
+                    + '<td><span' + (p.void_reason ? ' title="voided: ' + p.void_reason + (p.result_before_void ? ' (was ' + p.result_before_void + ')' : '') + '"' : '') + ' style="background:' + c + '22;color:' + c + ';border:1px solid ' + c + '44;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:700;' + (p.void_reason ? 'cursor:help;text-decoration:underline dotted;' : '') + '">' + (p.result || 'pending').toUpperCase() + '</span></td>'
                     + '</tr>';
                 }).join('')
               + '</tbody></table></div>';
@@ -4902,6 +4902,48 @@ router.post('/api/regrade-ledger', adminLoginRateLimit, express.json(), async (r
     res.json(report);
   } catch (err) {
     console.error('[regrade-ledger] failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /admin/api/sanitize-ledger — void what the market gate would refuse ─
+// The 2026-09-15 restatement (src/ledger_sanity.js). Walks capper_history and
+// voids every row whose number was never a full-game line for its sport (team
+// totals, period lines, props, another sport's number on a wrong-game match),
+// every spread/total priced like a payout, and every row whose own provenance
+// names another market (Polymarket set markets). Graded rows keep their prior
+// result in result_before_void; a pending pregame row is withdrawn with its
+// board mention. Body: { dry_run: true|false, since, until }
+//   or { restore: true, reason: '<void_reason>' | null } to reverse.
+// Defaults to a DRY RUN. Header-auth so it can be driven from the Mac.
+router.post('/api/sanitize-ledger', adminLoginRateLimit, express.json(), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  if (!pw || !process.env.ADMIN_PASSWORD || !safeEqual(pw, process.env.ADMIN_PASSWORD)) {
+    return res.status(401).send('Unauthorized');
+  }
+  const ymd    = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  const dryRun = req.body?.dry_run !== false;
+  const since  = ymd(req.body?.since) || '2026-01-01';
+  const until  = ymd(req.body?.until) || '2099-12-31';
+  const recompute = () => {
+    try { require('./capper_ratings').recomputeCapperRatings(); }
+    catch (e) { console.warn('[sanitize-ledger] ratings recompute failed:', e.message); }
+  };
+  try {
+    const { sanitizeLedger, restoreLedger } = require('./ledger_sanity');
+    if (req.body?.restore === true) {
+      const out = restoreLedger({ reason: typeof req.body.reason === 'string' ? req.body.reason : null });
+      console.log(`[sanitize-ledger] RESTORED ${out.restored} row(s)${out.reason ? ' for ' + out.reason : ''}`);
+      if (out.restored) recompute();
+      return res.json(out);
+    }
+    const report = sanitizeLedger({ dryRun, since, until });
+    console.log(`[sanitize-ledger] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_flagged} flagged of ${report.rows_scanned} ` +
+                `(${report.rows_voided} voided, ${report.rows_withdrawn} withdrawn) across ${report.cappers_affected} capper(s) ${since}..${until}`);
+    if (!dryRun && (report.rows_voided || report.rows_withdrawn)) recompute();
+    res.json(report);
+  } catch (err) {
+    console.error('[sanitize-ledger] failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

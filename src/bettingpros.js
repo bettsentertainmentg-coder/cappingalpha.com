@@ -58,9 +58,20 @@ async function fetchApiKey() {
   const client = (picksJs.body.match(/api-client-[A-Za-z0-9_-]+\.js/) || [])[0];
   if (!client) return null;
   const api = await req('https://www.bettingpros.com/dist/assets/' + client);
-  const key = (api.body.match(/"x-api-key"\s*:\s*`([A-Za-z0-9]{20,60})`/)
-    || api.body.match(/"x-api-key"\s*:\s*"([A-Za-z0-9]{20,60})"/) || [])[1];
-  return key || null;
+  return keyFromChunk(api.body);
+}
+
+// The key was an inline literal until 2026-09; the bundle now assigns it to a
+// module variable ('"x-api-key":kn') and the literal sits on that name. Read
+// both shapes so the next rotation does not strand polling on a stale key.
+function keyFromChunk(js) {
+  const lit = js.match(/"x-api-key"\s*:\s*[`"']([A-Za-z0-9]{20,60})[`"']/);
+  if (lit) return lit[1];
+  const ref = js.match(/"x-api-key"\s*:\s*([A-Za-z_$][\w$]*)/);
+  if (!ref) return null;
+  const v = ref[1].replace(/\$/g, '\\$');
+  const m = js.match(new RegExp('(?:^|[^\\w$])' + v + '\\s*=\\s*[`"\']([A-Za-z0-9]{20,60})[`"\']'));
+  return m ? m[1] : null;
 }
 
 async function apiKey(force = false) {
@@ -87,6 +98,44 @@ function sanePrice(pick) {
     if (Number.isFinite(n) && n !== 0 && Math.abs(n) >= 100 && Math.abs(n) <= 2000) return Math.round(n);
   }
   return null;
+}
+
+// ── FULL-GAME MARKETS ONLY (Jack 2026-09-15) ────────────────────────────────
+// Their feed serves team totals, quarter/inning lines, drive-result props,
+// alternates, futures and "Game Props" with the SAME line.type values as the
+// full-game markets ("over", "spread", "moneyline"), and only player props
+// carry a player_id. So "Jaguars over 5 +800" and "Steelers over 10" reached
+// the ledger as game totals and were graded against the final score. One
+// market id per full-game market per sport, learned from their payloads:
+const BP_FULL_GAME = {
+  NFL:   { 1: 'ml', 2: 'total', 3: 'spread' },
+  NBA:   { 127: 'ml', 128: 'total', 129: 'spread' },
+  MLB:   { 122: 'ml', 175: 'total', 176: 'spread' },
+  NCAAF: { 198: 'ml', 199: 'total', 200: 'spread' },
+  NCAAB: { 224: 'ml', 225: 'total', 226: 'spread' },
+  WNBA:  { 371: 'ml', 372: 'total', 373: 'spread' },
+};
+// A sport whose ids are not learned yet (NHL) has to carry one of the exact
+// full-game sub-labels instead. Every sport must also pass the label SHAPE: a
+// game total reads "Over 44.5", never "Ravens o36.5" or "Total Points - Over".
+const BP_FULL_GAME_LABEL = /^(moneyline|money line|spread|puck line|run line|total|total points|total runs|total goals)$/i;
+const BP_SHAPE = {
+  total:  /^(over|under)\s+\d+(\.\d+)?$/i,
+  spread: /^[A-Za-z0-9 .'&()-]+\s[+-]\d+(\.\d+)?$/,
+  ml:     /^[A-Za-z0-9 .'&()-]+$/,
+};
+function fullGameMarket(bpSport, p, pickType) {
+  const kind = pickType === 'ml' ? 'ml' : pickType === 'spread' ? 'spread' : 'total';
+  const ids = BP_FULL_GAME[bpSport];
+  if (ids) {
+    if (ids[p.market_id] !== kind) return false;
+  } else if (!BP_FULL_GAME_LABEL.test(String(p.sub_label || '').trim())) {
+    return false;
+  }
+  if (!BP_SHAPE[kind].test(String(p.label || '').trim())) return false;
+  // a game total names no participant; a team total names one
+  if (kind === 'total' && (p.participants || []).length) return false;
+  return true;
 }
 
 function etDate(ms) {
@@ -135,6 +184,7 @@ async function pollBettingPros() {
   const today = etDate(Date.now());
   const minUnits = parseFloat(db.getSetting('bp_min_units', '0'));
   let inserted = 0, dupes = 0, skipped = 0;
+  const refusedMarkets = {}; // "NFL m327 Game Props" -> count, for the log line
 
   for (const [bpSport, ourSport] of Object.entries(BP_SPORTS)) {
     let ev = await getJson(`https://api.bettingpros.com/v3/events?sport=${bpSport}&date=${today}`, key);
@@ -161,6 +211,12 @@ async function pollBettingPros() {
           : type === 'spread' ? 'spread'
           : (type === 'over' || type === 'under') ? type : null;
         if (!pickType) { skipped++; continue; }
+        if (!fullGameMarket(bpSport, p, pickType)) {
+          skipped++;
+          const k = `${bpSport} m${p.market_id} ${p.sub_label || '?'}`;
+          refusedMarkets[k] = (refusedMarkets[k] || 0) + 1;
+          continue;
+        }
 
         const handle = String((p.user || {}).profile_url || '').replace(/\/+$/, '').split('/').pop();
         if (!handle) { skipped++; continue; }
@@ -185,6 +241,7 @@ async function pollBettingPros() {
           side,
           line: Number.isFinite(line) ? line : null,
           odds: sanePrice(p),
+          trustPrice: false, // typed in by the bettor; the gate checks it against the board
           postedAtMs: bpTimeMs(p.created || p.published) || Date.now(),
           meta: {
             units,
@@ -198,11 +255,13 @@ async function pollBettingPros() {
       }
     }
   }
-  if (inserted || dupes) console.log(`[bettingpros] poll: ${inserted} new picks, ${dupes} known, ${skipped} skipped (props/parlays/unmatched)`);
+  if (inserted || dupes) console.log(`[bettingpros] poll: ${inserted} new picks, ${dupes} known, ${skipped} skipped (props/parlays/other markets/unmatched)`);
+  const rk = Object.entries(refusedMarkets).sort((a, b) => b[1] - a[1]);
+  if (rk.length) console.log(`[bettingpros] non-full-game markets refused: ${rk.slice(0, 12).map(([k, n]) => `${k} x${n}`).join(', ')}${rk.length > 12 ? ` (+${rk.length - 12} more)` : ''}`);
   return inserted;
 }
 
-module.exports = { pollBettingPros, apiKey, sanePrice };
+module.exports = { pollBettingPros, apiKey, sanePrice, fullGameMarket, keyFromChunk };
 
 // CLI: node src/bettingpros.js
 if (require.main === module) pollBettingPros().then(() => process.exit(0));

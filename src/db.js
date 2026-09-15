@@ -1518,6 +1518,12 @@ try { db.exec(`CREATE INDEX IF NOT EXISTS idx_csh_canonical ON capper_source_han
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN source TEXT NOT NULL DEFAULT 'discord'`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN is_home_team INTEGER`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN sources_json TEXT`); } catch (_) {}
+// Ledger restatement (2026-09-15, src/ledger_sanity.js): a row voided because
+// its number was never a full-game line keeps the grade it had, so the pass is
+// reversible per reason. void_reason is the gate's slug (total_below_band,
+// spread_out_of_band, side_price_impossible, other_market, ...).
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN void_reason TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN result_before_void TEXT`); } catch (_) {}
 
 // Per-mention capper attribution (quality-weighted consensus needs to know WHO
 // each mention came from, not just the author/channel)

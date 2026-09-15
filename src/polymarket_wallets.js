@@ -15,6 +15,7 @@
 const https = require('https');
 const db = require('./db');
 const { recordSourcePick, findGameByTeams, sideOf, americanFromPrice, removeSourceEntry, findPendingOpposite } = require('./source_ingest');
+const { checkSourcePick } = require('./ledger_sanity');
 const { ensureRegistered } = require('./storage');
 
 const HEADERS = {
@@ -104,7 +105,11 @@ function pmDisplayName(w) {
 const SPORT_TAGS = ['mlb', 'nba', 'wnba', 'nhl', 'nfl', 'cfb', 'soccer', 'tennis'];
 // today_games sport label per tag ('Tennis' blends ATP+WTA in the matcher).
 const TAG_SPORT = { mlb: 'MLB', nba: 'NBA', wnba: 'WNBA', nhl: 'NHL', nfl: 'NFL', cfb: 'NCAAF', soccer: 'Soccer', tennis: 'Tennis' };
-const SKIP_Q = /(1h |half|1st |inning|series|champion|mvp|rebounds|assists|total games|to score|anytime)/i;
+// Markets that are not the full-game side, spread or total. Tennis is the
+// costly one (2026-09-15): "Total Sets O/U 2.5" and "Set Handicap -1.5" read
+// as a total and a spread, and 300+ rows graded SETS against a GAMES final.
+// All-Star exhibitions ("Team Spoon vs. Team Coop") matched a real slate too.
+const SKIP_Q = /(1h |half|1st |inning|series|champion|mvp|rebounds|assists|total games|to score|anytime|\bsets?\b|handicap|all[- ]star|team spoon|team coop|exact|both teams|clean sheet|btts|corner|\bcards?\b|draw no bet|double chance|correct score|margin|win by|either|race to|first to|\bquarter\b|\bperiod\b|overtime|tie-?break)/i;
 
 async function buildMarketMap() {
   const map = new Map(); // conditionId -> { game, question, outcomes }
@@ -505,6 +510,7 @@ async function walkWalletHistory(ledgers, cfg) {
     let mktOutcomes = [];
     try { mktOutcomes = typeof mkt.outcomes === 'string' ? JSON.parse(mkt.outcomes) : (mkt.outcomes || []); } catch (_) {}
     if (mktOutcomes.some(o => /^(yes|no)$/i.test(String(o).trim()))) continue;
+    if (SKIP_Q.test(mkt.question || '')) continue; // same market screen as the live map
     // gamma prints '2026-07-27 18:35:00+00' — the bare '+00' offset is NaN to
     // V8's Date until it reads '+00:00'.
     const startIso = mkt.gameStartTime || null;
@@ -539,6 +545,10 @@ async function walkWalletHistory(ledgers, cfg) {
       const lm = (mkt.question || '').match(/([+-]\d+(?:\.\d+)?)/);
       line = lm ? parseFloat(lm[1]) : null;
     }
+    // Same number gate as every live ingest (src/ledger_sanity.js): a set
+    // total or a games handicap must never be filed as a match total or spread.
+    const gate = checkSourcePick({ game: null, sport: slugSport(c.L.slug), pickType, side: null, line, odds: null });
+    if (!gate.ok) continue;
     const dupeKey = `${c.L.slug}|${pickType}`;
     if (seen.has(dupeKey)) continue;
     seen.add(dupeKey);
