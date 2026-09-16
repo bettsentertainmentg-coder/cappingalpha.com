@@ -143,6 +143,13 @@
       --gold-ink:  #FFD700;   /* gold as TEXT; equals --gold in dark so text remaps are a no-op here */
       --green:     #22c55e;
       --red:       #ef4444;
+      /* Soft yellow — the "graded but outscored" state: a pick that finished but
+         was beaten to the slot by a better-scored pick on the same game, so it
+         counts as neither a win nor a loss. Desaturated on purpose so it never
+         reads as --gold (MVP identity) or as a live/pending amber. */
+      --amber:      #f2c14e;
+      --amber-soft: rgba(242,193,78,0.13);
+      --amber-line: rgba(242,193,78,0.34);
       /* Socials "twist" accent — Sky. Used ONLY inside the Socials tab (sub-nav,
          Tail/Fade, Boost, avatar rings, streak flames, section eyebrows). Gold
          stays official/awards, green/red stay results, brand blue keeps Follow +
@@ -178,6 +185,11 @@
       --gold-ink:  #8B6914;   /* dark bronze for gold TEXT on white — clears WCAG AA (5.09:1) */
       --green:     #15803d;   /* darkened so small stat text clears WCAG AA (4.5:1) on white */
       --red:       #d12525;
+      /* Amber darkened for white grounds — the soft yellow reads as a wash in
+         the row tint but the text/ring color has to stay legible. */
+      --amber:      #9a6a06;
+      --amber-soft: rgba(217,164,6,0.16);
+      --amber-line: rgba(154,106,6,0.38);
       /* Sky darkened for white grounds: reads as a link/accent on white and takes
          white ink on its fill. Same role as the dark-theme --soc. */
       --soc:       #0284c7;
@@ -366,7 +378,6 @@
     .nav-about-wrap { position: relative; display: flex; align-items: stretch; }
     .tab-caret { font-size: 9px; margin-left: 5px; opacity: .8; }
     /* The Sports caret is its own click target (opens the menu; the label navigates) */
-    #nav-sports-btn .tab-caret { padding: 8px 6px; margin: -8px -2px -8px 1px; }
     .about-dropdown {
       position: absolute; top: calc(100% + 14px); left: 0; min-width: 150px;
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
@@ -383,8 +394,6 @@
 
     /* Sports dropdown: 11 links read better as two columns than one long strip.
        The ID selector outscores .about-dropdown.hidden, so hidden must be restated. */
-    #sports-dropdown { display: grid; grid-template-columns: 1fr 1fr; column-gap: 2px; min-width: 230px; }
-    #sports-dropdown.hidden { display: none; }
 
     /* ── Appearance theme toggle (Settings) ── */
     .theme-toggle { display: inline-flex; padding: 3px; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; gap: 3px; }
@@ -1103,6 +1112,7 @@
     /* Live-odds marker: a pulsing dot, distinct from the free-bet bolt */
     .ob-livedot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #38bdf8; margin-right: 6px; vertical-align: middle; animation: pulse 1.6s ease-in-out infinite; }
     .ob-live { font-size: 10px; font-weight: 800; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
+    .ob-susp { font-size: 10px; font-weight: 800; color: var(--amber); border: 1px solid var(--amber-line); border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: middle; letter-spacing: .04em; }
 
     /* Confirmation slide (tap a line -> configure -> Track Bet) */
     .lc-sel { font-size: 18px; font-weight: 800; margin: 6px 0 12px; }
@@ -1318,6 +1328,23 @@
       .track-sheet-grab { display: block; }
     }
 
+    /* ── Betslip scan review list (mirrored in track-sheet.css) ──
+       Several bets read off one screenshot. Each row is a checkable summary of
+       what it becomes when tracked; the chip is the honest label. ── */
+    .scan-rows { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+    .scan-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface2, rgba(255,255,255,.04)); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-family: inherit; color: var(--text); cursor: pointer; transition: border-color .12s, background .12s; }
+    .scan-row:hover { border-color: var(--accent); }
+    .scan-row-on { border-color: var(--accent); background: rgba(59,130,246,0.10); }
+    .scan-row-check { flex: 0 0 20px; height: 20px; border-radius: 6px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; color: transparent; }
+    .scan-row-on .scan-row-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .scan-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .scan-row-t { font-size: 14px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scan-row-odds { font-weight: 800; color: var(--muted); margin-left: 4px; }
+    .scan-row-d { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scan-chip { flex: 0 0 auto; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: 4px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); color: var(--muted); }
+    .scan-chip-ok { background: rgba(74,222,128,0.14); border-color: rgba(74,222,128,0.4); color: #4ade80; }
+    .scan-chip-dupe { background: rgba(251,122,86,0.14); border-color: rgba(251,122,86,0.4); color: #fb7a56; }
+
     /* ── Logo-as-tab ──
        The nav bar is ALWAYS the dark velvet (both themes), so the wordmark is
        pinned to its dark-mode colors and never follows the theme. Using var(--text)
@@ -1331,6 +1358,48 @@
     .logo span { color: #3b82f6; }
     .logo.active { border-bottom-color: var(--accent); }
     .logo:hover span { opacity: 0.85; }
+
+    /* ── BETA tag ──
+       A small chip whose top-left corner touches the wordmark's bottom-right
+       corner. Drawn as ::after so every surface that already prints
+       "CappingAlpha" picks it up with no markup change. Kept IN FLOW (never
+       absolutely positioned) so it can't overlap the first nav tab or get
+       clipped by the bar, and pinned to the dark-bar palette like the wordmark
+       above it. --ca-beta-drop is how far the chip hangs below the wordmark: a
+       flex parent centres it on the line box, an inline one sits it on the
+       baseline, so the two contexts need different nudges.
+       Keep in sync with game-detail.css (every server-rendered page). */
+    .logo::after,
+    .ca-drawer-logo::after {
+      content: "BETA";
+      display: inline-block;
+      align-self: center;        /* stops a flex parent stretching it full height */
+      position: relative;
+      top: var(--ca-beta-drop, 8px);
+      margin-left: -2px;         /* tucks the corner in so it reads as attached */
+      font-size: 8px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.07em;
+      padding: 2px 3px;
+      border-radius: 3px;
+      color: #9dc0ff;
+      background: rgba(59, 130, 246, 0.20);
+      border: 1px solid rgba(96, 150, 255, 0.55);
+      text-shadow: none;
+      pointer-events: none;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .logo { --ca-beta-drop: 5px; }
+    /* The nav bar is always dark velvet, so its chip keeps the pinned colors.
+       The drawer follows the theme (var(--surface) goes white), so its chip
+       needs a darker ink and tint to stay readable there. */
+    html[data-theme="light"] .ca-drawer-logo::after {
+      color: #1d4ed8;
+      background: rgba(37, 99, 235, 0.12);
+      border-color: rgba(37, 99, 235, 0.40);
+    }
 
     /* ── Nav tabs ── */
     .nav-tabs { display: flex; align-items: stretch; gap: 24px; }
@@ -1479,6 +1548,7 @@
     .record-val.green { color: var(--green); }
     .record-val.red   { color: var(--red); }
     .record-val.gold  { color: var(--gold-ink); }
+    .record-val.amber { color: var(--amber); }
 
     .result-win    { color: var(--green); font-weight: 700; }
     .result-loss   { color: var(--red);   font-weight: 700; }
@@ -2436,6 +2506,8 @@
     #panel-sports .nx-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--nx-live); flex-shrink: 0; animation: nxpul 2s ease-in-out infinite; box-shadow: 0 0 0 1px rgba(0,0,0,.3); }
     #panel-sports .nx-state.pre { text-transform: none; letter-spacing: 0; font-weight: 700; font-size: 11px; }
     #panel-sports .nx-state.fin { color: rgba(255,255,255,.8); }
+    #panel-sports .nx-state.susp { color: var(--amber); }
+    #panel-sports .nx-susp { color: var(--amber); }
     #panel-sports .nx-bsub { font-size: 9px; font-weight: 600; color: rgba(255,255,255,.72); white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
     #panel-sports .nx-srv { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
     #panel-sports .nx-chev { position: absolute; top: 4px; right: 4px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: 10px; cursor: pointer; color: rgba(255,255,255,.85); padding: 0; z-index: 2; }
@@ -3235,6 +3307,7 @@
       50%      { box-shadow: 0 0 10px 2px rgba(56,189,248,0.95); opacity: 1; }
     }
     .ca-tp-live-line { display: flex; align-items: center; gap: 7px; margin: 4px 0 9px; font-size: 13px; font-weight: 700; color: var(--text); }
+    .ca-tp-live-line.ca-tp-susp, .ca-tp-live-line.ca-tp-susp .ca-tp-live-score, .ca-tp-live-line.ca-tp-susp .bb-half { color: var(--amber); }
     .ca-tp-live-score { font-size: 14px; font-weight: 800; color: var(--text); }
     .ca-tp-live-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block;
       background: radial-gradient(circle at 35% 35%, #bae6fd, #38bdf8); animation: ca-live-glow 1.1s ease-in-out infinite; }
@@ -3495,6 +3568,7 @@
     .ca-tg-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 11px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); font-weight: 600; }
     .ca-tg-time { color: var(--muted); }
     .ca-tg-final { color: var(--muted); font-weight: 600; }
+    .ca-tg-susp { color: var(--amber); font-weight: 700; }
     .ca-tg-live { color: #38bdf8; font-weight: 800; display: inline-flex; align-items: center; gap: 5px; }
     .ca-tg-live-dot {
       width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block;
@@ -3618,7 +3692,7 @@
       padding: 0 20px; height: 56px; flex-shrink: 0;
       border-bottom: 1px solid var(--border);
     }
-    .ca-drawer-logo { font-size: 20px; font-weight: 700; color: var(--text); }
+    .ca-drawer-logo { font-size: 20px; font-weight: 700; color: var(--text); white-space: nowrap; }
     .ca-drawer-logo span { color: var(--accent); }
     .ca-drawer-close {
       background: none; border: none; color: var(--muted); cursor: pointer;
@@ -3929,6 +4003,7 @@
     .ca-corner-bar i { flex:1; border-radius:2px; background:var(--border); }
     .ca-corner-bar i.w { background:var(--green); }
     .ca-corner-bar i.l { background:var(--red); }
+    .ca-corner-bar i.o { background:var(--amber); }
     .ca-corner-bar i.lv { background:#38bdf8; animation:caLiveFlash 1.4s ease-in-out infinite; }
 
     .ca-rankbox { max-height:560px; overflow-y:auto; overscroll-behavior:contain; }
@@ -3947,6 +4022,8 @@
     .ca-row.g-win { background:rgba(74,222,128,0.09); border-color:rgba(74,222,128,0.22); }
     .ca-row.g-loss { background:rgba(248,113,113,0.09); border-color:rgba(248,113,113,0.22); }
     .ca-row.g-push { background:rgba(148,163,184,0.09); border-color:rgba(148,163,184,0.25); }
+    /* Graded but outscored on its game: soft yellow, not the push grey. */
+    .ca-row.g-out { background:var(--amber-soft); border-color:var(--amber-line); }
     .ca-row-rank { flex:0 0 auto; width:20px; text-align:center; font-size:11px; font-weight:800; color:var(--muted); font-variant-numeric:tabular-nums; }
     .ca-row-rank.rk1 { color:var(--gold-ink); }
     .ca-row-ring { flex:0 0 auto; width:40px; height:40px; border-radius:50%; border:2px solid var(--border); display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:13.5px; font-variant-numeric:tabular-nums; position:relative; }
@@ -3965,10 +4042,16 @@
     .ca-row-live .lsc { font-size:12px; font-weight:800; color:#38bdf8; font-variant-numeric:tabular-nums; white-space:nowrap; }
     .ca-row-live .lck { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; color:#38bdf8; white-space:nowrap; }
     .ca-row-res { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+    /* Suspended / postponed: amber, never a start time. The row still shows the
+       score reached before play stopped so the state is unmistakable. */
+    .ca-row.susp { background:var(--amber-soft); }
+    .ca-row.susp .ca-row-end { display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+    .ca-row-susp-sc { font-size:12px; font-weight:800; color:var(--amber); font-variant-numeric:tabular-nums; }
     .ca-res-chip { font-size:9.5px; font-weight:800; letter-spacing:.04em; padding:2px 8px; border-radius:999px; }
     .ca-res-chip.w { color:var(--green); background:rgba(34,197,94,0.13); }
     .ca-res-chip.l { color:var(--red); background:rgba(239,68,68,0.13); }
     .ca-res-chip.p { color:#94a3b8; background:rgba(148,163,184,0.13); }
+    .ca-res-chip.v { color:var(--amber); background:var(--amber-soft); border:1px solid var(--amber-line); }
     .ca-res-chip.pnd { color:var(--muted); background:var(--overlay-1); border:1px solid var(--border); }
     .ca-row-money { font-size:12px; font-weight:800; font-variant-numeric:tabular-nums; }
     .ca-row-money.pos { color:var(--green); }
@@ -4002,6 +4085,9 @@
     .ca-dayh b.neg { color:var(--red); }
     .ca-hrow { display:flex; align-items:center; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border); }
     .ca-hrow.dim { opacity:.5; }
+    /* Graded but outscored: soft-yellow rail + a lighter dim so the color reads. */
+    .ca-hrow.out { border-left:2px solid var(--amber-line); padding-left:7px; }
+    .ca-hrow.dim.out { opacity:.72; }
     .ca-hrow .hsc { flex:0 0 34px; font-size:12px; font-weight:800; color:var(--gold-ink); font-variant-numeric:tabular-nums; }
     .ca-hrow .hpk { flex:1; min-width:0; font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .ca-hrow .hmeta { color:var(--muted); font-weight:700; font-size:11px; margin-left:6px; }
@@ -4071,6 +4157,7 @@
     .ca-rail-row.graded-loss { background:rgba(248,113,113,0.10); border-color:rgba(248,113,113,0.22); }
     .ca-rail-row.graded-push { background:rgba(148,163,184,0.10); border-color:rgba(148,163,184,0.25); }
     .ca-rail-void-note { font-size:10.5px; color:var(--muted); font-style:italic; margin-top:2px; white-space:normal; line-height:1.35; }
+    .ca-rail-void-note.out { color:var(--amber); }
     .ca-push-chip { font-size:10px; font-weight:700; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:0 5px; color:var(--muted); margin-left:6px; vertical-align:middle; }
     .ca-rail-opp { font-size:10px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:92px; margin-left:auto; }
     .ca-rail-opp-under { font-size:10.5px; color:var(--muted); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -4141,23 +4228,11 @@
       <div class="logo active" data-tab="home" onclick="switchTab('home')">Capping<span>Alpha</span></div>
       <div class="nav-tabs">
         <button class="tab-btn" data-tab="mvp"     onclick="switchTab('mvp')"><img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings</button>
-        <div class="nav-about-wrap" id="nav-sports-wrap">
-          <button class="tab-btn" data-tab="sports" id="nav-sports-btn" onclick="sportsNavClick(event)" aria-haspopup="true" aria-expanded="false">Sports<span class="tab-caret" onclick="toggleSportsMenu(event)">&#9662;</span></button>
-          <div class="about-dropdown hidden" id="sports-dropdown" role="menu">
-            <a class="about-dropdown-item" role="menuitem" href="#" style="grid-column:1 / -1;font-weight:600;" onclick="closeSportsMenu(); switchTab('sports'); return false;">All sports</a>
-            <a class="about-dropdown-item" role="menuitem" href="/mlb">MLB</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nba">NBA</a>
-            <a class="about-dropdown-item" role="menuitem" href="/wnba">WNBA</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nfl">NFL</a>
-            <a class="about-dropdown-item" role="menuitem" href="/nhl">NHL</a>
-            <a class="about-dropdown-item" role="menuitem" href="/ncaaf">NCAAF</a>
-            <a class="about-dropdown-item" role="menuitem" href="/cbb">CBB</a>
-            <a class="about-dropdown-item" role="menuitem" href="/tennis">Tennis</a>
-            <a class="about-dropdown-item" role="menuitem" href="/golf">Golf</a>
-            <a class="about-dropdown-item" role="menuitem" href="/soccer">Soccer</a>
-            <a class="about-dropdown-item" role="menuitem" href="/mma">UFC / MMA</a>
-          </div>
-        </div>
+        <!-- Sports is a PLAIN TAB. No caret, no dropdown (Jack 2026-08-01:
+             "remove any arrow on the sports page that could indicate a drop
+             down"). The per-sport landing pages are still linked from the
+             footer and the mobile drawer, and are still in the sitemap. -->
+        <button class="tab-btn" data-tab="sports" onclick="switchTab('sports')">Sports</button>
         <button class="tab-btn" data-tab="esports" onclick="switchTab('esports')">Esports</button>
         <button class="tab-btn" data-tab="socials" onclick="switchTab('socials')">Socials</button>
         <div class="nav-about-wrap" id="nav-about-wrap">
@@ -4230,33 +4305,11 @@
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
-    // Label click goes straight to the Sports board; the caret alone opens the menu.
-    function sportsNavClick(e) {
-      if (e && e.target.closest && e.target.closest('.tab-caret')) return; // caret has its own handler
-      closeSportsMenu();
-      switchTab('sports');
-    }
-    function toggleSportsMenu(e) {
-      if (e) e.stopPropagation();
-      closeAboutMenu();
-      const dd  = document.getElementById('sports-dropdown');
-      const btn = document.getElementById('nav-sports-btn');
-      if (!dd) return;
-      const willOpen = dd.classList.contains('hidden');
-      dd.classList.toggle('hidden', !willOpen);
-      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    }
-    function closeSportsMenu() {
-      const dd  = document.getElementById('sports-dropdown');
-      const btn = document.getElementById('nav-sports-btn');
-      if (dd) dd.classList.add('hidden');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
-    }
+    // Sports is a plain tab — the caret and its menu are gone (Jack 2026-08-01).
     document.addEventListener('click', (e) => {
       if (!(e.target.closest && e.target.closest('#nav-about-wrap'))) closeAboutMenu();
-      if (!(e.target.closest && e.target.closest('#nav-sports-wrap'))) closeSportsMenu();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeAboutMenu(); closeSportsMenu(); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeAboutMenu(); } });
   </script>
 
   <!-- ── Unlock the CappingAlpha ── -->
@@ -4925,6 +4978,6 @@
     <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
   </button>
 
-  <script type="module" src="app.js?v=167"></script>
+  <script type="module" src="app.js?v=168"></script>
 </body>
 </html>

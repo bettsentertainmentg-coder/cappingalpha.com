@@ -8,7 +8,77 @@ forward unchanged. The v3 LEAK RULE (chunked display ramp) was RETIRED 2026-07-1
 in favor of the reveal plan (see the v4 "Score display" section). CLAUDE.md
 carries the operational summary; this doc is the source of truth for the
 algorithm.
-Owner: Jack. Last updated: 2026-07-23.
+Owner: Jack. Last updated: 2026-07-28.
+
+---
+
+# v4.2: PRICE-BEATEN EDGE — the heavy-price gate + the capper price gate (Jack 2026-07-28)
+
+Win rate ignores what the odds required. A -1250 favorite winning counts the
+same as a +140 dog in the Wilson ladder, so heavy-favorite backers climb on
+wins the price already promised, while the flat-unit ledger pays +0.08u a win
+and -1u a loss. Every graded decision now also logs its PRICE-BEATEN EDGE:
+(won ? 1 - q : -q) where q is the break-even probability the decision's own
+odds implied (-1000 needs 90.9%, +150 needs 40%). Backtested 2026-07-28 on 17k
+decisions with a no-lookahead replay and an adversarial audit
+(scratchpad edge-wilson study): re-sorting the ladder BY edge lost to the
+Wilson sort in every configuration (REJECTED — never re-propose), and a
+wholesale gate swap did not clear the ship bar. What did survive:
+
+## 1. The heavy-price gate on tracked bets (docs/GRADING_RULES.md R7)
+- An ML gold priced at or past `heavy_ml_gate` (settings, default -300) never
+  becomes a tracked bet; board and rankings untouched. The v4-era ledger's
+  entire deficit was these bets: 37-13 (74% wins), -6.29u, and the whole-
+  history bucket table is monotone (everything -150 or worse bleeds).
+- Judged ONCE at tracking time with the odds right then (Jack's call: a -250
+  morning track that closes -320 rides; a blocked -320 that softens to -280
+  gets in on the next promotion pass). Never re-litigated at T-60.
+- THE UNLOCK (the gate must erode with evidence, never fiat): a backer with
+  30+ heavy-bracket decisions (implied >= the gate's break-even, 75% at -300)
+  and positive shrunk heavy edge opens the pick fully — tracking, gold badge,
+  and every joiner's consensus points count whether or not those joiners are
+  approved (storage.heavyBracketUnlocked; HEAVY_UNLOCK_N in
+  capper_ratings.js). A top-15% "leader rule" was added and reverted within
+  hours on 2026-07-29: Jack's call is the bracket bar filters hard enough.
+- PRE-GATE LEFTOVERS (the Volynets leak, 2026-07-29): rows tracked before the
+  gate deployed have NULL gate_ml_odds and were invisible to the restatement
+  while pending. The 5-min sweep (mvp.js) judges each pending pregame one once
+  at the current price: heavy+no-unlock = deleted, else stamped to ride.
+  Graded leftovers: re-run scripts/heavy_restate.js.
+- History restated to v4 launch 2026-07-09 (scripts/heavy_restate.js, retire
+  mechanism, reversible): actual -0.93u becomes +5.36u; removed rows WON 74%,
+  the honest direction for a restatement. Applied to prod 2026-07-29: 57 rows.
+- THE DISPLAY CAP (Jack 2026-07-29): gold styling is publicly "the tracked
+  tier", so an untracked heavy ML must not wear it — effectiveDisplayScore
+  clamps such picks at 95 (silver range) via heavyDisplayCapFor, the
+  conviction curve plateaus at the cap (pick_timeline), and the cap lifts the
+  moment the price softens under the gate, a bracket unlock applies, or the
+  pick actually tracks (a drift-riding tracked gold keeps gold). True v3
+  totals, capper credit, conflict logic, and admin views are untouched.
+
+## 2. The capper PRICE GATE (reduce-only, capper_ratings.js)
+- Third gate in the chain, folded into the stored money-gate factor so the
+  in-sport bonus and sport ladders inherit it: 100+ decisions AND shrunk edge
+  (sum edge / (decisions + 25)) at or below -2% pins the capper's backing to
+  the flat 10. Rank and band untouched. Catches the .Sisyphus. shape (90.5%
+  win rate, NEGATIVE units at .998 avg implied) that the win% and money gates
+  cannot see. Thin records are structurally untouchable (the shrink keeps
+  them near zero, which is not "clearly negative").
+- The FULL edge gate (edgeShrunk > 0 required for any value) stays SHADOW
+  ONLY: `edge_shrunk` on every ratings row is the nightly would-be log;
+  forward data decides if it ever earns scoring power. Known blocker: the
+  rescue side is dead while HARD_ZERO stands (a 46.7%-win dog specialist at
+  +14.9u is still zeroed by the raw-49 rule) — Jack's open decision.
+
+## Surfaces
+- Cappers tab: Needed% (avg break-even their odds required) + Edge columns,
+  PRICE GATE status chip; Wilson value moved into the Rank tooltip.
+- Capper profile: EDGE header chip, "HOW THEIR POINTS ARE MADE" pipeline strip
+  (band -> volume cap -> win%/money/price gates -> pays N/pick) with the heavy-
+  bracket unlock progress line, Needed%/Edge per sport (display only).
+- capper_ratings columns: needed_pct, edge_shrunk, heavy_n, heavy_edge_shrunk,
+  price_gated (overall scope; needed_pct/edge_shrunk on sport scopes too).
+- Audit R7 flags any current-cycle tracked ML stored past the gate.
 
 ---
 
@@ -129,9 +199,22 @@ from WHERE THE BACKER RANKS among all cappers, and pipes don't rank.
 
 ## The ranking
 
-Every capper with at least one graded DECISION (win or loss; pushes sit out) goes
-into ONE pool, ranked by the LOWER BOUND of the 99% Wilson score interval
-(z = 2.576) on their win rate. The worst-case win rate the record still supports:
+Every capper with at least one graded PREGAME decision (win or loss; pushes sit
+out) goes into ONE pool, ranked by the LOWER BOUND of the 99% Wilson score
+interval (z = 2.576) on their win rate.
+
+PREGAME ONLY (Jack 2026-07-29): in-play entries (live=true in sources_json —
+wallets/experts entering after the game started) are EXCLUDED from every
+ratings aggregate: the pool, win%, units, gates, edge, heavy-bracket stats, and
+the side lean. The board only ever scores pregame picks (source_ingest's gate),
+so ranks must be built on the same universe. Before the fix, in-play rows were
+7,787 of ~19k graded rows (WTA 82%, ATP 62% of their rows), ran ~6pts hotter on
+win% at short prices with worse ROI, and 9 of the 31 top-5% cappers had ZERO
+pregame decisions — ranks built entirely on bets the site never judges. Live
+rows stay in capper_history (provenance, future live product); they are simply
+not evidence of pregame skill. Rows with no provenance (Discord era) are
+pregame by construction. Historical tracked records were NOT restated; the fix
+changes ratings forward from deploy. The worst-case win rate the record still supports:
 big proven volume beats thin perfection (MidwestMike 85-49 outranks a 7-0; at 95%
 confidence that inverts, which is why 99% was chosen — verified on the 2026-07-09
 prod pull of 343 cappers). Ties on (wilson, win%, decisions) share a rank.

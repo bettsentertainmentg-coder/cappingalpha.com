@@ -29,9 +29,18 @@ function captureSnapshot(espnGameId) {
   const picks = db.prepare(`
     SELECT * FROM picks WHERE espn_game_id = ? AND mention_count > 0 ORDER BY score DESC
   `).all(espnGameId);
+  const v3 = db.getSetting('scoring_version', 'v2') === 'v3';
   for (const pk of picks) {
     try { pk.timeline = getPickTimeline(pk.id); } catch (_) { pk.timeline = []; }
+    // The snapshot is what the historical page renders forever, so freeze the
+    // DISPLAY score, not the raw v2 column. Storing picks.score put a 55 above a
+    // curve that ended at 12 on the same card, because under v3 those are two
+    // different scales.
+    if (v3) {
+      try { pk.score = require('./scoring_v3').v3DisplayScore(pk); } catch (_) {}
+    }
   }
+  if (v3) picks.sort((a, b) => (b.score || 0) - (a.score || 0));
 
   let publicBetting = null, lineHistory = null, polymarket = null,
       kalshi = null, lines = null, insights = null;
@@ -65,16 +74,26 @@ function captureSnapshot(espnGameId) {
 // been captured yet. Called from the live cron — at first detection of a started
 // game the enrichment caches still hold the final pre-game values (the market
 // syncs stop at status 'pre'), which is exactly what we want to preserve.
+// DEAD SINCE THE v3 FLIP, fixed 2026-08-02. The gate compared picks.score, which
+// under v3 is the RAW v2 total, against MVP_THRESHOLD 50. Wave-1 source picks
+// carry a v2 score of 0 to 20 (no channel points, no sport bonus on WNBA, no home
+// bonus on totals), so nothing ever cleared 50 and not one snapshot has been
+// captured since. Every finished game's detail page has been falling back to bare
+// mvp_picks rows. Under v3 the gate reads score_breakdown.v3_total against the
+// gold line instead, which is what "MVP game" has meant since July.
 function snapshotStartedMvpGames(threshold = MVP_THRESHOLD) {
+  const v3 = db.getSetting('scoring_version', 'v2') === 'v3';
+  const bar = v3 ? 100 : threshold;
   const rows = db.prepare(`
     SELECT DISTINCT tg.espn_game_id
     FROM today_games tg
     JOIN picks pk ON pk.espn_game_id = tg.espn_game_id
+    LEFT JOIN score_breakdown sb ON sb.pick_id = pk.id
     WHERE tg.status IN ('in', 'post')
       AND pk.mention_count > 0
-      AND pk.score >= ?
+      AND ${v3 ? 'COALESCE(sb.v3_total, 0)' : 'pk.score'} >= ?
       AND NOT EXISTS (SELECT 1 FROM mvp_detail_snapshots s WHERE s.espn_game_id = tg.espn_game_id)
-  `).all(threshold);
+  `).all(bar);
 
   let n = 0;
   for (const r of rows) { if (captureSnapshot(r.espn_game_id)) n++; }

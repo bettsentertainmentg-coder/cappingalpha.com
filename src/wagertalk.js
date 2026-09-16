@@ -88,6 +88,19 @@ function parsePlay(play, market) {
   return null;
 }
 
+// WagerTalk serves capper names HTML-escaped ("Marco D&#039;Angelo", 'Bill
+// &quot;Krackman&quot; Krackomberger'). An escaped name is a DIFFERENT identity
+// to the registry, so it can never merge with the same person from another
+// source — decode before anything downstream sees it.
+function decodeEntities(s) {
+  return String(s || '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+}
+
 function parseCards(html) {
   const out = [];
   for (const c of (html || '').split('<div class="pro-card').slice(1)) {
@@ -98,7 +111,13 @@ function parseCards(html) {
     const event = (card.match(/content-event"[^>]*>([^<]+)</) || [])[1];
     const play = (card.match(/content-play"[^>]*>([^<]+)</) || [])[1];
     if (!slug || !name || !play) continue;
-    out.push({ slug, name: name.trim(), sportText: (sport || '').trim(), event: (event || '').trim(), play: play.trim() });
+    out.push({
+      slug,
+      name: decodeEntities(name).trim(),
+      sportText: decodeEntities(sport).trim(),
+      event: decodeEntities(event).trim(),
+      play: decodeEntities(play).trim(),
+    });
   }
   return out;
 }
@@ -116,7 +135,10 @@ async function pollWagerTalk() {
     if (!ev) continue; // futures/props carry no matchup
     const pick = parsePlay(card.play, ev.market);
     if (!pick) continue;
-    const game = findGameByTeams(ev.teamA, ev.teamB, sport);
+    const game = findGameByTeams(ev.teamA, ev.teamB, sport, {
+      pickType: pick.pickType, line: pick.line ?? null, odds: pick.odds ?? null, side: null,
+      source: 'wagertalk', capper: card.name, sport, picked: pick.picked || `${ev.teamA} vs ${ev.teamB}`,
+    });
     if (!game) continue;
     const isTotal = pick.pickType === 'over' || pick.pickType === 'under';
     const side = isTotal ? null : sideOf(game, pick.picked);

@@ -5,7 +5,7 @@
 
 const db            = require('./db');
 const { scorePick } = require('./scoring');
-const { isPickAcceptable, logLatePick } = require('./pick_cutoff');
+const { isPickAcceptable, logLatePick, hasGameStarted, GRACE_MS } = require('./pick_cutoff');
 const { cycleDateForInstant } = require('./cycle');
 
 // ── Line capture at the archive threshold ────────────────────────────────────
@@ -260,17 +260,42 @@ function findTodayGame(team) {
   return null;
 }
 
+// Neutral-site flag for a game (today_games.neutral_site, set by ncaaf_espn).
+// The v2 scorer suppresses the home bonus on it; is_home_team stays the side flag.
+function isNeutralSite(espnGameId) {
+  if (!espnGameId) return false;
+  try { return !!db.prepare(`SELECT neutral_site FROM today_games WHERE espn_game_id = ?`).get(espnGameId)?.neutral_site; }
+  catch (_) { return false; }
+}
+
 // ── Resolve the canonical team name (home_team or away_team) from today_games ─
+// Scores BOTH sides and takes the better one. The old rule tested the home side
+// only, one-way, and returned it on any brush: "Kovacevic" contains "vac" so a
+// Kovacevic pick was filed on Vacherot, and "Islanders" contains LA's abbr. With
+// 172 college names in play ("Ohio State" vs "Oklahoma State", "Texas" inside
+// three other schools) a one-sided test files a lot of picks on the opponent.
+// Tier: exact or normalized-exact 3, stored variant contains the input 2, input
+// contains the variant 1; the longer matched variant wins inside a tier; a dead
+// tie stays home (never null: a null would mint a seventh unseeded row).
+function _sideScore(variants, t, tn) {
+  let best = 0, bestLen = 0;
+  for (const v of variants) {
+    const vn = normalizeTeam(v);
+    let tier = 0;
+    if (v === t || vn === tn) tier = 3;
+    else if (t && v.includes(t) || tn && vn.includes(tn)) tier = 2;
+    else if (v && t.includes(v) || vn && tn.includes(vn)) tier = 1;
+    if (tier > best || (tier === best && v.length > bestLen)) { best = tier; bestLen = v.length; }
+  }
+  return best * 1000 + bestLen;
+}
 function getCanonicalTeam(game, team) {
   const t  = (team || '').toLowerCase().trim();
   const tn = normalizeTeam(team);
-
-  const homeVariants = [game.home_team, game.home_short, game.home_name, game.home_abbr]
-    .filter(Boolean).map(n => n.toLowerCase());
-
-  return homeVariants.some(n => n === t || normalizeTeam(n) === tn || n.includes(tn) || tn.includes(normalizeTeam(n)))
-    ? game.home_team
-    : game.away_team;
+  const homeVariants = [game.home_team, game.home_short, game.home_name, game.home_abbr].filter(Boolean).map(n => n.toLowerCase());
+  const awayVariants = [game.away_team, game.away_short, game.away_name, game.away_abbr].filter(Boolean).map(n => n.toLowerCase());
+  const h = _sideScore(homeVariants, t, tn), a = _sideScore(awayVariants, t, tn);
+  return a > h ? game.away_team : game.home_team;
 }
 
 // ── Find slot using team name (picked_side from AI is unreliable for home/away) ─
@@ -331,7 +356,7 @@ function savePick(pick) {
     const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(aiGameId);
     if (game) {
       if (!isPickAcceptable(game)) {
-        console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${aiGameId}`);
+        console.log(`[storage] late pick rejected (game already started, past the ${GRACE_MS / 60000}min grace) for ${team} in game ${aiGameId}`);
         logLatePick(pick);
         return null;
       }
@@ -347,7 +372,7 @@ function savePick(pick) {
   // 2. Fallback: fuzzy match by team name
   const game = findTodayGame(team);
   if (game && !isPickAcceptable(game)) {
-    console.log(`[storage] late pick rejected (>5min past actual start) for ${team} in game ${game.espn_game_id}`);
+    console.log(`[storage] late pick rejected (game already started, past the ${GRACE_MS / 60000}min grace) for ${team} in game ${game.espn_game_id}`);
     logLatePick(pick);
     return null;
   }
@@ -423,7 +448,7 @@ function updateSlot(slot, pick) {
     { channel, is_home_team: isTotal ? false : slot.is_home_team, sport: slot.sport },
   ];
 
-  const scored = scorePick({ mentions });
+  const scored = scorePick({ mentions, neutral: isNeutralSite(slot.espn_game_id) });
 
   db.prepare(`
     UPDATE picks
@@ -451,6 +476,21 @@ function updateSlot(slot, pick) {
   let v3 = null;
   try { v3 = require('./scoring_v3').computeAndLogV3(slot.id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
+
+  // THE CURVE'S ONLY HONEST SOURCE. Stamp what the pick is worth RIGHT NOW onto
+  // the mention that just landed. Without this the conviction curve has to
+  // re-derive every historical point at page-load time against capper_ratings as
+  // they stand then, and that table is deleted and rebuilt on every graded
+  // results pass, so a settled pick's history quietly rewrote itself all day and
+  // the leftover error got added to the last backer's labelled step (a member
+  // read "+38, ic4cream" when most of it was the pool re-ranking). One number per
+  // mention, written once, never updated.
+  if (v3Live && v3 && raw_message?.id) {
+    try {
+      db.prepare(`UPDATE raw_messages SET subtotal_after = ? WHERE pick_id = ? AND message_id = ?`)
+        .run(capperSubtotal(v3), slot.id, String(raw_message.id));
+    } catch (_) {}
+  }
 
   // Thresholds by active scale: v2 uses 35/MVP-50; v3 archives at 50 (every pick
   // worth 50pts+ is tracked in pick_history) and GOLD 100 with the totals gate
@@ -517,7 +557,7 @@ function insertNewPick(pick) {
     ? (snapshot?.original_ou     ?? (parseFloat(spread_value) || null))
     : (snapshot?.original_spread ?? (parseFloat(spread_value) || null));
   const isTotal2 = (pick_type || '').toLowerCase() === 'over' || (pick_type || '').toLowerCase() === 'under';
-  const scored = scorePick({ mentions: [{ channel, is_home_team: isTotal2 ? false : (is_home_team || false), sport }] });
+  const scored = scorePick({ mentions: [{ channel, is_home_team: isTotal2 ? false : (is_home_team || false), sport }], neutral: isNeutralSite(espn_game_id) });
 
   const result = db.prepare(`
     INSERT INTO picks
@@ -546,6 +586,14 @@ function insertNewPick(pick) {
   let v3 = null;
   try { v3 = require('./scoring_v3').computeAndLogV3(pick_id); } catch (_) {}
   const v3Live = db.getSetting('scoring_version', 'v2') === 'v3';
+  // Same stamp as updateSlot: what the pick was worth the moment this mention
+  // landed, so the curve never has to guess it later.
+  if (v3Live && v3 && pick.raw_message?.id) {
+    try {
+      db.prepare(`UPDATE raw_messages SET subtotal_after = ? WHERE pick_id = ? AND message_id = ?`)
+        .run(capperSubtotal(v3), pick_id, String(pick.raw_message.id));
+    } catch (_) {}
+  }
 
   const archives = v3Live ? (v3 && v3.total >= 50) : scored.total >= 35;
   const isMvp    = v3Live ? !!(v3 && v3.total >= 100 && v3.breakdown.totals_gate_ok !== false) : scored.is_mvp;
@@ -659,6 +707,22 @@ function upsertScoreBreakdown(pick_id, scored) {
   }
 }
 
+// The CAPPER-ONLY portion of a v3 score: everything the people backing this pick
+// are worth, with the four general bonuses taken back out. That split matters
+// because the bonuses do not surface publicly until T-60 (scoring_v3's reveal
+// plan), so the conviction curve composes them separately. Storing the capper
+// part per mention lets the curve plot what the pick was really worth at that
+// instant, instead of re-deriving it later against a re-ranked pool, while the
+// bonus block still lands at its scheduled moment.
+function capperSubtotal(v3) {
+  const bd = v3?.breakdown || {};
+  const bonuses = Math.round(bd.sport_pct?.pts ?? 0)
+                + Math.round(bd.market?.pts ?? 0)
+                + Math.round(bd.lean?.pts ?? 0)
+                + Math.round(bd.sport_bonus ?? 0);
+  return Math.round((v3?.total ?? 0) - bonuses);
+}
+
 // ── Rebuild a pick's scores from whatever mentions remain ────────────────────
 // Used after a mention is REMOVED (e.g. a Polymarket wallet's stance flipped
 // sides, so its old-side entry was withdrawn). Recomputes v2 from the
@@ -668,6 +732,23 @@ function upsertScoreBreakdown(pick_id, scored) {
 function recomputePickFromMentions(pickId) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
   if (!pick) return null;
+  // Frozen at first pitch, same as the score. computeAndLogV3 below already
+  // refuses to move v3_total on a started game, but everything ABOVE it here
+  // (picks.score, mention_count, capper_name, the v2 breakdown) was still being
+  // rewritten underneath the frozen number. mention_count in particular gates
+  // every board query (`WHERE mention_count > 0`), so a withdrawal could drop a
+  // live pick off the board entirely. Callers are start-gated too; this is the
+  // backstop that does not depend on the next caller remembering.
+  if (pick.espn_game_id) {
+    try {
+      const g = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score
+                            FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id);
+      if (g && hasGameStarted(g)) {
+        console.log(`[storage] recompute skipped for pick ${pickId} — game already started`);
+        return null;
+      }
+    } catch (_) { /* unknown game state: fall through */ }
+  }
   const rows = db.prepare(
     `SELECT channel, author, capper_name FROM raw_messages WHERE pick_id = ? ORDER BY id ASC`
   ).all(pickId);
@@ -677,7 +758,7 @@ function recomputePickFromMentions(pickId) {
     is_home_team: isTotal ? false : pick.is_home_team,
     sport:        pick.sport,
   }));
-  const scored = scorePick({ mentions });
+  const scored = scorePick({ mentions, neutral: isNeutralSite(pick.espn_game_id) });
   const firstCapper = rows.find(r => r.capper_name)?.capper_name ?? null;
   db.prepare(`
     UPDATE picks SET score = ?, mention_count = ?, capper_name = ?, score_breakdown = ? WHERE id = ?
@@ -688,16 +769,83 @@ function recomputePickFromMentions(pickId) {
   return { v2: scored.total, v3: v3 ? v3.total : null, mentions: rows.length };
 }
 
+// ── THE HEAVY-PRICE GATE on tracked bets (Jack 2026-07-28) ───────────────────
+// A flat-unit record cannot survive extreme favorites: at -1250 one loss
+// erases twelve wins, and the v4-era ledger's entire deficit traced to ML bets
+// at -300 or worse (37-13, -6.29u — winning 74% and still bleeding). A gold at
+// a heavier price than settings heavy_ml_gate (default -300, judged on the
+// canonical line AT TRACKING TIME, never re-litigated at T-60) stays on the
+// board and rankings but never
+// becomes a tracked bet — UNLESS a backer has EARNED the price: 30+ graded
+// decisions in the heavy bracket with positive shrunk edge (capper_ratings
+// heavy_n / heavy_edge_shrunk, nightly). The gate is scaffolding that erodes
+// only with evidence, never by fiat: the first capper who proves they beat
+// heavy prices re-opens tracking for their own picks automatically.
+// A moneyline the books never posted. College football's biggest favorites
+// (a quarter of a Saturday slate, all -25 or worse) ship with a spread and no
+// price, because nobody would bet it. Where a book does post one at those
+// spreads it is -4500 to -50000, so a missing price on a -25 side is treated as
+// -100000 for GRADING and the display cap: a near-certain win pays a few cents,
+// not the +0.91 units the -110 fallback was crediting. Never written into
+// today_games.ml_* (that is the public line and the CA lock basis).
+const NO_ML_HEAVY_SPREAD = -25;
+const NO_ML_SYNTHETIC_ODDS = -100000;
+function impliedHeavyMl(storedMl, sideSpread) {
+  if (storedMl != null) return storedMl;
+  const sp = Number(sideSpread);
+  if (Number.isFinite(sp) && sp <= NO_ML_HEAVY_SPREAD) return NO_ML_SYNTHETIC_ODDS;
+  return null;
+}
+
+function heavyMlGateOdds() {
+  try {
+    const v = parseFloat(db.getSetting('heavy_ml_gate', '-300'));
+    return Number.isFinite(v) && v < 0 ? v : -300;
+  } catch (_) { return -300; }
+}
+
+function heavyBracketUnlocked(espn_game_id, team, pick_type) {
+  if (!espn_game_id) return false;
+  try {
+    const HEAVY_UNLOCK_N = require('./capper_ratings').HEAVY_UNLOCK_N;
+    const names = db.prepare(`
+      SELECT DISTINCT rm.capper_name FROM raw_messages rm
+      JOIN picks p ON p.id = rm.pick_id
+      WHERE p.espn_game_id = ? AND LOWER(p.team) = LOWER(?) AND LOWER(p.pick_type) = LOWER(?)
+        AND rm.capper_name IS NOT NULL AND rm.capper_name != ''
+    `).all(espn_game_id, team || '', pick_type || 'ML').map(r => r.capper_name);
+    for (const raw of names) {
+      const canonical = resolveCapperName(raw)?.name || raw;
+      const r = db.prepare(`
+        SELECT heavy_n, heavy_edge_shrunk FROM capper_ratings
+        WHERE canonical_name = ? AND scope = 'overall'
+      `).get(canonical);
+      // Bracket proof alone opens the pick (Jack 2026-07-29 evening: the
+      // top-15% leader requirement was tried for a few hours and reverted —
+      // 30+ heavy decisions at positive shrunk edge is already a hard enough
+      // bar to filter that bracket). Once one qualifying backer opens it, the
+      // whole pick counts — tracking, gold display, and every joiner's
+      // consensus points (which the gate never touched in the first place).
+      if (r && (r.heavy_n || 0) >= HEAVY_UNLOCK_N && (r.heavy_edge_shrunk || 0) > 0) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id = null, score, cap = null, scale = 'v2' }) {
   // today_games gives team names + the opening line (used as a fallback only).
-  let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false;
+  let ml_odds = null, ou_odds = null, home_team = null, away_team = null, gameStarted = false, gameStartAt = null;
   if (espn_game_id) {
     const game = db.prepare(
-      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds, status, start_time FROM today_games WHERE espn_game_id = ?`
+      `SELECT home_team, away_team, ml_home, ml_away, ou_over_odds, ou_under_odds, status, start_time,
+              sport, actual_start_at, home_score, away_score, period
+       FROM today_games WHERE espn_game_id = ?`
     ).get(espn_game_id);
     if (game) {
-      const startMs = new Date(game.start_time).getTime();
-      gameStarted = game.status !== 'pre' || (Number.isFinite(startMs) && startMs <= Date.now());
+      // One shared definition of "started" across every gate in the product.
+      gameStarted = hasGameStarted(game);
+      // Stamped onto the row so the pregame proof survives the daily wipe (audit R5).
+      gameStartAt = game.actual_start_at || game.start_time || null;
       // Board day comes from the GAME's start_time, never the caller's stamp.
       // Tennis lists tomorrow's matches on today's board and ESPN corrects
       // start times after first listing, so slot/pick game_date can be a day
@@ -713,6 +861,14 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       if (type === 'under') ou_odds = game.ou_under_odds ?? null;
     }
   }
+  // The heavy-price gate judges "the odds right then" (Jack 2026-07-28), so
+  // remember the FRESH canonical price before the cap override below replaces
+  // it with the 50-cross capture — the capture freezes at first archive cross
+  // and would make the gate re-judge a stale number every promotion pass
+  // (blocked-at--320 could never re-admit on a softening, and a steamed -350
+  // could slip in on a stale -280). Fresh price order: today_games (current
+  // market pre-lock, the locked CA line post-lock) then freshest book_lines.
+  let freshMl = ml_odds;
   // Prefer the live line locked the moment the pick crossed 35 (Jack: that's THE tracked
   // line, on the graph + MVP). Fall back to the today_games opening line if the free DK
   // feed had nothing at capture time.
@@ -722,16 +878,21 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
   }
   // Last resort for an ML price: any book the engine stored for this game
   // (Bovada carries tennis matches the DK/Odds-API feeds skip). Freshest first.
-  if ((pick_type || '').toLowerCase() === 'ml' && ml_odds == null && espn_game_id) {
+  if ((pick_type || '').toLowerCase() === 'ml' && (ml_odds == null || freshMl == null) && espn_game_id) {
     try {
       const isHome = (home_team || '').toLowerCase() === (team || '').toLowerCase();
       const col = isHome ? 'ml_home' : 'ml_away';
       const bl = db.prepare(
         `SELECT ${col} AS ml FROM book_lines WHERE espn_game_id = ? AND ${col} IS NOT NULL ORDER BY updated_at DESC LIMIT 1`
       ).get(espn_game_id);
-      if (bl && bl.ml != null) ml_odds = bl.ml;
+      if (bl && bl.ml != null) { if (ml_odds == null) ml_odds = bl.ml; if (freshMl == null) freshMl = bl.ml; }
     } catch (_) {}
   }
+  // What the gate judges: the fresh price when we have one, else whatever
+  // price the row would store. Stamped onto the row as gate_ml_odds so the
+  // audit (R7) and any autopsy can always see the tracking-time price — the
+  // T-60 lock later overwrites ml_odds with the locked line by design.
+  const gateMl = freshMl ?? ml_odds;
   const capSpread = cap ? cap.spread : null;
   const capTotal  = cap ? cap.total  : null;
   const capAt     = cap ? cap.at     : null;
@@ -749,6 +910,21 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
     ).get(team, game_date, pick_type ?? null);
 
   if (!exists) {
+    // ── THE START-OF-MATCH GATE (Jack's rule 2, enforced 2026-07-30) ─────────
+    // A tracked bet is a bet PLACED. It cannot be placed on a game already in
+    // progress, and it certainly cannot be placed on one that has finished.
+    // Before this gate the `gameStarted` value above was computed and then used
+    // only on the UPDATE path below, so any pick crossing gold mid-match minted
+    // a fresh tracked row. Those rows carried more points than the legitimate
+    // pregame bet (they had been collecting in-match mentions), won the
+    // conflict resolver, and VOIDED the real bet: 48 of 457 v4-era rows, 8 good
+    // bets destroyed, including a Tabilo ML that went on to win.
+    // No grace window here on purpose. The board-mention grace in pick_cutoff
+    // exists to absorb clock skew on a SCORE; placing a bet is a harder line.
+    if (gameStarted) {
+      console.log(`[mvp] not tracking ${team} ${pick_type} — game already started (rule: everything stops at first pitch)`);
+      return;
+    }
     // No odds anywhere = the pick can't be tracked (Jack 2026-07-13): an ML
     // pick without a price has no P/L truth. Skip the insert — mentions keep
     // arriving, so the row lands the moment any source posts a line, and a
@@ -758,10 +934,24 @@ function saveMvpPick({ team, sport, pick_type, spread, game_date, espn_game_id =
       console.log(`[mvp] not tracking ${team} ML — no betting line available yet`);
       return;
     }
+    // Heavy-price gate: an ML at or past settings heavy_ml_gate never becomes a
+    // tracked bet unless a backer's heavy-bracket record has earned the price
+    // (see heavyBracketUnlocked above). Evaluated ONCE, right here, on the
+    // FRESH price (gateMl, never the frozen 50-cross capture) at tracking time
+    // (Jack 2026-07-28): a row tracked at -250 that drifts to -320 by evening
+    // RIDES — "that's a risk I'll allow" — and an untracked heavy pick whose
+    // price softens pregame gets re-attempted by the promotion sweep and
+    // passes the moment the market lets it.
+    if ((pick_type || '').toLowerCase() === 'ml' && gateMl != null && gateMl <= heavyMlGateOdds()
+        && !heavyBracketUnlocked(espn_game_id, team, pick_type)) {
+      console.log(`[mvp] not tracking ${team} ML at ${gateMl} — heavier than the ${heavyMlGateOdds()} price gate`);
+      return;
+    }
     db.prepare(`
-      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale);
+      INSERT INTO mvp_picks (team, sport, pick_type, spread, game_date, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, captured_spread, captured_total, line_captured_at, scale_version, gate_ml_odds, game_start_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(team, sport ?? null, pick_type ?? null, spread ?? null, game_date ?? null, espn_game_id, score, ml_odds, ou_odds, home_team, away_team, capSpread, capTotal, capAt, scale,
+           (pick_type || '').toLowerCase() === 'ml' ? gateMl : null, gameStartAt);
   } else {
     // Score LOCKS once the row is decided (win/loss/push/void) or the game has
     // started. Post-decision mentions used to keep bumping the number, so a
@@ -847,4 +1037,4 @@ function upsertPickHistory(pick_id, scored, cap = null, scale = 'v2') {
   } catch (_) {}
 }
 
-module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions };
+module.exports = { savePick, normalizeCapper, resolveCapperName, ensureRegistered, captureLineAtThreshold, liveDkForSide, saveMvpPick, upsertPickHistory, recomputePickFromMentions, heavyMlGateOdds, heavyBracketUnlocked, getCanonicalTeam, isNeutralSite, impliedHeavyMl };

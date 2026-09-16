@@ -10,7 +10,7 @@
 
 const https = require('https');
 const db = require('./db');
-const { recordSourcePick, findGameByAbbrs, findGameByTeams } = require('./source_ingest');
+const { recordSourcePick, findGameByAbbrs, findGameByTeams , sportForLeague } = require('./source_ingest');
 const { ensureRegistered } = require('./storage');
 
 const HEADERS = {
@@ -140,9 +140,27 @@ async function pollAnExperts() {
       if (p.result && p.result !== 'pending') continue;
       const mapped = TYPE_MAP[(p.type || '').toLowerCase()];
       if (!mapped) continue; // draw/custom/unknown -> not slot-shaped
+      // FULL GAME ONLY (2026-09-15): AN tags every pick with its period
+      // ('game', 'firstfiveinnings', 'firsthalf', ...) and puts a competitor_id
+      // on a TEAM total. Both used to ingest as full-game totals, so an F5
+      // "under 4.5" graded against the nine-inning final. 374 rows in the
+      // 2026-09-15 export. The shared market gate in source_ingest is the
+      // backstop; this is the source's own word for what the market was.
+      if (p.period && String(p.period).toLowerCase() !== 'game') continue;
+      if (p.player_id) continue;
+      if ((mapped[0] === 'over' || mapped[0] === 'under') && p.competitor_id) continue;
       const teams = p.game?.teams || [];
-      const game = findGameByAbbrs(teams[0]?.abbr, teams[1]?.abbr)
-                || findGameByTeams(teams[0]?.full_name || teams[0]?.display_name, teams[1]?.full_name || teams[1]?.display_name);
+      // AN tells us the league on every pick. Constrain the match to it, the way
+      // every other source already does; unconstrained, a college "Tigers" side
+      // could land on the Detroit Tigers and grade against the wrong final.
+      const sport = sportForLeague(p.league_name || p.game?.league_name);
+      const opts = {
+        pickType: mapped[0], side: mapped[1], line: p.value ?? null, odds: p.odds ?? null,
+        source: 'actionnetwork', capper: ex.name || ex.username, sport,
+        picked: `${teams[0]?.abbr || teams[0]?.display_name || ''} vs ${teams[1]?.abbr || teams[1]?.display_name || ''}`,
+      };
+      const game = findGameByAbbrs(teams[0]?.abbr, teams[1]?.abbr, sport, opts)
+                || findGameByTeams(teams[0]?.full_name || teams[0]?.display_name, teams[1]?.full_name || teams[1]?.display_name, sport, opts);
       if (!game) continue;
       const postedAtMs = p.created_at ? new Date(p.created_at).getTime() : Date.now();
       const out = recordSourcePick({

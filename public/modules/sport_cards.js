@@ -11,7 +11,7 @@
 // board — for eyeballing the design. Strip before ship if Jack prefers.
 
 import { state } from './state.js';
-import { sportBadge, scoreDisplay, pickLabel, teamNickname, PICK_HEAT_COLOR, currentBoardDate, SPORT_THEMES, flatUnitReturn, pickOddsAmerican } from './utils.js?v=7';
+import { sportBadge, scoreDisplay, pickLabel, teamNickname, teamLabel, PICK_HEAT_COLOR, currentBoardDate, boardDayKeys, SPORT_THEMES, flatUnitReturn, pickOddsAmerican, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 
 // Display grouping: both tennis tours share one card, like the Sports tab.
 export function displaySport(sport) {
@@ -30,6 +30,22 @@ export function railUsedFallback() { return _usedFallback; }
 function isGraded(p) {
   const r = (p.result || '').toLowerCase();
   return r === 'win' || r === 'loss' || r === 'push' || r === 'void';
+}
+
+// A graded pick that was voided because a higher-scored pick on the SAME game
+// took the slot (src/mvp.js noteLess / noteDup, plus the legacy "had less
+// points" wording on older rows). Those read SOFT YELLOW everywhere instead of
+// the push grey: the call was real, it just wasn't the one that got tracked.
+// True no-action voids stay neutral grey (a listed player was replaced, no line
+// was available, the rare equal-score tie) — nothing outscored those.
+const OUTSCORED_NOTE = /had more points|had less points|outscored/i;
+export function isVoidedPick(p) {
+  if (!p) return false;
+  const r = (p.result || '').toLowerCase();
+  return r === 'void' || String(p.annotation || '').toLowerCase().includes('not counted');
+}
+export function isOutscoredVoid(p) {
+  return isVoidedPick(p) && OUTSCORED_NOTE.test(String(p.annotation || ''));
 }
 
 // When a pick finished, for the graded list's most-recent-first order. Board
@@ -51,7 +67,7 @@ function oppFor(p) {
   const isAway = t === String(p.away_team).trim();
   if (!isHome && !isAway) return '';
   const opp = isHome ? p.away_team : p.home_team;
-  const nick = teamNickname(opp, p.team);
+  const nick = teamLabel(p, opp);
   const s = (p.sport || '').toUpperCase();
   const listingOrder = s === 'ATP' || s === 'WTA' || s === 'GOLF';
   return (listingOrder || isHome) ? `vs ${nick}` : `@ ${nick}`;
@@ -88,23 +104,29 @@ export function caPickProfit10(p) { return flatUnitReturn(p, 10); }
 export function caPickRowHtml(p, opts = {}) {
   const graded = isGraded(p);
   const live = !graded && p.game_status === 'in';
+  // Halted mid-play (or before it): the row must never wear a start time, which
+  // is what it did while `status` alone decided (a suspended match is filed 'pre').
+  const susp = !graded && !live && isSuspendedGame(p);
   const r = (p.result || '').toLowerCase();
-  const isVoid = r === 'void' || !!(p.annotation && p.annotation.toLowerCase().includes('not counted'));
+  const isVoid = isVoidedPick(p);
+  const outVoid = graded && isOutscoredVoid(p); // graded, beaten on its game → soft yellow
   const outscored = !!p._outscored;
   const heat = PICK_HEAT_COLOR(p.score || 0);
   const goldLine = state.CONFIG?.mvp_display_threshold || 100;
 
   const rowCls = 'ca-row'
     + (live ? ' live' : '')
-    + (graded ? (isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
+    + (susp ? ' susp' : '')
+    + (graded ? (outVoid ? ' g-out' : isVoid || r === 'push' ? ' g-push' : r === 'win' ? ' g-win' : r === 'loss' ? ' g-loss' : ' g-push') : '');
 
-  // Score ring: outcome color once graded, sky while live, heat color pre-game
-  // (grey when outscored), silver/dim tiers below the gold line.
+  // Score ring: outcome color once graded (soft yellow when the pick graded but
+  // was outscored on its game), sky while live, heat color pre-game (grey when
+  // currently outscored), silver/dim tiers below the gold line.
   let ringColor, numColor;
   if (opts.locked) { ringColor = '#3a4356'; numColor = '#64748b'; }
   else if (graded) {
-    ringColor = r === 'win' ? 'rgba(74,222,128,0.6)' : r === 'loss' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.55)';
-    numColor = r === 'win' ? '#4ade80' : r === 'loss' ? '#f87171' : '#94a3b8';
+    ringColor = outVoid ? 'var(--amber-line)' : r === 'win' ? 'rgba(74,222,128,0.6)' : r === 'loss' ? 'rgba(248,113,113,0.6)' : 'rgba(148,163,184,0.55)';
+    numColor = outVoid ? 'var(--amber)' : r === 'win' ? '#4ade80' : r === 'loss' ? '#f87171' : '#94a3b8';
   } else if (live) { ringColor = 'rgba(56,189,248,0.7)'; numColor = '#38bdf8'; }
   else if (outscored) { ringColor = 'rgba(148,163,184,0.5)'; numColor = 'var(--muted)'; }
   else if ((p.score || 0) < 75) { ringColor = '#39415a'; numColor = '#8892a4'; }
@@ -120,7 +142,7 @@ export function caPickRowHtml(p, opts = {}) {
   // Main: pick + odds on line 1; sport chip + context on line 2.
   const pt = (p.pick_type || '').toLowerCase();
   const isTotal = pt === 'over' || pt === 'under';
-  const label = isTotal && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  const label = isTotal && p.team ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
   const odds = _pickOdds(p);
   const oddsHtml = odds ? `<span class="ca-row-odds">${odds}</span>` : '';
   let context;
@@ -128,11 +150,11 @@ export function caPickRowHtml(p, opts = {}) {
     const as = p.game_away_score ?? p.away_score, hs = p.game_home_score ?? p.home_score;
     context = (as != null && hs != null) ? `Final ${as}-${hs}` : 'Final';
   } else if (isTotal && p.away_team && p.home_team) {
-    context = `${teamNickname(p.away_team, p.home_team)} @ ${teamNickname(p.home_team, p.away_team)}`;
+    context = `${teamLabel(p, p.away_team)} @ ${teamLabel(p, p.home_team)}`;
   } else {
     context = oppFor(p);
   }
-  const voidNote = isVoid ? `<div class="ca-rail-void-note">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
+  const voidNote = isVoid ? `<div class="ca-rail-void-note${outVoid ? ' out' : ''}">${p.annotation || 'Void. Not counted in the record.'}</div>` : '';
   const outNote = outscored && !graded ? `<div class="ca-rail-void-note">Currently outscored</div>` : '';
   const main = opts.locked
     ? `<div class="ca-row-main"><div class="ca-row-l1 blurred">Members only</div><div class="ca-row-l2 blurred">${sportBadge(p.sport)}</div></div>`
@@ -158,7 +180,9 @@ export function caPickRowHtml(p, opts = {}) {
       <span class="lsc">${pair[1].a} ${pair[1].s}</span>
       <span class="lck"><span class="ca-live-dot ca-live-dot--flash"></span>${clock}</span></div>`;
   } else if (graded) {
-    const chip = (isVoid || r === 'push')
+    const chip = outVoid
+      ? `<span class="ca-res-chip v">VOID</span>`
+      : (isVoid || r === 'push')
       ? `<span class="ca-res-chip p">${isVoid ? 'VOID' : 'PUSH'}</span>`
       : r === 'win' ? `<span class="ca-res-chip w">WIN</span>` : `<span class="ca-res-chip l">LOSS</span>`;
     // Money only on tracked (gold) picks — untracked board picks aren't in the record.
@@ -168,6 +192,10 @@ export function caPickRowHtml(p, opts = {}) {
       money = `<span class="ca-row-money ${pf > 0 ? 'pos' : pf < 0 ? 'neg' : ''}">${pf >= 0 ? '+' : '-'}$${Math.abs(pf).toFixed(2).replace(/\.00$/, '')}</span>`;
     }
     end = `<div class="ca-row-end ca-row-res">${chip}${money}</div>`;
+  } else if (susp) {
+    const as = p.game_away_score ?? 0, hs = p.game_home_score ?? 0;
+    const played = (as || hs) ? `<span class="ca-row-susp-sc">${as}-${hs}</span>` : '';
+    end = `<div class="ca-row-end"><span class="ca-res-chip v">${suspendedLabel(p).toUpperCase()}</span>${played}</div>`;
   } else {
     end = `<div class="ca-row-end"><span class="ca-row-time">${_stripTags(scoreDisplay(p)) || ''}</span></div>`;
   }
@@ -186,7 +214,12 @@ const profileBtnHtml = (key) =>
 // (still ranked by score — the rail sort), GRADED (most recent final first).
 function viewBuckets(card) {
   const { list } = card;
-  const graded = list.filter(isGraded).sort((a, b) => _finishTs(b) - _finishTs(a));
+  // Voided bets sink to the bottom of the graded list (Jack 2026-07-30). They
+  // count in neither column, so they should not sit between real results and
+  // push a win or loss out of view. Within each group, most recent final first.
+  const graded = list.filter(isGraded).sort((a, b) =>
+    (isVoidedPick(a) ? 1 : 0) - (isVoidedPick(b) ? 1 : 0) || _finishTs(b) - _finishTs(a)
+  );
   const open = list.filter(p => !isGraded(p));
   const live = open.filter(p => p.game_status === 'in');
   const upcoming = open.filter(p => p.game_status !== 'in');
@@ -202,9 +235,23 @@ function _counted(graded) {
   });
 }
 
+// Win% color bands (Jack, 2026-07-29): 50 and below is red, 51-54 keeps the
+// gold/yellow, 55+ goes green. `pct` must be the ROUNDED number the surface
+// prints, so the color can never disagree with the digits. Nothing decided yet
+// reads neutral — a 0% on an empty record is no information, not a bad day.
+// Shared by every CA record readout (card heads, the Rankings record bar, the
+// home #1 card strip, the sport profile header) so one number, one color.
+export function winPctColor(pct) {
+  if (pct == null || Number.isNaN(pct)) return 'var(--muted)';
+  if (pct <= 50) return 'var(--red)';
+  if (pct < 55) return 'var(--gold-ink)';
+  return 'var(--green)';
+}
+
 // Card-head corner: the day's record line in the record-bar colors (wins green,
-// losses red, win% gold, ROI by sign) over a win/loss/live/pending segment bar.
-// Before anything grades it reads as a signal count.
+// losses red, win% banded by winPctColor, ROI by sign) over a
+// win/loss/live/pending segment bar. Before anything grades it reads as a
+// signal count.
 function cornerMetaHtml(card) {
   const b = viewBuckets(card);
   const counted = _counted(b.graded);
@@ -214,7 +261,10 @@ function cornerMetaHtml(card) {
   const segs = [
     ...b.graded.map(p => {
       const r = (p.result || '').toLowerCase();
-      return `<i class="${r === 'win' ? 'w' : r === 'loss' ? 'l' : ''}"></i>`;
+      // Soft-yellow pip for a graded pick that got outscored on its game — it
+      // counts in neither column, and a grey pip read as "not started yet".
+      const cls = isOutscoredVoid(p) ? 'o' : r === 'win' ? 'w' : r === 'loss' ? 'l' : '';
+      return `<i class="${cls}"></i>`;
     }),
     ...b.live.map(() => '<i class="lv"></i>'),
     ...b.upcoming.map(() => '<i></i>'),
@@ -223,8 +273,9 @@ function cornerMetaHtml(card) {
   if (decided) {
     const profit = counted.reduce((s, p) => s + flatUnitReturn(p, 1), 0);
     const roi = 100 * profit / decided;
+    const wpct = Math.round(100 * wins / decided);
     line = `<b style="color:var(--green);">${wins}</b><span class="sep">-</span><b style="color:var(--red);">${losses}</b>`
-      + `<span class="sep"> · </span><b style="color:var(--gold-ink);">${Math.round(100 * wins / decided)}%</b>`
+      + `<span class="sep"> · </span><b style="color:${winPctColor(wpct)};">${wpct}%</b>`
       + `<span class="sep"> · </span><b style="color:${roi >= 0 ? 'var(--green)' : 'var(--red)'};">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% ROI</b>`;
   } else {
     const n = card.list.length;
@@ -303,12 +354,23 @@ export function renderSportRail(filters) {
   if (!el) return;
 
   const { min, max, sport } = _filters;
+  const inSport = (p) => !(sport && sport !== 'ALL' && displaySport(p.sport) !== sport);
   const inRange = (p) => {
     const s = p.score || 0;
     if (s < (min ?? 0)) return false;
     if (max != null && s > max) return false;
-    if (sport && sport !== 'ALL' && displaySport(p.sport) !== sport) return false;
-    return true;
+    return inSport(p);
+  };
+  // A TRACKED bet is on the record by definition — it qualified when it was
+  // placed. The score floor exists to keep the rail to gold BOARD picks, and
+  // applying it to tracked rows compares two different scales: tracked rows
+  // carry the TRUE v3 total, board rows carry the reveal-aware, heavy-capped
+  // DISPLAY score. A bet tracked at 163 whose display later caps at 95 would
+  // otherwise drop off its own record (and a true 102 showing 95 would flicker
+  // into existence the moment it graded).
+  const inRangeTracked = (p) => {
+    if (max != null && (p.score || 0) > max) return false;
+    return inSport(p);
   };
 
   let picks;
@@ -316,39 +378,36 @@ export function renderSportRail(filters) {
   if (mockRailActive()) {
     picks = MOCK_PICKS.filter(inRange);
   } else {
-    // Open (live / upcoming) rows come from the live board, but GRADED rows
-    // come from the TRACKED ledger (state.mvpData — the exact source the P/L
-    // record bar reads). A raw board row can sit graded at 100+ without ever
-    // being a tracked bet (crossed gold after its game started, blocked by the
-    // totals gate, or outscored on its game), and counting those made the
-    // cards' day records disagree with Today's P/L. Same set, same record.
-    const today = currentBoardDate();
-    const _mapTracked = (p) => ({
-      ...p,
-      game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
-      game_home_score: p.home_score,
-      game_away_score: p.away_score,
-    });
-    const tracked = (state.mvpData?.picks || [])
-      .filter(p => p.game_date === today && isGraded(p))
-      .map(_mapTracked)
-      .filter(inRange);
-    // A just-finished game can briefly be graded in the ledger while the board
-    // row hasn't flipped yet; the tracked row wins the slot.
-    const _betKey = (p) => `${p.espn_game_id}|${String(p.team || '').trim().toLowerCase()}|${(p.pick_type || '').toLowerCase()}`;
-    const seen = new Set(tracked.map(_betKey));
-    const board = (state.allPicks || [])
-      .filter(p => !isGraded(p) && !seen.has(_betKey(p)))
-      .filter(inRange);
-    picks = board.concat(tracked);
-    // Fallback source: when neither carries anything eligible (locally the
-    // mirrored /api/picks is a logged-out payload with scores stripped), fill
-    // the rail from today's tracked picks — real rows, minus live game state.
+    // ── ONE LIST (Jack 2026-07-31) ──────────────────────────────────────────
+    // "All the CA Scores cards are supposed to do is filter the CA rankings for
+    // users to see it easier."
+    //
+    // So that is all this does now: take the exact array the Complete Ranking
+    // renders (state.allPicks, from /api/picks) and filter it by score and
+    // sport. Nothing else.
+    //
+    // This used to stitch two sources — ungraded rows from the board, graded
+    // rows from the tracked ledger — which is why the cards agreed with neither
+    // the ranking above them nor the P/L below them, and why a match that
+    // graded mid-session fell between the two and vanished. The server now
+    // overlays the ledger's verdict onto /api/picks (index.js
+    // overlayLedgerResult), so a single list already carries both facts: what
+    // the pick did, and whether it counted. The ledger-lag hold that patched
+    // the old gap is gone with the gap.
+    picks = (state.allPicks || []).filter(inRange);
+    // Fallback: locally the mirrored /api/picks is a logged-out payload with
+    // scores stripped, so fill the rail from today's tracked picks instead.
     if (!picks.length && state.mvpData?.picks?.length) {
+      const days = boardDayKeys();
       picks = state.mvpData.picks
-        .filter(p => p.game_date === today)
-        .map(_mapTracked)
-        .filter(inRange);
+        .filter(p => days.includes(p.game_date))
+        .map(p => ({
+          ...p,
+          game_status: (p.result && p.result !== 'pending') ? 'post' : 'pre',
+          game_home_score: p.home_score,
+          game_away_score: p.away_score,
+        }))
+        .filter(inRangeTracked);
       fallback = picks.length > 0;
     }
   }

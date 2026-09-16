@@ -117,6 +117,22 @@ Game Tile (`.ca-tg-tile`), #1 Pick Card (`.ca-top-pick-card` with live/won/lost 
 | Follow Pill | Outline accent button, "Following" muted state |
 | Tier Badge | free/paid chip |
 
+### V2 Capper Database (game page section, 2026-09-16; docs/V2_DATABASE_PLAN.md 7b)
+Server-rendered by `src/capper_db_section.js` from the `backers` payload (`src/game_backers.js`); a literal port of `docs/mockups/v2_game_backers_v18.json` (scope `.v18` -> `.cdb`). Only under `html.ca-v2` (settings `product_mode` = v2, or the admin preview).
+| Name | Notes |
+|---|---|
+| Capper Row | `.cdb-row` > one `<a class="cdb-link">` (the WHOLE row opens the profile; nothing else is a control): initials disc, name line with the Source Badge, metrics line (record, money, ROI), recorded line + chips, Pick Chip + price, one chevron |
+| Count Pills | `.cdb-strip` five pills (All, AWAY, HOME, Over, Under) as a CSS-only filter (hidden radios); pill TEXT in the side inks (`--team-away-ink`, `--team-home-ink`, Over green, Under yellow, redder orange on gold/yellow teams) |
+| Source Badge | `.src.src-pm|an|cv|cm|ot` on the name line, never wraps under it. Tinted text mode ships (`html.bm-ink`); brand and neutral modes kept in CSS |
+| Pick Chip | `.pk.pk-away|home|over|under`, information only. Tint mode ships (`html.cm-tint`); filled / outline modes kept. Graded: `.pk-res-win|loss|push` ring + W / L / PUSH before the price |
+| Season Badge | `.sb.sb-money` ("+$610 this season") / `.sb.sb-record` ("61-41 this season"), faded grey chip with colored numbers (money green/red, W green, L red, T gold). Top 5% of the sport this season by money (10-pick floor) or by win% (30-pick floor) |
+| Streak Chip | `.stk.stk-w|l` "MLB W5" flame / "MLB L5" snowflake from `v2_streak_min` straight (default 5) |
+| Sample Chip | `.cdb-chip` "Small sample" under 20 graded in the sport; also "Both sides" |
+| Show more | `.cdb-more` label on a hidden checkbox: 4.5 rows + fade -> ~7.5-row contained scroller, up-arrow (no words) collapses; hidden with 3 or fewer cappers (`.cdb-short`) |
+| Info Dot | `.cdb-info` round (i) bottom right, `<details>` holding the grading note (the only explanatory copy in the section) |
+| Section Wheel (bottom) | `html.ca-v2 .ca-mobile-tabs` fixed flush above the Tab Bar on phones (`--cdb-tabbar-h` measured by `initBottomWheel()` in game-detail.js), scroll spy unchanged; first tab reads CAPPERS |
+| Header Search | `.ca-nav-search` magnifier after the hamburger, left of the wordmark, same style as the hamburger; opens the Sports tab game search (`sessionStorage.ca_open_search`) until Global Search lands |
+
 ### Socials tab (Clubhouse direction, 2026-07-17)
 The Leaderboard tab became **Socials** (Feed / Friends / Board sub-tabs). It introduces the **Sky twist accent** (`--soc` / `--soc-ink`, defined in index.html both themes) used ONLY inside Socials surfaces (sub-nav active pill, Tail/Fade/Boost, avatar rings, streak flames, section eyebrows). Gold stays official/awards, green/red stay results, brand blue keeps Follow + the wordmark. New named components:
 | Name | What it is | Where |

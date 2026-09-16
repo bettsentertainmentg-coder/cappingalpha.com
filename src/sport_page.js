@@ -151,6 +151,26 @@ function todaysGames(sports) {
   ).all(...sports).filter(g => etDayOf(g.start_time) === today);
 }
 
+// The next seven ET days for the page's sports, grouped by day. College football
+// is weekly, so a Monday /ncaaf page with one game and no view of Saturday's 80
+// is useless to the reader; the 7-day forward window (ncaaf_espn.js) means the
+// rows exist. Only days that have games are returned.
+function weekGames(sports) {
+  const ph = sports.map(() => '?').join(',');
+  const today = etTodayIso();
+  const rows = db.prepare(
+    `SELECT * FROM today_games WHERE sport IN (${ph}) ORDER BY start_time ASC, id ASC`
+  ).all(...sports);
+  const byDay = new Map();
+  for (const g of rows) {
+    const d = etDayOf(g.start_time);
+    if (!d || d <= today) continue;
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d).push(g);
+  }
+  return [...byDay.entries()].slice(0, 7).map(([day, games]) => ({ day, games }));
+}
+
 // Golf: current + upcoming tournaments with their leaderboards.
 function golfTournaments() {
   return db.prepare(
@@ -178,19 +198,29 @@ function engineFightsToday() {
 // MVP picks + all-time record for the page's sports (case-insensitive labels).
 function mvpForSports(sports) {
   const ph = sports.map(() => '?').join(',');
+  // SAME POPULATION AS EVERY OTHER PUBLIC RECORD (Jack 2026-07-30). This query
+  // used to carry no score threshold and no annotation filter, so the "All-time
+  // MLB record" printed on /mlb counted sub-gold rows and outvoted "not
+  // counted" rows that the leaderboard, the CA profile popup and /results all
+  // exclude. Three public numbers for the same picks, guaranteed to disagree.
+  const threshold = db.getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : parseInt(db.getSetting('mvp_display_threshold', '65'), 10) || 65;
   // Resolved only: today's still-pending gold picks are paid pre-game content and
   // must not render to logged-out visitors (mirrors /api/mvp/public + /api/mvp).
   const picks = db.prepare(
     `SELECT * FROM mvp_picks WHERE sport COLLATE NOCASE IN (${ph})
      AND result IN ('win', 'loss', 'push') AND COALESCE(retired, 0) = 0
+     AND score >= ? AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
      ORDER BY game_date DESC, saved_at DESC LIMIT 8`
-  ).all(...sports);
+  ).all(...sports, threshold);
   const rows = db.prepare(
     `SELECT result, COUNT(*) AS c FROM mvp_picks
      WHERE sport COLLATE NOCASE IN (${ph}) AND result IN ('win', 'loss', 'push')
        AND COALESCE(retired, 0) = 0
+       AND score >= ? AND (annotation IS NULL OR annotation NOT LIKE '%not counted%')
      GROUP BY result`
-  ).all(...sports);
+  ).all(...sports, threshold);
   const record = { win: 0, loss: 0, push: 0 };
   for (const r of rows) record[r.result] = r.c;
   return { picks, record };
@@ -257,8 +287,8 @@ function buildBoard(games) {
 
 // ── Section renderers ─────────────────────────────────────────────────────────
 
-function gamesSectionHtml(label, games) {
-  const rows = games.map(g => {
+function gameRowsHtml(games) {
+  return games.map(g => {
     const status = (g.status || 'pre').toLowerCase();
     let right;
     if (status === 'in') {
@@ -281,14 +311,32 @@ function gamesSectionHtml(label, games) {
       <div class="sp-game-status">${right}</div>
     </a>`;
   }).join('\n');
+}
 
+function gamesSectionHtml(label, games) {
   const body = games.length
-    ? `<div class="sp-games">${rows}</div>`
+    ? `<div class="sp-games">${gameRowsHtml(games)}</div>`
     : `<div class="sp-empty">No ${esc(label)} games on the board today.</div>`;
 
   return `<section class="sp-section">
     <h2 class="sp-h2">Today's games</h2>
     ${body}
+  </section>`;
+}
+
+// "This week": one block per upcoming day that has games. Rendered for every
+// team sport, but it is college football that needs it (see weekGames).
+function weekSectionHtml(days) {
+  if (!days.length) return '';
+  const blocks = days.map(({ day, games }) => {
+    const d = new Date(`${day}T12:00:00Z`);
+    const head = d.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' });
+    return `<h3 class="sp-h3">${esc(head)} <span class="sp-count ca-num">${games.length}</span></h3>
+      <div class="sp-games">${gameRowsHtml(games)}</div>`;
+  }).join('\n');
+  return `<section class="sp-section">
+    <h2 class="sp-h2">This week</h2>
+    ${blocks}
   </section>`;
 }
 
@@ -496,6 +544,7 @@ const PAGE_CSS = `
 .sp-tagline { color: var(--text-secondary); margin-top: 10px; max-width: 660px; font-size: 15px; }
 .sp-section { margin-top: 38px; }
 .sp-h2 { font-size: 17px; font-weight: 700; margin-bottom: 12px; }
+.sp-count { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 6px; }
 .sp-h3 { font-size: 14px; font-weight: 700; margin: 18px 0 10px; color: var(--text-secondary); }
 .sp-note { color: var(--text-tertiary); font-size: 13px; margin-bottom: 12px; }
 .sp-empty { color: var(--muted); font-size: 14px; padding: 18px 0; }
@@ -590,7 +639,10 @@ async function buildSportPageHtml(pageDef, opts = {}) {
   const sections = [];
   if (isGolf)      sections.push(golfSectionHtml(tournaments));
   else if (isMma)  sections.push(mmaSectionHtml(engineFights, kalshiFights));
-  else             sections.push(gamesSectionHtml(label, games));
+  else {
+    sections.push(gamesSectionHtml(label, games));
+    sections.push(weekSectionHtml(weekGames(sports)));
+  }
   if (!isGolf && !isMma) sections.push(boardSectionHtml(board));
   sections.push(mvpSectionHtml(label, slug, mvpPicks, record));
   sections.push(infoSectionHtml(label, info));
@@ -622,7 +674,7 @@ async function buildSportPageHtml(pageDef, opts = {}) {
   <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=7" />
+  <link rel="stylesheet" href="/game-detail.css?v=10" />
   ${EMBED_STAMP}
   ${EMBED_CHILD}
   <style>${PAGE_CSS}</style>

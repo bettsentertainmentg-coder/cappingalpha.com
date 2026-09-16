@@ -15,6 +15,7 @@
 const https = require('https');
 const db = require('./db');
 const { recordSourcePick, findGameByTeams, sideOf, americanFromPrice, removeSourceEntry, findPendingOpposite } = require('./source_ingest');
+const { checkSourcePick } = require('./ledger_sanity');
 const { ensureRegistered } = require('./storage');
 
 const HEADERS = {
@@ -104,7 +105,11 @@ function pmDisplayName(w) {
 const SPORT_TAGS = ['mlb', 'nba', 'wnba', 'nhl', 'nfl', 'cfb', 'soccer', 'tennis'];
 // today_games sport label per tag ('Tennis' blends ATP+WTA in the matcher).
 const TAG_SPORT = { mlb: 'MLB', nba: 'NBA', wnba: 'WNBA', nhl: 'NHL', nfl: 'NFL', cfb: 'NCAAF', soccer: 'Soccer', tennis: 'Tennis' };
-const SKIP_Q = /(1h |half|1st |inning|series|champion|mvp|rebounds|assists|total games|to score|anytime)/i;
+// Markets that are not the full-game side, spread or total. Tennis is the
+// costly one (2026-09-15): "Total Sets O/U 2.5" and "Set Handicap -1.5" read
+// as a total and a spread, and 300+ rows graded SETS against a GAMES final.
+// All-Star exhibitions ("Team Spoon vs. Team Coop") matched a real slate too.
+const SKIP_Q = /(1h |half|1st |inning|series|champion|mvp|rebounds|assists|total games|to score|anytime|\bsets?\b|handicap|all[- ]star|team spoon|team coop|exact|both teams|clean sheet|btts|corner|\bcards?\b|draw no bet|double chance|correct score|margin|win by|either|race to|first to|\bquarter\b|\bperiod\b|overtime|tie-?break)/i;
 
 async function buildMarketMap() {
   const map = new Map(); // conditionId -> { game, question, outcomes }
@@ -118,14 +123,15 @@ async function buildMarketMap() {
       if (parts.length !== 2) continue;
       // Constrain the match to the tag's sport — a bare city pair ("Toronto vs
       // Miami") exists in several leagues at once.
-      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null);
+      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null, { source: 'polymarket', sport: TAG_SPORT[tag] || null, picked: title });
       if (!game) continue;
       for (const mkt of (ev.markets || [])) {
         const cid = mkt.conditionId || mkt.condition_id;
         if (!cid || SKIP_Q.test(mkt.question || '')) continue;
-        let outcomes = [];
+        let outcomes = [], prices = [];
         try { outcomes = typeof mkt.outcomes === 'string' ? JSON.parse(mkt.outcomes) : (mkt.outcomes || []); } catch (_) {}
-        map.set(cid, { game, question: mkt.question || '', outcomes });
+        try { prices = (typeof mkt.outcomePrices === 'string' ? JSON.parse(mkt.outcomePrices) : (mkt.outcomePrices || [])).map(parseFloat); } catch (_) {}
+        map.set(cid, { game, question: mkt.question || '', outcomes, prices });
       }
     }
     await sleep(150);
@@ -287,12 +293,422 @@ async function pollPmWallets() {
   return { ingested, dupes, errors };
 }
 
-module.exports = { refreshPmWallets, pollPmWallets, resolvePmStance, buildMarketMap, pmDisplayName, classifyMarket };
+// ── Holders discovery (2026-07-30): market-first wallet discovery ─────────────
+// The leaderboard path finds famous wallets and hopes they bet sports; this
+// walks today's mapped game markets and asks who has real money on them
+// (data-api /holders). Every candidate must pass a STRAIGHT-BETTOR screen over
+// its recent game trades (Jack's rule 2026-07-30: no hedgers betting both
+// sides, no early cash-outs, no micro-trade churners — conviction bettors who
+// take a position and ride it to settlement). Admitted wallets get a CAPPED
+// history backfill: their most recent settled PREGAME entries, graded against
+// the on-chain resolution, at most pm_backfill_max_decisions rows. The cap is
+// the balance Jack asked for — 25 keeps a jump-started wallet inside the
+// 10-29-decision volume cap (points capped at 70) until it earns live picks
+// with us, so history helps a wallet get ranked but can never crown it.
+
+const GAME_SLUG = /-\d{4}-\d{2}-\d{2}$/; // dated event slugs are single games
+const SLUG_SPORT = {
+  mlb: 'MLB', nba: 'NBA', wnba: 'WNBA', nhl: 'NHL', nfl: 'NFL', cfb: 'NCAAF', cbb: 'CBB',
+  atp: 'ATP', wta: 'WTA',
+  epl: 'Soccer', laliga: 'Soccer', seriea: 'Soccer', bundesliga: 'Soccer', ligue1: 'Soccer',
+  ucl: 'Soccer', uel: 'Soccer', mls: 'Soccer', ligamx: 'Soccer',
+};
+const slugSport = (slug) => SLUG_SPORT[(slug || '').split('-')[0]] || null;
+
+// Admission thresholds (recalibrated 2026-08-26 against 26 live candidates —
+// scripts/pm_calibrate.js reproduces the measurement).
+// What that run showed, and why the numbers are what they are:
+//   - A ZERO-tolerance behaviour screen (hedge 0 / sell 5 / pregame 90) admitted
+//     NOBODY. Perfectly clean books at size do not exist.
+//   - Behaviour purity ALONE was anti-correlated with skill: the strictest
+//     behaviour-only set admitted a 3-9 wallet and two with no record at all,
+//     while the three genuinely good wallets (63% and +16.8u between them) each
+//     carried 3-6% incidental hedging from averaging into a line.
+//   - The PROFIT gate did all the separating. Once it is in, loosening or
+//     tightening the behaviour bars changed nothing.
+// So: behaviour bars sit where they exclude real traders (cash-out artists ran
+// 35-52%, churners 25-73% sells) without punishing a clean bettor's rounding,
+// and the decision is carried by a record WE graded.
+function holdersCfg() {
+  return {
+    minUsd: parseFloat(db.getSetting('pm_min_usd', '200')),
+    maxNew: parseInt(db.getSetting('pm_holders_max_new', '3'), 10),
+    days: parseInt(db.getSetting('pm_backfill_days', '90'), 10),
+    maxDecisions: parseInt(db.getSetting('pm_backfill_max_decisions', '25'), 10),
+    hedgePct: parseFloat(db.getSetting('pm_screen_hedge_pct', '8')),
+    cashoutPct: parseFloat(db.getSetting('pm_screen_cashout_pct', '15')),
+    sellPct: parseFloat(db.getSetting('pm_screen_sell_pct', '10')),
+    pregamePct: parseFloat(db.getSetting('pm_screen_pregame_pct', '80')),
+    // Proof gates: a wallet must show a real, profitable pregame record that WE
+    // graded (on-chain settlement, flat one-unit stakes at the price it paid).
+    // Polymarket's own headline P/L is never consulted — same rule as every
+    // other source's claimed record.
+    minDecisions: parseInt(db.getSetting('pm_screen_min_decisions', '10'), 10),
+    minUnits: parseFloat(db.getSetting('pm_screen_min_units', '0')),
+    // How deep to screen, INDEPENDENT of how many we admit. These must not be
+    // coupled: position size is if anything anti-correlated with being a
+    // straight bettor (the biggest holders are market-makers we refuse), so the
+    // wallets worth having sit well down the size-ranked list. Tying the search
+    // window to the admit quota starved discovery outright — a quota of 3 only
+    // looked at 15 candidates and admitted nobody while three proven winners
+    // waited at ranks 18, 19 and 26.
+    screenMax: parseInt(db.getSetting('pm_holders_screen_max', '40'), 10),
+  };
+}
+
+// Flat one-unit return at American odds — the ledger's own math.
+function unitReturn(odds, result) {
+  if (result === 'push') return 0;
+  const o = parseFloat(odds);
+  if (!Number.isFinite(o)) return result === 'win' ? 0 : -1;
+  if (result === 'win') return o > 0 ? o / 100 : 100 / Math.abs(o);
+  return -1;
+}
+
+// Page a wallet's trade history back to sinceTs (seconds). Returns dated-game
+// rows only. `truncated` means the page cap hit before reaching sinceTs — a
+// wallet with that much churn is disqualified by volume alone.
+async function fetchWalletGameTrades(wallet, sinceTs) {
+  const rows = [];
+  let offset = 0, truncated = false;
+  for (let page = 0; page < 30; page++) {
+    const res = await getJson(`https://data-api.polymarket.com/trades?user=${encodeURIComponent(wallet)}&limit=100&offset=${offset}&takerOnly=false`);
+    if (res.status !== 200 || !Array.isArray(res.json) || !res.json.length) break;
+    let oldest = Infinity;
+    for (const t of res.json) {
+      const ts = parseInt(t.timestamp ?? 0, 10);
+      oldest = Math.min(oldest, ts || Infinity);
+      if (ts >= sinceTs && GAME_SLUG.test(t.eventSlug || t.slug || '')) rows.push(t);
+    }
+    offset += res.json.length;
+    if (oldest < sinceTs || res.json.length < 100) break;
+    if (page === 29) truncated = true;
+    await sleep(150);
+  }
+  return { rows, truncated };
+}
+
+// Per-market ledgers from raw trades: shares/cost per outcome, trade count,
+// first buy timestamp. Everything the screen and the backfill both read.
+function buildLedgers(rows) {
+  const led = new Map(); // cid -> ledger
+  for (const t of rows) {
+    const cid = t.conditionId;
+    if (!cid) continue;
+    let L = led.get(cid);
+    if (!L) { L = { slug: t.eventSlug || t.slug || '', title: t.title || '', trades: 0, sells: 0, out: new Map() }; led.set(cid, L); }
+    L.trades++;
+    if ((t.side || '').toUpperCase() !== 'BUY') L.sells++;
+    const idx = t.outcomeIndex ?? -1;
+    let o = L.out.get(idx);
+    if (!o) { o = { name: t.outcome || '', bought: 0, sold: 0, cost: 0, firstBuyTs: null }; L.out.set(idx, o); }
+    const size = parseFloat(t.size), price = parseFloat(t.price);
+    if (!Number.isFinite(size) || size <= 0) continue;
+    if ((t.side || '').toUpperCase() === 'BUY') {
+      o.bought += size;
+      if (Number.isFinite(price)) o.cost += size * price;
+      const ts = parseInt(t.timestamp ?? 0, 10);
+      if (ts && (!o.firstBuyTs || ts < o.firstBuyTs)) o.firstBuyTs = ts;
+    } else {
+      o.sold += size;
+    }
+  }
+  return led;
+}
+
+function ledgerShape(L, minUsd) {
+  const outs = [...L.out.values()];
+  const totalCost = outs.reduce((s, o) => s + o.cost, 0);
+  const bought = outs.reduce((s, o) => s + o.bought, 0);
+  const sold = outs.reduce((s, o) => s + o.sold, 0);
+  const costs = outs.map(o => o.cost).filter(c => c > 0).sort((a, b) => b - a);
+  return {
+    qualifies: totalCost >= minUsd,
+    hedged: costs.length >= 2 && costs[1] / costs[0] > 0.2,
+    cashedOut: bought > 0 && sold >= bought * 0.5,
+    trades: L.trades,
+    sells: L.sells,
+    totalCost,
+  };
+}
+
+// The straight-bettor screen, one metric per concern Jack named:
+//   bet both sides      -> hedge_pct   (markets where both outcomes were bought)
+//   cash out early      -> cashout_pct (markets where >=half the shares were sold pre-resolution)
+//   in-and-out trading  -> sell_pct    (share of fills that are SELLS — a straight bettor holds to settlement)
+// Fills-per-market is deliberately NOT a metric: the API reports fills, not
+// orders, so one big order legging into the book looks like many "trades" and
+// would punish size instead of churn. A truncated history (30+ pages of fills)
+// is screened on the window we saw, not auto-failed, for the same reason.
+// A wallet with no qualifying history passes by default (nothing bad is known;
+// its backfill will simply be tiny).
+function screenWallet(ledgers, truncated, cfg) {
+  const shapes = [...ledgers.values()].map(L => ledgerShape(L, cfg.minUsd)).filter(s => s.qualifies);
+  const n = shapes.length;
+  const fills = shapes.reduce((s, x) => s + x.trades, 0);
+  const stats = {
+    markets: n,
+    hedge_pct: n ? +(100 * shapes.filter(s => s.hedged).length / n).toFixed(1) : 0,
+    cashout_pct: n ? +(100 * shapes.filter(s => s.cashedOut).length / n).toFixed(1) : 0,
+    sell_pct: fills ? +(100 * shapes.reduce((s, x) => s + x.sells, 0) / fills).toFixed(1) : 0,
+    fills,
+    truncated,
+  };
+  const pass = stats.hedge_pct <= cfg.hedgePct
+    && stats.cashout_pct <= cfg.cashoutPct
+    && stats.sell_pct <= cfg.sellPct;
+  return { pass, stats };
+}
+
+// Walk a candidate's most recent settled game markets (newest first, capped
+// event lookups) and grade the straight pregame entries against the on-chain
+// resolution. Returns the graded rows WITHOUT inserting, plus the
+// pregame/in-game entry split — the split is the fourth screen metric: a
+// wallet that mostly enters after the game starts is live-trading the odds
+// (Jack's exclusion), and under the pregame rule it would produce almost no
+// board picks anyway. espn_game_id and is_home_team stay NULL on backfill
+// rows (historical games are not on the board, and the side-lean query
+// already excludes NULL home flags). Never touches the board.
+async function walkWalletHistory(ledgers, cfg) {
+  const candidates = [...ledgers.entries()]
+    .map(([cid, L]) => ({ cid, L, shape: ledgerShape(L, cfg.minUsd) }))
+    .filter(c => c.shape.qualifies && !c.shape.hedged && !c.shape.cashedOut && slugSport(c.L.slug))
+    .sort((a, b) => {
+      const ta = Math.min(...[...a.L.out.values()].map(o => o.firstBuyTs || Infinity));
+      const tb = Math.min(...[...b.L.out.values()].map(o => o.firstBuyTs || Infinity));
+      return tb - ta; // newest first
+    });
+
+  const rows = [];
+  let pregame = 0, ingame = 0, lookups = 0;
+  const evCache = new Map();
+  const seen = new Set(); // one decision per game + market kind — alt lines (o185.5 + o184.5 + o183.5) are ONE opinion, not three
+  for (const c of candidates) {
+    if (rows.length >= cfg.maxDecisions || lookups >= 40) break;
+    let ev = evCache.get(c.L.slug);
+    if (ev === undefined) {
+      const res = await getJson(`https://gamma-api.polymarket.com/events?slug=${encodeURIComponent(c.L.slug)}`);
+      ev = (res.status === 200 && Array.isArray(res.json) && res.json[0]) ? res.json[0] : null;
+      evCache.set(c.L.slug, ev);
+      lookups++;
+      await sleep(150);
+    }
+    if (!ev) continue;
+    const mkt = (ev.markets || []).find(m => (m.conditionId || m.condition_id) === c.cid);
+    if (!mkt || !mkt.closed) continue;
+    let prices = [];
+    try { prices = (typeof mkt.outcomePrices === 'string' ? JSON.parse(mkt.outcomePrices) : (mkt.outcomePrices || [])).map(parseFloat); } catch (_) {}
+    if (!prices.some(p => p === 1)) continue; // unresolved or voided — no grade
+
+    // Prop guard: a dated game event carries side/total markets AND yes-or-no
+    // props ("both teams to score?", "will X win by 2+?"). Only the former are
+    // the straight bets we grade a capper on, and a Yes/No outcome is not a
+    // side any downstream reader can interpret. The live path drops these
+    // implicitly (sideOf never matches "Yes"), so this brings the backfill in
+    // line with it. Soccer events are almost entirely props, which is why
+    // every soccer backfill row before this guard was one.
+    let mktOutcomes = [];
+    try { mktOutcomes = typeof mkt.outcomes === 'string' ? JSON.parse(mkt.outcomes) : (mkt.outcomes || []); } catch (_) {}
+    if (mktOutcomes.some(o => /^(yes|no)$/i.test(String(o).trim()))) continue;
+    if (SKIP_Q.test(mkt.question || '')) continue; // same market screen as the live map
+    // gamma prints '2026-07-27 18:35:00+00' — the bare '+00' offset is NaN to
+    // V8's Date until it reads '+00:00'.
+    const startIso = mkt.gameStartTime || null;
+    let startMs = null;
+    if (startIso) {
+      let t = String(startIso).replace(' ', 'T');
+      if (/[+-]\d{2}$/.test(t)) t += ':00';
+      const ms = new Date(t).getTime();
+      startMs = Number.isFinite(ms) ? ms : null;
+    }
+    if (!startMs) continue;
+
+    // The wallet's side: the outcome it still held (net shares) at settlement.
+    const held = [...c.L.out.entries()]
+      .map(([idx, o]) => ({ idx, o, net: o.bought - o.sold }))
+      .filter(x => x.net > 0)
+      .sort((a, b) => b.net - a.net)[0];
+    if (!held || !held.o.firstBuyTs) continue;
+    if (held.o.firstBuyTs * 1000 >= startMs) { ingame++; continue; } // in-game entry — live trader signal, and an honest resume is pregame only
+
+    const kind = classifyMarket(mkt.question || '');
+    let pickType = 'ml', line = null, team = held.o.name;
+    if (kind === 'total') {
+      const on = (held.o.name || '').toLowerCase();
+      pickType = on.startsWith('over') ? 'over' : on.startsWith('under') ? 'under' : null;
+      if (!pickType) continue;
+      const lm = (mkt.question || '').match(/(\d+(?:\.\d+)?)/);
+      line = lm ? parseFloat(lm[1]) : null;
+      team = (c.L.title || '').split(/\s+vs\.?\s+/i)[0] || c.L.title;
+    } else if (kind === 'spread') {
+      pickType = 'spread';
+      const lm = (mkt.question || '').match(/([+-]\d+(?:\.\d+)?)/);
+      line = lm ? parseFloat(lm[1]) : null;
+    }
+    // Same number gate as every live ingest (src/ledger_sanity.js): a set
+    // total or a games handicap must never be filed as a match total or spread.
+    const gate = checkSourcePick({ game: null, sport: slugSport(c.L.slug), pickType, side: null, line, odds: null });
+    if (!gate.ok) continue;
+    const dupeKey = `${c.L.slug}|${pickType}`;
+    if (seen.has(dupeKey)) continue;
+    seen.add(dupeKey);
+    pregame++;
+
+    const won = prices[held.idx] === 1;
+    const avgPrice = held.o.cost / held.o.bought;
+    rows.push({
+      sport: slugSport(c.L.slug),
+      pickType, team, line,
+      gameDate: (startIso || '').slice(0, 10) || null,
+      result: won ? 'win' : 'loss',
+      odds: americanFromPrice(avgPrice),
+      provenance: JSON.stringify([{
+        source: 'polymarket', at: new Date().toISOString(), backfill: true,
+        meta: { slug: c.L.slug, notional_usd: Math.round(held.o.cost), price: +avgPrice.toFixed(3) },
+      }]),
+    });
+  }
+  return { rows, pregame, ingame };
+}
+
+function insertBackfillRows(canonical, rows) {
+  const ins = db.prepare(`
+    INSERT INTO capper_history
+      (capper_name, sport, pick_type, team, spread, espn_game_id, game_date,
+       channel, score, result, pick_id, odds, source, is_home_team, sources_json)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, 'polymarket', NULL, ?, NULL, ?, 'polymarket', NULL, ?)
+  `);
+  let n = 0;
+  for (const r of rows) {
+    try { ins.run(canonical, r.sport, r.pickType, r.team, r.line, r.gameDate, r.result, r.odds, r.provenance); n++; } catch (_) {}
+  }
+  return n;
+}
+
+// Walk today's mapped game markets, screen the biggest holders, admit the
+// straight bettors. Runs at 5:05am + startup, after the leaderboard refresh.
+async function discoverPmHolders() {
+  if (db.getSetting('pm_scrape_enabled', '1') !== '1') return 0;
+  if (db.getSetting('pm_holders_enabled', '1') !== '1') return 0;
+  const cfg = holdersCfg();
+
+  const map = await buildMarketMap();
+  if (!map.size) { console.log('[pm_holders] no game markets mapped'); return 0; }
+
+  // Candidate sweep: top holders of each side of each mapped market, sized by
+  // estimated notional (shares x current outcome price).
+  const candidates = new Map(); // wallet -> { estUsd, username }
+  const tracked = new Set(db.prepare(`SELECT wallet FROM pm_wallets`).all().map(r => r.wallet));
+  let rejected = {};
+  try { rejected = JSON.parse(db.getSetting('pm_holders_rejected', '{}')); } catch (_) {}
+  const retryMs = 45 * 86400 * 1000;
+
+  for (const [cid, entry] of map) {
+    const res = await getJson(`https://data-api.polymarket.com/holders?market=${encodeURIComponent(cid)}&limit=5`);
+    await sleep(120);
+    if (res.status !== 200 || !Array.isArray(res.json)) continue;
+    for (const tokenBlock of res.json) {
+      for (const h of (tokenBlock.holders || [])) {
+        const w = h.proxyWallet;
+        if (!w || tracked.has(w)) continue;
+        if (rejected[w] && Date.now() - rejected[w] < retryMs) continue;
+        const price = entry.prices?.[h.outcomeIndex];
+        const estUsd = Number.isFinite(price) ? (parseFloat(h.amount) || 0) * price : 0;
+        if (estUsd < cfg.minUsd) continue;
+        const prev = candidates.get(w);
+        const username = (h.displayUsernamePublic && h.name) ? h.name : (h.pseudonym || null);
+        if (!prev || estUsd > prev.estUsd) candidates.set(w, { estUsd, username });
+      }
+    }
+  }
+
+  // Screen down the size-ranked list until the day's admit quota fills. The
+  // window is its own setting (see screenMax) precisely so a small quota still
+  // searches deep — refusals must never eat the quota OR the search.
+  const picks = [...candidates.entries()].sort((a, b) => b[1].estUsd - a[1].estUsd).slice(0, cfg.screenMax);
+  let admitted = 0, refused = 0, backfilled = 0;
+  const sinceTs = Math.floor(Date.now() / 1000) - cfg.days * 86400;
+  for (const [wallet, c] of picks) {
+    if (admitted >= cfg.maxNew) break;
+    const { rows, truncated } = await fetchWalletGameTrades(wallet, sinceTs);
+    const ledgers = buildLedgers(rows);
+    const { pass, stats } = screenWallet(ledgers, truncated, cfg);
+    if (!pass) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: hedge ${stats.hedge_pct}% cashout ${stats.cashout_pct}% sells ${stats.sell_pct}% (${stats.markets} mkts)`);
+      continue;
+    }
+    // Fourth screen metric needs the settled-market walk: pregame entry share.
+    // A wallet that mostly enters after the game starts is live-trading the
+    // odds — refused, and it would produce almost no board picks anyway.
+    const hist = await walkWalletHistory(ledgers, cfg);
+    const entries = hist.pregame + hist.ingame;
+    stats.pregame_pct = entries ? +(100 * hist.pregame / entries).toFixed(1) : 100;
+    if (stats.pregame_pct < cfg.pregamePct) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: only ${stats.pregame_pct}% pregame entries (${entries} settled) — live trader`);
+      continue;
+    }
+
+    // Proof gate: the record WE graded off their own settled pregame bets must
+    // exist and must be profitable at flat stakes. No record is not a pass —
+    // "nothing bad known" was letting through wallets with zero evidence, and
+    // measured 3-9 and 23-21 books were being admitted alongside real winners.
+    const wins = hist.rows.filter((r) => r.result === 'win').length;
+    const losses = hist.rows.filter((r) => r.result === 'loss').length;
+    const decisions = wins + losses;
+    const units = +hist.rows.reduce((s, r) => s + unitReturn(r.odds, r.result), 0).toFixed(2);
+    stats.record = `${wins}-${losses}`;
+    stats.units = units;
+    stats.win_pct = decisions ? +(100 * wins / decisions).toFixed(1) : null;
+    if (decisions < cfg.minDecisions) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: only ${decisions} graded pregame decisions (need ${cfg.minDecisions})`);
+      continue;
+    }
+    if (units <= cfg.minUnits) {
+      refused++;
+      rejected[wallet] = Date.now();
+      console.log(`[pm_holders] refused ${wallet.slice(0, 10)}: ${stats.record} (${stats.win_pct}%) but ${units}u at flat stakes — not profitable`);
+      continue;
+    }
+    const walletRow = { wallet, username: c.username };
+    try {
+      db.prepare(`
+        INSERT INTO pm_wallets (wallet, username, meta_json)
+        VALUES (?, ?, ?)
+        ON CONFLICT(wallet) DO NOTHING
+      `).run(wallet, c.username, JSON.stringify({ discovery: 'holders', est_usd: Math.round(c.estUsd), screen: stats, screen_at: new Date().toISOString() }));
+    } catch (_) { continue; }
+    ensureRegistered(pmDisplayName(walletRow), 'polymarket', wallet);
+    const n = insertBackfillRows(pmDisplayName(walletRow), hist.rows);
+    backfilled += n;
+    admitted++;
+    console.log(`[pm_holders] admitted ${pmDisplayName(walletRow)} ($${Math.round(c.estUsd)} on today's board, ${stats.record} (${stats.win_pct}%) ${stats.units >= 0 ? '+' : ''}${stats.units}u by our grading, ${stats.pregame_pct}% pregame, ${n} picks backfilled)`);
+  }
+  // Prune the rejection cache so it never grows unbounded.
+  for (const [w, ts] of Object.entries(rejected)) if (Date.now() - ts > retryMs * 2) delete rejected[w];
+  db.setSetting('pm_holders_rejected', JSON.stringify(rejected));
+  console.log(`[pm_holders] discovery: ${admitted} admitted, ${refused} refused, ${backfilled} picks backfilled (${map.size} markets swept)`);
+  return admitted;
+}
+
+module.exports = {
+  refreshPmWallets, pollPmWallets, resolvePmStance, buildMarketMap, pmDisplayName,
+  classifyMarket, discoverPmHolders,
+  // Exposed for the admission-threshold calibration script (scripts/pm_calibrate.js):
+  // it replays real candidates through the exact screen the ingest uses.
+  holdersCfg, fetchWalletGameTrades, buildLedgers, screenWallet, walkWalletHistory, getJson, unitReturn,
+};
 
 // CLI: node src/polymarket_wallets.js
 if (require.main === module) {
   (async () => {
     await refreshPmWallets();
+    await discoverPmHolders();
     await pollPmWallets();
   })();
 }

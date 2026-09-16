@@ -71,7 +71,7 @@ async function getSummaryRaw(sport, gameId, opts = {}) {
   const p = (async () => {
     try {
       const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${encodeURIComponent(gameId)}`;
-      const res = await axios.get(url, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const res = await axios.get(url, { timeout: 10000 });
       const data = res.data || null;
       const state = data?.header?.competitions?.[0]?.status?.type?.state || null;
       const ttl = state === 'in' ? TTL_LIVE : TTL_FINAL;

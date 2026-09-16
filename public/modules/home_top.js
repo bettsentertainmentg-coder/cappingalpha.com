@@ -7,7 +7,7 @@
 
 import { state }     from './state.js';
 import { isPaying }  from './auth.js';
-import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots, tennisDisplayName } from './utils.js?v=7';
+import { sportBadge, gameTime, pickLabel, basesDiamond, outsDots, tennisDisplayName, isSuspendedGame, suspendedLabel } from './utils.js?v=10';
 import { haptic } from './native.js?v=2';
 
 // All sports the product supports. Tennis is the merged ATP+WTA label.
@@ -82,6 +82,9 @@ function _hasBases(g) {
 // Final, or start time.
 function _statusHtml(g) {
   const start = gameTime(g.start_time);
+  // A suspended match is filed 'pre' on our side, so it would fall through to
+  // the start time below and read like a game that hasn't happened yet.
+  if (isSuspendedGame(g)) return `<span class="ca-tg-susp">${suspendedLabel(g)}</span>`;
   if (g.status === 'in') {
     // Baseball: half-inning then outs to its right ("Top 9th ••"); the diamond
     // lives up in the team area. Other sports: plain period/clock.

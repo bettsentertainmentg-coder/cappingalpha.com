@@ -17,6 +17,7 @@ const scanner = require('./src/expert_data');
 const admin   = require('./src/admin');
 const auth    = require('./src/auth');
 const { publicPick, publicPicks } = require('./src/pick_privacy'); // strip proprietary scoring columns before any pick leaves the server
+const { isTrackingClosed } = require('./src/pick_cutoff'); // one answer to "can a user still track this game?"
 const { runDailyWipe, pruneStaleGames }   = require('./src/wipe');
 const { lockMorningLines, getLines } = require('./src/lines');
 const { fetchForwardGames } = require('./src/forward_games');
@@ -31,19 +32,29 @@ const { fetchTodaysGames, refreshEspnOdds } = require('./src/espn_live');
 const { syncLiveSituations } = require('./src/live_situation');
 const { stampActualStarts, stampActualEnds } = require('./src/game_start_tracker');
 const { getPickTimeline, sanitizeTimeline } = require('./src/pick_timeline');
-const { fetchTodaysTennisMatches, refreshTennisStartTimes } = require('./src/tennis_espn');
+const { fetchTodaysTennisMatches, refreshTennisStartTimes, updateTennisLiveScores } = require('./src/tennis_espn');
 const { fetchTennisLines } = require('./src/bovada');
 const { fetchTodaysWnbaGames }      = require('./src/wnba_espn');
 const { fetchTodaysSoccerGames, updateSoccerLiveScores } = require('./src/soccer_espn');
-const { fetchTodaysNcaafGames }     = require('./src/ncaaf_espn');
+const { fetchTodaysNcaafGames, fetchForwardNcaafGames } = require('./src/ncaaf_espn');
 const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { recomputeCapperRatings } = require('./src/capper_ratings');
+// V2 capper database (docs/V2_DATABASE_PLAN.md): the product switch, the
+// per-game backers payload and the nightly materialization. All inert under
+// product_mode 'v1' except the recompute, which keeps the pool warm.
+const { getProductMode, isV2, isPreview, productModeMiddleware } = require('./src/product_mode');
+const { getGameBackers } = require('./src/game_backers');
+const { recomputeCapperV2 } = require('./src/capper_v2');
+const { buildCapperPageHtml } = require('./src/capper_page');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
-const { refreshPmWallets, pollPmWallets } = require('./src/polymarket_wallets');
+const { refreshPmWallets, pollPmWallets, discoverPmHolders } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
 const { pollWagerTalk } = require('./src/wagertalk');
+const { pollBettingPros } = require('./src/bettingpros');
+const { pollCbsPicks } = require('./src/cbs_picks');
+const { pollArticlePicks } = require('./src/article_picks');
 const { getCycleDate, cycleDateForInstant, addDays, ET_OFFSET_MS } = require('./src/cycle');
 const { buildResultsPageHtml } = require('./src/results_page');
 const { pingIndexNow, corePages } = require('./src/indexnow');
@@ -171,13 +182,26 @@ app.disable('x-powered-by'); // don't advertise Express
 // that do not depend on inline script.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://us.i.posthog.com https://accounts.google.com https://apis.google.com",
+  // 'wasm-unsafe-eval' is the SECOND half of what the betslip scanner needs (the
+  // first is blob: on worker-src below). Tesseract.js is a WebAssembly build, and
+  // without this directive WebAssembly.compile() is refused outright, so the reader
+  // hangs forever at "initializing tesseract". Verified in the browser on
+  // 2026-08-26. It is deliberately NOT 'unsafe-eval': this directive permits wasm
+  // compilation ONLY and still forbids eval() and new Function() on JavaScript.
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net https://us.i.posthog.com https://accounts.google.com https://apis.google.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
   "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
   "img-src 'self' data: https:",
   "connect-src 'self' https://us.i.posthog.com https://*.posthog.com https://accounts.google.com",
   "frame-src 'self' https://accounts.google.com",
-  "worker-src 'self'",
+  // blob: is REQUIRED by the betslip scanner. Tesseract.js spawns its wasm worker
+  // from a Blob URL, so a bare "worker-src 'self'" blocks it outright and the
+  // upload-a-betslip flow dies with "Could not read that image" on every attempt.
+  // That is what the Phase 6 CSP did: the scanner has been broken in production
+  // since it shipped, found while wiring the share-sheet scan (2026-08-26).
+  // It widens nothing meaningful: script-src already allows 'unsafe-inline', so a
+  // page that could mint a hostile blob worker could already run the script inline.
+  "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -253,6 +277,9 @@ app.use(session({
 // (that would mint a session row per API call). auth.userOf(req) is the single
 // read path for "who is this" across index.js + src/*.
 app.use(auth.bearerMiddleware);
+// Admin preview of V2 (?mode=v2 / ?mode=v1) is captured on EVERY request, before
+// the /game/:id redirect can drop the query string.
+app.use(productModeMiddleware);
 app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 // OAuth token endpoints share the login limiter budget: each POST is a
@@ -268,6 +295,10 @@ app.use('/auth', auth);
 // Write-abuse throttles: cap bet creation (DB-fill) and the schedule fan-out.
 app.use('/api/bets',  makeRateLimit({ max: 240, windowMs: 15 * 60 * 1000, msg: 'Slow down and try again shortly.' }));
 app.use('/api/track', makeRateLimit({ max: 60,  windowMs: 60 * 1000,      msg: 'Slow down and try again shortly.' }));
+// Betslip scan: OCR happens on the user's device, only the TEXT is posted here.
+// Parsing is cheap but not free, and a scan is a deliberate user action, so the
+// cap is well above real use and far below a script's.
+app.use('/api/betslip', makeRateLimit({ max: 60, windowMs: 10 * 60 * 1000, msg: 'Slow down and try again shortly.' }));
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
 // ── Universal links groundwork (Phase 7f) ─────────────────────────────────────
@@ -287,6 +318,7 @@ for (const name of ['apple-app-site-association', 'assetlinks.json']) {
   });
 }
 
+app.use('/api/betslip', require('./src/betslip_router')); // screenshot -> parsed bet -> the normal confirm slide
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
@@ -319,7 +351,7 @@ if (MIRROR_URL) {
   // /api/leaderboard + /api/member join them so the whole Socials world reads ONE
   // local dataset — a prod board over local follows/feeds would split numbers the
   // same way the /api/friends + /api/mvp skips already guard against.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member', '/api/username-available'];
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/betslip', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member', '/api/username-available'];
   app.use((req, res, next) => {
     // /results stays LOCAL for the same reason /api/mvp does: it renders the same
     // tracked record the (now-local) CA Rankings tab shows, so the two surfaces
@@ -505,6 +537,27 @@ app.get('/og/game/:id.png', (req, res) => {
   res.redirect(302, '/ca-logo.png');
 });
 
+// Shareable BET card (src/bet_card.js). A tracked bet is private, so the URL
+// carries an HMAC of the bet id keyed on SESSION_SECRET: only a link the owner was
+// handed opens the card, and it says nothing about any other bet. No session is
+// required, on purpose — the whole point is that the recipient can see it.
+app.get('/og/bet/:id.png', (req, res) => {
+  try {
+    const card = require('./src/bet_card');
+    const id = parseInt(req.params.id, 10);
+    if (Number.isFinite(id) && card.tokenValid(id, req.query.t)) {
+      const png = card.renderBetCardPng(id);
+      if (png) {
+        res.type('png');
+        // Private to the holder of the link: never let a CDN or proxy pool it.
+        res.set('Cache-Control', 'private, max-age=300');
+        return res.send(png);
+      }
+    }
+  } catch (e) { console.warn('[bet card] route error:', e.message); }
+  res.redirect(302, '/ca-logo.png');
+});
+
 // Member share-a-win card: a member's most recent settled win (public members
 // only; only wins render). Falls back to the logo otherwise.
 app.get('/og/member-win/:userId.png', (req, res) => {
@@ -577,6 +630,8 @@ app.get('/api/config', (req, res) => {
     bet_unit: betUnit,
     paid_rank_max: PAID_RANK_MAX(),
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
+    product_mode: getProductMode(req),
+    v2_preview: isPreview(req),
   });
 });
 
@@ -727,8 +782,13 @@ app.get('/api/picks', (req, res) => {
     SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
+           tg.home_short AS home_short,
+           tg.away_short AS away_short,
+           tg.home_abbr  AS home_abbr,
+           tg.away_abbr  AS away_abbr,
            tg.start_time AS start_time,
            tg.status     AS game_status,
+           tg.status_detail AS game_status_detail,
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
@@ -765,6 +825,17 @@ app.get('/api/picks', (req, res) => {
   // ranks of visible picks (popup globalRank stays consistent). Admin Today's
   // Picks is intentionally a superset and still shows them.
   picks = picks.filter(p => (p.score || 0) > 0);
+
+  // ONE LIST FOR THE WHOLE RANKINGS TAB (Jack 2026-07-31: "all the CA Scores
+  // cards are supposed to do is filter the CA rankings"). The board knows what a
+  // pick DID; only the ledger knows whether it counted. Overlaying the ledger's
+  // verdict here means the Complete Ranking, the sport cards and the P/L graph
+  // all read the same rows, instead of the cards stitching two sources together
+  // and agreeing with neither. A pick outscored on its own game arrives carrying
+  // result='void' plus the "not counted" note, so it still shows GOLD (gold means
+  // verified, not "we bet it") with the reason attached.
+  overlayLedgerResult(picks);
+  markOutscoredNonBets(picks);
 
   // Canonical rank over non-push picks (score desc). Pushes are settled/void and
   // don't occupy a ranked slot. Attached so the picks table and Sports tab agree
@@ -812,8 +883,13 @@ app.get('/api/picks/top', (req, res) => {
     SELECT p.*, sb.v3_total AS v3_total,
            tg.home_team  AS home_team,
            tg.away_team  AS away_team,
+           tg.home_short AS home_short,
+           tg.away_short AS away_short,
+           tg.home_abbr  AS home_abbr,
+           tg.away_abbr  AS away_abbr,
            tg.start_time AS start_time,
            tg.status     AS game_status,
+           tg.status_detail AS game_status_detail,
            tg.period     AS game_period,
            tg.clock      AS game_clock,
            tg.home_score AS game_home_score,
@@ -931,7 +1007,23 @@ app.get('/api/pick-history', (req, res) => {
                     ${scoreCol} AS score, mention_count, result, home_score, away_score,
                     first_seen_at, resolved_at, archived_at
              FROM pick_history WHERE 1=1
-             AND NOT (LOWER(pick_type) = 'ml' AND ml_odds IS NULL)`;
+             AND NOT (LOWER(pick_type) = 'ml' AND ml_odds IS NULL)
+             -- One row per bet. A startup mirror in db.js copies every tracked
+             -- pick into this table under a synthetic NEGATIVE pick_id, which by
+             -- construction can never collide with the real archive row, so the
+             -- UNIQUE constraint does not dedupe them. Only the real row is ever
+             -- result-updated (results.js keys on pick_id), so the mirror freezes
+             -- at whatever it said when it was first copied: on 2026-07-31 the
+             -- public archive carried 51 bets twice and 9 of those pairs
+             -- DISAGREED (Ben Shelton ML read 'void' and 'win' at once). Drop the
+             -- mirror whenever the real row exists; a mirror-only bet still shows.
+             AND NOT (pick_id < 0 AND EXISTS (
+               SELECT 1 FROM pick_history h2
+               WHERE h2.espn_game_id = pick_history.espn_game_id
+                 AND LOWER(h2.team) = LOWER(pick_history.team)
+                 AND LOWER(COALESCE(h2.pick_type,'')) = LOWER(COALESCE(pick_history.pick_type,''))
+                 AND h2.pick_id > 0
+             ))`;
   const params = [];
   if (sport) {
     // "Tennis" is a virtual filter that blends both tours (ATP + WTA).
@@ -972,7 +1064,10 @@ app.get('/api/games', (req, res) => {
   const sport = req.query.sport;
   // Exclude tennis bracket placeholders ("TBD vs TBD" future-round slots).
   const noTbd = `AND UPPER(COALESCE(home_team,'')) != 'TBD' AND UPPER(COALESCE(away_team,'')) != 'TBD'`;
-  const cols = `espn_game_id, sport, home_team, away_team, home_abbr, away_abbr, home_short, away_short, start_time, status, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
+  // status_detail rides along so the client can tell a genuinely pregame match from
+  // a SUSPENDED one: ESPN files suspensions as 'post' and tennis_espn.js downgrades
+  // them to 'pre', so `status` alone reads them as upcoming.
+  const cols = `espn_game_id, sport, home_team, away_team, home_short, away_short, home_abbr, away_abbr, start_time, status, status_detail, home_score, away_score, period, clock, live_detail, live_outs, live_bases, ml_home, ml_away, spread_home, spread_away, over_under, ou_over_odds, ou_under_odds, tennis_score_detail, home_flag, away_flag, home_country, away_country, home_photo, away_photo`;
   let rows = sport
     ? db.prepare(`SELECT ${cols} FROM today_games WHERE UPPER(sport) = UPPER(?) ${noTbd} ORDER BY start_time ASC`).all(sport)
     : db.prepare(`SELECT ${cols} FROM today_games WHERE 1=1 ${noTbd} ORDER BY start_time ASC`).all();
@@ -1711,9 +1806,14 @@ app.delete('/api/game/:espn_game_id/vote', (req, res) => {
 
   if (!slot) return res.status(400).json({ error: 'slot required' });
 
-  const game = db.prepare(`SELECT status FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
+  // SELECT * (not just status): the gate below reads the stamped start, the
+  // score and the suspension marker, because a suspended match is filed by ESPN
+  // as 'post' and downgraded to 'pre' on our side. Gating on the status string
+  // alone let a voter pull a vote out of a match that was half played and going
+  // against them.
+  const game = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(espn_game_id);
   if (!game) return res.status(404).json({ error: 'Game not found' });
-  if (game.status === 'in' || game.status === 'post') {
+  if (isTrackingClosed(game)) {
     return res.status(409).json({ error: 'Game has started — vote cannot be removed' });
   }
 
@@ -1957,6 +2057,7 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
     WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
   `).all(espn_game_id).filter(p => !mlPickUnpriced(p)); // hide picks we never priced
+  overlayLedgerResult(picks, espn_game_id);
 
   // v3 scale: show the SAME reveal-aware display score the picks list shows, so
   // the popup never disagrees with the board (was showing the raw un-rescaled v2
@@ -1968,6 +2069,9 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
     for (const p of picks) p.score = v3DisplayScore(p);
     picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
   }
+  // AFTER the display scores land — this compares scores, and before the line
+  // above every pick still carries the raw v2 column.
+  markOutscoredNonBets(picks);
 
   // Vote tallies
   const voteRows = db.prepare(`
@@ -2079,6 +2183,13 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // every pick before it leaves the server — the score redaction above never
   // covered them. Applied last so mirror-sourced picks are sanitized too.
   payload.picks = publicPicks(payload.picks, { paid });
+  // V2: who is on this game (live cappers only, unqualified as a count). Admin
+  // preview reads as paid so Jack sees the pregame list before the flip.
+  payload.product_mode = getProductMode(req);
+  if (payload.product_mode === 'v2') {
+    try { payload.backers = getGameBackers(espn_game_id, { game, paid: paid || !!(req.session && req.session.admin) }); }
+    catch (err) { console.warn('[api/game] backers:', err.message); payload.backers = null; }
+  }
   res.json(payload);
 });
 
@@ -2661,7 +2772,12 @@ app.post('/api/game/:espn_game_id/vote', (req, res) => {
   // frozen at the pregame close), so accepting a vote here would snapshot and later grade
   // it at a stale number wearing a "live" label. Close it — the frontend shows the
   // "tracking is closed" toast and offers a custom bet instead. (DELETE already 409s live.)
-  if (game.status === 'in' || game.status === 'post') {
+  //
+  // The gate is isTrackingClosed, not the status string: a match suspended mid-play is
+  // filed by ESPN as 'post' and downgraded to 'pre' here so grading can't settle it off a
+  // partial score, which left this endpoint open on a half-played match at the frozen
+  // pregame price (three Toronto matches, 2026-08-02).
+  if (isTrackingClosed(game)) {
     return res.status(409).json({ error: 'Tracking closed — game has started' });
   }
   // Same prediction-market fallback as /api/game: a side tracked off the Polymarket line
@@ -2910,6 +3026,125 @@ function _resolveTeamColor(game, isHome) {
   return (c && c.primary) ? c.primary : null;
 }
 
+// ── One result vocabulary across every surface (Jack 2026-07-30) ─────────────
+// A board pick and its tracked bet are two different rows with two different
+// result columns, and NOTHING reconciled them: the conflict resolver writes
+// mvp_picks.result='void' and never touches picks.result, so a pick that won
+// its match but lost the bet slot read WIN on the game detail page and VOID on
+// the Rankings list. Jack, 2026-07-30: "if a pick won but was outvoted by the
+// other side then it's simply not counted, yellow outvoted with a note like
+// we've always had it."
+//
+// The ledger is the truth for any pick that IS a tracked bet. Untracked board
+// picks keep their own result (they were never bets). Overlaying result AND
+// annotation means the detail page renders the identical yellow not-counted
+// state from the identical fields the Rankings list already keys on.
+// Works for one game (pass espn_game_id) or for a whole board (omit it, the
+// picks carry their own espn_game_id). The board form is what makes the three
+// Rankings surfaces agree: /api/picks now ships the ledger's verdict, so the
+// Complete Ranking, the CA Scores cards and the P/L graph are all reading one
+// list instead of three.
+// A gold board pick that was BEATEN on its own game was never the bet: the
+// resolver keeps the higher-scored side and drops the other (GRADING_RULES R3,
+// Jack: "if it's outscored void it and bet the higher one"). The dropped side
+// leaves no mvp_picks row, so no "not counted" note comes back from the ledger,
+// and once /api/picks started feeding the rankings cards directly it rendered as
+// an ordinary graded LOSS and counted against the record. On 2026-08-02 Hijikata
+// ML 131 showed as a -$10 loss beside Munar ML 164's +$7.35 win — both sides of
+// one match on one card, when only Munar was ever a bet.
+//
+// So: any pick with no tracked row that a conflicting pick on the same game
+// outscores gets the same "*not counted:" annotation a voided ledger row would
+// carry. Every downstream check (isVoidedPick, isOutscoredVoid, _counted, the
+// void note, the P/L sum) already keys on that phrase, so nothing else changes.
+// Scores are frozen at first pitch, so this comparison is stable once a game
+// starts. Mirrors the conflict math in src/mvp.js exactly.
+function markOutscoredNonBets(picks) {
+  if (!picks || picks.length < 2) return picks;
+  const type = (p) => String(p.pick_type || '').toLowerCase();
+  const line = (p) => Number(p.spread ?? 0) || 0;
+  const between = (lo, hi) => (Math.floor(lo) + 1) <= (Math.ceil(hi) - 1);
+  const conflicts = (a, b) => {
+    const ta = type(a), tb = type(b);
+    const aTot = ta === 'over' || ta === 'under', bTot = tb === 'over' || tb === 'under';
+    if (aTot !== bTot) return false;                       // different dimensions
+    if (aTot) {
+      if (ta === tb) return false;                         // over vs over never conflicts
+      const over = ta === 'over' ? a : b, under = ta === 'under' ? a : b;
+      return !between(line(over), line(under));            // a legit middle is not a conflict
+    }
+    const na = String(a.team || '').toLowerCase(), nb = String(b.team || '').toLowerCase();
+    if (na && nb && na === nb) return false;               // same team ML + spread both ride
+    return !between(-(ta === 'ml' ? 0 : line(a)), (tb === 'ml' ? 0 : line(b)));
+  };
+  const label = (p) => {
+    const t = type(p);
+    if (t === 'over' || t === 'under') return `${t === 'over' ? 'Over' : 'Under'} ${p.spread ?? ''}`.trim();
+    if (t === 'ml') return `${p.team} ML`;
+    const n = line(p);
+    return `${p.team} ${n > 0 ? '+' : ''}${n}`;
+  };
+  const byGame = new Map();
+  for (const p of picks) {
+    const k = p.espn_game_id;
+    if (!k) continue;
+    if (!byGame.has(k)) byGame.set(k, []);
+    byGame.get(k).push(p);
+  }
+  // Only picks that LOOK like they should have counted get the note. A sub-gold
+  // pick was never a candidate bet, so "not counted" on it is noise.
+  const goldLine = getSetting('scoring_version', 'v2') === 'v3'
+    ? 100
+    : (parseInt(getSetting('mvp_display_threshold', MVP_THRESHOLD), 10) || 65);
+  for (const p of picks) {
+    if (p.tracked) continue;                               // it IS the bet, leave it
+    if (p.annotation) continue;                            // ledger already spoke
+    if ((p.score || 0) < goldLine) continue;               // never looked like a bet
+    const peers = byGame.get(p.espn_game_id) || [];
+    let beat = null;
+    for (const o of peers) {
+      if (o === p || !conflicts(o, p)) continue;
+      if ((o.score || 0) <= (p.score || 0)) continue;
+      if (!beat || (o.score || 0) > (beat.score || 0)) beat = o;
+    }
+    if (beat) p.annotation = `*not counted: ${label(beat)} had more points (${beat.score} vs ${p.score})`;
+  }
+  return picks;
+}
+
+function overlayLedgerResult(picks, espn_game_id = null) {
+  if (!picks || !picks.length) return picks;
+  try {
+    const key = (g, t, ty) =>
+      `${String(g ?? '')}|${String(t || '').trim().toLowerCase()}|${String(ty || '').toLowerCase()}`;
+    let rows;
+    if (espn_game_id) {
+      rows = db.prepare(`
+        SELECT espn_game_id, team, pick_type, result, annotation FROM mvp_picks
+        WHERE espn_game_id = ? AND COALESCE(retired, 0) = 0
+      `).all(espn_game_id);
+    } else {
+      const ids = [...new Set(picks.map(p => p.espn_game_id).filter(Boolean))];
+      if (!ids.length) return picks;
+      const ph = ids.map(() => '?').join(',');
+      rows = db.prepare(`
+        SELECT espn_game_id, team, pick_type, result, annotation FROM mvp_picks
+        WHERE espn_game_id IN (${ph}) AND COALESCE(retired, 0) = 0
+      `).all(...ids);
+    }
+    if (!rows.length) return picks;
+    const byKey = new Map(rows.map(r => [key(r.espn_game_id, r.team, r.pick_type), r]));
+    for (const p of picks) {
+      const m = byKey.get(key(espn_game_id ?? p.espn_game_id, p.team, p.pick_type));
+      if (!m) continue;
+      p.tracked = true;
+      if (m.result && m.result !== 'pending') p.result = m.result;
+      if (m.annotation) p.annotation = m.annotation;
+    }
+  } catch (_) {}
+  return picks;
+}
+
 async function renderGameDetail(req, res, game, opts = {}) {
   try {
     let picks = opts.picks;
@@ -2919,6 +3154,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
         FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
         WHERE p.espn_game_id = ? AND p.mention_count > 0 ORDER BY p.score DESC, p.id ASC
       `).all(game.espn_game_id);
+      overlayLedgerResult(picks, game.espn_game_id);
       // v3: show the same leak-aware display score as the board + popup (was
       // inlining the raw v2 column into __GAME_DATA__). Historical archive picks
       // arrive via opts.picks and keep their stored score.
@@ -2927,6 +3163,8 @@ async function renderGameDetail(req, res, game, opts = {}) {
         for (const p of picks) p.score = v3DisplayScore(p);
         picks.sort((a, b) => (b.score - a.score) || (a.id - b.id));
       }
+      // AFTER the display scores land (see the /api/game note).
+      markOutscoredNonBets(picks);
       for (const p of picks) p.timeline = getPickTimeline(p.id);
     }
 
@@ -3004,11 +3242,18 @@ async function renderGameDetail(req, res, game, opts = {}) {
     // historical archive pages too — the score redaction above never covered them.
     const safePicks = publicPicks(picks, { paid: auth.isPaid(req) });
 
+    const mode = getProductMode(req);
+    let backers = null;
+    if (mode === 'v2') {
+      try { backers = getGameBackers(game.espn_game_id, { game, paid: auth.isPaid(req) || !!(req.session && req.session.admin) }); }
+      catch (err) { console.warn('[game page] backers:', err.message); }
+    }
     const payload = {
       game, picks: safePicks, pickRanks, votes, userVote, stats, lines, publicBetting,
       lineHistory, polymarket, kalshi, insights,
       heatScale: heatScale(),   // dynamic heat/🔥 anchors — this page fetches no config
       user: auth.userOf(req) || null,
+      product_mode: mode, backers,
     };
 
     const away     = game.away_team || 'Away';
@@ -3023,7 +3268,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
 
     const awayColor = _resolveTeamColor(game, false);
     const homeColor = _resolveTeamColor(game, true);
-    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }));
+    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor, mode }));
   } catch (err) {
     console.error('[detail-page] error:', err.message);
     res.status(500).send('Error loading game detail');
@@ -3123,6 +3368,23 @@ for (const pageDef of SPORT_PAGES) {
   });
 }
 
+// ── GET /capper/:slug — the capper profile (V2). A shell for now: the full
+// page is the profile lab's job (docs/prompts/V2_CAPPER_PROFILE_MOCK.md); this
+// route exists so every row tap on the game section lands somewhere real.
+// 404 under v1 so nothing public changes before the flip.
+app.get('/capper/:slug', (req, res) => {
+  if (!isV2(req)) return res.status(404).send('Not found');
+  try {
+    const html = buildCapperPageHtml(req, req.params.slug, String(req.query.sport || ''));
+    if (!html) return res.status(404).send('Not found');
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.send(html);
+  } catch (err) {
+    console.error('[capper page]', err.message);
+    res.status(500).send('Error');
+  }
+});
+
 app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
 
@@ -3189,6 +3451,11 @@ app.listen(PORT, () => {
   console.log(`[CappperBoss] Next wipe: 4:58AM ET`);
   console.log('[CappperBoss] ─────────────────────────────────');
 
+  // Shout at boot if the SPA nav and the server-rendered nav have drifted. The
+  // game/sport/tools pages build their bar from src/nav_tabs.js; this is what
+  // stops them silently falling a rename behind again.
+  try { require('./src/nav_tabs').assertNavInSync(); } catch (_) {}
+
   // IndexNow: tell Bing/Yandex the core pages are fresh after each deploy.
   // Prod-only (SESSION_SECURE=1) so local dev never pings the live URLs.
   if (process.env.SESSION_SECURE === '1') {
@@ -3207,6 +3474,7 @@ app.listen(PORT, () => {
   await fetchTodaysWnbaGames().catch(err => console.error('[startup] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[startup] fetchTodaysSoccerGames error:', err.message));
   await fetchTodaysNcaafGames().catch(err => console.error('[startup] fetchTodaysNcaafGames error:', err.message));
+  await fetchForwardNcaafGames().catch(err => console.error('[startup] fetchForwardNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[startup] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) so overnight picks for future games can match.
   await fetchForwardGames().catch(err => console.error('[startup] fetchForwardGames error:', err.message));
@@ -3233,6 +3501,7 @@ app.listen(PORT, () => {
 
   // v3 foundation: make sure capper ratings exist after any restart (DB-only, fast).
   try { recomputeCapperRatings(); } catch (err) { console.error('[startup] recomputeCapperRatings error:', err.message); }
+  try { recomputeCapperV2(); } catch (err) { console.error('[startup] recomputeCapperV2 error:', err.message); }
 
   // Wave-1 scraper warm start (server only): discovery + one poll each so a
   // mid-day restart never leaves the trackers cold until the next cron.
@@ -3240,10 +3509,14 @@ app.listen(PORT, () => {
     await discoverAnExperts().catch(err => console.error('[startup] discoverAnExperts error:', err.message));
     await refreshPmWallets().catch(err => console.error('[startup] refreshPmWallets error:', err.message));
     await refreshCoversContestants().catch(err => console.error('[startup] refreshCoversContestants error:', err.message));
+    discoverPmHolders().catch(err => console.error('[startup] discoverPmHolders error:', err.message));
     pollAnExperts().catch(err => console.error('[startup] pollAnExperts error:', err.message));
     pollPmWallets().catch(err => console.error('[startup] pollPmWallets error:', err.message));
     pollCoversPicks().catch(err => console.error('[startup] pollCoversPicks error:', err.message));
     pollWagerTalk().catch(err => console.error('[startup] pollWagerTalk error:', err.message));
+    pollBettingPros().catch(err => console.error('[startup] pollBettingPros error:', err.message));
+    pollCbsPicks().catch(err => console.error('[startup] pollCbsPicks error:', err.message));
+    pollArticlePicks().catch(err => console.error('[startup] pollArticlePicks error:', err.message));
   }
 
   // Seed slots for every game in today_games (including forward games) — INSERT OR
@@ -3401,12 +3674,20 @@ app.listen(PORT, () => {
         return gold;
       };
       // Demote + score-sync the tracked rows.
+      // PREGAME ONLY (2026-07-30). Membership locks at first pitch, and a boot
+      // migration is not an exception to that — it used to silently delete
+      // tracked rows on games already in progress or already graded, every time
+      // the generation was bumped. A rescore that should change a STARTED game's
+      // record goes through the reviewed retire-mvp path instead, where it is
+      // visible and reversible.
       const tracked = db.prepare(`
         SELECT m.id, m.team, m.pick_type, m.score AS mvp_score, sb.v3_total, sb.v3_json FROM mvp_picks m
         JOIN picks p ON p.espn_game_id = m.espn_game_id
           AND LOWER(p.team) = LOWER(COALESCE(m.team, ''))
           AND LOWER(p.pick_type) = LOWER(COALESCE(m.pick_type, ''))
         JOIN score_breakdown sb ON sb.pick_id = p.id
+        JOIN today_games tg ON tg.espn_game_id = m.espn_game_id
+        WHERE tg.status = 'pre' AND COALESCE(m.retired, 0) = 0
       `).all();
       let demoted = 0, synced = 0;
       for (const m of tracked) {
@@ -3419,15 +3700,21 @@ app.listen(PORT, () => {
           synced++;
         }
       }
-      // Promote gold board picks that have no tracked row (started/graded
-      // included, this once — membership normally locks at first pitch, but
-      // these earned gold under the corrected engine).
+      // Promote gold board picks that have no tracked row — PREGAME ONLY.
+      //
+      // This block used to say "started/graded included, this once". It was not
+      // once: the generation has been bumped six times and it re-fired on every
+      // bump, minting tracked bets on games that had already been played and
+      // then reading the FINAL SCORE to grade them (six MLB bets in one second
+      // on 2026-07-28, up to 7 hours after first pitch, one recorded as a WIN).
+      // A bet recorded after the outcome is known is not a bet. The status
+      // filter below is the whole fix.
       const goldPicks = db.prepare(`
-        SELECT p.*, sb.v3_total, sb.v3_json, tg.home_score AS tg_home, tg.away_score AS tg_away
+        SELECT p.*, sb.v3_total, sb.v3_json
         FROM picks p
         JOIN score_breakdown sb ON sb.pick_id = p.id
         JOIN today_games tg ON tg.espn_game_id = p.espn_game_id
-        WHERE sb.v3_total >= 100
+        WHERE sb.v3_total >= 100 AND tg.status = 'pre'
       `).all();
       let promoted = 0;
       for (const p of goldPicks) {
@@ -3443,16 +3730,11 @@ app.listen(PORT, () => {
             cap: p.line_captured_at ? { ml: p.captured_ml, spread: p.captured_spread, total: p.captured_total, ou_odds: p.captured_ou_odds, at: p.line_captured_at } : null,
             scale: 'v3',
           });
-          // A finished game's result is already on the board pick — mirror it
-          // (with the final score) so the new row doesn't sit pending forever.
-          if (['win', 'loss', 'push'].includes(p.result || '')) {
-            db.prepare(`
-              UPDATE mvp_picks SET result = ?, home_score = ?, away_score = ?
-              WHERE team = ? AND game_date = ? AND pick_type = ? AND result = 'pending'
-            `).run(p.result, p.tg_home ?? null, p.tg_away ?? null, p.team, p.game_date, p.pick_type ?? null);
-          }
           promoted++;
           console.log(`[startup] record-sync promotion: ${p.team} ${p.pick_type} (${p.v3_total}) onto the MVP record`);
+          // NOTE: the old "mirror the finished result onto the new row" block
+          // lived here. It is gone with the started-game promotions it served.
+          // A pregame promotion grades through results.js like every other bet.
         } catch (err) {
           console.warn('[startup] record-sync promotion failed for', p.team, p.pick_type, err.message);
         }
@@ -3491,6 +3773,71 @@ app.listen(PORT, () => {
       console.log(`[startup] capper_history v3 score backfill: ${info.changes} row(s) trued up`);
     }
   } catch (err) { console.error('[startup] capper score backfill error:', err.message); }
+
+  // One-time (2026-08-02): restate the two picks the 5-minute grace corrupted.
+  //
+  // Until 9fbe3ac (deployed 2026-07-31 21:03 ET) pick_cutoff.isPickAcceptable carried
+  // GRACE_MS = 5 minutes, so a mention landing within five minutes of first pitch was
+  // still accepted onto the board. Accepting a mention REBUILDS the whole pick against
+  // the ratings pool as it stands at that instant, so those late mentions did not just
+  // add themselves, they re-derived the entire score after the game had started.
+  //
+  // WNBA 401857102 (Atlanta Dream vs Seattle Storm, first pitch 2026-07-31 23:33:30Z)
+  // is the one board we captured before the 4:58am wipe destroyed it. Two picks took a
+  // mention inside the grace:
+  //
+  //   pick 33532  Dream under 178.5, recorded 84
+  //     '0ev' posted 23:28:27 (pregame, so the capper keeps their history credit) but
+  //     was INGESTED at 23:34:40, 70s after first pitch. Their own recorded chip-in was
+  //     3.8, so the pregame total was 80. Correctable by subtraction.
+  //
+  //   pick 33530  Storm +11.5, recorded 96
+  //     'Docs 11th Hour' POSTED at 23:36:34, three minutes after first pitch, and is
+  //     the pick's best backer (resume 57.9 of the 96). Removing the advocate re-seats
+  //     the whole stack (the next backer's chip-in was computed against the old peak),
+  //     so there is no honest arithmetic that recovers the pregame number. The archive
+  //     total is NULLED rather than guessed: a wrong number in the calibration series
+  //     is worse than a missing one.
+  //
+  // The other four picks on that game took no late mention and are untouched. No
+  // tracked bet is affected: the only mvp_picks row on the game is the Dream spread,
+  // whose mentions are all pregame. Originals are preserved in the audit_flags
+  // snapshot, so this is reversible by hand.
+  try {
+    if (!db.getSetting('v4_grace_restate_20260731')) {
+      const GAME = '401857102';
+      const fixes = [
+        { pick_id: 33532, from: 84, to: 80,
+          why: "'0ev' mention ingested 70s after first pitch rebuilt the score; their own chip-in was 3.8" },
+        { pick_id: 33530, from: 96, to: null,
+          why: "'Docs 11th Hour' posted 3 min after first pitch and is the best backer (57.9 of 96); pregame total unrecoverable" },
+      ];
+      let restated = 0;
+      for (const f of fixes) {
+        // picks.id is AUTOINCREMENT and pick_history.pick_id is UNIQUE, so the id
+        // is unambiguous. The game and the exact stored value are checked anyway:
+        // this only ever fires on the two rows that were audited by hand.
+        const row = db.prepare(
+          `SELECT pick_id, team, pick_type, v3_total FROM pick_history WHERE pick_id = ? AND espn_game_id = ?`
+        ).get(f.pick_id, GAME);
+        if (!row || row.v3_total == null) continue;          // already restated, or never archived
+        if (Math.round(row.v3_total) !== f.from) continue;    // not the value we audited: leave it alone
+        db.prepare(`UPDATE pick_history SET v3_total = ? WHERE pick_id = ?`).run(f.to, f.pick_id);
+        try {
+          db.prepare(`
+            INSERT OR IGNORE INTO audit_flags (kind, ref_table, ref_id, espn_game_id, summary, detail_json)
+            VALUES ('score_moved_after_start', 'pick_history', ?, ?, ?, ?)
+          `).run(String(f.pick_id), GAME,
+            `${row.team} ${row.pick_type} scored ${f.from} off a mention that landed after first pitch; archive total set to ${f.to == null ? 'NULL (unrecoverable)' : f.to}`,
+            JSON.stringify({ ...row, restated_to: f.to, why: f.why, grace_ms_at_the_time: 5 * 60 * 1000 }));
+        } catch (_) {}
+        restated++;
+        console.log(`[startup] grace restatement: pick ${f.pick_id} ${row.team} ${row.pick_type} ${f.from} -> ${f.to}`);
+      }
+      db.setSetting('v4_grace_restate_20260731', new Date().toISOString());
+      console.log(`[startup] 5-minute-grace restatement: ${restated} archive row(s) corrected on game ${GAME}`);
+    }
+  } catch (err) { console.error('[startup] grace restatement error:', err.message); }
 
   // Stamp actual_start_at / actual_end_at on any game already live/final at boot.
   stampActualStarts();
@@ -3611,6 +3958,8 @@ cron.schedule('10 5 * * *', () => {
 cron.schedule('20 5 * * *', () => {
   try { recomputeCapperRatings(); }
   catch (err) { console.error('[cron] recomputeCapperRatings error:', err.message); }
+  try { recomputeCapperV2(); }
+  catch (err) { console.error('[cron] recomputeCapperV2 error:', err.message); }
 }, { timezone: 'America/New_York' });
 
 // ── Wave-1 source scrapers (v3 Phase 3, track-only, all free) ────────────────
@@ -3619,6 +3968,7 @@ cron.schedule('20 5 * * *', () => {
 if (!UI_ONLY) cron.schedule('5 5 * * *', async () => {
   await discoverAnExperts().catch(err => console.error('[cron] discoverAnExperts error:', err.message));
   await refreshPmWallets().catch(err => console.error('[cron] refreshPmWallets error:', err.message));
+  await discoverPmHolders().catch(err => console.error('[cron] discoverPmHolders error:', err.message));
   await refreshCoversContestants().catch(err => console.error('[cron] refreshCoversContestants error:', err.message));
 }, { timezone: 'America/New_York' });
 
@@ -3651,6 +4001,23 @@ if (!UI_ONLY) cron.schedule('15,45 8-23 * * *', () => {
   pollWagerTalk().catch(err => console.error('[cron] pollWagerTalk error:', err.message));
 }, { timezone: 'America/New_York' });
 
+// BettingPros: by far the biggest source (hundreds of picks a slate from the
+// whole community). Their picks post a median 2.8h before first pitch, so a
+// 20-minute cadence catches nearly everything with hours of board life left.
+if (!UI_ONLY) cron.schedule('*/20 8-23 * * *', () => {
+  pollBettingPros().catch(err => console.error('[cron] pollBettingPros error:', err.message));
+}, { timezone: 'America/New_York' });
+
+// CBS expert grids (NFL + CFB only) and the bylined article sites. Both are
+// low-volume and publish once per game, so hourly is plenty; staggered off the
+// half-hour sweeps above.
+if (!UI_ONLY) cron.schedule('25 8-23 * * *', () => {
+  pollCbsPicks().catch(err => console.error('[cron] pollCbsPicks error:', err.message));
+}, { timezone: 'America/New_York' });
+if (!UI_ONLY) cron.schedule('50 8-23 * * *', () => {
+  pollArticlePicks().catch(err => console.error('[cron] pollArticlePicks error:', err.message));
+}, { timezone: 'America/New_York' });
+
 // Dummy accounts vote on the day's picks for not-yet-started games, then chat on
 // the games they bet. Runs a few times a day (idempotent) to catch picks that come
 // in after the morning setup, while their games are still pre-game. The extra late
@@ -3668,6 +4035,10 @@ if (!UI_ONLY) cron.schedule('0 5 * * *', async () => {
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames error:', err.message));
   await fetchTodaysSoccerGames().catch(err => console.error('[cron] fetchTodaysSoccerGames error:', err.message));
   await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames error:', err.message));
+  // College football is weekly, so its board needs a 7-day window: a pick posted
+  // Tuesday for Saturday has to find a game row or storage.js drops it. Safe at 7
+  // days because no college team appears twice inside one (unlike a daily sport).
+  await fetchForwardNcaafGames().catch(err => console.error('[cron] fetchForwardNcaafGames error:', err.message));
   await fetchGolfTournaments().catch(err => console.error('[cron] fetchGolfTournaments error:', err.message));
   // Forward games (today+2d, ESPN only) before seeding so their slots get created too.
   await fetchForwardGames().catch(err => console.error('[cron] fetchForwardGames error:', err.message));
@@ -3762,6 +4133,10 @@ cron.schedule('*/30 8-23 * * *', async () => {
 if (!UI_ONLY) cron.schedule('0 6-23 * * *', async () => {
   console.log('[cron] hourly ESPN DK odds refresh');
   await refreshEspnOdds().catch(err => console.error('[cron] refreshEspnOdds error:', err.message));
+  // refreshEspnOdds only covers espn_live's TODAY_SPORTS, and the college football
+  // scoreboard carries no odds block at all, so NCAAF tops up from ESPN's sports.core
+  // odds endpoint instead. Only games still missing a line are looked up.
+  await fetchTodaysNcaafGames().catch(err => console.error('[cron] NCAAF odds refresh error:', err.message));
 }, { timezone: 'America/New_York' });
 
 // CA official line lock: 1 hour before each game starts, snapshot the market line and
@@ -3798,7 +4173,7 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
   // Golf already refreshes all active leaderboards below.
   await fetchTodaysGames().catch(err => console.error('[cron] fetchTodaysGames (live scores) error:', err.message));
   await fetchTodaysWnbaGames().catch(err => console.error('[cron] fetchTodaysWnbaGames (live scores) error:', err.message));
-  await fetchTodaysNcaafGames().catch(err => console.error('[cron] fetchTodaysNcaafGames (live scores) error:', err.message));
+  await fetchTodaysNcaafGames({ withOdds: false }).catch(err => console.error('[cron] fetchTodaysNcaafGames (live scores) error:', err.message));
   await updateSoccerLiveScores().catch(err => console.error('[cron] updateSoccerLiveScores error:', err.message));
   await refreshTennisStartTimes().catch(err => console.error('[cron] refreshTennisStartTimes (live scores) error:', err.message));
   await updateGolfLeaderboards().catch(err => console.error('[cron] updateGolfLeaderboards error:', err.message));
@@ -3848,17 +4223,52 @@ if (!UI_ONLY) cron.schedule('*/5 * * * *', async () => {
 // that ends after the active window still resolves instead of stranding on a live
 // inning. Idles (one cheap query) when nothing is live. In-flight guard prevents overlap.
 let _liveTickRunning = false;
+// ── The start watcher (Jack 2026-07-30) ──────────────────────────────────────
+// The tick also wakes for games that are ABOUT to start, so first pitch is
+// detected within 30 seconds instead of up to 5 minutes. That lag was the
+// single biggest source of bad tracked bets: 26 of the 48 in-play-minted rows
+// in the v4 era were created inside 5 minutes of a start the site had not
+// noticed yet (docs/RANKINGS_AUDIT_2026_07_30.md).
+//
+// Deliberately NOT a hard clock cutoff. Tennis start times are ESPN "not
+// before" estimates and matches routinely go off 30-90 minutes late, so the
+// schedule cannot decide when a match began — only a real status flip can.
+// This just makes that flip land fast. Free: ESPN is the only source touched.
+const START_WATCH_AHEAD_MS = 15 * 60 * 1000;      // wake this far before a scheduled start
+const START_WATCH_OVERDUE_MS = 4 * 60 * 60 * 1000; // keep watching a late (tennis) start this long
+function startWindowOpen(nowMs = Date.now()) {
+  const { parseGameTs } = require('./src/pick_cutoff');
+  const rows = db.prepare(
+    "SELECT start_time FROM today_games WHERE status = 'pre' AND start_time IS NOT NULL"
+  ).all();
+  for (const r of rows) {
+    const t = parseGameTs(r.start_time);
+    if (Number.isFinite(t) && t <= nowMs + START_WATCH_AHEAD_MS && t >= nowMs - START_WATCH_OVERDUE_MS) return true;
+  }
+  return false;
+}
 if (!UI_ONLY) cron.schedule('*/30 * * * * *', async () => {
   if (_liveTickRunning) return;
   const hasLive = db.prepare("SELECT 1 FROM today_games WHERE status = 'in' LIMIT 1").get();
-  if (!hasLive) return;
+  if (!hasLive && !startWindowOpen()) return;
   _liveTickRunning = true;
   try {
     await fetchTodaysGames();
     await fetchTodaysWnbaGames();
     await fetchTodaysNcaafGames();
     await updateSoccerLiveScores();
+    // Tennis too. The 5-min score cron is gated to active hours (5am-1am ET), so
+    // a match that started just before 1am used to freeze mid-first-set: no
+    // updater ran again until 5am, and the 3h "stuck game" reconcile below
+    // promoted the frozen row to final off its own re-fetch instead. That is how
+    // ATP 178921 graded on a retirement (2026-07-30). This tick is self-bounded
+    // by the live check and ESPN tennis is free, so the real score keeps landing.
+    await updateTennisLiveScores();
     await syncLiveSituations();
+    // Stamp first pitch the moment ESPN flips a game live. This is what closes
+    // the tracked-bet window (storage.saveMvpPick -> pick_cutoff.hasGameStarted)
+    // and it now runs on the 30-second tick, not just the 5-minute cron.
+    stampActualStarts();
     // A game that just flipped to Final needs to settle, not sit on its last inning.
     stampActualEnds();
     await resolveResults();

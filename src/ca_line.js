@@ -165,7 +165,17 @@ function lockCaLinesAtT60() {
     `).all(cutoff);
   } catch (_) { return 0; }
   let locked = 0;
-  for (const game of games) if (lockCaLineForGame(game)) locked++;
+  // Never (re)price a game that is already under way. status='pre' is not proof of
+  // pregame: a suspended match is downgraded to 'pre' so grading can't settle it
+  // early, and ca_line_locked lives on today_games — so a match that outlives the
+  // 3-day prune and gets re-listed comes back unlocked with its start time in the
+  // past, and this pass would rewrite the tracked bet's odds and line (the
+  // mvp_picks / pick_history writes in _lockGame) at a mid-match number.
+  const { hasGameStarted } = require('./pick_cutoff');
+  for (const game of games) {
+    if (hasGameStarted(game)) continue;
+    if (lockCaLineForGame(game)) locked++;
+  }
   if (locked) console.log(`[ca_line] T-60 locked ${locked} game(s)`);
   return locked;
 }

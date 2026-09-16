@@ -8,15 +8,36 @@
 //    delta (a new best backer shows the netted step: their points plus the old
 //    best halved into the stack, minus what was already showing). Fade points
 //    from the opposite slot land at the opposing mention's real timestamp. The
-//    only synthetic placement: the four formula-shaped components (sport rank,
-//    market, side lean, sport bonus) surface at their seeded reveal moments from
-//    scoring_v3.bonusRevealEvents — random, at least 3h before game start — so
-//    their timing can't be correlated with the market events that produced them.
+//    only synthetic placement: the general bonuses (in-sport rank, market, side
+//    lean, sport bonus) are withheld and land as ONE tallied step at T-60, one
+//    hour before the scheduled start — the same moment ca_line.js locks the CA
+//    official line. Capper points add the instant they happen; the spot prices
+//    in once, when the price does. See scoring_v3.bonusRevealEvents.
 //    The curve ENDS on the exact display score the picks list shows (both are
 //    the same reveal-aware function), so the curve and the big number never
 //    disagree, and future reveal moments never draw early.
 //  - v2 (legacy): the old channel-points replay (kept so nothing breaks if a
 //    deploy ever runs on v2).
+//
+// THE FREEZE, ON THE CURVE TOO (Jack 2026-07-31): "make sure all picks can be
+// tracked and watched accurately — show the exact tallying and timing of all
+// points added before and after start time." Two things were wrong:
+//
+//  1. Only the ENDPOINT was frozen. Every interior point came from replaySubtotal
+//     against LIVE capper_ratings, and results.js recomputes those on every
+//     5-minute pass, so the same finished pick drew a different shape on every
+//     page load. Now the whole series is snapshotted into picks.timeline_frozen
+//     at first pitch (game_start_tracker) and served verbatim from then on.
+//  2. Drift between the replay and the displayed score was silently folded into
+//     the last pregame step, so a score that MOVED after the game started was
+//     drawn as if those points had arrived hours earlier. Now any such gap is
+//     emitted as its own point, stamped at the real moment, flagged postStart.
+//
+// Every point carries { ts, delta, label, score, kind, cause, postStart }. `kind`
+// and `cause` stay deliberately neutral: they name WHO moved a pick (a backer),
+// never WHY in formula terms. Naming a scoring component to a member would break
+// the no-reveal rule, so the four formula-shaped components all surface as
+// kind 'model' with no cause text.
 
 const db = require('./db');
 const { CHANNEL_POINTS } = require('./scoring');
@@ -44,14 +65,18 @@ function buildV3Timeline(pick) {
   const nowMs = Date.now();
 
   const game = pick.espn_game_id
-    ? db.prepare(`SELECT sport, start_time FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
+    ? db.prepare(`SELECT sport, start_time, actual_start_at FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
     : null;
   const sport = pick.sport || game?.sport || 'Unknown';
+  // First pitch, as precisely as we know it. The stamped actual start wins; the
+  // schedule is the fallback until the start watcher catches the flip.
+  const startMs = parseDbTs(game?.actual_start_at) ?? parseDbTs(game?.start_time);
+  const afterStart = (ms) => startMs != null && ms >= startMs;
 
   // Real events: this slot's mentions and the opposite slot's (fade sources),
   // each at its true message timestamp.
   const mentionStmt = db.prepare(`
-    SELECT capper_name, message_timestamp FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
+    SELECT capper_name, message_timestamp, subtotal_after FROM raw_messages WHERE pick_id = ? ORDER BY message_timestamp ASC, id ASC
   `);
   const own = mentionStmt.all(pick.id);
   const opp = oppositeSlot(pick);
@@ -67,8 +92,10 @@ function buildV3Timeline(pick) {
     endMs = Math.max(firstMs + 60 * 1000, Math.min(endMs, nowMs));
     const lo = Math.max(0, Math.round(displayScore * 0.6));
     return [
-      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, step: 'Backer', score: lo },
-      { ts: new Date(endMs).toISOString(), delta: displayScore - lo, label: `+${displayScore - lo}`, step: 'Aggregate', score: displayScore },
+      { ts: new Date(firstMs).toISOString(), delta: lo, label: `+${lo}`, score: lo,
+        kind: 'backer', cause: null, postStart: afterStart(firstMs) },
+      { ts: new Date(endMs).toISOString(), delta: displayScore - lo, label: `+${displayScore - lo}`, score: displayScore,
+        kind: 'model', cause: null, postStart: afterStart(endMs) },
     ];
   }
 
@@ -79,7 +106,12 @@ function buildV3Timeline(pick) {
   const stream = [];
   for (const m of own) {
     const ms = parseDbTs(m.message_timestamp) ?? firstMs;
-    stream.push({ ms, kind: 'own', capper: m.capper_name || null });
+    // subtotal_after is what the pick was ACTUALLY worth when this mention
+    // landed, stamped by storage.js at the time. When it is present the curve
+    // stops guessing: it plots the recorded number instead of re-deriving the
+    // step against a capper pool that has re-ranked since. Rows written before
+    // this column existed carry null and fall back to the replay.
+    stream.push({ ms, kind: 'own', capper: m.capper_name || null, at: m.subtotal_after ?? null });
   }
   for (const m of oppMentions) {
     const ms = parseDbTs(m.message_timestamp);
@@ -100,49 +132,104 @@ function buildV3Timeline(pick) {
   let started = false;
   let bonusCum = 0;
   let prevScore = 0;
+  // Last recorded capper-only level. Null until a stamped mention is seen, which
+  // is what keeps pre-column picks on the old replay path.
+  let capperNow = null;
   const events = [];
   for (const ev of stream) {
     let opened = false;
-    let step = 'Backer';
+    // `kind` is what the client renders. It names WHO moved the pick, never the
+    // formula: 'backer' (someone came in on this side), 'counter' (someone came
+    // in on the other side), 'model' (one of the four formula-shaped components
+    // surfacing at its reveal moment — deliberately unnamed).
+    let kind = 'backer';
+    let cause = null;
     if (ev.kind === 'own') {
       if (ev.capper && !ownSeen.includes(ev.capper)) ownSeen.push(ev.capper);
       opened = !started;
       started = true;
-      step = ev.capper ? `Backer · ${ev.capper}` : 'Backer';
+      cause = ev.capper || null;
     } else if (ev.kind === 'opp') {
       if (!ev.capper || oppSeen.includes(ev.capper)) continue;
       oppSeen.push(ev.capper);
-      if (!started) continue; // pre-birth fade folds into the opening step
-      step = 'Fade';
+      if (!started) continue; // pre-birth counter-action folds into the opening step
+      kind = 'counter';
+      cause = ev.capper || null;
     } else {
       bonusCum += ev.pts;
       if (!started) continue; // reveal moments never precede the first mention
-      step = ev.label;
+      kind = 'model';
     }
-    const score = Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
+    // Recorded number first, reconstruction only as a fallback. `at` is the
+    // CAPPER-only subtotal stamped when this mention landed (storage.js), so the
+    // revealed bonuses compose on top of it exactly as they do on the replay
+    // path. `capperNow` carries the last recorded level forward across fade and
+    // bonus steps, which have no stamp of their own.
+    if (ev.kind === 'own' && ev.at != null) capperNow = Math.round(ev.at);
+    const score = capperNow != null
+      ? capperNow + bonusCum
+      : Math.round(replaySubtotal(pick, sport, ownSeen, oppSeen, opp?.pick_type).pts) + bonusCum;
     const delta = score - prevScore;
     if (delta === 0 && !opened) continue;
-    // `step` names the advocate capper and the scoring component (fade, market,
-    // side lean, sport). No client renders it and the no-reveal rule bars it from
-    // reaching any non-admin reader, so it never leaves the server.
+    // `cause` carries a capper name, which is paid-only — sanitizeTimeline strips
+    // it (with delta and label) for free viewers.
     events.push({
       ts: new Date(ev.ms).toISOString(),
       delta,
       label: `${delta >= 0 ? '+' : ''}${delta}`,
       score,
+      kind,
+      cause,
+      postStart: afterStart(ev.ms),
     });
     prevScore = score;
   }
 
   if (!events.length) {
-    return [{ ts: new Date(firstMs).toISOString(), delta: displayScore, label: `+${displayScore}`, score: displayScore }];
+    return [{ ts: new Date(firstMs).toISOString(), delta: displayScore, label: `+${displayScore}`, score: displayScore,
+              kind: 'backer', cause: null, postStart: afterStart(firstMs) }];
   }
 
-  // Land exactly on the display score the picks list shows right now. Any drift
-  // (a nightly ratings re-rank since the last recalc) settles into the final
-  // step so the curve and the big number stay one story.
+  // Land exactly on the display score the picks list shows right now — the curve
+  // and the big number are one story or they are both untrustworthy.
+  //
+  // MOST of any gap is NOT a score change. The replay re-derives every interior
+  // point from capper_ratings as they stand at request time, and results.js
+  // re-ranks that table on every graded pass, so the replayed total drifts away
+  // from the stored one all day with nobody posting anything. Folding that drift
+  // into the last step is the honest close: it is one number's worth of "the
+  // pool moved", not a step anyone took.
+  //
+  // A REAL post-start move is a different thing, and we can tell them apart
+  // exactly. picks.score_at_start is stamped once at first pitch, so if the
+  // stored total no longer matches it, the score genuinely moved after the game
+  // began, which the rules forbid. Only that case earns the red flagged point.
+  // Drawing red on mere replay drift would cry wolf on every live pick, every
+  // five minutes, which is worse than not drawing it at all.
   const last = events[events.length - 1];
-  if (last.score !== displayScore) {
+  const atStart = pick.score_at_start != null ? Math.round(pick.score_at_start) : null;
+  const movedAfterStart = atStart != null && atStart !== displayScore;
+  if (movedAfterStart) {
+    // Close the replay drift against where the pick REALLY stood at first pitch,
+    // then show the illegal move as its own step.
+    if (last.score !== atStart) {
+      last.delta += (atStart - last.score);
+      last.score = atStart;
+      last.label = `${last.delta >= 0 ? '+' : ''}${last.delta}`;
+    }
+    const move = displayScore - atStart;
+    const lastMs = new Date(last.ts).getTime();
+    const ms = Math.max(startMs ?? lastMs, lastMs) + 1000;
+    events.push({
+      ts: new Date(ms).toISOString(),
+      delta: move,
+      label: `${move >= 0 ? '+' : ''}${move}`,
+      score: displayScore,
+      kind: 'adjust',
+      cause: null,
+      postStart: true,
+    });
+  } else if (last.score !== displayScore) {
     last.delta += (displayScore - last.score);
     last.score = displayScore;
     last.label = `${last.delta >= 0 ? '+' : ''}${last.delta}`;
@@ -165,7 +252,7 @@ function buildV2Timeline(pick) {
     ?? Date.now();
 
   const game = pick.espn_game_id
-    ? db.prepare(`SELECT start_time FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
+    ? db.prepare(`SELECT start_time, actual_start_at FROM today_games WHERE espn_game_id = ?`).get(pick.espn_game_id)
     : null;
   const scheduledMs = parseDbTs(game?.start_time);
 
@@ -198,36 +285,161 @@ function buildV2Timeline(pick) {
     const ms = parseDbTs(m.message_timestamp) ?? firstMentionMs;
     const delta = CHANNEL_POINTS[m.channel] ?? 0;
     if (delta === 0) continue;
-    events.push({ ts: new Date(ms).toISOString(), delta, label: `+${delta}` });
+    events.push({ ts: new Date(ms).toISOString(), delta, label: `+${delta}`, kind: 'backer', cause: null });
   }
-  if (hasHome)  events.push({ ts: new Date(homeAnchor).toISOString(),  delta: 5, label: '+5' });
-  if (hasSport) events.push({ ts: new Date(sportAnchor).toISOString(), delta: 5, label: '+5' });
+  if (hasHome)  events.push({ ts: new Date(homeAnchor).toISOString(),  delta: 5, label: '+5', kind: 'model', cause: null });
+  if (hasSport) events.push({ ts: new Date(sportAnchor).toISOString(), delta: 5, label: '+5', kind: 'model', cause: null });
 
   events.sort((a, b) => new Date(a.ts) - new Date(b.ts));
 
   let running = 0;
-  for (const e of events) { running += e.delta; e.score = running; }
+  const startedMs = parseDbTs(game?.actual_start_at) ?? scheduledMs;
+  for (const e of events) {
+    running += e.delta;
+    e.score = running;
+    e.postStart = startedMs != null && new Date(e.ts).getTime() >= startedMs;
+  }
   return events;
 }
 
-function getPickTimeline(pickId) {
+// ── The curve freeze ──────────────────────────────────────────────────────────
+// A finished pick must draw the SAME shape forever. Without this the interior
+// points are replayed against live capper_ratings on every request (see
+// replaySubtotal), and results.js re-ranks the whole pool every 5 minutes, so a
+// graded pick's history quietly rewrote itself all night. Snapshot once at first
+// pitch, serve it verbatim after.
+function readFrozenTimeline(pick) {
+  if (!pick?.timeline_frozen) return null;
+  try {
+    const t = JSON.parse(pick.timeline_frozen);
+    return Array.isArray(t) && t.length ? t : null;
+  } catch (_) { return null; }
+}
+
+function writeFrozenTimeline(pickId, events) {
+  if (!Array.isArray(events) || !events.length) return false;
+  try {
+    db.prepare(`UPDATE picks SET timeline_frozen = ? WHERE id = ? AND timeline_frozen IS NULL`)
+      .run(JSON.stringify(events), pickId);
+    return true;
+  } catch (_) { return false; }
+}
+
+// Freeze every scored pick on a game the instant it goes live. Called by
+// game_start_tracker right where actual_start_at is stamped, so the snapshot is
+// taken at first pitch rather than whenever someone happens to open the page.
+//
+// Also stamps picks.score_at_start — the number the pick was worth when it
+// stopped being bettable. Nothing read it before, which is exactly why the
+// 2026-07-31 WNBA drop could not be reconstructed: the pregame value of an
+// untracked pick existed nowhere once it had been overwritten. It is the
+// baseline audit rule R11 compares against.
+// Sweep every game that has begun and freeze anything still unfrozen. The stamp
+// in game_start_tracker only fires on status 'in' with no actual_start_at, so a
+// game we first observe as 'post' (a short outage, a restart, a game that flips
+// outside the live tick window) would never get its curve photographed and would
+// redraw itself forever. This is the backstop, and it is idempotent.
+function freezeStartedCurves() {
+  let n = 0;
+  try {
+    // NOT the raw status string. A match halted mid-play is re-dated and comes
+    // back filed 'pre' with no stamp (docs/GRADING_RULES R11), so a status filter
+    // would skip exactly the games most likely to have a corrupted curve. Ask the
+    // same question the SCORE freeze asks, per game, so the two can never
+    // disagree about whether a pick is settled.
+    const { hasGameStarted } = require('./pick_cutoff');
+    const games = db.prepare(`
+      SELECT DISTINCT tg.espn_game_id, tg.status, tg.start_time, tg.actual_start_at, tg.sport,
+             tg.home_score, tg.away_score, tg.tennis_home_games, tg.tennis_away_games
+      FROM today_games tg JOIN picks p ON p.espn_game_id = tg.espn_game_id
+      WHERE p.mention_count > 0 AND p.timeline_frozen IS NULL
+    `).all();
+    for (const g of games) {
+      if (!hasGameStarted(g)) continue;
+      n += freezeTimelinesForGame(g.espn_game_id);
+    }
+  } catch (_) {}
+  if (n) console.log(`[pickTimeline] froze ${n} conviction curve(s) on already-started games`);
+  return n;
+}
+
+function freezeTimelinesForGame(espnGameId) {
+  let n = 0;
+  try {
+    const picks = db.prepare(`
+      SELECT p.id, sb.v3_total
+      FROM picks p LEFT JOIN score_breakdown sb ON sb.pick_id = p.id
+      WHERE p.espn_game_id = ? AND p.mention_count > 0 AND p.timeline_frozen IS NULL
+    `).all(espnGameId);
+    for (const p of picks) {
+      // Order matters. The timeline is built first (it applies the cap, which is
+      // still computing live at this point), then the score, then the cap flag.
+      // Stamping the cap first would make heavyDisplayCapFor read its own
+      // not-yet-written answer.
+      try { if (writeFrozenTimeline(p.id, getPickTimeline(p.id, { skipFrozen: true }))) n++; } catch (_) {}
+      try {
+        if (p.v3_total != null) {
+          db.prepare(`UPDATE picks SET score_at_start = ? WHERE id = ? AND score_at_start IS NULL`)
+            .run(p.v3_total, p.id);
+        }
+      } catch (_) {}
+      try {
+        const cap = require('./scoring_v3').heavyDisplayCapFor({ id: p.id });
+        db.prepare(`UPDATE picks SET heavy_capped_at_start = ? WHERE id = ? AND heavy_capped_at_start IS NULL`)
+          .run(Number.isFinite(cap) ? 1 : 0, p.id);
+      } catch (_) {}
+    }
+  } catch (_) {}
+  return n;
+}
+
+function getPickTimeline(pickId, opts = {}) {
   const pick = db.prepare(`SELECT * FROM picks WHERE id = ?`).get(pickId);
   if (!pick) return [];
+  if (!opts.skipFrozen) {
+    const frozen = readFrozenTimeline(pick);
+    if (frozen) return frozen;
+  }
   try {
-    if (db.getSetting('scoring_version', 'v2') === 'v3') return buildV3Timeline(pick);
+    if (db.getSetting('scoring_version', 'v2') === 'v3') {
+      const events = buildV3Timeline(pick);
+      // Heavy display cap (Jack 2026-07-29): the curve must end where the list
+      // does. A heavy-priced untracked ML shows at most 95 everywhere, so the
+      // replayed series plateaus at the cap instead of climbing past it.
+      try {
+        const cap = require('./scoring_v3').heavyDisplayCapFor(pick);
+        if (Number.isFinite(cap) && Array.isArray(events)) {
+          // Clamp, then RE-DERIVE the deltas from the clamped series. Rewriting
+          // score alone (what this did before) breaks the one invariant a step
+          // chart has: score[n] = score[n-1] + delta[n]. Two points both clamped
+          // to 95 drew a flat segment labelled "+13", and the last point is
+          // always labelled, so the contradiction was guaranteed to be the one
+          // a reader looked at.
+          let prev = 0;
+          return events.map(e => {
+            if (!e || typeof e.score !== 'number') return e;
+            const score = Math.min(e.score, cap);
+            const delta = Math.round(score - prev);
+            prev = score;
+            return { ...e, score, delta, label: `${delta >= 0 ? '+' : ''}${delta}` };
+          });
+        }
+      } catch (_) {}
+      return events;
+    }
   } catch (_) { /* fall through to v2 on any error */ }
   return buildV2Timeline(pick);
 }
 
-// Non-paid sanitizer. The annotated timeline is proprietary twice over: step
-// labels name the advocate capper ("Resume · <name>" — capper_name is paid-only)
-// and each event's delta/label prices a scoring component (Base/Resume/Consensus/
-// Market...). Free viewers keep only the curve SHAPE — timestamp + running
-// display score — with every annotation stripped. Paid viewers get the full
-// timeline. Passes null/non-arrays through untouched (locked picks stay null).
+// Non-paid sanitizer. The annotated timeline is proprietary twice over: `cause`
+// names the backing capper (capper_name is paid-only) and each event's delta
+// prices a step. Free viewers keep the curve SHAPE — timestamp + running display
+// score — plus `postStart`, which says nothing about the formula and everything
+// about whether a point landed before or after first pitch. Paid viewers get the
+// full timeline. Passes null/non-arrays through untouched (locked picks stay null).
 function sanitizeTimeline(events) {
   if (!Array.isArray(events)) return events;
-  return events.map(e => ({ ts: e.ts, score: e.score }));
+  return events.map(e => ({ ts: e.ts, score: e.score, postStart: !!e.postStart }));
 }
 
-module.exports = { getPickTimeline, sanitizeTimeline };
+module.exports = { getPickTimeline, sanitizeTimeline, freezeTimelinesForGame, freezeStartedCurves };

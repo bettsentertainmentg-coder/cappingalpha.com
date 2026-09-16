@@ -45,10 +45,17 @@ async function seedPickSlots() {
     upsertSnapshot.run(game.espn_game_id, game.home_team, ml_home, spread_home, ou);
     upsertSnapshot.run(game.espn_game_id, game.away_team, ml_away, spread_away, ou);
 
+    // is_home_team is the SIDE flag, not a bonus flag: every reader maps a slot
+    // to home or away with it (capperBetOdds, ca_line.slotDisplay, the popup's
+    // buildPickBySlot, pickSlotKey). It must stay 1 on the home slot even at a
+    // neutral site; the home bonus and the side lean read today_games.neutral_site
+    // where they are computed (scoring.js, scoring_v3.js) instead.
+    const homeIsHost = 1;
+
     const slots = [
-      [game.home_team, 'ML',     ml_home,     ml_home, null, game.sport, gameDate, game.espn_game_id, 1],
+      [game.home_team, 'ML',     ml_home,     ml_home, null, game.sport, gameDate, game.espn_game_id, homeIsHost],
       [game.away_team, 'ML',     ml_away,     ml_away, null, game.sport, gameDate, game.espn_game_id, 0],
-      [game.home_team, 'spread', spread_home, null,    null, game.sport, gameDate, game.espn_game_id, 1],
+      [game.home_team, 'spread', spread_home, null,    null, game.sport, gameDate, game.espn_game_id, homeIsHost],
       [game.away_team, 'spread', spread_away, null,    null, game.sport, gameDate, game.espn_game_id, 0],
       // Over/under anchored to home team, is_home_team=0 — no home bonus for totals
       [game.home_team, 'over',   ou,          null,    ou,   game.sport, gameDate, game.espn_game_id, 0],

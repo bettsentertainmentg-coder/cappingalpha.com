@@ -2,6 +2,13 @@
 // Called from the GET /:sport/:slug route in index.js.
 // Server-renders: <head> SEO tags, nav, breadcrumb, game header, sidebar.
 // Client-renders: slot picker, detail panel, lines, sentiment, injuries, context.
+//
+// The top nav is NOT defined here. It comes from src/nav_tabs.js, the single
+// definition shared with public/index.html, because maintaining it in two
+// places is exactly how this page ended up showing "Leaderboard" long after
+// the tab was renamed to "Socials".
+
+const { NAV_TABS } = require('./nav_tabs');
 
 // Pushed page inside the app (public/modules/page_stack.js): the shell loads a
 // server page in a frame with ?embed=app&top=<status bar inset> and owns the
@@ -102,8 +109,9 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 // ── Nav HTML (matches main app nav; tab-btn links instead of switchTab calls) ──
 // Server-renders the correct logged-in/out state from the session so a subscribed
 // user never sees Login/Get Access (or a flash of them) before client JS runs.
-function buildNav(user) {
+function buildNav(user, mode = 'v1') {
   const on     = !!user;
+  const v2     = mode === 'v2';
   // Paying comes from a FRESH DB read, never the session snapshot: the session
   // tier is stamped at login and goes stale the moment a code redemption or
   // Stripe webhook changes it (a paid member was still shown "Unlock
@@ -171,25 +179,22 @@ function buildNav(user) {
       <button class="ca-hamburger" aria-label="Menu" onclick="caToggleDrawer()">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
       </button>
+      ${v2 ? `<button class="ca-hamburger ca-nav-search" aria-label="Search" onclick="caOpenSearch()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      </button>` : ''}
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
-        ${tab('mvp', `<img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">Rankings`)}
-        <div class="nav-about-wrap" id="ca-sports-nav">
-          <button class="tab-btn" id="ca-sports-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleSportsMenu(event)">Sports<span class="tab-caret">&#9662;</span></button>
-          <div class="about-dropdown hidden" id="ca-sports-dd" role="menu">
-            ${SPORT_PAGES.map(s => `<a class="about-dropdown-item" role="menuitem" href="/${s.slug}">${s.label}</a>`).join('\n            ')}
-          </div>
-        </div>
-        ${tab('esports', 'Esports')}
-        ${tab('leaderboard', 'Leaderboard')}
-        <div class="nav-about-wrap" id="ca-about-nav">
-          <button class="tab-btn" id="ca-about-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleAboutMenu(event)">About<span class="tab-caret">&#9662;</span></button>
+        ${NAV_TABS.map(t => t.dropdown
+          ? `<div class="nav-about-wrap" id="ca-about-nav">
+          <button class="tab-btn" id="ca-about-btn" aria-haspopup="true" aria-expanded="false" onclick="caToggleAboutMenu(event)">${t.label}<span class="tab-caret">&#9662;</span></button>
           <div class="about-dropdown hidden" id="ca-about-dd" role="menu">
-            <a class="about-dropdown-item" role="menuitem" href="/#about">About</a>
-            <a class="about-dropdown-item" role="menuitem" href="/faq">FAQ</a>
-            <a class="about-dropdown-item" role="menuitem" href="/tools">Betting Calculators</a>
+            ${t.dropdown.map(d => `<a class="about-dropdown-item" role="menuitem" href="${d.href}">${d.label}</a>`).join('\n            ')}
           </div>
-        </div>
+        </div>`
+          : tab(t.tab, t.logo
+              ? `<img src="/ca-logo.png" alt="CA" class="ca-pick-logo" onerror="this.style.display='none'">${t.label}`
+              : t.label)
+        ).join('\n        ')}
       </div>
     </div>
     <div class="nav-actions">
@@ -224,7 +229,7 @@ function buildNav(user) {
       ${SPORT_PAGES.map(s => `<a class="ca-drawer-sub-item" href="/${s.slug}">${s.label} <span>&rsaquo;</span></a>`).join('\n      ')}
     </div>
     <a class="ca-drawer-nav-item" href="/#esports">Esports <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
-    <a class="ca-drawer-nav-item" href="/#leaderboard">Leaderboard <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
+    <a class="ca-drawer-nav-item" href="/#socials">Socials <span class="ca-drawer-nav-chevron">&rsaquo;</span></a>
     <div class="ca-drawer-account-toggle" onclick="caDrawerSub('ca-drawer-about-sub','ca-drawer-about-chev')">
       <span>About</span> <span class="ca-drawer-nav-chevron" id="ca-drawer-about-chev">&rsaquo;</span>
     </div>
@@ -275,30 +280,20 @@ function buildNav(user) {
       if (dd) dd.classList.add('hidden');
       if (btn) btn.setAttribute('aria-expanded', 'false');
     }
-    function caToggleSportsMenu(e) {
-      if (e) e.stopPropagation();
-      caCloseAboutMenu();
-      var dd  = document.getElementById('ca-sports-dd');
-      var btn = document.getElementById('ca-sports-btn');
-      if (!dd) return;
-      var willOpen = dd.classList.contains('hidden');
-      dd.classList.toggle('hidden', !willOpen);
-      if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
-    }
-    function caCloseSportsMenu() {
-      var dd  = document.getElementById('ca-sports-dd');
-      var btn = document.getElementById('ca-sports-btn');
-      if (dd) dd.classList.add('hidden');
-      if (btn) btn.setAttribute('aria-expanded', 'false');
-    }
+    // Sports is a plain tab now — no caret, no menu (Jack 2026-08-01). The
+    // per-sport pages are still reachable from the footer and the mobile drawer.
     document.addEventListener('click', function (e) {
       var w = document.getElementById('ca-about-nav');
       if (!(w && w.contains(e.target))) caCloseAboutMenu();
-      var sw = document.getElementById('ca-sports-nav');
-      if (!(sw && sw.contains(e.target))) caCloseSportsMenu();
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseSportsMenu(); caCloseDrawer(); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseDrawer(); } });
 
+    // ── Header search (V2): opens the Sports tab's game search for now; the
+    //    Global Search arrives with the home phase (plan 7g).
+    function caOpenSearch() {
+      try { sessionStorage.setItem('ca_open_search', '1'); } catch (e) {}
+      location.href = '/#sports';
+    }
     // ── Mobile drawer (same behavior as app.js toggleDrawer/closeDrawer) ──
     function caToggleDrawer() {
       var o = document.getElementById('ca-drawer-overlay');
@@ -398,8 +393,16 @@ function buildAuthModals() {
 }
 
 // ── Main builder ──────────────────────────────────────────────────────────────
-function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }) {
+function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor, mode = 'v1' }) {
   const sport    = game.sport || '';
+  // V2 (docs/V2_DATABASE_PLAN.md 7b): the picks section becomes the Capper
+  // Database, the section wheel rides the bottom of the page on phones, the
+  // header gets a search button. The html classes carry Jack's settled color
+  // modes (pick chips Tint, badges Tinted text, cards Edge to edge); the other
+  // modes stay in game-detail.css so they can be flipped from the admin preview.
+  const v2 = mode === 'v2';
+  const htmlClass = v2 ? ' class="ca-v2 cm-tint bm-ink w-bleed"' : '';
+  const capperDb = v2 ? require('./capper_db_section').buildCapperDbSection(payload.backers, game) : '';
   const sportBg  = sportBgColor(sport);
   // Server-rendered team-circle colours (resolved from team_colors.json in
   // index.js). Fall back to the sport colour when unknown (e.g. tennis players),
@@ -423,7 +426,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   const sportLinkSlug = (sport === 'ATP' || sport === 'WTA') ? 'tennis' : sportSlug;
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${htmlClass}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -450,7 +453,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta name="twitter:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=7" />
+  <link rel="stylesheet" href="/game-detail.css?v=10" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
   <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
@@ -469,7 +472,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
 </head>
 <body>
 
-${buildNav(payload.user)}
+${buildNav(payload.user, mode)}
 
 <div class="ca-page-outer">
 
@@ -527,7 +530,7 @@ ${buildNav(payload.user)}
 
   <!-- Sidebar (>=900px) -->
   <aside class="ca-sidebar">
-    <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">Picks</a>
+    <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">${v2 ? 'Cappers' : 'Picks'}</a>
     <a href="#lines"     class="ca-sidebar-link"        data-sec="lines">Lines</a>
     <a href="#sentiment" class="ca-sidebar-link"        data-sec="sentiment">Public Betting</a>
     <a href="#teamform"  class="ca-sidebar-link" id="ca-nav-teamform" data-sec="teamform" style="display:none;">Team Form</a>
@@ -542,7 +545,7 @@ ${buildNav(payload.user)}
 
     <!-- Mobile tabs (<900px) -->
     <div class="ca-mobile-tabs">
-      <a href="#picks"     class="ca-mtab active" data-sec="picks">PICKS</a>
+      <a href="#picks"     class="ca-mtab active" data-sec="picks">${v2 ? 'CAPPERS' : 'PICKS'}</a>
       <a href="#lines"     class="ca-mtab"        data-sec="lines">LINES</a>
       <a href="#sentiment" class="ca-mtab"        data-sec="sentiment">BETTING</a>
       <a href="#teamform"  class="ca-mtab" id="ca-mtab-teamform" data-sec="teamform" style="display:none;">FORM</a>
@@ -553,7 +556,9 @@ ${buildNav(payload.user)}
     </div>
 
 <!-- ── PICKS ─────────────────────────────────────────────────────────────── -->
-<section id="picks" class="ca-section">
+${v2 ? `<section id="picks" class="ca-section ca-section--cdb">
+${capperDb}
+</section>` : `<section id="picks" class="ca-section">
   <div class="ca-section-header ca-section-header--picks">
     <h2 class="ca-section-h2">Picks For This Game</h2>
     <div class="ca-section-meta" id="ca-picks-count"></div>
@@ -564,7 +569,7 @@ ${buildNav(payload.user)}
   <div class="ca-detail-panel" id="ca-detail-panel">
     <!-- Rendered by game-detail.js -->
   </div>
-</section>
+</section>`}
 
 <!-- ── LINES ─────────────────────────────────────────────────────────────── -->
 <section id="lines" class="ca-section">
@@ -681,10 +686,10 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=11"></script>
+<script type="module" src="/game-detail.js?v=15"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
-<script type="module" src="/modules/track.js?v=53"></script>
+<script type="module" src="/modules/track.js?v=56"></script>
 </body>
 </html>`;
 }

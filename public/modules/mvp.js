@@ -2,11 +2,11 @@
 
 import { state } from './state.js';
 import { isPaying, isAccount } from './auth.js';
-import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican, skelRows } from './utils.js?v=7';
+import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, teamLabel, gameTime, currentBoardDate, flatUnitReturn, pickOddsAmerican, skelRows } from './utils.js?v=10';
 import { renderPicks } from './picks.js';
 import { haptic } from './native.js?v=2';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=27';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml, isVoidedPick, isOutscoredVoid, winPctColor } from './sport_cards.js?v=32';
 
 let mvpChart  = null;
 let homeChart = null;
@@ -60,18 +60,33 @@ function _ddOpt(which, val, label, active) {
 }
 
 // ── MVP tab loading ───────────────────────────────────────────────────────────
+// One tab, two loaders: /api/mvp (paid) and /api/mvp/public. They can be in
+// flight at the same time (a reload straight onto #mvp used to fire the public
+// one before checkAuth resolved and the paid one right after), and both write
+// state.mvpData, so the tab settled on whichever response LANDED last. The two
+// payloads differ: the paid one carries pending rows for games that already
+// started, the public one is resolved rows only. That is why refreshing flipped
+// the rankings between "finished games sitting ungraded" and "those games not
+// there at all". Every load now takes a ticket and a stale response is dropped.
+let _mvpLoadSeq = 0;
+
 export async function loadMvp() {
+  const seq = ++_mvpLoadSeq;
   try {
     const res = await fetch('/api/mvp');
+    if (seq !== _mvpLoadSeq) return;   // a newer load started while this was out
     // 403 = the server says this session isn't paid (e.g. an expired code grant
     // while the client still holds a non-free tier). Show the public view
     // instead of an error page — same tab a free member gets.
     if (res.status === 403) return loadMvpPublic();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.mvpData = await res.json();
+    const data = await res.json();
+    if (seq !== _mvpLoadSeq) return;
+    state.mvpData = data;
     state.mvpLoadedAt = Date.now();
     renderMvpTab(state.mvpData, false);
   } catch (err) {
+    if (seq !== _mvpLoadSeq) return;   // stale failure must not wipe a good render
     console.error('[MVP] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
       `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;
@@ -87,15 +102,20 @@ function _devUnlock() {
 }
 
 export async function loadMvpPublic() {
+  const seq = ++_mvpLoadSeq;
   try {
     const res = await fetch('/api/mvp/public');
+    if (seq !== _mvpLoadSeq) return;   // a newer load started while this was out
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    state.mvpData = await res.json();
+    const data = await res.json();
+    if (seq !== _mvpLoadSeq) return;
+    state.mvpData = data;
     state.mvpLoadedAt = Date.now();
     // Full layout when: ?mockrail=1 (mock design review) OR on localhost (dev
     // unlock). Both render the unlocked view with public data; prod stays limited.
     renderMvpTab(state.mvpData, !(railMockActive() || _devUnlock()));
   } catch (err) {
+    if (seq !== _mvpLoadSeq) return;   // stale failure must not wipe a good render
     console.error('[MVP public] load error:', err);
     document.getElementById('mvp-tab-content').innerHTML =
       `<div class="empty"><div class="empty-icon">⚠</div><h3>Failed to load CA pick data</h3><p style="color:#f87171;">${err.message}</p></div>`;
@@ -135,15 +155,21 @@ function _windowedPicks(picks, rangeKey) {
 function _resolvedPicks(picks) {
   return (picks || []).filter(p =>
     (p.result === 'win' || p.result === 'loss' || p.result === 'push') &&
-    !(p.annotation && p.annotation.includes('not counted'))
+    // Case-insensitive, matching sport_cards.isVoidedPick and the server's
+    // SQL NOT LIKE (ASCII-case-insensitive in SQLite). This test used to be
+    // case-SENSITIVE here alone, so a differently-capitalised note would have
+    // been excluded from the history list and counted in the record bar.
+    !(p.annotation && p.annotation.toLowerCase().includes('not counted'))
   );
 }
 
 // Voided = a tracked pick knocked out because another pick on the same game
 // outscored it (result 'void' or a "not counted" annotation). Excluded from
-// W/L; surfaced as its own count on the Rankings tab bar.
+// W/L; surfaced as its own count on the Rankings tab bar. One definition,
+// shared with the card rows (sport_cards.js) so the count and the soft-yellow
+// styling can never disagree.
 function _isVoided(p) {
-  return p.result === 'void' || !!(p.annotation && p.annotation.includes('not counted'));
+  return isVoidedPick(p);
 }
 
 // Windowed like the record bar. The 1D/YD board day anchors on the RESOLVED
@@ -165,12 +191,15 @@ function _computeRecord(picks) {
   const losses = picks.filter(p => p.result === 'loss').length;
   const pushes = picks.filter(p => p.result === 'push').length;
   const total  = wins + losses;
-  const winRate = total > 0 ? `${Math.round(wins / total * 100)}%` : '0%';
+  // winPct is the numeric twin of winRate (null with nothing decided) — the
+  // record bar bands its color off it, so the digits and the color agree.
+  const winPct = total > 0 ? Math.round(wins / total * 100) : null;
+  const winRate = total > 0 ? `${winPct}%` : '0%';
   // ROI on money risked (decided bets, flat stakes) — unit size cancels out,
   // so a 1-unit pass matches the graph's P/L at any unit setting.
   const profit = picks.reduce((s, p) => s + calcReturn(p, 1), 0);
   const roi = total > 0 ? +(100 * profit / total).toFixed(1) : null;
-  return { wins, losses, pushes, winRate, roi };
+  return { wins, losses, pushes, winRate, winPct, roi };
 }
 
 // `full` = the CA Rankings tab bar only: keeps Pushes and adds the Voided count
@@ -183,8 +212,8 @@ function _recordBarHtml(rec, full = false) {
     <div class="record-item"><div class="record-val green">${rec.wins}</div><div class="record-label">Wins</div></div>
     <div class="record-item"><div class="record-val red">${rec.losses}</div><div class="record-label">Losses</div></div>
     ${full ? `<div class="record-item"><div class="record-val">${rec.pushes}</div><div class="record-label">Pushes</div></div>` : ''}
-    ${full ? `<div class="record-item" title="Tracked picks that were outscored by another pick on the same game and not counted in the record."><div class="record-val">${rec.voided ?? 0}</div><div class="record-label">Voided</div></div>` : ''}
-    <div class="record-item"><div class="record-val gold">${rec.winRate}</div><div class="record-label">Win%</div></div>
+    ${full ? `<div class="record-item" title="Tracked picks that were outscored by another pick on the same game and not counted in the record."><div class="record-val amber">${rec.voided ?? 0}</div><div class="record-label">Voided</div></div>` : ''}
+    <div class="record-item"><div class="record-val" style="color:${winPctColor(rec.winPct)};">${rec.winRate}</div><div class="record-label">Win%</div></div>
     <div class="record-item"><div class="record-val ${roiCls}">${roiStr}</div><div class="record-label">ROI</div></div>
     <div style="margin-left:auto;font-size:10px;color:var(--muted);align-self:center;text-align:right;line-height:1.6;">$10 flat per pick<br>hypothetical</div>`;
 }
@@ -391,9 +420,11 @@ function _renderHistory() {
     const rows = d.shown.map(p => {
       const r = (p.result || '').toLowerCase();
       const voided = _isVoided(p);
+      const outVoid = isOutscoredVoid(p); // graded but beaten on its game → soft yellow
       const pending = !r || r === 'pending';
       const pf = (!pending && !voided && r !== 'push') ? calcReturn(p, unit) : 0;
       const chip = pending ? `<span class="ca-res-chip pnd">PENDING</span>`
+        : outVoid ? `<span class="ca-res-chip v">VOID</span>`
         : voided ? `<span class="ca-res-chip p">VOID</span>`
         : r === 'push' ? `<span class="ca-res-chip p">PUSH</span>`
         : r === 'win' ? `<span class="ca-res-chip w">WIN</span>` : `<span class="ca-res-chip l">LOSS</span>`;
@@ -404,9 +435,9 @@ function _renderHistory() {
       // captured_ml/original_ml, not ml_odds); spreads show no juice.
       const odds = (pt === 'ml' || pt === 'over' || pt === 'under') ? pickOddsAmerican(p) : null;
       const oddsStr = odds ? ` · ${odds > 0 ? '+' : ''}${odds}` : '';
-      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+      const lbl = (pt === 'over' || pt === 'under') && p.team ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
       const click = p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'" style="cursor:pointer;"` : '';
-      return `<div class="ca-hrow${voided || r === 'push' ? ' dim' : ''}"${click}>
+      return `<div class="ca-hrow${voided || r === 'push' ? ' dim' : ''}${outVoid ? ' out' : ''}"${click}>
         <span class="hsc">${p.score ?? '—'}</span>
         <span class="hpk">${lbl}<span class="hmeta">${displaySport(p.sport)}${oddsStr}</span></span>
         ${chip}${money}</div>`;
@@ -676,7 +707,7 @@ function _tipItem(p, unit) {
   const r = (p.result || '').toLowerCase();
   const ret = calcReturn(p, unit);
   const pt = (p.pick_type || '').toLowerCase();
-  const label = (pt === 'over' || pt === 'under') ? `${teamNickname(p.team)} ${pickLabel(p)}` : pickLabel(p);
+  const label = (pt === 'over' || pt === 'under') ? `${teamLabel(p, p.team)} ${pickLabel(p)}` : pickLabel(p);
   return { text: `${label}  ·  ${ret >= 0 ? '+' : ''}$${ret.toFixed(2)}`, result: r };
 }
 

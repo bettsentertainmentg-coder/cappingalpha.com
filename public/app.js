@@ -1,23 +1,23 @@
 // public/app.js — Entry point (ES module)
 
 import { state, REFRESH_MS } from './modules/state.js';
-import { setHeatScale } from './modules/utils.js?v=7';
+import { setHeatScale } from './modules/utils.js?v=10';
 import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './modules/native.js?v=2';
 import { initPageStack } from './modules/page_stack.js?v=1';
 import { checkAuth, isPaying, syncNavUnlock } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=44';
-import { loadSports } from './modules/sports.js?v=32';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=49';
+import { loadSports } from './modules/sports.js?v=33';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=8';
 import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=71';
-import './modules/track.js?v=53';
+import { consumeSharedSlip } from './modules/track.js?v=56';
 import './modules/books.js?v=2';
-import './modules/modal.js?v=12';
-import './modules/member_profile.js?v=25';
+import './modules/modal.js?v=14';
+import './modules/member_profile.js?v=28';
 import { resumePendingCheckout } from './modules/paywall.js';
-import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=13';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=16';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { loadHomeScores } from './modules/home_scores.js?v=4';
 import './modules/calcs.js?v=1';
@@ -217,6 +217,13 @@ function maybeCoachMark(tabName) {
 // public/limited view (with the "Unlock" prompt) before checkAuth() resolved the
 // paid tier, then cached it. Called on tab switch and again once auth resolves.
 function loadMvpTab() {
+  // Auth is still resolving (a reload straight onto #mvp lets DOMContentLoaded
+  // hash nav beat checkAuth). Loading now means firing the public loader for a
+  // tier we haven't confirmed, then the paid one moments later — two requests
+  // racing to write the same tab. Hold the spinner instead; the re-sync below
+  // calls back the moment checkAuth resolves. mvpLoadedPaid stays null, which
+  // never equals a real isPaying() result, so that call always goes through.
+  if (!state.authReady) { state.mvpLoaded = true; return; }
   const paid = isPaying();
   // Re-fetch when the cached render is over a minute old — the record bar,
   // graph, and history must include games graded since the tab last rendered.
@@ -283,6 +290,14 @@ async function handleCheckoutReturn() {
     }
   }
   return true;
+}
+
+// Unconditional ledger refresh for the polling intervals below. No-ops until
+// the Rankings tab has been opened at least once, so a user who never goes
+// there never pays for the fetch.
+function refreshMvpData() {
+  if (!state.mvpLoaded) return;
+  if (isPaying()) loadMvp(); else loadMvpPublic();
 }
 
 // ── Support / contact form (About page) ───────────────────────────────────────
@@ -574,6 +589,15 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // Resume checkout if user just signed up with a pending plan
   await resumePendingCheckout();
 
+  // A betslip shared into the app from a sportsbook (the native share extension
+  // parks it in the App Group container and deep-links here). Checked on launch
+  // and on every resume, because iOS keeps the app alive and a share arriving
+  // while it is backgrounded produces a resume, not a cold start. No-op on web.
+  consumeSharedSlip();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') consumeSharedSlip();
+  });
+
   await loadPicks();
   loadTopGames();
   loadMySports();
@@ -589,6 +613,14 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // the session, not just what was final at page load.
   setInterval(loadHomeMvp, REFRESH_MS);
   setInterval(loadHomeScores, REFRESH_MS);
+  // The TRACKED LEDGER (state.mvpData) feeds the Rankings record bar, the CA
+  // P/L graph and every graded row on the sport cards. It used to refresh only
+  // on tab entry, with no interval at all — so the instant a live match graded,
+  // the board dropped it (now graded) while the stale ledger had not picked it
+  // up (still pending), and the row was in NEITHER bucket and vanished off the
+  // card until you left the tab and came back. Tennis grades on the 30-second
+  // tick, so this fired constantly. Only polls once the tab has been opened.
+  setInterval(refreshMvpData, REFRESH_MS);
 
   // Near-real-time refresh while a game is live: every 30s re-pull the live
   // surfaces (board scores, #1 card, Top Games tiles). Gated on a live game being
@@ -601,5 +633,9 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
     loadTopGames();
     loadHomeSidebar();
     loadHomeScores();
+    // Ledger on the same live cadence as the board, so a match that grades
+    // mid-session is never stranded between the two sources for more than one
+    // tick (see the ledger-lag hold in sport_cards.js).
+    refreshMvpData();
   }, 30000);
 })();
