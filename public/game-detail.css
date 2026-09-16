@@ -2540,6 +2540,8 @@ html.ca-app.ca-v2 .ca-nav-search { display: flex !important; }
   html.ca-v2 .ca-section:not(.ca-section--cdb) .ca-section-h2::before {
     content: ''; width: 4px; height: 18px; border-radius: 2px; background: var(--accent); flex: 0 0 4px;
   }
+  /* titles without a header wrapper (Public Betting, Injuries, Context, Community) take the gutter themselves */
+  html.ca-v2 .ca-section:not(.ca-section--cdb) > .ca-section-h2 { margin-left: 14px; margin-right: 14px; }
   html.ca-v2 .ca-tf-sub { margin: 0 0 12px; }
   html.ca-v2 .ca-chat { margin-top: 14px; padding-top: 12px; }
   html.ca-v2 .ca-sentiment-footer { margin-top: 10px; }
