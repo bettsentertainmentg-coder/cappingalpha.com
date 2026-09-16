@@ -15,10 +15,42 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		762CB36F985C3D940A7FAE5B /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42F7E685E436CACF5684DCF8 /* Foundation.framework */; };
+		8CB8CEEF08CCC8B767876E6B /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 656CE5A46C96307DA9D4AA12 /* ShareViewController.swift */; };
+		A833489708867DE852BD8D53 /* CappingAlphaShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AE1002BC5D4801A1FA7F49D7 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A92595F11675795BD336F2C /* MainViewController.swift */; };
+		F796C180D55F572475F56447 /* CANativePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		7F796BE1A89A5AE777E4B5EA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 331B74F67F3E087C728BFE26;
+			remoteInfo = CappingAlphaShare;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4C8DDB3BBF08985A29BB9C3E /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A833489708867DE852BD8D53 /* CappingAlphaShare.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		26E8C0C7C43EB68FAB25D9BD /* CappingAlphaShare.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = CappingAlphaShare.entitlements; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		42F7E685E436CACF5684DCF8 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		47FA6DE9D63421790BBF1231 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -27,7 +59,11 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		656CE5A46C96307DA9D4AA12 /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		6A92595F11675795BD336F2C /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
+		7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CappingAlphaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CANativePlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,15 +75,33 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD421165ED1BDB29A44A06A8 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				762CB36F985C3D940A7FAE5B /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		4850E385CA0E3D36F965BA44 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				42F7E685E436CACF5684DCF8 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				8C6C4ED0016A6787C0E0B6F5 /* Frameworks */,
+				60FC532E0E00DEF1B76E00B0 /* CappingAlphaShare */,
 			);
 			sourceTree = "<group>";
 		};
@@ -55,6 +109,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,13 +125,50 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				A94D3090DA8F5F5C82226734 /* CANativePlugin.swift */,
+				6A92595F11675795BD336F2C /* MainViewController.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		60FC532E0E00DEF1B76E00B0 /* CappingAlphaShare */ = {
+			isa = PBXGroup;
+			children = (
+				656CE5A46C96307DA9D4AA12 /* ShareViewController.swift */,
+				47FA6DE9D63421790BBF1231 /* Info.plist */,
+				26E8C0C7C43EB68FAB25D9BD /* CappingAlphaShare.entitlements */,
+			);
+			path = CappingAlphaShare;
+			sourceTree = SOURCE_ROOT;
+		};
+		8C6C4ED0016A6787C0E0B6F5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				4850E385CA0E3D36F965BA44 /* iOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		331B74F67F3E087C728BFE26 /* CappingAlphaShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F3F4D1C62AFF20DA7530B415 /* Build configuration list for PBXNativeTarget "CappingAlphaShare" */;
+			buildPhases = (
+				6457C54DBBD1E977C94DFA03 /* Sources */,
+				DD421165ED1BDB29A44A06A8 /* Frameworks */,
+				1343F235F05651A49CC7106C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CappingAlphaShare;
+			productName = CappingAlphaShare;
+			productReference = 7530DD37A2B2CD64E654AEB0 /* CappingAlphaShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		504EC3031FED79650016851F /* App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 504EC3161FED79650016851F /* Build configuration list for PBXNativeTarget "App" */;
@@ -84,10 +176,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				4C8DDB3BBF08985A29BB9C3E /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D06B59194CBC58741DBCCD66 /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -130,11 +224,19 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				331B74F67F3E087C728BFE26 /* CappingAlphaShare */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1343F235F05651A49CC7106C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -156,10 +258,29 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				F796C180D55F572475F56447 /* CANativePlugin.swift in Sources */,
+				AE1002BC5D4801A1FA7F49D7 /* MainViewController.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6457C54DBBD1E977C94DFA03 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8CB8CEEF08CCC8B767876E6B /* ShareViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D06B59194CBC58741DBCCD66 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = CappingAlphaShare;
+			target = 331B74F67F3E087C728BFE26 /* CappingAlphaShare */;
+			targetProxy = 7F796BE1A89A5AE777E4B5EA /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -181,6 +302,30 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		337D601C2809E4C5E29891F3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = CappingAlphaShare/CappingAlphaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
+				ENABLE_BITCODE = NO;
+				INFOPLIST_FILE = CappingAlphaShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cappingalpha.app.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -295,8 +440,10 @@
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -317,8 +464,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -331,6 +480,31 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		9EFC61391FAFE6FC5381BC2D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = CappingAlphaShare/CappingAlphaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 2XYU58SWWU;
+				ENABLE_BITCODE = NO;
+				INFOPLIST_FILE = CappingAlphaShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cappingalpha.app.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -351,6 +525,15 @@
 			buildConfigurations = (
 				504EC3171FED79650016851F /* Debug */,
 				504EC3181FED79650016851F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F3F4D1C62AFF20DA7530B415 /* Build configuration list for PBXNativeTarget "CappingAlphaShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9EFC61391FAFE6FC5381BC2D /* Release */,
+				337D601C2809E4C5E29891F3 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

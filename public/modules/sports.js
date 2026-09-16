@@ -15,11 +15,11 @@
 import { state } from './state.js';
 import {
   gameTime, pickLabel, fmtOdds, fmtSpread,
-  onBoardForSport, currentBoardDate, teamNickname, teamLabel, countryColor,
-  SPORT_THEMES, flatUnitReturn, isSuspendedGame, suspendedLabel,
+  onBoardForSport, currentBoardDate, teamNickname, countryColor,
+  SPORT_THEMES,
 } from './utils.js?v=10';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=13';
+import { TEAM_COLORS } from './modal.js?v=14';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).
@@ -33,16 +33,12 @@ let _selSports       = new Set();   // empty = All
 let _openCards       = new Set();   // expanded card ids
 let _bells           = new Set();   // per-game alert toggles (in-memory stub)
 let _query           = '';
-let _curDay          = 0;           // day rail: 0 = Today .. DAY_RAIL-1 (ET days ahead)
+let _curDay          = 0;           // day rail: 0 = Today .. 3
 let _cdTimer         = null;        // the ONE countdown interval
 let _bound           = false;
 
 const SPORT_CATALOG = ['MLB', 'NBA', 'WNBA', 'NFL', 'NCAAF', 'CBB', 'NHL', 'Soccer', 'Tennis', 'Golf'];
 const SOON_MS = 90 * 60 * 1000;
-// Days on the rail. Seven so a weekly sport (college football) can reach its
-// next playing day from any weekday; a chip only renders for a day that has
-// games in the current filter, so daily sports keep their short strip.
-const DAY_RAIL = 7;
 
 // ── Sport key helpers ─────────────────────────────────────────────────────────
 function sportKey(sport) {
@@ -62,9 +58,7 @@ function startsInMs(g) {
   const t = new Date(g.start_time).getTime();
   return Number.isNaN(t) ? Infinity : t - Date.now();
 }
-// A suspended match is filed 'pre' with a start time already in the past, so
-// without the guard it lands in "starting soon" wearing a countdown.
-function isSoon(g) { return g.status === 'pre' && !isSuspendedGame(g) && startsInMs(g) <= SOON_MS; }
+function isSoon(g) { return g.status === 'pre' && startsInMs(g) <= SOON_MS; }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 async function refreshBoardData() {
@@ -249,6 +243,20 @@ function mono(name, sport) {
   return s.slice(0, 3).toUpperCase();
 }
 
+// The abbreviation a sports panel would show. ESPN already ships it on the row
+// (CIN, PIT), so prefer it over initials derived from the full name, which turn
+// "Cincinnati Bengals" into CBE. Tennis is the exception: ESPN's tennis abbr is
+// the first three letters of the FIRST name, where the surname reads far better,
+// so those keep the derived form.
+function abbrOf(g, side) {
+  const sp = (g.sport || '').toUpperCase();
+  const name = side === 'home' ? g.home_team : g.away_team;
+  if (sp === 'ATP' || sp === 'WTA') return mono(name, g.sport);
+  const a = side === 'home' ? g.home_abbr : g.away_abbr;
+  const t = a == null ? '' : String(a).trim();
+  return t ? t.toUpperCase() : mono(name, g.sport);
+}
+
 function displayName(g, name) {
   return teamLabel(g, name || '') || name || '?';
 }
@@ -291,13 +299,6 @@ function fmtCd(ms) {
 // Mock stateHtml: live dot + short text; soon = amber countdown + muted start;
 // pre = start time; post = final label.
 function stateHtml(g) {
-  // Suspended first: a halted match is filed 'pre' on our side (see utils.js), so
-  // the branches below would render it as an upcoming game with a countdown.
-  if (isSuspendedGame(g)) {
-    const as = g.away_score ?? 0, hs = g.home_score ?? 0;
-    const sc = (as || hs) ? ` ${as}-${hs}` : '';
-    return `<span class="nx-state susp">${esc(suspendedLabel(g))}${esc(sc)}</span>`;
-  }
   if (g.status === 'in') {
     return `<span class="nx-state"><i class="nx-dot"></i>${esc(liveShortText(g))}</span>`;
   }
@@ -353,7 +354,7 @@ function bandTeam(g, side) {
   const name = side === 'home' ? g.home_team : g.away_team;
   return `<div class="nx-bt ${side === 'home' ? 'h' : 'a'}">` +
     `<span class="nx-lg">${tileInner(g, side, name)}</span>` +
-    `<span class="nx-bn">${esc(displayName(g, name))}</span></div>`;
+    `<span class="nx-bn">${esc(displayName(name))}</span></div>`;
 }
 
 function chevBtn(g) {
@@ -394,9 +395,6 @@ function hasLines(g) {
 // Mock linesStrip: SPR / TOT / ML shorts, plus the Graded tag on settled games.
 function linesStrip(g) {
   if (!hasLines(g)) {
-    // A suspended match is filed 'pre', and "lines post closer to start" is the
-    // wrong promise for one that already started: the books have pulled it.
-    if (isSuspendedGame(g)) return `<div class="nx-lines quiet">No line while the match is ${suspendedLabel(g).toLowerCase()}</div>`;
     if (g.status === 'pre') return `<div class="nx-lines quiet">Lines post closer to start</div>`;
     return '';
   }
@@ -878,15 +876,6 @@ function golfCardHtml(t) {
 // ── Vitals / bubbles / day rail / ledger ─────────────────────────────────────
 function boardGames() { return _allGames.filter(isBoardGame); }
 
-function _dayIso(i) { return _etDate(Date.now() + i * 86400000); }
-function gamesOnDay(i) {
-  if (i === 0) return boardGames();
-  const iso = _dayIso(i);
-  return _allGames.filter(g => !isBoardGame(g) && _etDate(g.start_time) === iso);
-}
-function _inFilter(g) { return _selSports.size === 0 || _selSports.has(sportKey(g.sport)); }
-function dayCount(i) { return gamesOnDay(i).filter(_inFilter).length; }
-
 function sportStats() {
   const stats = new Map();
   const ensure = (k) => {
@@ -920,31 +909,17 @@ function sortedSports() {
 }
 
 // Board-day stats from the tracked record the home widget already loads.
-//
-// Units are ODDS-WEIGHTED, through the same helper every other P/L surface uses.
-// This used to be `units: w - l`, i.e. every winner credited a full unit. A -200
-// favourite that wins pays HALF a unit, and the board leans favourite-heavy, so
-// the error compounded in the flattering direction: on 2026-08-01 this line read
-// "This month: 208-187, +21.0u" in green while the Rankings tab had the same
-// picks at -13.31u. A $343 gap at a $10 unit, and it turned a losing month into
-// a winning one.
+// Flat 1u math: win +1, loss -1, pushes 0.
 function _settledUnits(rows) {
   const w = rows.filter(p => String(p.result || '').toLowerCase() === 'win').length;
   const l = rows.filter(p => String(p.result || '').toLowerCase() === 'loss').length;
-  const units = rows.reduce((s, p) => s + flatUnitReturn(p, 1), 0);
-  return { w, l, units: +units.toFixed(2) };
+  return { w, l, units: w - l };
 }
 function _rowsOn(datePrefix) {
   return (state.homeMvpPicks || []).filter(p => String(p.game_date || '').slice(0, datePrefix.length) === datePrefix);
 }
 function _settledOf(rows) {
-  // "not counted" rows (outscored on their own game) are excluded here the same
-  // way every other record surface excludes them — this was the one ledger that
-  // silently counted them.
-  return rows.filter(p =>
-    ['win', 'loss', 'push'].includes(String(p.result || '').toLowerCase())
-    && !String(p.annotation || '').toLowerCase().includes('not counted')
-  );
+  return rows.filter(p => ['win', 'loss', 'push'].includes(String(p.result || '').toLowerCase()));
 }
 function fmtU(u) { return `${u > 0 ? '+' : ''}${u.toFixed(1)}u`; }
 function unitsHtml(u) {
@@ -988,20 +963,14 @@ function renderBubbles() {
   el.innerHTML = h;
 }
 
-// Day rail: Today plus the next DAY_RAIL-1 ET days. /api/games already carries
-// the forward rows (2 days for daily sports, 7 for college football), so each
-// future chip shows a real count and only appears when its day has games in the
-// current sport filter. A filter change can strand the selection on a day that
-// no longer has games; that snaps back to Today.
+// Mock renderDays: Today + next 3 days. Only today's data is loaded, so future
+// days carry no count and render the posts-in-the-morning note when selected.
 function renderDays() {
   const el = document.getElementById('nx-days');
   if (!el) return;
   el.classList.toggle('dim', searchActive());
-  if (_curDay !== 0 && dayCount(_curDay) === 0) _curDay = 0;
   let h = '';
-  for (let i = 0; i < DAY_RAIL; i++) {
-    const n = i === 0 ? boardGames().length + _golfTournaments.length : dayCount(i);
-    if (i !== 0 && n === 0) continue;
+  for (let i = 0; i < 4; i++) {
     const d = new Date(Date.now() + i * 86400000);
     const label = i === 0 ? 'Today' : d.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
     const sub = i === 0
@@ -1224,7 +1193,6 @@ function bindEvents() {
       else if (_selSports.has(key)) _selSports.delete(key);
       else _selSports.add(key);
       renderBubbles();
-      renderDays();
       renderSections();
       return;
     }

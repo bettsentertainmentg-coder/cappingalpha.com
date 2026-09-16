@@ -16,7 +16,6 @@ security-audits/
 node_modules/
 node_modules
 
-<<<<<<< HEAD
 # Capacitor native build artifacts (the ios/ and android/ projects themselves ARE tracked)
 ios/App/Pods/
 ios/App/build/
@@ -27,8 +26,6 @@ android/app/build/
 android/build/
 android/app/src/main/assets/public/
 android/local.properties
-=======
 # macOS Finder metadata
 .DS_Store
 **/.DS_Store
->>>>>>> origin/master

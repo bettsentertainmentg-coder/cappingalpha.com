@@ -11,7 +11,7 @@ import { loadSports } from './modules/sports.js?v=33';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=8';
-import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=71';
+import { loadTracking, loadSettings, loadProfile, renderTrackingGuest } from './modules/account.js?v=73';
 import { consumeSharedSlip } from './modules/track.js?v=56';
 import './modules/books.js?v=2';
 import './modules/modal.js?v=14';
