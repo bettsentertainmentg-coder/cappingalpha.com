@@ -162,8 +162,10 @@ async function init() {
 
   // Sticky nav scroll-spy
   initScrollSpy();
-  // Mobile section-tab bar: expand/brighten once it pins to the top.
-  initStickyTabs();
+  // Mobile section-tab bar: expand/brighten once it pins to the top (V1), or
+  // ride flush above the tab bar (V2: html.ca-v2, the section wheel at the bottom).
+  if (document.documentElement.classList.contains('ca-v2')) initBottomWheel();
+  else initStickyTabs();
 
   // Countdown for pre-game (never for a suspended match — its start time is past)
   if (_data.game.status === 'pre' && !isSuspendedGame(_data.game)) startCountdown();
@@ -3346,8 +3348,32 @@ function _stickyTop() {
   const tabs = document.querySelector('.ca-mobile-tabs');
   let h = nav ? nav.offsetHeight : 56;
   if (hdr && getComputedStyle(hdr).position === 'sticky') h += hdr.offsetHeight;
-  if (tabs && getComputedStyle(tabs).display !== 'none') h += tabs.offsetHeight;
+  // V2 pins the wheel to the BOTTOM (position: fixed), so it no longer covers
+  // the top of a section and must not count toward the sticky offset.
+  if (tabs && getComputedStyle(tabs).display !== 'none' && getComputedStyle(tabs).position !== 'fixed') h += tabs.offsetHeight;
   return h;
+}
+
+// V2 (Jack 2026-09-16): the section wheel sits flush above the tab bar on
+// phones. Measure the real bar (it is hidden inside the app frame, where the
+// shell draws its own) and hand the height to the CSS; no gap, no overlap.
+function initBottomWheel() {
+  const wheel = document.querySelector('.ca-mobile-tabs');
+  if (!wheel) return;
+  const fit = () => {
+    const bar = document.querySelector('.ca-tabbar');
+    let h = 0;
+    if (bar && getComputedStyle(bar).display !== 'none') {
+      // the bar's own safe-area padding is added by the CSS calc, so measure the content box
+      const cs = getComputedStyle(bar);
+      h = bar.getBoundingClientRect().height - (parseFloat(cs.paddingBottom) || 0);
+    }
+    document.documentElement.style.setProperty('--cdb-tabbar-h', Math.max(0, Math.round(h)) + 'px');
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  setTimeout(fit, 400);
+  setTimeout(fit, 1200);
 }
 
 // Toggle the "stuck" state on the mobile tab bar once it pins under the nav, so

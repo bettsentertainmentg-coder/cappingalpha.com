@@ -2350,3 +2350,151 @@ html.ca-app footer { display: none !important; }
 html.ca-app .ca-drawer { padding-top: env(safe-area-inset-top); }
 html.ca-app { -webkit-tap-highlight-color: transparent; }
 html.ca-app nav, html.ca-app .ca-tabbar, html.ca-app .track-fab { -webkit-user-select: none; user-select: none; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   V2 CAPPER DATABASE (html.ca-v2) — docs/V2_DATABASE_PLAN.md 7b
+   Literal port of docs/mockups/v2_game_backers_v18.json (scope .v18 -> .cdb)
+   plus the host color contract from docs/mockups/lab_chrome.html.
+   Settled modes ship on <html>: cm-tint (pick chips), bm-ink (badges),
+   w-bleed (cards edge to edge). The other modes stay here so the admin
+   preview can flip them (cm-filled / cm-outline / cm-mono, bm-brand / bm-mono,
+   w-inset).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── host color contract ─────────────────────────────────────────────────── */
+html.ca-v2 {
+  --team-away: #0a2a5c; --team-away-ink: #8fb3ff; --team-away-tint: rgba(143,179,255,.14);
+  --team-home: #c83803; --team-home-ink: #ff8a4c; --team-home-tint: rgba(255,138,76,.14);
+  --over: #22c55e; --over-ink: #4ade80; --over-tint: rgba(74,222,128,.14);
+  --under: #f5b301; --under-ink: #fbbf24; --under-tint: rgba(251,191,36,.14);
+  --pm: #7c6cff; --pm-ink: #a89dff; --an: #2fb56b; --an-ink: #4ade80;
+  --cv: #ef5350; --cv-ink: #ff8a80; --cm: #8892a4; --cm-ink: #a3adbf;
+}
+/* pick chips */
+html.cm-filled .pk-away  { background: var(--team-away); color: #fff; border-color: var(--team-away); }
+html.cm-filled .pk-home  { background: var(--team-home); color: #fff; border-color: var(--team-home); }
+html.cm-filled .pk-over  { background: var(--over); color: #052e16; border-color: var(--over); }
+html.cm-filled .pk-under { background: var(--under); color: #3b2a00; border-color: var(--under); }
+html.cm-outline .pk-away  { color: var(--team-away-ink); border-color: var(--team-away-ink); background: rgba(15,17,23,.4); }
+html.cm-outline .pk-home  { color: var(--team-home-ink); border-color: var(--team-home-ink); background: rgba(15,17,23,.4); }
+html.cm-outline .pk-over  { color: var(--over-ink); border-color: var(--over-ink); background: rgba(15,17,23,.4); }
+html.cm-outline .pk-under { color: var(--under-ink); border-color: var(--under-ink); background: rgba(15,17,23,.4); }
+html.cm-tint .pk-away  { color: var(--team-away-ink); background: var(--team-away-tint); border-color: transparent; }
+html.cm-tint .pk-home  { color: var(--team-home-ink); background: var(--team-home-tint); border-color: transparent; }
+html.cm-tint .pk-over  { color: var(--over-ink); background: var(--over-tint); border-color: transparent; }
+html.cm-tint .pk-under { color: var(--under-ink); background: var(--under-tint); border-color: transparent; }
+/* source badges */
+html.bm-brand .src-pm { color: #fff; background: var(--pm); border-color: var(--pm); }
+html.bm-brand .src-an { color: #fff; background: var(--an); border-color: var(--an); }
+html.bm-brand .src-cv { color: #fff; background: var(--cv); border-color: var(--cv); }
+html.bm-brand .src-cm, html.bm-brand .src-ot { color: #fff; background: var(--cm); border-color: var(--cm); }
+html.bm-ink .src-pm { color: var(--pm-ink); background: rgba(124,108,255,.14); border-color: transparent; }
+html.bm-ink .src-an { color: var(--an-ink); background: rgba(47,181,107,.14); border-color: transparent; }
+html.bm-ink .src-cv { color: var(--cv-ink); background: rgba(239,83,80,.14); border-color: transparent; }
+html.bm-ink .src-cm, html.bm-ink .src-ot { color: var(--cm-ink); background: rgba(136,146,164,.14); border-color: transparent; }
+/* card width */
+html.w-inset .bleed-root > * { margin-left: 14px !important; margin-right: 14px !important; }
+
+/* shared badge base (game section + profile page) */
+html.ca-v2 .src { flex: 0 0 auto; flex-shrink: 0; display: inline-block; font-size: 9.5px; font-weight: 600; line-height: 1.3; letter-spacing: .02em; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+
+/* ── the section (v18, renamed) ──────────────────────────────────────────── */
+.ca-section--cdb { padding-left: 0 !important; padding-right: 0 !important; }
+@media (min-width: 901px) { .ca-section--cdb .cdb { max-width: 720px; margin: 0 auto; } }
+.cdb .cdb-wrap { position: relative; max-width: 100%; color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.35; -webkit-text-size-adjust: 100%; }
+.cdb * { box-sizing: border-box; min-width: 0; }
+.cdb .cdb-f, .cdb .cdb-x { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.cdb .cdb-head { padding: 2px 14px 10px; }
+.cdb .cdb-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.cdb .cdb-count { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cdb .cdb-strip { display: flex; gap: 3px; margin: 0 8px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.cdb .cdb-tab { flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 2px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; transition: background .12s, color .12s; }
+.cdb .cdb-tab b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.cdb .cdb-tab:hover { background: var(--surface2); }
+.cdb .cdb-t-all:hover { color: var(--text); }
+.cdb .cdb-f-all:checked ~ .cdb-strip .cdb-t-all, .cdb .cdb-f-away:checked ~ .cdb-strip .cdb-t-away, .cdb .cdb-f-home:checked ~ .cdb-strip .cdb-t-home, .cdb .cdb-f-over:checked ~ .cdb-strip .cdb-t-over, .cdb .cdb-f-under:checked ~ .cdb-strip .cdb-t-under { background: var(--surface2); box-shadow: inset 0 0 0 1px var(--border), 0 1px 0 rgba(59,130,246,.55); }
+.cdb .cdb-f-all:checked ~ .cdb-strip .cdb-t-all { color: var(--text); }
+.cdb .cdb-strip .cdb-t-away, .cdb .cdb-strip .cdb-t-away b { color: var(--team-away-ink); }
+.cdb .cdb-strip .cdb-t-home, .cdb .cdb-strip .cdb-t-home b { color: var(--team-home-ink); }
+.cdb .cdb-strip .cdb-t-over, .cdb .cdb-strip .cdb-t-over b { color: var(--over-ink); }
+.cdb .cdb-strip .cdb-t-under, .cdb .cdb-strip .cdb-t-under b { color: var(--under-ink); }
+.cdb .cdb-f:focus-visible ~ .cdb-strip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cdb .cdb-list { list-style: none; margin: 8px 0 0; padding: 0; background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; position: relative; }
+.cdb .cdb-x:not(:checked) ~ .cdb-list { max-height: 322px; }
+.cdb .cdb-x:not(:checked) ~ .cdb-list::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 44px; background: linear-gradient(rgba(23,27,36,0), var(--surface)); pointer-events: none; }
+.cdb .cdb-x:checked ~ .cdb-list { max-height: 536px; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.cdb .cdb-up { display: inline-block; width: 9px; height: 9px; border-left: 2px solid var(--accent); border-top: 2px solid var(--accent); transform: rotate(45deg) translateY(3px); }
+.cdb .cdb-row { display: block; box-shadow: 0 -1px 0 var(--border); }
+.cdb .cdb-link { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 14px; color: inherit; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); transition: background .12s; }
+.cdb .cdb-link:hover { background: var(--surface2); }
+.cdb .cdb-link:active { background: rgba(59,130,246,.10); }
+.cdb .cdb-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cdb .cdb-disc { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 50%; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--text); }
+.cdb .cdb-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.cdb .cdb-ident { display: flex; flex-wrap: nowrap; align-items: center; gap: 0 5px; }
+.cdb .cdb-name { flex: 0 1 auto; font-weight: 600; font-size: 15px; line-height: 1.25; white-space: nowrap; }
+.cdb .cdb-name-sm { font-size: 13px; }
+.cdb .cdb-chev { flex: 0 0 auto; display: block; width: 7px; height: 7px; margin-left: 2px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); opacity: .8; }
+.cdb .cdb-link:hover .cdb-name { color: var(--accent); }
+.cdb .cdb-link:hover .cdb-chev { border-color: var(--accent); opacity: 1; }
+.cdb .cdb-met { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.cdb .cdb-rec { color: var(--text); font-weight: 600; }
+.cdb .cdb-money { font-weight: 700; }
+.cdb .cdb-pos { color: var(--green); }
+.cdb .cdb-neg { color: var(--red); }
+.cdb .cdb-roi { font-weight: 500; opacity: .9; }
+.cdb .stk, .cdb .cdb-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 9.5px; font-weight: 600; line-height: 1; padding: 3px 5px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cdb .sb { display: inline-flex; align-items: center; gap: 2px; font-size: 9.5px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cdb .sb b { font-weight: 700; }
+.cdb .sb .pos, .cdb .sb .w { color: var(--green); }
+.cdb .sb .neg, .cdb .sb .l { color: var(--red); }
+.cdb .sb .t { color: var(--gold); }
+.cdb .cdb-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cdb .cdb-pick { flex: 0 0 96px; width: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; text-align: center; }
+.cdb .pk { display: inline-block; max-width: 100%; padding: 4px 6px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); color: var(--text); font-size: 12.5px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cdb .cdb-price { display: flex; align-items: center; justify-content: center; min-height: 24px; max-width: 100%; font-size: 10px; line-height: 1.2; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cdb .cdb-price .cdb-res { font-weight: 800; margin-right: 3px; }
+.cdb .cdb-res-win { color: var(--green); } .cdb .cdb-res-loss { color: var(--red); } .cdb .cdb-res-push { color: var(--gold); }
+/* graded: the host tints the chip by result */
+html.ca-v2 .pk.pk-res-win  { box-shadow: inset 0 0 0 1px rgba(34,197,94,.55); }
+html.ca-v2 .pk.pk-res-loss { box-shadow: inset 0 0 0 1px rgba(239,68,68,.55); opacity: .8; }
+html.ca-v2 .pk.pk-res-push { box-shadow: inset 0 0 0 1px rgba(255,215,0,.55); }
+.cdb .cdb-f-away:checked ~ .cdb-list .cdb-row:not(.cdb-s-away), .cdb .cdb-f-home:checked ~ .cdb-list .cdb-row:not(.cdb-s-home), .cdb .cdb-f-over:checked ~ .cdb-list .cdb-row:not(.cdb-s-over), .cdb .cdb-f-under:checked ~ .cdb-list .cdb-row:not(.cdb-s-under) { display: none; }
+.cdb .cdb-more { display: none; margin: -1px 0 0; padding: 10px 14px; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 600; color: var(--accent); background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.cdb .cdb-more:hover { background: var(--surface2); }
+.cdb .cdb-f-all:checked ~ .cdb-more { display: flex; }
+.cdb .cdb-x:checked ~ .cdb-more .cdb-more-a, .cdb .cdb-x:not(:checked) ~ .cdb-more .cdb-more-b { display: none; }
+.cdb .cdb-x:focus-visible ~ .cdb-more { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* three or fewer cappers: no fade, no button */
+.cdb .cdb-short .cdb-x:not(:checked) ~ .cdb-list { max-height: none; }
+.cdb .cdb-short .cdb-x:not(:checked) ~ .cdb-list::after { display: none; }
+.cdb .cdb-short .cdb-more { display: none !important; }
+.cdb .cdb-foot { display: flex; justify-content: flex-end; padding: 8px 14px 2px; }
+.cdb .cdb-info { width: 100%; }
+.cdb .cdb-info summary { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: auto; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-family: inherit; font-style: normal; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; user-select: none; list-style: none; }
+.cdb .cdb-info summary::-webkit-details-marker { display: none; }
+.cdb .cdb-info summary:hover, .cdb .cdb-info[open] summary { color: var(--text); border-color: var(--muted); }
+.cdb .cdb-info summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cdb .cdb-info p { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); font-variant-numeric: tabular-nums; white-space: normal; }
+.cdb .cdb-locked .cdb-name, .cdb .cdb-empty .cdb-when { white-space: normal; }
+@media (min-width: 560px) { .cdb .cdb-pick { flex-basis: 120px; width: 120px; } .cdb .cdb-strip { margin: 0 14px; } }
+
+/* ── header search (V2): after the hamburger, left of the wordmark ────────── */
+.ca-nav-search { display: none; }
+@media (max-width: 768px) { html.ca-v2 .ca-nav-search { display: flex; margin-left: -2px; } }
+html.ca-app.ca-v2 .ca-nav-search { display: flex !important; }
+
+/* ── bottom section wheel (V2, phones): pinned flush above the tab bar so a
+      thumb can reach it. game-detail.js measures the bar and sets --cdb-tabbar-h;
+      inside the app frame (no tab bar) it sits on the safe-area inset. ───── */
+@media (max-width: 900px) {
+  html.ca-v2 .ca-mobile-tabs {
+    position: fixed; top: auto; bottom: calc(var(--cdb-tabbar-h, 58px) + env(safe-area-inset-bottom));
+    left: 0; right: 0; z-index: 95;
+    border-top: 1px solid var(--border); border-bottom: none; background: var(--bg); box-shadow: 0 1px 0 var(--bg);
+  }
+  html.ca-v2 .ca-mobile-tabs.is-stuck { background: var(--bg); box-shadow: 0 1px 0 var(--bg); border-bottom: none; }
+  html.ca-v2 .ca-mobile-tabs.is-stuck .ca-mtab { height: 40px; font-size: 11px; }
+  html.ca-v2 .ca-mobile-tabs.is-stuck .ca-mtab.active { border-bottom-width: 2px; }
+  html.ca-v2 .ca-content { padding-bottom: 44px; }
+}

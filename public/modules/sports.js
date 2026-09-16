@@ -937,6 +937,14 @@ function renderAll() {
 
 export async function loadSports() {
   bindEvents();
+  // V2 header search (game page, src/detail_page.js caOpenSearch) lands here
+  // with a one-shot flag: open the search pill and focus it.
+  try {
+    if (sessionStorage.getItem('ca_open_search') === '1') {
+      sessionStorage.removeItem('ca_open_search');
+      setTimeout(() => { const b = document.getElementById('nx-search-btn'); if (b) b.click(); }, 60);
+    }
+  } catch (_) {}
   const host = document.getElementById('nx-sections');
   if (host && !host.innerHTML.trim()) {
     host.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div></div>`;

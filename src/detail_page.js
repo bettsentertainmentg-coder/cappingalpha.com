@@ -91,8 +91,9 @@ function buildJsonLd(game, canonical, away, home, longDate) {
 // ── Nav HTML (matches main app nav; tab-btn links instead of switchTab calls) ──
 // Server-renders the correct logged-in/out state from the session so a subscribed
 // user never sees Login/Get Access (or a flash of them) before client JS runs.
-function buildNav(user) {
+function buildNav(user, mode = 'v1') {
   const on     = !!user;
+  const v2     = mode === 'v2';
   // Paying comes from a FRESH DB read, never the session snapshot: the session
   // tier is stamped at login and goes stale the moment a code redemption or
   // Stripe webhook changes it (a paid member was still shown "Unlock
@@ -160,6 +161,9 @@ function buildNav(user) {
       <button class="ca-hamburger" aria-label="Menu" onclick="caToggleDrawer()">
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><rect y="3" width="20" height="2" rx="1"/><rect y="9" width="20" height="2" rx="1"/><rect y="15" width="20" height="2" rx="1"/></svg>
       </button>
+      ${v2 ? `<button class="ca-hamburger ca-nav-search" aria-label="Search" onclick="caOpenSearch()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg>
+      </button>` : ''}
       <a href="/" class="logo" style="${logoStyle}">Capping<span style="color:#3b82f6;">Alpha</span></a>
       <div class="nav-tabs">
         ${NAV_TABS.map(t => t.dropdown
@@ -266,6 +270,12 @@ function buildNav(user) {
     });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { caCloseAboutMenu(); caCloseDrawer(); } });
 
+    // ── Header search (V2): opens the Sports tab's game search for now; the
+    //    Global Search arrives with the home phase (plan 7g).
+    function caOpenSearch() {
+      try { sessionStorage.setItem('ca_open_search', '1'); } catch (e) {}
+      location.href = '/#sports';
+    }
     // ── Mobile drawer (same behavior as app.js toggleDrawer/closeDrawer) ──
     function caToggleDrawer() {
       var o = document.getElementById('ca-drawer-overlay');
@@ -365,8 +375,16 @@ function buildAuthModals() {
 }
 
 // ── Main builder ──────────────────────────────────────────────────────────────
-function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }) {
+function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor, mode = 'v1' }) {
   const sport    = game.sport || '';
+  // V2 (docs/V2_DATABASE_PLAN.md 7b): the picks section becomes the Capper
+  // Database, the section wheel rides the bottom of the page on phones, the
+  // header gets a search button. The html classes carry Jack's settled color
+  // modes (pick chips Tint, badges Tinted text, cards Edge to edge); the other
+  // modes stay in game-detail.css so they can be flipped from the admin preview.
+  const v2 = mode === 'v2';
+  const htmlClass = v2 ? ' class="ca-v2 cm-tint bm-ink w-bleed"' : '';
+  const capperDb = v2 ? require('./capper_db_section').buildCapperDbSection(payload.backers, game) : '';
   const sportBg  = sportBgColor(sport);
   // Server-rendered team-circle colours (resolved from team_colors.json in
   // index.js). Fall back to the sport colour when unknown (e.g. tennis players),
@@ -390,7 +408,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   const sportLinkSlug = (sport === 'ATP' || sport === 'WTA') ? 'tennis' : sportSlug;
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${htmlClass}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -419,7 +437,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Source+Sans+Pro:wght@300;400;600;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=9" />
+  <link rel="stylesheet" href="/game-detail.css?v=10" />
   <link rel="stylesheet" href="/gauge.css" />
   <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -437,7 +455,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
 </head>
 <body>
 
-${buildNav(payload.user)}
+${buildNav(payload.user, mode)}
 
 <div class="ca-page-outer">
 
@@ -495,7 +513,7 @@ ${buildNav(payload.user)}
 
   <!-- Sidebar (>=900px) -->
   <aside class="ca-sidebar">
-    <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">Picks</a>
+    <a href="#picks"     class="ca-sidebar-link active" data-sec="picks">${v2 ? 'Cappers' : 'Picks'}</a>
     <a href="#lines"     class="ca-sidebar-link"        data-sec="lines">Lines</a>
     <a href="#sentiment" class="ca-sidebar-link"        data-sec="sentiment">Public Betting</a>
     <a href="#teamform"  class="ca-sidebar-link" id="ca-nav-teamform" data-sec="teamform" style="display:none;">Team Form</a>
@@ -510,7 +528,7 @@ ${buildNav(payload.user)}
 
     <!-- Mobile tabs (<900px) -->
     <div class="ca-mobile-tabs">
-      <a href="#picks"     class="ca-mtab active" data-sec="picks">PICKS</a>
+      <a href="#picks"     class="ca-mtab active" data-sec="picks">${v2 ? 'CAPPERS' : 'PICKS'}</a>
       <a href="#lines"     class="ca-mtab"        data-sec="lines">LINES</a>
       <a href="#sentiment" class="ca-mtab"        data-sec="sentiment">BETTING</a>
       <a href="#teamform"  class="ca-mtab" id="ca-mtab-teamform" data-sec="teamform" style="display:none;">FORM</a>
@@ -521,7 +539,9 @@ ${buildNav(payload.user)}
     </div>
 
 <!-- ── PICKS ─────────────────────────────────────────────────────────────── -->
-<section id="picks" class="ca-section">
+${v2 ? `<section id="picks" class="ca-section ca-section--cdb">
+${capperDb}
+</section>` : `<section id="picks" class="ca-section">
   <div class="ca-section-header ca-section-header--picks">
     <h2 class="ca-section-h2">Picks For This Game</h2>
     <div class="ca-section-meta" id="ca-picks-count"></div>
@@ -532,7 +552,7 @@ ${buildNav(payload.user)}
   <div class="ca-detail-panel" id="ca-detail-panel">
     <!-- Rendered by game-detail.js -->
   </div>
-</section>
+</section>`}
 
 <!-- ── LINES ─────────────────────────────────────────────────────────────── -->
 <section id="lines" class="ca-section">
@@ -649,7 +669,7 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=14"></script>
+<script type="module" src="/game-detail.js?v=15"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
 <script type="module" src="/modules/track.js?v=56"></script>

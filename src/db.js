@@ -1989,6 +1989,74 @@ try {
   console.warn('[db] wave2 ingest repair failed:', err.message);
 }
 
+// ── V2 capper database (2026-09-16, docs/V2_DATABASE_PLAN.md section 5) ──────
+// capper_ratings_v2: one row per (capper, scope, window), materialized by
+// src/capper_v2.js (never computed at request time). capper_qualifications is
+// the one-way door: insert-only, a capper that crossed the bar once stays live.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_ratings_v2 (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name  TEXT NOT NULL,
+      scope           TEXT NOT NULL,
+      window          TEXT NOT NULL,
+      graded          INTEGER NOT NULL DEFAULT 0,
+      wins            INTEGER NOT NULL DEFAULT 0,
+      losses          INTEGER NOT NULL DEFAULT 0,
+      pushes          INTEGER NOT NULL DEFAULT 0,
+      units           REAL NOT NULL DEFAULT 0,
+      roi             REAL,
+      win_pct         REAL,
+      avg_odds        REAL,
+      priced          INTEGER NOT NULL DEFAULT 0,
+      first_pick      TEXT,
+      last_pick       TEXT,
+      active_14d      INTEGER NOT NULL DEFAULT 0,
+      streak_len      INTEGER NOT NULL DEFAULT 0,
+      streak_kind     TEXT,
+      sample_tier     TEXT,
+      meets_bar       INTEGER NOT NULL DEFAULT 0,
+      rank_money      INTEGER,
+      season_graded   INTEGER NOT NULL DEFAULT 0,
+      season_wins     INTEGER NOT NULL DEFAULT 0,
+      season_losses   INTEGER NOT NULL DEFAULT 0,
+      season_pushes   INTEGER NOT NULL DEFAULT 0,
+      season_units    REAL NOT NULL DEFAULT 0,
+      season_top_money  INTEGER NOT NULL DEFAULT 0,
+      season_top_record INTEGER NOT NULL DEFAULT 0,
+      computed_at     TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (canonical_name, scope, window)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_crv2_scope ON capper_ratings_v2 (scope, window, sample_tier, units)`);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS capper_qualifications (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      canonical_name TEXT NOT NULL UNIQUE,
+      qualified_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      bar_json       TEXT
+    )
+  `);
+} catch (err) { console.warn('[db] v2 tables:', err.message); }
+for (const col of [
+  'slug TEXT', 'display_name TEXT', "name_mode TEXT NOT NULL DEFAULT 'auto'", 'alias_name TEXT',
+  'hidden INTEGER NOT NULL DEFAULT 0', 'optout_at TEXT', 'optout_note TEXT',
+  'bio TEXT', 'bio_sources_json TEXT', 'bio_status TEXT', 'primary_source TEXT', 'live_at TEXT',
+]) {
+  try { db.exec(`ALTER TABLE capper_registry ADD COLUMN ${col}`); } catch (_) {}
+}
+try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_capper_registry_slug ON capper_registry (slug) WHERE slug IS NOT NULL`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_capper_history_name_date ON capper_history (capper_name, game_date)`); } catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_capper_history_game ON capper_history (espn_game_id)`); } catch (_) {}
+// Settings defaults (only written when absent, so an admin edit is never undone)
+try {
+  const ins = db.prepare(`INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`);
+  for (const [k, v] of [
+    ['product_mode', 'v1'], ['v2_min_picks', '30'], ['v2_bar_kind', 'units'],
+    ['v2_bar_value', '100'], ['v2_streak_min', '5'], ['v2_free_pending', '0'],
+  ]) ins.run(k, v);
+} catch (_) {}
+
 function getSetting(key, defaultVal) {
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);

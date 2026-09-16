@@ -661,7 +661,7 @@ module.exports = {
   // so the restatement runs the REAL math, never a fork
   bandFor, ladderPts, gateT, moneyGateT, capForDecisions, rankPool, HARD_ZERO_WIN,
   impliedProb, edgeContrib, heavyGateOdds, heavyImpliedFloor,
-  PRICE_GATE_MIN_N, PRICE_GATE_EDGE, HEAVY_UNLOCK_N, isLiveRow,
+  PRICE_GATE_MIN_N, PRICE_GATE_EDGE, HEAVY_UNLOCK_N, isLiveRow, buildResolver,
 };
 
 // CLI: node src/capper_ratings.js

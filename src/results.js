@@ -1045,6 +1045,12 @@ async function resolveResults() {
     } catch (err) {
       console.warn('[results] post-grade ratings recompute failed:', err.message);
     }
+    // V2 capper database: same trigger, its own materialization (capper_v2.js).
+    try {
+      require('./capper_v2').recomputeCapperV2();
+    } catch (err) {
+      console.warn('[results] post-grade v2 recompute failed:', err.message);
+    }
   }
 
   // Grading self-audit — every pass, not only when something resolved: it also

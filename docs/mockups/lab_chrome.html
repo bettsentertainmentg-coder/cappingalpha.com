@@ -1,0 +1,167 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Who Is On This Game Lab</title>
+<style>
+:root{--bg:#0f1117;--surface:#171b24;--surface2:#1e2330;--border:#252c3b;--text:#e2e8f0;--muted:#8892a4;--accent:#3b82f6;--gold:#FFD700;--green:#22c55e;--red:#ef4444;--lab:#0a0c12;--ov1:rgba(255,255,255,0.04)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--lab)}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;padding-inline:12px;padding-block:18px 60px}
+button{font-family:inherit;cursor:pointer}
+.lab{display:flex;flex-direction:column;align-items:center}
+.lab-top{width:100%;max-width:980px;display:flex;flex-direction:column;gap:12px;margin-bottom:18px}
+.lab-brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.lab-brand .mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#1a2030,#3b82f6);font-weight:900;font-size:11px;color:#fff;transform:translateY(4px)}
+.lab-brand b{font-size:19px;font-weight:800}
+.lab-brand span{font-size:12.5px;color:var(--muted)}
+.mock-pills{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;max-width:100%}
+.mock-pills::-webkit-scrollbar{display:none}
+.mpill{flex:0 0 auto;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:800;padding:8px 14px;border-radius:999px;white-space:nowrap}
+.mpill b{color:var(--gold);margin-right:5px;font-weight:900}
+.mpill.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mpill.on b{color:#fff}
+.eyebrow-lab{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--gold);margin-bottom:6px}
+.lab-note{font-size:13px;line-height:1.55;color:var(--muted);max-width:640px}
+.lab-note b{color:var(--text)}
+.vnote{font-size:13px;line-height:1.55;color:var(--muted);max-width:640px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.vnote b{color:var(--text)}
+.stage{display:flex;justify-content:center;width:100%}
+.frame{width:min(392px,100%);background:#04050a;border:1px solid #262d3d;border-radius:54px;padding:9px;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.03)}
+.screen{position:relative;background:var(--bg);border-radius:45px;overflow:hidden;height:820px;display:flex;flex-direction:column}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:118px;height:32px;border-radius:20px;background:#000;z-index:50}
+.sbar{height:52px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:14px 30px 0;font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.appbody{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.appbody::-webkit-scrollbar{display:none}
+.screen-body{padding:0 14px 30px}
+.tabbar{flex:0 0 auto;display:flex;border-top:1px solid var(--border);background:rgba(15,17,23,.94);padding:8px 6px 22px}
+.tb{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:700;color:var(--muted);background:none;border:none}
+.tb.on{color:var(--accent)}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:128px;height:5px;border-radius:3px;background:rgba(255,255,255,.32);z-index:40}
+/* shared game header above every variant */
+.gh{padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.gh-top{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.gh-live{color:var(--accent)}
+.gh-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-top:10px}
+.gh-team{display:flex;flex-direction:column;align-items:center;gap:3px}
+.gh-team .mark{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:900;font-size:13px;letter-spacing:.04em}
+.gh-name{font-weight:800;font-size:15px}
+.gh-rec{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gh-at{color:var(--muted);font-size:12px;font-weight:700}
+.gh-lines{display:flex;justify-content:space-between;gap:6px;margin-top:10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gh-tabs{display:flex;gap:14px;margin-top:12px;font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--muted);overflow-x:auto;scrollbar-width:none}
+.gh-tabs span.on{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:4px}
+.next-stub{margin-top:26px;padding-top:14px;border-top:1px solid var(--border);opacity:.55}
+.next-stub .ns-h{display:flex;justify-content:space-between;font-weight:800;font-size:15px;margin-bottom:8px}
+.next-stub .ns-tabs{font-size:10px;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.next-stub .ns-tabs b{color:var(--text);margin-right:6px}
+.next-stub .ns-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:12px;color:var(--muted);padding:6px 0;border-top:1px solid var(--border);font-variant-numeric:tabular-nums}
+html.review .lab-top{display:none}
+html.review .screen{height:auto}
+html.review .appbody{overflow:visible}
+html.review .tabbar,html.review .homebar,html.review .island{display:none}
+html.review body{padding-block:8px}
+/* ===== round 3 color contract: the host colors .pk-* and .src-* by mode ===== */
+.screen{--team-away:#0a2a5c;--team-away-ink:#8fb3ff;--team-home:#c83803;--team-home-ink:#ff8a4c;--over:#22c55e;--over-ink:#4ade80;--under:#f5b301;--under-ink:#fbbf24;
+  --pm:#7c6cff;--pm-ink:#a89dff;--an:#2fb56b;--an-ink:#4ade80;--cv:#ef5350;--cv-ink:#ff8a80;--cm:#8892a4;--cm-ink:#a3adbf}
+.screen-body.nopad{padding:0 0 30px}
+.screen-body.nopad .gh{margin:0 14px 14px}
+.screen-body.nopad .next-stub{margin:26px 14px 0}
+/* pick chips */
+.screen.cm-filled .pk-dal{background:var(--team-away);color:#fff;border-color:var(--team-away)}
+.screen.cm-filled .pk-chi{background:var(--team-home);color:#fff;border-color:var(--team-home)}
+.screen.cm-filled .pk-over{background:var(--over);color:#052e16;border-color:var(--over)}
+.screen.cm-filled .pk-under{background:var(--under);color:#3b2a00;border-color:var(--under)}
+.screen.cm-outline .pk-dal{color:var(--team-away-ink);border-color:var(--team-away-ink);background:rgba(15,17,23,.4)}
+.screen.cm-outline .pk-chi{color:var(--team-home-ink);border-color:var(--team-home-ink);background:rgba(15,17,23,.4)}
+.screen.cm-outline .pk-over{color:var(--over-ink);border-color:var(--over-ink);background:rgba(15,17,23,.4)}
+.screen.cm-outline .pk-under{color:var(--under-ink);border-color:var(--under-ink);background:rgba(15,17,23,.4)}
+.screen.cm-tint .pk-dal{color:var(--team-away-ink);background:rgba(143,179,255,.14);border-color:transparent}
+.screen.cm-tint .pk-chi{color:var(--team-home-ink);background:rgba(255,138,76,.14);border-color:transparent}
+.screen.cm-tint .pk-over{color:var(--over-ink);background:rgba(74,222,128,.14);border-color:transparent}
+.screen.cm-tint .pk-under{color:var(--under-ink);background:rgba(251,191,36,.14);border-color:transparent}
+/* source badges */
+.screen.bm-brand .src-pm{color:#fff;background:var(--pm);border-color:var(--pm)}
+.screen.bm-brand .src-an{color:#fff;background:var(--an);border-color:var(--an)}
+.screen.bm-brand .src-cv{color:#fff;background:var(--cv);border-color:var(--cv)}
+.screen.bm-brand .src-cm{color:#fff;background:var(--cm);border-color:var(--cm)}
+.screen.bm-ink .src-pm{color:var(--pm-ink);background:rgba(124,108,255,.14);border-color:transparent}
+.screen.bm-ink .src-an{color:var(--an-ink);background:rgba(47,181,107,.14);border-color:transparent}
+.screen.bm-ink .src-cv{color:var(--cv-ink);background:rgba(239,83,80,.14);border-color:transparent}
+.screen.bm-ink .src-cm{color:var(--cm-ink);background:rgba(136,146,164,.14);border-color:transparent}
+/* card width */
+.screen.w-inset .bleed-root > *{margin-left:14px!important;margin-right:14px!important}
+.screen.w-inset .bleed-root .gh{margin-left:0!important;margin-right:0!important}
+.toggles{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:4px}
+.toggles .tg{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:700}
+.toggles .seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:3px;gap:2px}
+.toggles .seg button{border:none;background:none;color:var(--muted);font-size:11.5px;font-weight:800;padding:5px 11px;border-radius:999px;white-space:nowrap}
+.toggles .seg button.on{background:var(--surface2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border)}
+.screen-body.mlb{--team-away:#003831;--team-away-ink:#efb21e;--team-home:#092c5c;--team-home-ink:#8fbce6;--under:#ef5a3c;--under-ink:#ff7a5c}
+.screen.cm-filled .pk-ath{background:var(--team-away);color:#fff;border-color:var(--team-away)}
+.screen.cm-filled .pk-tb{background:var(--team-home);color:#fff;border-color:var(--team-home)}
+.screen.cm-outline .pk-ath{color:var(--team-away-ink);border-color:var(--team-away-ink);background:rgba(15,17,23,.4)}
+.screen.cm-outline .pk-tb{color:var(--team-home-ink);border-color:var(--team-home-ink);background:rgba(15,17,23,.4)}
+.screen.cm-tint .pk-ath{color:var(--team-away-ink);background:rgba(239,178,30,.14);border-color:transparent}
+.screen.cm-tint .pk-tb{color:var(--team-home-ink);background:rgba(143,188,230,.14);border-color:transparent}
+.screen-body.mlb .pk-under{--under-tint:rgba(255,122,92,.16)}
+.screen.cm-tint .pk-under{color:var(--under-ink);background:var(--under-tint,rgba(251,191,36,.14));border-color:transparent}
+/*VARIANT_CSS*/
+</style>
+<div class="lab">
+  <div class="lab-top">
+    <div class="lab-brand"><span class="mark">CA</span><b>Who Is On This Game Lab</b><span>seven directions for the game page, phone first, same nine cappers in every one</span></div>
+    <div class="mock-pills" id="pills"><!--PILLS--></div>
+    <div class="toggles" id="toggles">
+      <span class="tg">Pick chips <span class="seg" data-key="cm"><button data-v="cm-filled">Filled</button><button data-v="cm-outline">Outline</button><button data-v="cm-tint">Tint</button><button data-v="cm-mono">Neutral</button></span></span>
+      <span class="tg">Source badges <span class="seg" data-key="bm"><button data-v="bm-brand">Brand</button><button data-v="bm-ink">Tinted text</button><button data-v="bm-mono">Neutral</button></span></span>
+      <span class="tg">Cards <span class="seg" data-key="w"><button data-v="w-bleed">Edge to edge</button><button data-v="w-inset">Inset</button></span></span>
+    </div>
+  </div>
+  <div class="stage">
+    <div class="frame">
+      <div class="screen">
+        <div class="island"></div>
+        <div class="sbar"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="appbody" id="appbody"><!--SCREENS--></div>
+        <div class="tabbar"><button class="tb">Home</button><button class="tb">Sports</button><button class="tb on">Cappers</button><button class="tb">Socials</button><button class="tb">Tracking</button></div>
+        <div class="homebar"></div>
+      </div>
+    </div>
+  </div>
+  <div class="lab-top" style="margin-top:22px">
+    <div id="notes"><!--NOTES--></div>
+    <div class="lab-note">Every variant shows the same fictional game and the same nine cappers, sorted by NFL money. Tap a pill to switch. Names in this lab are from the Sept 3 export, records and picks are invented for the mock. <b>Rules every variant holds:</b> no scores, no strength meters, counts are counts, both sides equal, Grading Note at the bottom.</div>
+  </div>
+</div>
+<script>
+(function(){
+  var pills=document.querySelectorAll('.mpill');
+  function show(n){
+    pills.forEach(function(p){p.classList.toggle('on',p.dataset.v===n)});
+    document.querySelectorAll('.screen-body').forEach(function(s){s.hidden=s.dataset.v!==n});
+    document.querySelectorAll('.vnote').forEach(function(s){s.hidden=s.dataset.v!==n});
+    document.getElementById('appbody').scrollTop=0;
+    try{localStorage.setItem('ca_backers_lab_v',n)}catch(e){}
+  }
+  pills.forEach(function(p){p.addEventListener('click',function(){show(p.dataset.v)})});
+  var q=new URLSearchParams(location.search);
+  if(q.get('review')==='1')document.documentElement.classList.add('review');
+  var screen=document.querySelector('.screen');
+  var defaults={cm:'cm-filled',bm:'bm-brand',w:'w-bleed'};
+  function setMode(key,val){
+    screen.classList.forEach(function(c){ if(c.indexOf(key+'-')===0) screen.classList.remove(c); });
+    screen.classList.add(val);
+    document.querySelectorAll('.seg[data-key="'+key+'"] button').forEach(function(b){b.classList.toggle('on',b.dataset.v===val)});
+    try{localStorage.setItem('ca_lab_'+key,val)}catch(e){}
+  }
+  Object.keys(defaults).forEach(function(k){
+    var v=q.get(k)?k+'-'+q.get(k):null;
+    if(!v){ try{v=localStorage.getItem('ca_lab_'+k)}catch(e){} }
+    setMode(k, v||defaults[k]);
+  });
+  document.querySelectorAll('.seg[data-key] button').forEach(function(b){b.addEventListener('click',function(){setMode(b.parentNode.dataset.key,b.dataset.v)})});
+  var want=q.get('v');
+  var saved=null; try{saved=localStorage.getItem('ca_backers_lab_v')}catch(e){}
+  if(want&&document.querySelector('.screen-body[data-v="'+want+'"]'))show(want);
+  else if(saved&&document.querySelector('.screen-body[data-v="'+saved+'"]'))show(saved);
+})();
+</script>

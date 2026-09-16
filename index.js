@@ -41,6 +41,13 @@ const { getNhlLive }                = require('./src/nhl_api');
 const { fetchGolfTournaments, updateGolfLeaderboards }    = require('./src/golf_espn');
 const { resolveResults, resolveVotes } = require('./src/results');
 const { recomputeCapperRatings } = require('./src/capper_ratings');
+// V2 capper database (docs/V2_DATABASE_PLAN.md): the product switch, the
+// per-game backers payload and the nightly materialization. All inert under
+// product_mode 'v1' except the recompute, which keeps the pool warm.
+const { getProductMode, isV2, isPreview, productModeMiddleware } = require('./src/product_mode');
+const { getGameBackers } = require('./src/game_backers');
+const { recomputeCapperV2 } = require('./src/capper_v2');
+const { buildCapperPageHtml } = require('./src/capper_page');
 const { discoverAnExperts, pollAnExperts } = require('./src/an_experts');
 const { refreshPmWallets, pollPmWallets, discoverPmHolders } = require('./src/polymarket_wallets');
 const { refreshCoversContestants, pollCoversPicks } = require('./src/covers_contests');
@@ -234,6 +241,9 @@ app.use(session({
     maxAge:   30 * 24 * 60 * 60 * 1000, // 30 days (rolling — refreshed each visit)
   },
 }));
+// Admin preview of V2 (?mode=v2 / ?mode=v1) is captured on EVERY request, before
+// the /game/:id redirect can drop the query string.
+app.use(productModeMiddleware);
 app.use('/auth/login',  loginRateLimit);
 app.use('/auth/signup', loginRateLimit);
 // Throttle the other unauthenticated / brute-forceable auth writes.
@@ -563,6 +573,8 @@ app.get('/api/config', (req, res) => {
     bet_unit: betUnit,
     paid_rank_max: PAID_RANK_MAX(),
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
+    product_mode: getProductMode(req),
+    v2_preview: isPreview(req),
   });
 });
 
@@ -1947,6 +1959,13 @@ app.get('/api/game/:espn_game_id', async (req, res) => {
   // every pick before it leaves the server — the score redaction above never
   // covered them. Applied last so mirror-sourced picks are sanitized too.
   payload.picks = publicPicks(payload.picks, { paid });
+  // V2: who is on this game (live cappers only, unqualified as a count). Admin
+  // preview reads as paid so Jack sees the pregame list before the flip.
+  payload.product_mode = getProductMode(req);
+  if (payload.product_mode === 'v2') {
+    try { payload.backers = getGameBackers(espn_game_id, { game, paid: paid || !!(req.session && req.session.admin) }); }
+    catch (err) { console.warn('[api/game] backers:', err.message); payload.backers = null; }
+  }
   res.json(payload);
 });
 
@@ -2999,11 +3018,18 @@ async function renderGameDetail(req, res, game, opts = {}) {
     // historical archive pages too — the score redaction above never covered them.
     const safePicks = publicPicks(picks, { paid: auth.isPaid(req) });
 
+    const mode = getProductMode(req);
+    let backers = null;
+    if (mode === 'v2') {
+      try { backers = getGameBackers(game.espn_game_id, { game, paid: auth.isPaid(req) || !!(req.session && req.session.admin) }); }
+      catch (err) { console.warn('[game page] backers:', err.message); }
+    }
     const payload = {
       game, picks: safePicks, pickRanks, votes, userVote, stats, lines, publicBetting,
       lineHistory, polymarket, kalshi, insights,
       heatScale: heatScale(),   // dynamic heat/🔥 anchors — this page fetches no config
       user: req.session?.user || null,
+      product_mode: mode, backers,
     };
 
     const away     = game.away_team || 'Away';
@@ -3018,7 +3044,7 @@ async function renderGameDetail(req, res, game, opts = {}) {
 
     const awayColor = _resolveTeamColor(game, false);
     const homeColor = _resolveTeamColor(game, true);
-    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor }));
+    res.send(buildDetailPageHtml({ title, desc, canonical, payload, game, away, home, longDate, sportSlug, awayColor, homeColor, mode }));
   } catch (err) {
     console.error('[detail-page] error:', err.message);
     res.status(500).send('Error loading game detail');
@@ -3112,6 +3138,23 @@ for (const pageDef of SPORT_PAGES) {
     }
   });
 }
+
+// ── GET /capper/:slug — the capper profile (V2). A shell for now: the full
+// page is the profile lab's job (docs/prompts/V2_CAPPER_PROFILE_MOCK.md); this
+// route exists so every row tap on the game section lands somewhere real.
+// 404 under v1 so nothing public changes before the flip.
+app.get('/capper/:slug', (req, res) => {
+  if (!isV2(req)) return res.status(404).send('Not found');
+  try {
+    const html = buildCapperPageHtml(req, req.params.slug, String(req.query.sport || ''));
+    if (!html) return res.status(404).send('Not found');
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.send(html);
+  } catch (err) {
+    console.error('[capper page]', err.message);
+    res.status(500).send('Error');
+  }
+});
 
 app.get('/:sport/:slug', async (req, res) => {
   const { sport, slug } = req.params;
@@ -3229,6 +3272,7 @@ app.listen(PORT, () => {
 
   // v3 foundation: make sure capper ratings exist after any restart (DB-only, fast).
   try { recomputeCapperRatings(); } catch (err) { console.error('[startup] recomputeCapperRatings error:', err.message); }
+  try { recomputeCapperV2(); } catch (err) { console.error('[startup] recomputeCapperV2 error:', err.message); }
 
   // Wave-1 scraper warm start (server only): discovery + one poll each so a
   // mid-day restart never leaves the trackers cold until the next cron.
@@ -3682,6 +3726,8 @@ cron.schedule('10 5 * * *', () => {
 cron.schedule('20 5 * * *', () => {
   try { recomputeCapperRatings(); }
   catch (err) { console.error('[cron] recomputeCapperRatings error:', err.message); }
+  try { recomputeCapperV2(); }
+  catch (err) { console.error('[cron] recomputeCapperV2 error:', err.message); }
 }, { timezone: 'America/New_York' });
 
 // ── Wave-1 source scrapers (v3 Phase 3, track-only, all free) ────────────────

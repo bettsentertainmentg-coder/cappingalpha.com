@@ -1,0 +1,1245 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Who Is On This Game Lab 2</title>
+<style>
+:root{--bg:#0f1117;--surface:#171b24;--surface2:#1e2330;--border:#252c3b;--text:#e2e8f0;--muted:#8892a4;--accent:#3b82f6;--gold:#FFD700;--green:#22c55e;--red:#ef4444;--lab:#0a0c12;--ov1:rgba(255,255,255,0.04)}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--lab)}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',Roboto,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;padding-inline:12px;padding-block:18px 60px}
+button{font-family:inherit;cursor:pointer}
+.lab{display:flex;flex-direction:column;align-items:center}
+.lab-top{width:100%;max-width:980px;display:flex;flex-direction:column;gap:12px;margin-bottom:18px}
+.lab-brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.lab-brand .mark{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#1a2030,#3b82f6);font-weight:900;font-size:11px;color:#fff;transform:translateY(4px)}
+.lab-brand b{font-size:19px;font-weight:800}
+.lab-brand span{font-size:12.5px;color:var(--muted)}
+.mock-pills{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none;max-width:100%}
+.mock-pills::-webkit-scrollbar{display:none}
+.mpill{flex:0 0 auto;border:1px solid var(--border);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:800;padding:8px 14px;border-radius:999px;white-space:nowrap}
+.mpill b{color:var(--gold);margin-right:5px;font-weight:900}
+.mpill.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.mpill.on b{color:#fff}
+.lab-note{font-size:13px;line-height:1.55;color:var(--muted);max-width:640px}
+.lab-note b{color:var(--text)}
+.vnote{font-size:13px;line-height:1.55;color:var(--muted);max-width:640px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.vnote b{color:var(--text)}
+.stage{display:flex;justify-content:center;width:100%}
+.frame{width:min(392px,100%);background:#04050a;border:1px solid #262d3d;border-radius:54px;padding:9px;box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.03)}
+.screen{position:relative;background:var(--bg);border-radius:45px;overflow:hidden;height:820px;display:flex;flex-direction:column}
+.island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:118px;height:32px;border-radius:20px;background:#000;z-index:50}
+.sbar{height:52px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:14px 30px 0;font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.appbody{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+.appbody::-webkit-scrollbar{display:none}
+.screen-body{padding:0 14px 30px}
+.tabbar{flex:0 0 auto;display:flex;border-top:1px solid var(--border);background:rgba(15,17,23,.94);padding:8px 6px 22px}
+.tb{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:700;color:var(--muted);background:none;border:none}
+.tb.on{color:var(--accent)}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:128px;height:5px;border-radius:3px;background:rgba(255,255,255,.32);z-index:40}
+/* shared game header above every variant */
+.gh{padding:8px 0 10px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.gh-top{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.gh-live{color:var(--accent)}
+.gh-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin-top:10px}
+.gh-team{display:flex;flex-direction:column;align-items:center;gap:3px}
+.gh-team .mark{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:900;font-size:13px;letter-spacing:.04em}
+.gh-name{font-weight:800;font-size:15px}
+.gh-rec{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gh-at{color:var(--muted);font-size:12px;font-weight:700}
+.gh-lines{display:flex;justify-content:space-between;gap:6px;margin-top:10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gh-tabs{display:flex;gap:14px;margin-top:12px;font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--muted);overflow-x:auto;scrollbar-width:none}
+.gh-tabs span.on{color:var(--text);border-bottom:2px solid var(--accent);padding-bottom:4px}
+.next-stub{margin-top:26px;padding-top:14px;border-top:1px solid var(--border);opacity:.55}
+.next-stub .ns-h{display:flex;justify-content:space-between;font-weight:800;font-size:15px;margin-bottom:8px}
+.next-stub .ns-tabs{font-size:10px;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.next-stub .ns-tabs b{color:var(--text);margin-right:6px}
+.next-stub .ns-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:12px;color:var(--muted);padding:6px 0;border-top:1px solid var(--border);font-variant-numeric:tabular-nums}
+html.review .lab-top{display:none}
+html.review .screen{height:auto}
+html.review .appbody{overflow:visible}
+html.review .tabbar,html.review .homebar,html.review .island{display:none}
+html.review body{padding-block:8px}
+.v8 { position: relative; max-width: 100%; color: var(--text); font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.35; -webkit-text-size-adjust: 100%; }
+.v8 * { box-sizing: border-box; min-width: 0; }
+.v8 .v8-f, .v8 .v8-x { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.v8 .v8-head { padding: 2px 0 12px; }
+.v8 .v8-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.v8 .v8-count { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.v8 .v8-strip { display: flex; gap: 3px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.v8 .v8-tab { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 2px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; transition: background .12s, color .12s; }
+.v8 .v8-tab b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.v8 .v8-tab:hover { color: var(--text); background: var(--surface2); }
+.v8 .v8-f-all:checked ~ .v8-strip .v8-t-all, .v8 .v8-f-dal:checked ~ .v8-strip .v8-t-dal, .v8 .v8-f-chi:checked ~ .v8-strip .v8-t-chi, .v8 .v8-f-over:checked ~ .v8-strip .v8-t-over, .v8 .v8-f-under:checked ~ .v8-strip .v8-t-under { background: var(--surface2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border), 0 1px 0 rgba(59,130,246,.55); }
+.v8 .v8-f:focus-visible ~ .v8-strip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.v8 .v8-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 8px; padding: 8px 2px 4px; }
+.v8 .v8-slot { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 11.5px; color: var(--muted); border-bottom: 1px solid var(--border); padding: 3px 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.v8 .v8-slot b { font-weight: 600; color: var(--text); }
+.v8 .v8-hint { margin: 6px 2px 0; font-size: 11px; color: var(--muted); }
+.v8 .v8-list { list-style: none; margin: 8px 0 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.v8 .v8-row { display: flex; align-items: center; box-shadow: 0 -1px 0 var(--border); }
+.v8 .v8-link { flex: 1 1 auto; display: flex; align-items: center; gap: 7px; padding: 8px 4px 8px 10px; color: inherit; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); transition: background .12s; }
+.v8 .v8-link:hover { background: var(--surface2); }
+.v8 .v8-link:active { background: rgba(59,130,246,.10); }
+.v8 .v8-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v8 .v8-disc { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; letter-spacing: .02em; color: var(--text); }
+.v8 .v8-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; }
+.v8 .v8-ident { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.v8 .v8-name { font-weight: 600; font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; }
+.v8 .v8-chev { display: inline-block; width: 6px; height: 6px; margin: 0 0 1px 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); opacity: .7; vertical-align: middle; }
+.v8 .v8-link:hover .v8-chev { border-color: var(--text); opacity: 1; }
+.v8 .v8-src { flex: 0 0 auto; font-size: 9.5px; font-weight: 600; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 4px; white-space: nowrap; }
+.v8 .v8-met { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.v8 .v8-rec { color: var(--text); font-weight: 600; }
+.v8 .v8-money { font-weight: 700; }
+.v8 .v8-pos { color: var(--green); }
+.v8 .v8-neg { color: var(--red); }
+.v8 .v8-roi.v8-pos, .v8 .v8-roi.v8-neg { font-weight: 500; opacity: .9; }
+.v8 .v8-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; font-size: 11px; color: var(--muted); }
+.v8 .v8-when { font-variant-numeric: tabular-nums; }
+.v8 .v8-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; line-height: 1; padding: 2px 5px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.v8 .v8-chip.v8-w { color: var(--green); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.10); }
+.v8 .v8-chip.v8-l { color: var(--text); border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.10); }
+.v8 .v8-stub { position: relative; flex: 0 0 auto; min-width: 84px; max-width: 100px; min-height: 44px; margin: 6px 6px 6px 2px; padding: 5px 6px 5px 13px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; color: inherit; text-decoration: none; background: repeating-linear-gradient(to bottom, var(--border) 0 3px, transparent 3px 6px) 7px 0 / 1px 100% no-repeat, var(--surface2); border: 1px solid var(--border); border-radius: 5px 9px 9px 5px; -webkit-tap-highlight-color: rgba(59,130,246,.12); transition: border-color .12s, box-shadow .12s; }
+.v8 .v8-stub::before, .v8 .v8-stub::after { content: ''; position: absolute; left: 3px; width: 9px; height: 9px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); }
+.v8 .v8-stub::before { top: -5px; }
+.v8 .v8-stub::after { bottom: -5px; }
+.v8 .v8-stub:hover, .v8 .v8-stub:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(59,130,246,.25); outline: none; }
+.v8 .v8-stub:active { box-shadow: 0 0 0 2px rgba(59,130,246,.35); }
+.v8 .v8-sp { display: block; font-size: 12.5px; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.v8 .v8-spr { display: block; font-size: 10px; line-height: 1.25; color: var(--muted); font-variant-numeric: tabular-nums; }
+.v8 .v8-stub:hover .v8-spr { color: var(--text); }
+.v8 .v8-f-dal:checked ~ .v8-list .v8-row:not(.v8-s-dal), .v8 .v8-f-chi:checked ~ .v8-list .v8-row:not(.v8-s-chi), .v8 .v8-f-over:checked ~ .v8-list .v8-row:not(.v8-s-over), .v8 .v8-f-under:checked ~ .v8-list .v8-row:not(.v8-s-under) { display: none; }
+.v8 .v8-f-all:checked ~ .v8-x:not(:checked) ~ .v8-list .v8-row:nth-child(n+6) { display: none; }
+.v8 .v8-more { display: none; margin: 8px 0 0; padding: 9px 12px; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 600; color: var(--accent); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.v8 .v8-more:hover { background: var(--surface2); }
+.v8 .v8-f-all:checked ~ .v8-more { display: flex; }
+.v8 .v8-x:checked ~ .v8-more .v8-more-a, .v8 .v8-x:not(:checked) ~ .v8-more .v8-more-b { display: none; }
+.v8 .v8-x:focus-visible ~ .v8-more { outline: 2px solid var(--accent); outline-offset: 2px; }
+.v8 .v8-note { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
+.v8 .v8-unq { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.v8 .v8-grade { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (min-width: 560px) { .v8 .v8-slots { grid-template-columns: repeat(6, 1fr); } .v8 .v8-stub { max-width: 150px; min-width: 104px; } }
+
+.v9 { position: relative; max-width: 100%; color: var(--text); font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.35; font-variant-numeric: tabular-nums; -webkit-text-size-adjust: 100%; }
+.v9 * { box-sizing: border-box; min-width: 0; }
+.v9 .v9-f { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.v9 .v9-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; padding: 2px 0 8px; }
+.v9 .v9-title { flex: 0 1 auto; margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.v9 .v9-sort { flex: 0 0 auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.v9 .v9-count { flex: 1 1 100%; margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.v9 .v9-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 0 8px; }
+.v9 .v9-pill { flex: 0 0 auto; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; transition: background .12s, color .12s, border-color .12s; }
+.v9 .v9-pill:hover { color: var(--text); background: var(--surface2); }
+.v9 .v9-f-all:checked ~ .v9-filter .v9-p-all, .v9 .v9-f-dal:checked ~ .v9-filter .v9-p-dal, .v9 .v9-f-chi:checked ~ .v9-filter .v9-p-chi, .v9 .v9-f-over:checked ~ .v9-filter .v9-p-over, .v9 .v9-f-under:checked ~ .v9-filter .v9-p-under { color: var(--text); border-color: var(--accent); background: rgba(59,130,246,.14); }
+.v9 .v9-f:focus-visible ~ .v9-filter { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.v9 .v9-list { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.v9 .v9-row { position: relative; padding: 6px 10px 5px; border-top: 1px dashed var(--border); background-origin: border-box; background-repeat: no-repeat; background-image: radial-gradient(circle at 0 0, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px), radial-gradient(circle at 100% 0, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px), radial-gradient(circle at 0 100%, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px), radial-gradient(circle at 100% 100%, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px); }
+.v9 .v9-row:first-child { border-top: 0; background-image: radial-gradient(circle at 0 100%, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px), radial-gradient(circle at 100% 100%, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px); }
+.v9 .v9-row:last-child { background-image: radial-gradient(circle at 0 0, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px), radial-gradient(circle at 100% 0, var(--bg) 5.5px, var(--border) 5.5px, var(--border) 6.5px, transparent 6.5px); }
+.v9 .v9-l1 { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; }
+.v9 .v9-who { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; color: inherit; text-decoration: none; border-radius: 14px; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.v9 .v9-who:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.v9 .v9-disc { flex: 0 0 22px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; letter-spacing: .02em; color: var(--text); }
+.v9 .v9-name { font-weight: 600; font-size: 14px; line-height: 1.2; overflow-wrap: anywhere; text-decoration: underline dotted rgba(136,146,164,.55); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.v9 .v9-who:hover .v9-name { color: var(--accent); text-decoration-color: var(--accent); }
+.v9 .v9-src { flex: 0 0 auto; font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.v9 .v9-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; }
+.v9 .v9-chip.v9-w { color: var(--green); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.10); }
+.v9 .v9-chip.v9-l { color: var(--text); border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.10); }
+.v9 .v9-bet { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 3px 8px; margin: 3px -6px 0; padding: 2px 6px; border-radius: 8px; color: inherit; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); transition: background .12s; }
+.v9 .v9-bet:hover { background: var(--surface2); }
+.v9 .v9-bet:active { background: rgba(59,130,246,.10); }
+.v9 .v9-bet:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v9 .v9-pk { flex: 1 1 150px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.v9 .v9-pick { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; white-space: nowrap; }
+.v9 .v9-price { font-size: 10.5px; font-weight: 600; line-height: 1.25; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); white-space: nowrap; }
+.v9 .v9-price.v9-np { color: var(--muted); font-weight: 500; }
+.v9 .v9-met { flex: 0 0 auto; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; text-align: right; }
+.v9 .v9-nums { display: flex; align-items: baseline; gap: 0 6px; font-size: 12px; line-height: 1.2; color: var(--muted); white-space: nowrap; }
+.v9 .v9-rec { color: var(--text); font-weight: 600; }
+.v9 .v9-money { font-weight: 700; }
+.v9 .v9-pos { color: var(--green); }
+.v9 .v9-neg { color: var(--red); }
+.v9 .v9-roi.v9-pos, .v9 .v9-roi.v9-neg { font-weight: 500; opacity: .9; }
+.v9 .v9-when { font-size: 10px; line-height: 1.15; color: var(--muted); white-space: nowrap; }
+.v9 .v9-chev { flex: 0 0 7px; width: 7px; height: 7px; margin: 6px 2px 0 0; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); opacity: .7; }
+.v9 .v9-bet:hover .v9-chev { border-color: var(--text); opacity: 1; }
+.v9 .v9-f-dal:checked ~ .v9-list .v9-row:not(.v9-s-dal), .v9 .v9-f-chi:checked ~ .v9-list .v9-row:not(.v9-s-chi), .v9 .v9-f-over:checked ~ .v9-list .v9-row:not(.v9-s-over), .v9 .v9-f-under:checked ~ .v9-list .v9-row:not(.v9-s-under) { display: none; }
+.v9 .v9-empty { display: none; margin: 0; padding: 14px 12px; text-align: center; font-size: 12.5px; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+.v9 .v9-f-dal:checked ~ .v9-list:not(:has(.v9-s-dal)), .v9 .v9-f-chi:checked ~ .v9-list:not(:has(.v9-s-chi)), .v9 .v9-f-over:checked ~ .v9-list:not(:has(.v9-s-over)), .v9 .v9-f-under:checked ~ .v9-list:not(:has(.v9-s-under)) { display: none; }
+.v9 .v9-f-dal:checked ~ .v9-list:not(:has(.v9-s-dal)) ~ .v9-empty, .v9 .v9-f-chi:checked ~ .v9-list:not(:has(.v9-s-chi)) ~ .v9-empty, .v9 .v9-f-over:checked ~ .v9-list:not(:has(.v9-s-over)) ~ .v9-empty, .v9 .v9-f-under:checked ~ .v9-list:not(:has(.v9-s-under)) ~ .v9-empty { display: block; }
+.v9 .v9-hint { margin: 8px 2px 0; font-size: 11px; line-height: 1.35; color: var(--muted); }
+.v9 .v9-note { margin: 8px 0 0; font-size: 12.5px; line-height: 1.3; color: var(--muted); }
+.v9 .v9-unq { margin: 5px 0 0; font-size: 12.5px; line-height: 1.3; color: var(--muted); }
+.v9 .v9-grade { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (min-width: 560px) { .v9 .v9-price br { display: none; } }
+
+.v10 {position:relative;max-width:100%;color:var(--text);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.35;font-variant-numeric:tabular-nums;}
+.v10 *{box-sizing:border-box;min-width:0;}
+.v10 .v10-f{position:absolute;width:0;height:0;opacity:0;}
+.v10 .v10-head{padding:2px 0 10px;}
+.v10 .v10-title{margin:0;font-size:19px;line-height:1.2;}
+.v10 .v10-count{margin:4px 0 0;font-size:12.5px;color:var(--muted);}
+.v10 .v10-strip{display:flex;gap:3px;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:10px;}
+.v10 .v10-tab{flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:4px;padding:7px 2px;border-radius:7px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;}
+.v10 .v10-tab b{color:var(--text);}
+.v10 .v10-f-all:checked~.v10-strip .v10-t-all,.v10 .v10-f-dal:checked~.v10-strip .v10-t-dal,.v10 .v10-f-chi:checked~.v10-strip .v10-t-chi,.v10 .v10-f-over:checked~.v10-strip .v10-t-over,.v10 .v10-f-under:checked~.v10-strip .v10-t-under{background:var(--surface2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border),0 1px 0 rgba(59,130,246,.55);}
+.v10 .v10-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:4px 8px;padding:8px 2px 2px;}
+.v10 .v10-slot{display:flex;justify-content:space-between;align-items:baseline;gap:6px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);padding:3px 0;white-space:nowrap;}
+.v10 .v10-slot b{color:var(--text);}
+.v10 .v10-list{list-style:none;margin:10px 0 0;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.v10 .v10-row{display:flex;align-items:stretch;box-shadow:0 -1px 0 var(--border);}
+.v10 .v10-who{flex:1 1 auto;display:flex;align-items:center;gap:8px;padding:7px 6px 7px 10px;color:inherit;text-decoration:none;}
+.v10 a:focus-visible,.v10 label:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.v10 .v10-disc{flex:0 0 30px;width:30px;height:30px;border-radius:50%;background:var(--surface2);box-shadow:0 0 0 1px var(--border);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:var(--text);}
+.v10 .v10-main{flex:1 1 auto;display:flex;flex-direction:column;gap:1px;}
+.v10 .v10-ident{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;}
+.v10 .v10-name{font-weight:600;font-size:14px;line-height:1.25;overflow-wrap:anywhere;text-decoration:underline dotted;text-decoration-color:var(--muted);text-underline-offset:3px;}
+.v10 .v10-src{font-size:10px;font-weight:600;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 5px;white-space:nowrap;}
+.v10 .v10-met{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 7px;font-size:12.5px;color:var(--muted);}
+.v10 .v10-rec{color:var(--text);font-weight:600;}
+.v10 .v10-pos{color:var(--green);font-weight:700;}
+.v10 .v10-neg{color:var(--red);font-weight:700;}
+.v10 .v10-roi{font-weight:500;opacity:.9;}
+.v10 .v10-sub{display:flex;flex-wrap:wrap;align-items:center;gap:3px 8px;font-size:11px;color:var(--muted);}
+.v10 .v10-when{font-size:11px;color:var(--muted);}
+.v10 .v10-chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;line-height:1;padding:3px 6px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);white-space:nowrap;}
+.v10 .v10-w{color:var(--green);border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10);}
+.v10 .v10-l{color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.10);}
+.v10 .v10-bet{flex:0 0 auto;max-width:130px;display:flex;align-items:center;gap:5px;padding:7px 8px;border-left:1px dashed var(--border);color:inherit;text-decoration:none;}
+.v10 .v10-pick{display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+.v10 .v10-pchip{padding:5px 8px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);font-size:12.5px;font-weight:700;white-space:nowrap;color:var(--text);}
+.v10 .v10-price{font-size:10.5px;line-height:1.25;color:var(--muted);}
+.v10 .v10-chev,.v10 .v10-up{flex:0 0 7px;width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);opacity:.7;}
+.v10 .v10-open{display:block;background:var(--surface2);box-shadow:0 -1px 0 var(--border),inset 3px 0 0 var(--accent);}
+.v10 .v10-hd{display:flex;align-items:center;padding-right:8px;}
+.v10 .v10-open .v10-who{padding:9px 8px 8px 13px;}
+.v10 .v10-open .v10-bet{display:none;}
+.v10 .v10-tog{flex:0 0 28px;width:28px;height:28px;margin-left:6px;border-radius:50%;border:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.v10 .v10-up{transform:rotate(-135deg);margin-top:3px;}
+.v10 .v10-o:not(:checked)~.v10-list .v10-up{transform:rotate(45deg);margin-top:-3px;}
+.v10 .v10-o:not(:checked)~.v10-list .v10-open :is(.v10-tear,.v10-body){display:none;}
+.v10 .v10-o:not(:checked)~.v10-list .v10-open .v10-bet{display:flex;}
+.v10 .v10-tear{position:relative;height:0;border-top:1px dashed var(--border);margin:0 10px;}
+.v10 .v10-tear::before,.v10 .v10-tear::after{content:'';position:absolute;top:-7px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1px solid var(--border);}
+.v10 .v10-tear::before{left:-17px;}
+.v10 .v10-tear::after{right:-17px;}
+.v10 .v10-body{display:flex;flex-direction:column;gap:7px;padding:11px 12px 12px 15px;}
+.v10 .v10-big{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:9px;background:var(--surface);color:inherit;text-decoration:none;}
+.v10 .v10-bigin{flex:1 1 auto;display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 10px;}
+.v10 .v10-bigpick{font-size:22px;font-weight:800;line-height:1;}
+.v10 .v10-bigprice{font-size:12px;font-weight:600;line-height:1.3;padding:3px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);}
+.v10 .v10-bigtap{font-size:10.5px;font-weight:600;color:var(--accent);}
+.v10 .v10-big .v10-chev{border-color:var(--accent);opacity:1;}
+.v10 .v10-lines{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:2px 0 0;}
+.v10 .v10-ln{display:flex;flex-direction:column;gap:1px;padding:6px 9px;background:var(--surface);border:1px solid var(--border);border-radius:8px;}
+.v10 .v10-ln i{font-style:normal;font-size:10px;text-transform:uppercase;color:var(--muted);}
+.v10 .v10-ln b{font-size:13px;}
+.v10 .v10-track{display:flex;align-items:center;justify-content:center;height:38px;margin-top:2px;border-radius:9px;background:rgba(59,130,246,.16);border:1px solid var(--accent);color:var(--text);font-size:13.5px;font-weight:700;text-decoration:none;}
+.v10 .v10-more{box-shadow:0 -1px 0 var(--border);}
+.v10 .v10-showall{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;font-size:12.5px;font-weight:600;color:var(--accent);cursor:pointer;}
+.v10 .v10-sa-chev{width:7px;height:7px;margin-top:-3px;border-right:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(45deg);}
+.v10 .v10-sa-less{display:none;}
+.v10 .v10-f-all:checked~.v10-x:not(:checked)~.v10-list .v10-extra{display:none;}
+.v10 .v10-x:checked~.v10-list .v10-sa-more{display:none;}
+.v10 .v10-x:checked~.v10-list .v10-sa-less{display:inline;}
+.v10 .v10-f-dal:checked~.v10-list :is(.v10-row:not(.v10-s-dal),.v10-more),.v10 .v10-f-chi:checked~.v10-list :is(.v10-row:not(.v10-s-chi),.v10-more),.v10 .v10-f-over:checked~.v10-list :is(.v10-row:not(.v10-s-over),.v10-more),.v10 .v10-f-under:checked~.v10-list :is(.v10-row:not(.v10-s-under),.v10-more){display:none;}
+.v10 .v10-note,.v10 .v10-unq{margin:12px 0 0;font-size:12.5px;color:var(--muted);}
+.v10 .v10-unq{margin-top:6px;}
+.v10 .v10-grade{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--border);font-size:11px;line-height:1.45;color:var(--muted);}
+
+.v11 { position: relative; max-width: 100%; color: var(--text); font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.3; -webkit-text-size-adjust: 100%; font-variant-numeric: tabular-nums; }
+.v11 * { box-sizing: border-box; min-width: 0; }
+.v11 .v11-head { padding: 2px 0 8px; }
+.v11 .v11-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.v11 .v11-count { margin: 3px 0 0; font-size: 12.5px; color: var(--muted); }
+.v11 .v11-group { margin: 0 0 5px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+.v11 .v11-gh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 7px; padding: 4px 10px 3px; background: var(--surface2); border-bottom: 1px solid var(--border); border-radius: 11px 11px 0 0; font-size: 11.5px; }
+.v11 .v11-gside { font-size: 13px; font-weight: 700; }
+.v11 .v11-gmk { flex: 1 1 auto; color: var(--muted); font-weight: 500; }
+.v11 .v11-gn { flex: 0 0 auto; margin-left: auto; color: var(--text); font-weight: 600; }
+.v11 .v11-rows { list-style: none; margin: 0; padding: 0; }
+.v11 .v11-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 26px; grid-template-areas: "who met tk" "sub sub tk"; align-items: center; column-gap: 7px; row-gap: 2px; padding: 4px 4px 4px 10px; box-shadow: 0 -1px 0 var(--border); }
+.v11 .v11-row:first-child { box-shadow: none; }
+.v11 .v11-row:last-child { border-radius: 0 0 11px 11px; }
+.v11 .v11-who { grid-area: who; display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.v11 .v11-who:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.v11 .v11-disc { flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; letter-spacing: .02em; color: var(--text); }
+.v11 .v11-name { font-weight: 600; font-size: 14px; line-height: 1.2; overflow-wrap: anywhere; text-decoration: underline; text-decoration-style: dotted; text-decoration-color: rgba(136,146,164,.6); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.v11 .v11-who:hover .v11-name { text-decoration-style: solid; text-decoration-color: var(--accent); }
+.v11 .v11-met { grid-area: met; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 0 6px; max-width: 160px; text-align: right; font-size: 12.5px; line-height: 1.25; color: var(--muted); }
+.v11 .v11-rec { color: var(--text); font-weight: 600; }
+.v11 .v11-money { font-weight: 700; }
+.v11 .v11-pos { color: var(--green); }
+.v11 .v11-neg { color: var(--red); }
+.v11 .v11-roi.v11-pos, .v11 .v11-roi.v11-neg { font-weight: 500; opacity: .9; white-space: nowrap; }
+.v11 .v11-sub { grid-area: sub; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 10.5px; line-height: 1.25; color: var(--muted); }
+.v11 .v11-when { margin-left: auto; white-space: nowrap; }
+.v11 .v11-src { font-size: 9.5px; font-weight: 600; letter-spacing: .02em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; line-height: 14px; white-space: nowrap; }
+.v11 .v11-pchip { display: inline-flex; align-items: center; padding: 0 5px; line-height: 16px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--border); font-size: 10.5px; font-weight: 700; color: var(--text); text-decoration: none; white-space: nowrap; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.v11 .v11-pchip:hover, .v11 .v11-pchip:focus-visible { border-color: var(--accent); outline: none; }
+.v11 .v11-price { white-space: nowrap; }
+.v11 .v11-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; line-height: 14px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; }
+.v11 .v11-chip.v11-w { color: var(--green); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.10); }
+.v11 .v11-chip.v11-l { color: var(--text); border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.10); }
+.v11 .v11-slip { grid-area: tk; align-self: stretch; display: flex; align-items: center; justify-content: center; width: 26px; min-height: 44px; border-radius: 8px; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); }
+.v11 .v11-slip:hover, .v11 .v11-slip:focus-visible { background: rgba(59,130,246,.10); outline: none; }
+.v11 .v11-tk { position: relative; display: block; width: 22px; height: 16px; border: 1.5px solid var(--muted); border-radius: 3px; background: var(--surface2); opacity: .85; }
+.v11 .v11-tk::before { content: ''; position: absolute; left: 12px; top: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--surface); box-shadow: 0 17px 0 var(--surface); }
+.v11 .v11-tk::after { content: ''; position: absolute; left: 14px; top: 2px; bottom: 2px; border-left: 1.5px dashed var(--muted); }
+.v11 .v11-slip:hover .v11-tk, .v11 .v11-slip:focus-visible .v11-tk { border-color: var(--accent); opacity: 1; }
+.v11 .v11-slip:hover .v11-tk::after, .v11 .v11-slip:focus-visible .v11-tk::after { border-color: var(--accent); }
+.v11 .v11-legend { margin: 1px 0 0; font-size: 10.5px; line-height: 1.3; color: var(--muted); }
+.v11 .v11-note { margin: 7px 0 0; line-height: 1.3; font-size: 12.5px; color: var(--muted); }
+.v11 .v11-unq { margin: 3px 0 0; line-height: 1.3; font-size: 12.5px; color: var(--muted); }
+.v11 .v11-grade { margin: 8px 0 0; padding-top: 7px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (min-width: 560px) { .v11 .v11-met { max-width: none; } }
+
+.v12 {position:relative;max-width:100%;container-type:inline-size;color:var(--text);font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-size:14px;line-height:1.35;-webkit-text-size-adjust:100%;font-variant-numeric:tabular-nums}
+.v12 * {box-sizing:border-box;min-width:0}
+.v12 .v12-f{position:absolute;width:0;height:0;opacity:0;pointer-events:none}
+.v12 .v12-head{padding:2px 0 10px}
+.v12 .v12-title{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.v12 .v12-count{margin:4px 0 0;font-size:12.5px;color:var(--muted)}
+.v12 .v12-railwrap{position:relative}
+.v12 .v12-railwrap::after{content:'';position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(90deg,rgba(15,17,23,0),rgba(15,17,23,.92) 70%,var(--bg))}
+.v12 .v12-rail{display:flex;gap:6px;padding:2px 44px 6px 0;overflow-x:auto;scrollbar-width:none;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.v12 .v12-rail::-webkit-scrollbar{display:none}
+.v12 .v12-slip{flex:0 0 auto;scroll-snap-align:start;width:calc((100% - 12px)/2.8);max-width:150px;min-height:96px;display:flex;flex-direction:column;gap:2px;padding:8px 7px 7px;text-decoration:none;color:inherit;background:var(--surface);border:1px solid var(--border);border-radius:9px;-webkit-tap-highlight-color:transparent}
+.v12 .v12-slip:hover,.v12 .v12-slip:focus-visible{border-color:var(--accent);outline:none}
+.v12 .v12-sp{font-size:15px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.v12 .v12-spr{font-size:10.5px;line-height:1.25;color:var(--muted);padding-bottom:5px;margin-bottom:3px;border-bottom:1px dashed var(--border)}
+.v12 .v12-sn{font-size:10.5px;font-weight:600;line-height:1.2;overflow-wrap:anywhere}
+.v12 .v12-sm{margin-top:auto;font-size:12px;font-weight:700;line-height:1.2}
+.v12 .v12-hint{margin:2px 0 8px;font-size:11px;color:var(--muted)}
+.v12 .v12-swipe{display:inline-flex;align-items:center;gap:4px;margin-right:6px;padding:1px 6px 1px 5px;border:1px solid var(--border);border-radius:999px;color:var(--text);font-weight:600;white-space:nowrap}
+.v12 .v12-swipe::after{content:'';width:5px;height:5px;border-right:1.5px solid var(--muted);border-top:1.5px solid var(--muted);transform:rotate(45deg)}
+.v12 .v12-strip{display:flex;gap:3px;padding:3px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.v12 .v12-tab{flex:1 1 0;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 4px;padding:7px 2px;border-radius:7px;font-size:12px;font-weight:600;line-height:1.2;color:var(--muted);cursor:pointer;user-select:none;text-align:center}
+.v12 .v12-tab b{font-weight:700;color:var(--text)}
+.v12 .v12-f-all:checked~.v12-strip .v12-t-all,.v12 .v12-f-dal:checked~.v12-strip .v12-t-dal,.v12 .v12-f-chi:checked~.v12-strip .v12-t-chi,.v12 .v12-f-over:checked~.v12-strip .v12-t-over,.v12 .v12-f-under:checked~.v12-strip .v12-t-under{background:var(--surface2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border),0 1px 0 rgba(59,130,246,.55)}
+.v12 .v12-f:focus-visible~.v12-strip{outline:2px solid var(--accent);outline-offset:2px}
+.v12 .v12-list{list-style:none;margin:10px 0 0;padding:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.v12 .v12-row{display:flex;align-items:stretch;box-shadow:0 -1px 0 var(--border)}
+.v12 .v12-link,.v12 .v12-bet{display:flex;align-items:center;color:inherit;text-decoration:none;-webkit-tap-highlight-color:rgba(59,130,246,.12)}
+.v12 .v12-link:focus-visible,.v12 .v12-bet:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.v12 .v12-link{flex:1 1 auto;gap:7px;padding:9px 6px 9px 8px}
+.v12 .v12-disc{flex:0 0 28px;width:28px;height:28px;border-radius:50%;background:var(--surface2);box-shadow:0 0 0 1px var(--border);display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;letter-spacing:.02em}
+.v12 .v12-main{flex:1 1 auto;display:flex;flex-direction:column;gap:2px}
+.v12 .v12-ident{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px}
+.v12 .v12-name{font-weight:600;font-size:14px;line-height:1.25;overflow-wrap:anywhere;text-decoration:underline dotted rgba(136,146,164,.7);text-underline-offset:3px}
+.v12 .v12-src{font-size:9.5px;font-weight:600;letter-spacing:.02em;line-height:1.2;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 4px;white-space:nowrap}
+.v12 .v12-met{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 7px;font-size:12.5px;color:var(--muted)}
+.v12 .v12-rec{color:var(--text);font-weight:600}
+.v12 .v12-money{font-weight:700}
+.v12 .v12-pos{color:var(--green)}
+.v12 .v12-neg{color:var(--red)}
+.v12 .v12-roi.v12-pos,.v12 .v12-roi.v12-neg{font-weight:500;opacity:.9}
+.v12 .v12-sub{display:flex;flex-wrap:wrap;align-items:center;gap:3px 6px;font-size:10.5px;color:var(--muted)}
+.v12 .v12-when{white-space:nowrap}
+.v12 .v12-chip{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;line-height:1;padding:3px 5px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);white-space:nowrap}
+.v12 .v12-chip.v12-w{color:var(--green);border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10)}
+.v12 .v12-chip.v12-l{color:var(--text);border-color:rgba(59,130,246,.30);background:rgba(59,130,246,.10)}
+.v12 .v12-bet{flex:0 0 114px;flex-direction:column;align-items:flex-end;justify-content:center;gap:3px;padding:8px 16px 8px 6px;border-left:1px dashed var(--border);text-align:right;position:relative}
+.v12 .v12-bet::after,.v12 .v12-more::after{content:'';width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(-45deg);opacity:.7}
+.v12 .v12-bet::after{position:absolute;right:7px;top:50%;margin-top:-4px}
+.v12 .v12-pchip{display:inline-block;max-width:100%;padding:4px 6px;border-radius:7px;background:var(--surface2);border:1px solid var(--border);font-size:12px;font-weight:700;line-height:1.2;color:var(--text)}
+.v12 .v12-price{font-size:10px;line-height:1.25;color:var(--muted)}
+.v12 .v12-f-dal:checked~.v12-list .v12-row:not(.v12-s-dal),.v12 .v12-f-chi:checked~.v12-list .v12-row:not(.v12-s-chi),.v12 .v12-f-over:checked~.v12-list .v12-row:not(.v12-s-over),.v12 .v12-f-under:checked~.v12-list .v12-row:not(.v12-s-under),.v12 .v12-f-dal:checked~.v12-railwrap .v12-slip:not(.v12-s-dal),.v12 .v12-f-chi:checked~.v12-railwrap .v12-slip:not(.v12-s-chi),.v12 .v12-f-over:checked~.v12-railwrap .v12-slip:not(.v12-s-over),.v12 .v12-f-under:checked~.v12-railwrap .v12-slip:not(.v12-s-under),.v12 .v12-f-more:not(:checked)~.v12-f-all:checked~.v12-list .v12-hid{display:none}
+.v12 .v12-more{display:none;margin:8px 0 0;padding:9px 10px;align-items:center;justify-content:center;gap:7px;font-size:12.5px;font-weight:600;background:var(--surface);border:1px solid var(--border);border-radius:10px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:rgba(59,130,246,.12)}
+.v12 .v12-f-all:checked~.v12-more{display:flex}
+.v12 .v12-more::after{transform:rotate(45deg);margin-top:-4px}
+.v12 .v12-f-more:checked~.v12-more::after{transform:rotate(-135deg);margin-top:4px}
+.v12 .v12-mb-less,.v12 .v12-f-more:checked~.v12-more .v12-mb-more{display:none}
+.v12 .v12-f-more:checked~.v12-more .v12-mb-less{display:inline}
+.v12 .v12-note,.v12 .v12-unq{margin:12px 0 0;font-size:12.5px;color:var(--muted)}
+.v12 .v12-unq{margin-top:6px}
+.v12 .v12-grade{margin:14px 0 0;padding-top:10px;border-top:1px solid var(--border);font-size:11px;line-height:1.45;color:var(--muted)}
+@container (min-width:560px){.v12 .v12-slip{width:150px}.v12 .v12-bet{flex-basis:150px}.v12 .v12-price br{display:none}}
+
+.v1 { position: relative; max-width: 100%; color: var(--text); font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.35; -webkit-text-size-adjust: 100%; }
+.v1 * { box-sizing: border-box; min-width: 0; }
+.v1 .v1-f { position: absolute; width: 0; height: 0; opacity: 0; pointer-events: none; }
+.v1 .v1-head { padding: 2px 0 12px; }
+.v1 .v1-title { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.v1 .v1-count { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.v1 .v1-strip { display: flex; gap: 3px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.v1 .v1-tab { flex: 1 1 0; min-width: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 2px; border-radius: 7px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; user-select: none; white-space: nowrap; transition: background .12s, color .12s; }
+.v1 .v1-tab b { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.v1 .v1-tab:hover { color: var(--text); background: var(--surface2); }
+.v1 .v1-f-all:checked ~ .v1-strip .v1-t-all, .v1 .v1-f-dal:checked ~ .v1-strip .v1-t-dal, .v1 .v1-f-chi:checked ~ .v1-strip .v1-t-chi, .v1 .v1-f-over:checked ~ .v1-strip .v1-t-over, .v1 .v1-f-under:checked ~ .v1-strip .v1-t-under { background: var(--surface2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border), 0 1px 0 rgba(59,130,246,.55); }
+.v1 .v1-f:focus-visible ~ .v1-strip { outline: 2px solid var(--accent); outline-offset: 2px; }
+.v1 .v1-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 8px; padding: 8px 2px 4px; }
+.v1 .v1-slot { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; font-size: 11.5px; color: var(--muted); border-bottom: 1px solid var(--border); padding: 3px 0; font-variant-numeric: tabular-nums; }
+.v1 .v1-slot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v1 .v1-slot b { font-weight: 600; color: var(--text); }
+.v1 .v1-list { list-style: none; margin: 10px 0 0; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.v1 .v1-row { box-shadow: 0 -1px 0 var(--border); }
+.v1 .v1-link { display: flex; align-items: center; gap: 8px; padding: 10px 8px 10px 12px; color: inherit; text-decoration: none; -webkit-tap-highlight-color: rgba(59,130,246,.12); transition: background .12s; }
+.v1 .v1-link:hover { background: var(--surface2); }
+.v1 .v1-link:active { background: rgba(59,130,246,.10); }
+.v1 .v1-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.v1 .v1-disc { flex: 0 0 32px; width: 32px; height: 32px; border-radius: 50%; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--text); }
+.v1 .v1-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.v1 .v1-ident { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+.v1 .v1-name { flex: 0 1 auto; max-width: 100%; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v1 .v1-src { flex: 0 0 auto; font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.v1 .v1-met { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.v1 .v1-rec { color: var(--text); font-weight: 600; }
+.v1 .v1-money { font-weight: 700; }
+.v1 .v1-pos { color: var(--green); }
+.v1 .v1-neg { color: var(--red); }
+.v1 .v1-roi.v1-pos, .v1 .v1-roi.v1-neg { font-weight: 500; opacity: .9; }
+.v1 .v1-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11px; color: var(--muted); }
+.v1 .v1-when { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.v1 .v1-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 600; line-height: 1; padding: 3px 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.v1 .v1-chip.v1-w { color: var(--green); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.10); }
+.v1 .v1-chip.v1-l { color: var(--text); border-color: rgba(59,130,246,.30); background: rgba(59,130,246,.10); }
+.v1 .v1-pick { flex: 0 0 auto; max-width: 96px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right; }
+.v1 .v1-pchip { display: inline-block; max-width: 100%; padding: 5px 8px; border-radius: 7px; background: var(--surface2); border: 1px solid var(--border); font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.v1 .v1-price { max-width: 100%; font-size: 10.5px; line-height: 1.25; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v1 .v1-chev { flex: 0 0 7px; width: 7px; height: 7px; margin-left: 1px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(-45deg); opacity: .7; }
+.v1 .v1-link:hover .v1-chev { border-color: var(--text); opacity: 1; }
+.v1 .v1-f-dal:checked ~ .v1-list .v1-row:not(.v1-s-dal), .v1 .v1-f-chi:checked ~ .v1-list .v1-row:not(.v1-s-chi), .v1 .v1-f-over:checked ~ .v1-list .v1-row:not(.v1-s-over), .v1 .v1-f-under:checked ~ .v1-list .v1-row:not(.v1-s-under) { display: none; }
+.v1 .v1-empty { display: none; margin: 10px 0 0; padding: 14px 12px; text-align: center; font-size: 12.5px; color: var(--muted); background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+.v1 .v1-f-dal:checked ~ .v1-list:not(:has(.v1-s-dal)), .v1 .v1-f-chi:checked ~ .v1-list:not(:has(.v1-s-chi)), .v1 .v1-f-over:checked ~ .v1-list:not(:has(.v1-s-over)), .v1 .v1-f-under:checked ~ .v1-list:not(:has(.v1-s-under)) { display: none; }
+.v1 .v1-f-dal:checked ~ .v1-list:not(:has(.v1-s-dal)) ~ .v1-empty, .v1 .v1-f-chi:checked ~ .v1-list:not(:has(.v1-s-chi)) ~ .v1-empty, .v1 .v1-f-over:checked ~ .v1-list:not(:has(.v1-s-over)) ~ .v1-empty, .v1 .v1-f-under:checked ~ .v1-list:not(:has(.v1-s-under)) ~ .v1-empty { display: block; }
+.v1 .v1-note { margin: 12px 0 0; font-size: 12.5px; color: var(--muted); }
+.v1 .v1-unq { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.v1 .v1-grade { margin: 14px 0 0; padding-top: 10px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (min-width: 560px) { .v1 .v1-pick { max-width: 150px; } .v1 .v1-price { white-space: normal; } .v1 .v1-price br { display: none; } .v1 .v1-slots { grid-template-columns: repeat(6, 1fr); } }
+
+.v6 {position:relative;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--text);background:var(--bg);max-width:100%;padding:16px 0 8px;font-variant-numeric:tabular-nums;box-sizing:border-box}
+.v6 * {box-sizing:border-box;min-width:0}
+.v6 .v6-f {position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.v6 .v6-sr {position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.v6 .v6-head {padding:0 2px 12px}
+.v6 .v6-title {margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em;line-height:1.2}
+.v6 .v6-count {margin:4px 0 0;font-size:13px;color:var(--muted)}
+.v6 .v6-game {margin:10px 0 0;font-size:12px;font-weight:600;color:var(--text)}
+.v6 .v6-slots {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.v6 .v6-slots li {display:flex;align-items:center;gap:6px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:13px;transition:opacity .15s}
+.v6 .v6-sl {font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v6 .v6-sn {margin-left:auto;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--surface2);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+.v6 .v6-sn.zero {color:var(--muted);font-weight:500}
+.v6 .v6-note {margin:12px 2px 10px;font-size:12px;line-height:1.45;color:var(--muted)}
+.v6 .v6-filter {display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0;margin:0 0 10px;background:var(--bg);border-bottom:1px solid var(--border)}
+.v6 .v6-fl {flex:0 0 auto;padding:5px 11px;border-radius:999px;border:1px solid var(--border);background:var(--surface);font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+.v6 .v6-fs {margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
+.v6 .v6-f-all:checked ~ .v6-filter .v6-fl-all,.v6 .v6-f-dal:checked ~ .v6-filter .v6-fl-dal,.v6 .v6-f-chi:checked ~ .v6-filter .v6-fl-chi,.v6 .v6-f-over:checked ~ .v6-filter .v6-fl-over,.v6 .v6-f-under:checked ~ .v6-filter .v6-fl-under {color:var(--text);border-color:var(--accent);background:rgba(59,130,246,.14)}
+.v6 .v6-f-dal:checked ~ .v6-list .v6-slip:not(.s-dal),.v6 .v6-f-chi:checked ~ .v6-list .v6-slip:not(.s-chi),.v6 .v6-f-over:checked ~ .v6-list .v6-slip:not(.s-over),.v6 .v6-f-under:checked ~ .v6-list .v6-slip:not(.s-under) {display:none}
+.v6 .v6-f-dal:checked ~ .v6-slots li:not(.sl-dal),.v6 .v6-f-chi:checked ~ .v6-slots li:not(.sl-chi),.v6 .v6-f-over:checked ~ .v6-slots li:not(.sl-over),.v6 .v6-f-under:checked ~ .v6-slots li:not(.sl-under) {opacity:.42}
+.v6 .v6-list {display:flex;flex-direction:column;gap:12px}
+.v6 .v6-slip {position:relative;display:block;text-decoration:none;color:inherit;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:border-color .15s,transform .1s;-webkit-tap-highlight-color:transparent}
+.v6 .v6-slip:hover,.v6 .v6-slip:focus-visible {border-color:var(--accent);outline:none}
+.v6 .v6-slip:active {transform:scale(.995)}
+.v6 .v6-hd {display:flex;align-items:center;gap:10px;padding:10px 12px 10px 10px}
+.v6 .v6-av {flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--text)}
+.v6 .v6-who {flex:1 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0}
+.v6 .v6-name {font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2}
+.v6 .v6-src {align-self:flex-start;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);white-space:nowrap}
+.v6 .v6-chip {flex:0 0 auto;font-size:11px;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);white-space:nowrap}
+.v6 .v6-w {color:var(--green);border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.1)}
+.v6 .v6-l {color:var(--red);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.1)}
+.v6 .v6-ss {color:var(--gold);border-color:rgba(255,215,0,.3);background:rgba(255,215,0,.08)}
+.v6 .v6-go {flex:0 0 auto;font-size:22px;line-height:1;color:var(--muted);margin-left:2px}
+.v6 .v6-tear {position:relative;height:0;border-top:1px dashed var(--border);margin:0 8px}
+.v6 .v6-tear::before,.v6 .v6-tear::after {content:'';position:absolute;top:-7px;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1px solid var(--border)}
+.v6 .v6-tear::before {left:-15px}
+.v6 .v6-tear::after {right:-15px}
+.v6 .v6-body {display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;padding:12px 12px 10px}
+.v6 .v6-pick {font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1;white-space:nowrap}
+.v6 .v6-price {font-size:12px;font-weight:600;color:var(--text);padding:3px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);white-space:nowrap;line-height:1.3}
+.v6 .v6-np {color:var(--muted);font-weight:500}
+.v6 .v6-when {flex:0 0 100%;font-size:11px;color:var(--muted)}
+.v6 .v6-foot {display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:8px 12px 10px;border-top:1px solid var(--border);background:rgba(30,35,48,.55);border-radius:0 0 10px 10px}
+.v6 .v6-st {display:flex;flex-direction:column;gap:1px;min-width:0}
+.v6 .v6-st b {font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v6 .v6-st i {font-style:normal;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.v6 .v6-st.pos b {color:var(--green)}
+.v6 .v6-st.neg b {color:var(--red)}
+.v6 .v6-unq {margin:14px 2px 0;font-size:12px;color:var(--muted)}
+.v6 .v6-grade {margin:10px 2px 0;font-size:11px;line-height:1.45;color:var(--muted);opacity:.85}
+</style>
+<div class="lab">
+  <div class="lab-top">
+    <div class="lab-brand"><span class="mark">CA</span><b>Who Is On This Game Lab 2</b><span>five compact Ledger + Slips hybrids (8 to 12), with the original Ledger (1) and Slips (6) for comparison; a preview of the next section sits under each</span></div>
+    <div class="mock-pills" id="pills"><button class="mpill on" data-v="8"><b>8</b>Ledger + slip stub</button><button class="mpill" data-v="9"><b>9</b>Two-line slips</button><button class="mpill" data-v="10"><b>10</b>Collapsed ledger, one expanded slip</button><button class="mpill" data-v="11"><b>11</b>Side-grouped ledger</button><button class="mpill" data-v="12"><b>12</b>Slip rail + ledger</button><button class="mpill" data-v="1"><b>1</b>Ledger</button><button class="mpill" data-v="6"><b>6</b>Slips</button></div>
+    <div class="lab-note">Every variant shows the same fictional game and the same nine cappers, sorted by NFL money. Tap a pill to switch. Names in this lab are from the Sept 3 export, records and picks are invented for the mock. <b>Rules every variant holds:</b> no scores, no strength meters, counts are counts, both sides equal, Grading Note at the bottom.</div>
+    <div id="notes"><div class="vnote" data-v="8" ><b>Ledger + slip stub.</b> The Ledger metrics line on the left, a tear-off bet slip stub on the right. Two tap targets you can see. <span>(about 750px tall)</span><br><span>Same design: the Ledger metrics line (record, money, ROI, recorded time, source badge, chips) on the left as the profile tap target, and a perforated bet-slip stub on the right as the bet-sheet tap target, with a side filter strip, a six-slot count grid, and a collapsed "Show all 9" list. Revisions, all measured with wc -c: total is now 15,767 bytes (7,968 html + 7,799 css), under the 16,384 cap. What came out: the four :has() empty-state rules, the .v8-empty style and its &lt;p> (unreachable with this fixture since every side has at least one capper, and Safari below 15.4 ignored them anyway), and the nine stub aria-labels that restated the visible pick and price. Link aria-labels stay because they add the "NFL profile" destination. Layout fixes: the ident line now has about 217px of room on rows 1 to 6 (was ~204) by trimming the stub to min 84 / max 100px with 6px right margin, the disc to 30px, the link padding to 10/4 and the gap to 7px; the source badge dropped to 9.5px with 4px side padding, so "OldSchool0909 + chevron + Action Network" (~204px) and "KnightDasCapital + Polymarket" (~191px) stay on one line and those rows hold the 56 to 72px target. On rows 7 to 9 the stub caps at 100px (main column ~201px) and "no price, graded at -110" wraps inside the stub at the comma ("no price," / "graded at -110", ~77px at 10px inside a 79px inner width), while the sub line gap tightened to 6px and the chip padding to 2px 5px so "Recorded 21h before start" plus the L5 chip (~187px) sits inside the column without a third sub-line. Stub notch dots moved to left 3px to match the narrower left padding; they still sit at top/bottom -5px inside the 6px stub margin, so the list's overflow:hidden never clips them. Count line note for the orchestrator: the mandated copy says "3 sources" but the fixture's nine rows carry four platform badges (Action Network, Polymarket, Community, Covers); the copy is left verbatim as required and the mismatch is a fixture/copy question, not a fragment defect.</span><br><span><b>Free tier:</b> Free users see the same fragment: names, discs, source badges, picks with lines, prices, counts, the recorded time and the humility, unqualified and grading lines are all visible. The Ledger metrics line (record, money, ROI) and the streak / small-sample chips are the natural paid layer: on free, render .v8-met and the chips as a muted "Record on paid" placeholder inside the same slot so row heights and the two tap targets do not move. The slip stub stays tappable on free, with the bet sheet's "Track this side" button and the record-on-this-bet-type row behind the same gate.</span><br><span><b>After the game:</b> After kickoff the counts freeze ("freezes at kickoff" is already in the count line). Once graded, each stub gains a small W / L / P mark next to the price ("at -108, W") using the existing .v8-w / .v8-l chip tints and the muted border for pushes; the metrics line updates to the post-game NFL record so both surfaces agree, and the hint line reads "Final. Tap a name for the NFL profile. Tap a slip for that bet." The side filter strip and slot counts stay as they were at kickoff, since counts are counts.</span></div><div class="vnote" data-v="9" hidden><b>Two-line slips.</b> Each capper is a small ticket: who on line one, the bet plus their NFL numbers on line two. <span>(about 870px tall)</span><br><span>Same two-line ticket design, two things hardened. (1) The "by NFL money" sort label moved out of the filter row and up to the header, on the title's baseline at the right (title is about 180px wide, so about 170px of slack at 362px). The filter row is now five pills alone (about 262px with the padding trimmed to 10px), so no system font can push anything onto a second line. (2) The ticket notches no longer overhang the card. Each row paints its own half-discs as radial-gradient backgrounds anchored to its border-box corners (bg fill plus a 1px border ring), so the notch is drawn entirely inside the row and needs no outer overflow clipping; the list's overflow:hidden is now only for its rounded corners. First row draws only bottom halves, last row only top halves, so the card's rounded ends stay clean. Every other rule (metrics order, two tap targets with dotted-underline name and chevron slip, side filter radios, empty state, required copy) is unchanged.</span><br><span><b>Free tier:</b> Free users see the same list structure. Name plus source badge and the pick with its line stay visible; the price chip, the NFL record / money / ROI cluster and the recorded-time line render as blurred placeholders with one "Unlock capper records" line under the list. Both tap targets remain but route to the upgrade sheet.</span><br><span><b>After the game:</b> After kickoff the count line reads "9 cappers, 3 sources, frozen at kickoff". Once graded, each slip gets a small W / L / Push chip after the price chip (green for W, red for L, muted for Push) and the recorded line is replaced by the graded result at the recorded line, e.g. "Graded W at CHI +1.5 (-108)". The side filter and both tap targets keep working; Track this side is hidden on the bet sheet for a started game.</span></div><div class="vnote" data-v="10" hidden><b>Collapsed ledger, one expanded slip.</b> A compact ledger with the money leader opened as a ticket, and everything else one row each. <span>(about 810px tall)</span><br><span>Same direction as before: a five-row collapsed ledger with the money leader opened as a torn ticket, side/total filter strip, per-slot counts, Show all 9. Fixes in this pass, nothing else touched. (1) The expanded slip's grid now holds only fixture-backed cells: "Their line CHI +1.5 at -108" and "NFL picks 68" (41+27). The invented "Line now" cell and the placeholder "NFL spreads" cell are gone, which also removes the only em dash in the copy. (2) The expanded row's bet-sheet target (.v10-big) is now a dashed-edge ticket with a "Bet sheet" caption in accent and an accent chevron, so it reads as tappable exactly like the collapsed rows' dashed-edge slip cells. (3) The header chevron is now a real control: a 28px round label bound to a checked-by-default checkbox (#v10-o). Unchecking collapses the slip (tear + body hidden, chevron flips to point down) and the row falls back to the standard collapsed shape, with the same compact "CHI +1.5 / at -108" slip cell and chevron as every other row, so nothing is lost when it closes. To make that fallback possible, the leader's metrics line, recorded time and W5 chip moved into the header (same markup every other row uses), so the expanded and collapsed states share one ident block. Layout notes: the slip cell max-width went from 118px to 130px for Dynamic Type headroom; hover rules, letter-spacing and default-bold restatements were trimmed to keep html+css under 16KB (16,351 bytes measured). No text-overflow anywhere; long names wrap via overflow-wrap:anywhere.</span><br><span><b>Free tier:</b> Free viewers see the same section. The bet sheet and Track this side link into the existing tracking flow, which gates on sign-in as today; no numbers here are paid-only. Nothing in the fragment reveals scoring or source mechanics beyond the platform badge already shown on capper profiles.</span><br><span><b>After the game:</b> After kickoff the count line copy would switch from "freezes at kickoff" to a frozen-at-kickoff phrasing, the "Recorded Nh before start" lines stay as-is, and each slip cell would carry the graded result in place of the "Track this side" button (the button and bet-sheet target are hidden once the game is live). The ticket header toggle keeps working in the graded state so the leader's slip can still be closed.</span></div><div class="vnote" data-v="11" hidden><b>Side-grouped ledger.</b> Cappers grouped under the side they took, money order inside each group, both sides carried the same way. <span>(about 876px tall)</span><br><span>Same side-grouped ledger, four fixes. (1) The group header no longer carries a price. It was stitched together from individual cappers' recorded prices and read as a current market line that the section does not have; it now shows only the side, the markets present in that group (ML, spread, total) and the capper count, and the legend states outright that prices are each capper's recorded price, not a current line. (2) Sort stays money-descending within each side group; the group order DAL / CHI / Over / Under is fixed by side, not by money, which is the premise of this variant and is noted here as a deliberate deviation from a single global money sort. (3) Row height: padding 5 to 4px, row gap 3 to 2px, chip line-heights 17/15 to 16/14, so a row with a wrapped sub line lands at about 70px and an unwrapped row at about 54px, inside the 56 to 72 guide give or take a pixel. (4) overflow: hidden removed from the group card; the header gets a matching top radius and the last row a bottom radius, so nothing can ever clip silently. The short market label in the header cannot wrap under the side label at 362px.</span><br><span><b>Free tier:</b> Free users see the same grouped ledger: names, discs, source badges, picks, prices and the counts. The NFL record, money and ROI cluster on each row is blurred (filter: blur on .v11-met) with the card's upgrade prompt below the last group. The bet sheet still opens from the pick chip and ticket but its "Track this side" button routes to the paywall.</span><br><span><b>After the game:</b> After kickoff the count line changes to "9 cappers, 3 sources, frozen at kickoff" and the ticket affordance on each row is replaced by a result chip (W green, L red, P muted) once the game grades; the group headers keep the side and count only. Rows keep their pregame order; nothing re-sorts on result.</span></div><div class="vnote" data-v="12" hidden><b>Slip rail + ledger.</b> A swipeable row of bet slips up top for the quick read, the full ledger underneath for the record. <span>(about 815px tall)</span><br><span>Same two-layer design: a horizontal rail of bet slips (pick, price, name, NFL money) for the at-a-glance read, then the full ledger below with the exact metrics line, source badge, recorded time and chips. Revisions only: (1) root selectors now read `.v12 {` and `.v12 * {` so every selector literally carries the ".v12 " prefix; (2) the filter tabs drop overflow:hidden and nowrap in favor of flex-wrap, so a label can never clip, it drops its count to a second line if the strip gets narrower than ~300px; (3) the rail gains three scroll cues without JS: a right-edge gradient fade over the scroller (derived from --bg), a "Swipe for all 9 slips" chip with a chevron leading the hint line, and scroll-snap so slips settle cleanly; the rail also carries right padding so the last slip clears the fade when scrolled to the end. Slips widen from /3.2 to /2.8 of the row (about 125px at 362px, ~109px inner), giving KnightDasCapital room on wider fallback fonts so overflow-wrap only fires as a last resort. The ledger bet cell grows from 106px to 114px so "Under 44.5" sits in the chip with ~13px spare instead of ~5px. Two tap targets per row are unchanged: dotted-underlined name + disc opens the NFL profile; the dashed ticket edge + chevron on the right opens the bet sheet. Cappers stay sorted by NFL money descending. Collapsed to five rows with "Show all 9" so the game page's other sections stay one thumb-scroll away.</span><br><span><b>Free tier:</b> Free viewers see the section title, the count line, the rail and ledger with names, source badges, picks and prices, the humility line, the unqualified line and the Grading Note. The metrics line (record, money, ROI), streak chips and the bet sheet's "Track this side" button are paid; on free the metrics span renders a muted "Record on paid" placeholder of the same height so rows do not reflow, and the slip's money line is omitted. Filter tabs and Show all 9 work on both tiers.</span><br><span><b>After the game:</b> Once the game is final the count line swaps "freezes at kickoff" for "frozen at kickoff", each slip and ledger row gains a small W / L / Push chip next to the pick chip (green border for W, red for L, plain for push) using the same chip component, and the rail sorts graded results first. The name, metrics line, recorded time and price stay exactly as captured; nothing about the capper's NFL record on the row updates until the nightly ratings pass, and the Grading Note stays as the last line.</span></div><div class="vnote" data-v="1" hidden><b>Ledger.</b> One flat ledger of every capper, filtered by side with a no-JS radio strip and a six-slot count grid above it.<br><span>Ledger keeps one flat list of all nine cappers, sorted by NFL money descending, with a radio-driven side filter (All / DAL / CHI / Over / Under) and a six-slot count grid so every slot reads as a slot even when the list is filtered. Each row is a full-width anchor with a chevron, which is the tap affordance and needs no JS. Both sides carry identical row treatment, and counts are plain numbers with no meter. This revision resolves the five layout risks without touching the visual idea: (1) the Covers price string now breaks at a deliberate point ("no price," / "graded at -110") with nowrap on each line, so it is two tidy right-aligned lines under the chip instead of an uncontrolled wrap, and the break collapses back to one line at 560px+ where the column is wider; (2) the filter tabs drop to 12px with 2px side padding, 3px gaps and overflow hidden, which leaves roughly 20px of slack per tab at 362px and clips inside the tab under larger OS text instead of pushing the strip; (3) the middle column gains about 18px (disc 34 to 32, row gap 10 to 8, right padding 10 to 8, chip padding 9 to 8, metric gap 8 to 7) so "22-11 +$188 +14.2% ROI" sits on one line with room to spare; (4) the empty state is now wired with :has(), so a filter whose side has no rows hides the list and shows "No cappers on this side" (harmless no-op on the current fixture, and browsers without :has simply ignore those two rules); (5) role=tablist is replaced with role=group plus the same aria-label, which is the honest semantic for a set of labels driving hidden radios.</span><br><span><b>Free tier:</b> Free tier renders the identical layout with the same nine rows, the same filter strip, the same six-slot counts and the same money/record/ROI cells. Only the .v1-name cell is redacted per row (a muted placeholder bar the same height as the name, initials disc still shown so the row keeps its shape), and the anchor href points at the subscribe flow instead of the profile. One subscribe prompt sits directly under the list as a single line ("See who is on this game") styled like .v1-empty, never a blur wall or overlay. Counts, slot grid, humility line, unqualified line and Grading Note are always visible to everyone.</span><br><span><b>After the game:</b> After the game is final the fragment freezes exactly as it was at kickoff (the count line already says "freezes at kickoff"). Each row's .v1-pchip gains a result state: a green ring plus a small W after the pick text for wins, a red ring plus L for losses, a muted ring plus P for pushes, while the price line stays as recorded so the reader can see the price the grade was struck at. The six-slot grid keeps its counts and appends the result letter next to each slot count. Money, record and ROI cells stay pre-game (they are the capper's NFL ledger going into the game, not updated in place). No sorting change, no side is promoted, the humility line and Grading Note stay verbatim.</span></div><div class="vnote" data-v="6" hidden><b>Slips.</b> Each capper is a torn betting slip: pick up top, their NFL ledger on the stub, filter pills by side.<br><span>A betting slip is the object every reader already understands, so each capper becomes one: name and source on the header, a dashed tear line with notches, the pick large on the body with their recorded price chip and when it was recorded, and their NFL ledger (record, money, ROI) on the stub. The six-slot grid up top is pure counts, all six slots present, with no slot prices so nothing is asserted beyond what was captured. Radio-driven filter pills (All, DAL, CHI, Over, Under) hide slips off the chosen side and dim the other slots, no JS. Cappers stay in one list sorted by NFL money descending so both sides keep equal weight. Revision: dropped invented game meta (records, kickoff, venue) down to DAL at CHI, removed the slot price column, removed the derived picks count (Small sample chip is the only sample-size signal), replaced per-card aria-label with a visually hidden "Open NFL profile" suffix so the full card text stays in the accessible name, filter bar now wraps and is no longer sticky, footer is three columns, and .v6 is position:relative so the hidden radios resolve against it.</span><br><span><b>Free tier:</b> Free tier keeps every slip in place and every count visible (the six-slot grid, the count line, the filter pills). On each slip the name cell is replaced by a muted redacted bar of the same height (initials disc becomes a blank --surface2 disc), the source badge stays, and the pick, price, recorded time, record, money and ROI stay fully readable. One subscribe prompt sits between the slot grid and the list ("Subscribe to see who these cappers are"), never a blur wall, and the humility line, unqualified line and grading note render unchanged.</span><br><span><b>After the game:</b> After the game finalizes, the count line reads "9 cappers, 3 sources, frozen at kickoff" and each slip's body gains a small result chip beside the price (W green, L red, Push muted, Void muted) sized like the streak chip. The pick and price never change since they were frozen at kickoff. Footer stats stay as the capper's NFL ledger at the time of capture, with a muted "at capture" note in the stat label so a later-updated record is never implied. Slot counts stay as recorded; no slot is marked as the winning side.</span></div></div>
+  </div>
+  <div class="stage">
+    <div class="frame">
+      <div class="screen">
+        <div class="island"></div>
+        <div class="sbar"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="appbody" id="appbody"><div class="screen-body" data-v="8" >
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v8">
+<input type="radio" name="v8f" class="v8-f v8-f-all" id="v8-f-all" checked>
+<input type="radio" name="v8f" class="v8-f v8-f-dal" id="v8-f-dal">
+<input type="radio" name="v8f" class="v8-f v8-f-chi" id="v8-f-chi">
+<input type="radio" name="v8f" class="v8-f v8-f-over" id="v8-f-over">
+<input type="radio" name="v8f" class="v8-f v8-f-under" id="v8-f-under">
+<input type="checkbox" class="v8-x" id="v8-x">
+<div class="v8-head">
+<h2 class="v8-title">Who is on this game</h2>
+<p class="v8-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<div class="v8-strip" role="group" aria-label="Filter by side">
+<label class="v8-tab v8-t-all" for="v8-f-all">All <b>9</b></label>
+<label class="v8-tab v8-t-dal" for="v8-f-dal">DAL <b>3</b></label>
+<label class="v8-tab v8-t-chi" for="v8-f-chi">CHI <b>3</b></label>
+<label class="v8-tab v8-t-over" for="v8-f-over">Over <b>2</b></label>
+<label class="v8-tab v8-t-under" for="v8-f-under">Under <b>1</b></label>
+</div>
+<div class="v8-slots">
+<span class="v8-slot"><span>DAL ML</span><b>2</b></span>
+<span class="v8-slot"><span>CHI ML</span><b>1</b></span>
+<span class="v8-slot"><span>DAL -1.5</span><b>1</b></span>
+<span class="v8-slot"><span>CHI +1.5</span><b>2</b></span>
+<span class="v8-slot"><span>Over 44.5</span><b>2</b></span>
+<span class="v8-slot"><span>Under 44.5</span><b>1</b></span>
+</div>
+<p class="v8-hint">Tap a name for the NFL profile. Tap a slip for that bet.</p>
+<ul class="v8-list">
+<li class="v8-row v8-s-chi">
+<a class="v8-link" href="#" aria-label="OldSchool0909, NFL profile">
+<span class="v8-disc">OS</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">OldSchool0909<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Action Network</span></span>
+<span class="v8-met"><span class="v8-rec">41-27</span><span class="v8-money v8-pos">+$212</span><span class="v8-roi v8-pos">+7.8% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 6h before start</span><span class="v8-chip v8-w">W5 🔥</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">CHI +1.5</b><span class="v8-spr">at -108</span></a>
+</li>
+<li class="v8-row v8-s-dal">
+<a class="v8-link" href="#" aria-label="VeryLucky888, NFL profile">
+<span class="v8-disc">VL</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">VeryLucky888<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Polymarket</span></span>
+<span class="v8-met"><span class="v8-rec">22-11</span><span class="v8-money v8-pos">+$188</span><span class="v8-roi v8-pos">+14.2% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 9h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">DAL ML</b><span class="v8-spr">at -118</span></a>
+</li>
+<li class="v8-row v8-s-chi">
+<a class="v8-link" href="#" aria-label="RiverCityRick, NFL profile">
+<span class="v8-disc">RR</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">RiverCityRick<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Community</span></span>
+<span class="v8-met"><span class="v8-rec">27-19</span><span class="v8-money v8-pos">+$96</span><span class="v8-roi v8-pos">+5.2% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 2h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">CHI +1.5</b><span class="v8-spr">at -110</span></a>
+</li>
+<li class="v8-row v8-s-over">
+<a class="v8-link" href="#" aria-label="KnightDasCapital, NFL profile">
+<span class="v8-disc">KD</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">KnightDasCapital<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Polymarket</span></span>
+<span class="v8-met"><span class="v8-rec">14-9</span><span class="v8-money v8-pos">+$61</span><span class="v8-roi v8-pos">+6.6% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 12h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">Over 44.5</b><span class="v8-spr">at -105</span></a>
+</li>
+<li class="v8-row v8-s-dal">
+<a class="v8-link" href="#" aria-label="Brian Bitler, NFL profile">
+<span class="v8-disc">BB</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">Brian Bitler<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Action Network</span></span>
+<span class="v8-met"><span class="v8-rec">33-30</span><span class="v8-money v8-pos">+$41</span><span class="v8-roi v8-pos">+1.6% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 3h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">DAL ML</b><span class="v8-spr">at -125</span></a>
+</li>
+<li class="v8-row v8-s-chi">
+<a class="v8-link" href="#" aria-label="HomeRunHazard, NFL profile">
+<span class="v8-disc">HH</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">HomeRunHazard<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Action Network</span></span>
+<span class="v8-met"><span class="v8-rec">9-6</span><span class="v8-money v8-pos">+$34</span><span class="v8-roi v8-pos">+5.7% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 4h before start</span><span class="v8-chip">Small sample</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">CHI ML</b><span class="v8-spr">at +105</span></a>
+</li>
+<li class="v8-row v8-s-under">
+<a class="v8-link" href="#" aria-label="thirdstring, NFL profile">
+<span class="v8-disc">TS</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">thirdstring<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Covers</span></span>
+<span class="v8-met"><span class="v8-rec">58-61</span><span class="v8-money v8-neg">-$86</span><span class="v8-roi v8-neg">-3.6% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 21h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">Under 44.5</b><span class="v8-spr">no price, graded at -110</span></a>
+</li>
+<li class="v8-row v8-s-dal">
+<a class="v8-link" href="#" aria-label="Mattcanter, NFL profile">
+<span class="v8-disc">MC</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">Mattcanter<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Covers</span></span>
+<span class="v8-met"><span class="v8-rec">45-52</span><span class="v8-money v8-neg">-$118</span><span class="v8-roi v8-neg">-6.1% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 20h before start</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">DAL -1.5</b><span class="v8-spr">no price, graded at -110</span></a>
+</li>
+<li class="v8-row v8-s-over">
+<a class="v8-link" href="#" aria-label="stevet81, NFL profile">
+<span class="v8-disc">ST</span>
+<span class="v8-main">
+<span class="v8-ident"><span class="v8-name">stevet81<i class="v8-chev" aria-hidden="true"></i></span><span class="v8-src">Covers</span></span>
+<span class="v8-met"><span class="v8-rec">61-66</span><span class="v8-money v8-neg">-$140</span><span class="v8-roi v8-neg">-5.5% ROI</span></span>
+<span class="v8-sub"><span class="v8-when">Recorded 21h before start</span><span class="v8-chip v8-l">L5 ❄️</span></span>
+</span>
+</a>
+<a class="v8-stub" href="#"><b class="v8-sp">Over 44.5</b><span class="v8-spr">no price, graded at -110</span></a>
+</li>
+</ul>
+<label class="v8-more" for="v8-x"><span class="v8-more-a">Show all 9</span><span class="v8-more-b">Show fewer</span></label>
+<p class="v8-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v8-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v8-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="9" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v9">
+<input type="radio" name="v9f" class="v9-f v9-f-all" id="v9-f-all" checked>
+<input type="radio" name="v9f" class="v9-f v9-f-dal" id="v9-f-dal">
+<input type="radio" name="v9f" class="v9-f v9-f-chi" id="v9-f-chi">
+<input type="radio" name="v9f" class="v9-f v9-f-over" id="v9-f-over">
+<input type="radio" name="v9f" class="v9-f v9-f-under" id="v9-f-under">
+<div class="v9-head">
+<h2 class="v9-title">Who is on this game</h2>
+<span class="v9-sort">by NFL money</span>
+<p class="v9-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<nav class="v9-filter" aria-label="Filter by side">
+<label class="v9-pill v9-p-all" for="v9-f-all">All</label>
+<label class="v9-pill v9-p-dal" for="v9-f-dal">DAL</label>
+<label class="v9-pill v9-p-chi" for="v9-f-chi">CHI</label>
+<label class="v9-pill v9-p-over" for="v9-f-over">Over</label>
+<label class="v9-pill v9-p-under" for="v9-f-under">Under</label>
+</nav>
+<ul class="v9-list">
+<li class="v9-row v9-s-chi">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="OldSchool0909, NFL profile"><span class="v9-disc">OS</span><span class="v9-name">OldSchool0909</span></a><span class="v9-src">Action Network</span><span class="v9-chip v9-w">W5 🔥</span></div>
+<a class="v9-bet" href="#" aria-label="CHI +1.5 at -108, bet sheet"><span class="v9-pk"><span class="v9-pick">CHI +1.5</span><span class="v9-price">at -108</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">41-27</span><span class="v9-money v9-pos">+$212</span><span class="v9-roi v9-pos">+7.8% ROI</span></span><span class="v9-when">Recorded 6h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-dal">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="VeryLucky888, NFL profile"><span class="v9-disc">VL</span><span class="v9-name">VeryLucky888</span></a><span class="v9-src">Polymarket</span></div>
+<a class="v9-bet" href="#" aria-label="DAL ML at -118, bet sheet"><span class="v9-pk"><span class="v9-pick">DAL ML</span><span class="v9-price">at -118</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">22-11</span><span class="v9-money v9-pos">+$188</span><span class="v9-roi v9-pos">+14.2% ROI</span></span><span class="v9-when">Recorded 9h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-chi">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="RiverCityRick, NFL profile"><span class="v9-disc">RR</span><span class="v9-name">RiverCityRick</span></a><span class="v9-src">Community</span></div>
+<a class="v9-bet" href="#" aria-label="CHI +1.5 at -110, bet sheet"><span class="v9-pk"><span class="v9-pick">CHI +1.5</span><span class="v9-price">at -110</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">27-19</span><span class="v9-money v9-pos">+$96</span><span class="v9-roi v9-pos">+5.2% ROI</span></span><span class="v9-when">Recorded 2h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-over">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="KnightDasCapital, NFL profile"><span class="v9-disc">KD</span><span class="v9-name">KnightDasCapital</span></a><span class="v9-src">Polymarket</span></div>
+<a class="v9-bet" href="#" aria-label="Over 44.5 at -105, bet sheet"><span class="v9-pk"><span class="v9-pick">Over 44.5</span><span class="v9-price">at -105</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">14-9</span><span class="v9-money v9-pos">+$61</span><span class="v9-roi v9-pos">+6.6% ROI</span></span><span class="v9-when">Recorded 12h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-dal">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="Brian Bitler, NFL profile"><span class="v9-disc">BB</span><span class="v9-name">Brian Bitler</span></a><span class="v9-src">Action Network</span></div>
+<a class="v9-bet" href="#" aria-label="DAL ML at -125, bet sheet"><span class="v9-pk"><span class="v9-pick">DAL ML</span><span class="v9-price">at -125</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">33-30</span><span class="v9-money v9-pos">+$41</span><span class="v9-roi v9-pos">+1.6% ROI</span></span><span class="v9-when">Recorded 3h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-chi">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="HomeRunHazard, NFL profile"><span class="v9-disc">HH</span><span class="v9-name">HomeRunHazard</span></a><span class="v9-src">Action Network</span><span class="v9-chip">Small sample</span></div>
+<a class="v9-bet" href="#" aria-label="CHI ML at +105, bet sheet"><span class="v9-pk"><span class="v9-pick">CHI ML</span><span class="v9-price">at +105</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">9-6</span><span class="v9-money v9-pos">+$34</span><span class="v9-roi v9-pos">+5.7% ROI</span></span><span class="v9-when">Recorded 4h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-under">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="thirdstring, NFL profile"><span class="v9-disc">TS</span><span class="v9-name">thirdstring</span></a><span class="v9-src">Covers</span></div>
+<a class="v9-bet" href="#" aria-label="Under 44.5, no price, graded at -110, bet sheet"><span class="v9-pk"><span class="v9-pick">Under 44.5</span><span class="v9-price v9-np">no price,<br>graded at -110</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">58-61</span><span class="v9-money v9-neg">-$86</span><span class="v9-roi v9-neg">-3.6% ROI</span></span><span class="v9-when">Recorded 21h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-dal">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="Mattcanter, NFL profile"><span class="v9-disc">MC</span><span class="v9-name">Mattcanter</span></a><span class="v9-src">Covers</span></div>
+<a class="v9-bet" href="#" aria-label="DAL -1.5, no price, graded at -110, bet sheet"><span class="v9-pk"><span class="v9-pick">DAL -1.5</span><span class="v9-price v9-np">no price,<br>graded at -110</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">45-52</span><span class="v9-money v9-neg">-$118</span><span class="v9-roi v9-neg">-6.1% ROI</span></span><span class="v9-when">Recorded 20h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+<li class="v9-row v9-s-over">
+<div class="v9-l1"><a class="v9-who" href="#" aria-label="stevet81, NFL profile"><span class="v9-disc">ST</span><span class="v9-name">stevet81</span></a><span class="v9-src">Covers</span><span class="v9-chip v9-l">L5 ❄️</span></div>
+<a class="v9-bet" href="#" aria-label="Over 44.5, no price, graded at -110, bet sheet"><span class="v9-pk"><span class="v9-pick">Over 44.5</span><span class="v9-price v9-np">no price,<br>graded at -110</span></span><span class="v9-met"><span class="v9-nums"><span class="v9-rec">61-66</span><span class="v9-money v9-neg">-$140</span><span class="v9-roi v9-neg">-5.5% ROI</span></span><span class="v9-when">Recorded 21h before start</span></span><span class="v9-chev" aria-hidden="true"></span></a>
+</li>
+</ul>
+<p class="v9-empty">No cappers on this side</p>
+<p class="v9-hint">Name opens the capper's NFL profile. The pick line opens the bet sheet: their line and price, the current line, their record on this bet type, Track this side.</p>
+<p class="v9-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v9-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v9-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="10" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v10">
+<input type="radio" name="v10f" class="v10-f v10-f-all" id="v10-f-all" checked>
+<input type="radio" name="v10f" class="v10-f v10-f-dal" id="v10-f-dal">
+<input type="radio" name="v10f" class="v10-f v10-f-chi" id="v10-f-chi">
+<input type="radio" name="v10f" class="v10-f v10-f-over" id="v10-f-over">
+<input type="radio" name="v10f" class="v10-f v10-f-under" id="v10-f-under">
+<input type="checkbox" class="v10-f v10-x" id="v10-x">
+<input type="checkbox" class="v10-f v10-o" id="v10-o" checked>
+<div class="v10-head">
+<h2 class="v10-title">Who is on this game</h2>
+<p class="v10-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<div class="v10-strip">
+<label class="v10-tab v10-t-all" for="v10-f-all">All <b>9</b></label>
+<label class="v10-tab v10-t-dal" for="v10-f-dal">DAL <b>3</b></label>
+<label class="v10-tab v10-t-chi" for="v10-f-chi">CHI <b>3</b></label>
+<label class="v10-tab v10-t-over" for="v10-f-over">Over <b>2</b></label>
+<label class="v10-tab v10-t-under" for="v10-f-under">Under <b>1</b></label>
+</div>
+<div class="v10-slots">
+<span class="v10-slot"><span>DAL ML</span><b>2</b></span>
+<span class="v10-slot"><span>CHI ML</span><b>1</b></span>
+<span class="v10-slot"><span>DAL -1.5</span><b>1</b></span>
+<span class="v10-slot"><span>CHI +1.5</span><b>2</b></span>
+<span class="v10-slot"><span>Over 44.5</span><b>2</b></span>
+<span class="v10-slot"><span>Under 44.5</span><b>1</b></span>
+</div>
+<ul class="v10-list">
+<li class="v10-row v10-open v10-s-chi">
+<div class="v10-hd">
+<a class="v10-who" href="#"><span class="v10-disc">OS</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">OldSchool0909</span><span class="v10-src">Action Network</span></span><span class="v10-met"><span class="v10-rec">41-27</span><span class="v10-pos">+$212</span><span class="v10-roi v10-pos">+7.8% ROI</span></span><span class="v10-sub"><span class="v10-when">Recorded 6h before start</span><span class="v10-chip v10-w">W5 🔥</span></span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">CHI +1.5</span><span class="v10-price">at -108</span></span><span class="v10-chev"></span></a>
+<label class="v10-tog" for="v10-o" aria-label="Collapse slip"><span class="v10-up"></span></label>
+</div>
+<div class="v10-tear"></div>
+<div class="v10-body">
+<a class="v10-big" href="#"><span class="v10-bigin"><span class="v10-bigpick">CHI +1.5</span><span class="v10-bigprice">at -108</span></span><span class="v10-bigtap">Bet sheet</span><span class="v10-chev"></span></a>
+<div class="v10-lines">
+<div class="v10-ln"><i>Their line</i><b>CHI +1.5 at -108</b></div>
+<div class="v10-ln"><i>NFL picks</i><b>68</b></div>
+</div>
+<a class="v10-track" href="#">Track this side</a>
+</div>
+</li>
+<li class="v10-row v10-s-dal">
+<a class="v10-who" href="#"><span class="v10-disc">VL</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">VeryLucky888</span><span class="v10-src">Polymarket</span></span><span class="v10-met"><span class="v10-rec">22-11</span><span class="v10-pos">+$188</span><span class="v10-roi v10-pos">+14.2% ROI</span></span><span class="v10-when">Recorded 9h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">DAL ML</span><span class="v10-price">at -118</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-s-chi">
+<a class="v10-who" href="#"><span class="v10-disc">RR</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">RiverCityRick</span><span class="v10-src">Community</span></span><span class="v10-met"><span class="v10-rec">27-19</span><span class="v10-pos">+$96</span><span class="v10-roi v10-pos">+5.2% ROI</span></span><span class="v10-when">Recorded 2h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">CHI +1.5</span><span class="v10-price">at -110</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-s-over">
+<a class="v10-who" href="#"><span class="v10-disc">KD</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">KnightDasCapital</span><span class="v10-src">Polymarket</span></span><span class="v10-met"><span class="v10-rec">14-9</span><span class="v10-pos">+$61</span><span class="v10-roi v10-pos">+6.6% ROI</span></span><span class="v10-when">Recorded 12h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">Over 44.5</span><span class="v10-price">at -105</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-s-dal">
+<a class="v10-who" href="#"><span class="v10-disc">BB</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">Brian Bitler</span><span class="v10-src">Action Network</span></span><span class="v10-met"><span class="v10-rec">33-30</span><span class="v10-pos">+$41</span><span class="v10-roi v10-pos">+1.6% ROI</span></span><span class="v10-when">Recorded 3h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">DAL ML</span><span class="v10-price">at -125</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-extra v10-s-chi">
+<a class="v10-who" href="#"><span class="v10-disc">HH</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">HomeRunHazard</span><span class="v10-src">Action Network</span></span><span class="v10-met"><span class="v10-rec">9-6</span><span class="v10-pos">+$34</span><span class="v10-roi v10-pos">+5.7% ROI</span></span><span class="v10-sub"><span class="v10-when">Recorded 4h before start</span><span class="v10-chip">Small sample</span></span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">CHI ML</span><span class="v10-price">at +105</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-extra v10-s-under">
+<a class="v10-who" href="#"><span class="v10-disc">TS</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">thirdstring</span><span class="v10-src">Covers</span></span><span class="v10-met"><span class="v10-rec">58-61</span><span class="v10-neg">-$86</span><span class="v10-roi v10-neg">-3.6% ROI</span></span><span class="v10-when">Recorded 21h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">Under 44.5</span><span class="v10-price">no price,<br>graded at -110</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-extra v10-s-dal">
+<a class="v10-who" href="#"><span class="v10-disc">MC</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">Mattcanter</span><span class="v10-src">Covers</span></span><span class="v10-met"><span class="v10-rec">45-52</span><span class="v10-neg">-$118</span><span class="v10-roi v10-neg">-6.1% ROI</span></span><span class="v10-when">Recorded 20h before start</span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">DAL -1.5</span><span class="v10-price">no price,<br>graded at -110</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-row v10-extra v10-s-over">
+<a class="v10-who" href="#"><span class="v10-disc">ST</span><span class="v10-main"><span class="v10-ident"><span class="v10-name">stevet81</span><span class="v10-src">Covers</span></span><span class="v10-met"><span class="v10-rec">61-66</span><span class="v10-neg">-$140</span><span class="v10-roi v10-neg">-5.5% ROI</span></span><span class="v10-sub"><span class="v10-when">Recorded 21h before start</span><span class="v10-chip v10-l">L5 ❄️</span></span></span></a>
+<a class="v10-bet" href="#"><span class="v10-pick"><span class="v10-pchip">Over 44.5</span><span class="v10-price">no price,<br>graded at -110</span></span><span class="v10-chev"></span></a>
+</li>
+<li class="v10-more"><label class="v10-showall" for="v10-x"><span class="v10-sa-more">Show all 9</span><span class="v10-sa-less">Show fewer</span><span class="v10-sa-chev"></span></label></li>
+</ul>
+<p class="v10-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v10-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v10-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="11" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v11">
+<div class="v11-head">
+<h2 class="v11-title">Who is on this game</h2>
+<p class="v11-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<section class="v11-group" id="v11-g-dal">
+<div class="v11-gh"><span class="v11-gside">DAL</span><span class="v11-gmk">ML, spread</span><span class="v11-gn">3 cappers</span></div>
+<ul class="v11-rows">
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="VeryLucky888, NFL profile"><span class="v11-disc">VL</span><span class="v11-name">VeryLucky888</span></a>
+<span class="v11-met"><span class="v11-rec">22-11</span><span class="v11-money v11-pos">+$188</span><span class="v11-roi v11-pos">+14.2% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Polymarket</span><a class="v11-pchip" href="#" aria-label="Bet sheet, DAL ML at -118">DAL ML</a><span class="v11-price">at -118</span><span class="v11-when">Recorded 9h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, VeryLucky888 on DAL ML"><span class="v11-tk"></span></a>
+</li>
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="Brian Bitler, NFL profile"><span class="v11-disc">BB</span><span class="v11-name">Brian Bitler</span></a>
+<span class="v11-met"><span class="v11-rec">33-30</span><span class="v11-money v11-pos">+$41</span><span class="v11-roi v11-pos">+1.6% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Action Network</span><a class="v11-pchip" href="#" aria-label="Bet sheet, DAL ML at -125">DAL ML</a><span class="v11-price">at -125</span><span class="v11-when">Recorded 3h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, Brian Bitler on DAL ML"><span class="v11-tk"></span></a>
+</li>
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="Mattcanter, NFL profile"><span class="v11-disc">MC</span><span class="v11-name">Mattcanter</span></a>
+<span class="v11-met"><span class="v11-rec">45-52</span><span class="v11-money v11-neg">-$118</span><span class="v11-roi v11-neg">-6.1% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Covers</span><a class="v11-pchip" href="#" aria-label="Bet sheet, DAL -1.5, no price, graded at -110">DAL -1.5</a><span class="v11-price">no price, graded at -110</span><span class="v11-when">Recorded 20h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, Mattcanter on DAL -1.5"><span class="v11-tk"></span></a>
+</li>
+</ul>
+</section>
+<section class="v11-group" id="v11-g-chi">
+<div class="v11-gh"><span class="v11-gside">CHI</span><span class="v11-gmk">spread, ML</span><span class="v11-gn">3 cappers</span></div>
+<ul class="v11-rows">
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="OldSchool0909, NFL profile"><span class="v11-disc">OS</span><span class="v11-name">OldSchool0909</span></a>
+<span class="v11-met"><span class="v11-rec">41-27</span><span class="v11-money v11-pos">+$212</span><span class="v11-roi v11-pos">+7.8% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Action Network</span><a class="v11-pchip" href="#" aria-label="Bet sheet, CHI +1.5 at -108">CHI +1.5</a><span class="v11-price">at -108</span><span class="v11-chip v11-w">W5 🔥</span><span class="v11-when">Recorded 6h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, OldSchool0909 on CHI +1.5"><span class="v11-tk"></span></a>
+</li>
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="RiverCityRick, NFL profile"><span class="v11-disc">RR</span><span class="v11-name">RiverCityRick</span></a>
+<span class="v11-met"><span class="v11-rec">27-19</span><span class="v11-money v11-pos">+$96</span><span class="v11-roi v11-pos">+5.2% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Community</span><a class="v11-pchip" href="#" aria-label="Bet sheet, CHI +1.5 at -110">CHI +1.5</a><span class="v11-price">at -110</span><span class="v11-when">Recorded 2h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, RiverCityRick on CHI +1.5"><span class="v11-tk"></span></a>
+</li>
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="HomeRunHazard, NFL profile"><span class="v11-disc">HH</span><span class="v11-name">HomeRunHazard</span></a>
+<span class="v11-met"><span class="v11-rec">9-6</span><span class="v11-money v11-pos">+$34</span><span class="v11-roi v11-pos">+5.7% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Action Network</span><a class="v11-pchip" href="#" aria-label="Bet sheet, CHI ML at +105">CHI ML</a><span class="v11-price">at +105</span><span class="v11-chip">Small sample</span><span class="v11-when">Recorded 4h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, HomeRunHazard on CHI ML"><span class="v11-tk"></span></a>
+</li>
+</ul>
+</section>
+<section class="v11-group" id="v11-g-over">
+<div class="v11-gh"><span class="v11-gside">Over</span><span class="v11-gmk">total</span><span class="v11-gn">2 cappers</span></div>
+<ul class="v11-rows">
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="KnightDasCapital, NFL profile"><span class="v11-disc">KD</span><span class="v11-name">KnightDasCapital</span></a>
+<span class="v11-met"><span class="v11-rec">14-9</span><span class="v11-money v11-pos">+$61</span><span class="v11-roi v11-pos">+6.6% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Polymarket</span><a class="v11-pchip" href="#" aria-label="Bet sheet, Over 44.5 at -105">Over 44.5</a><span class="v11-price">at -105</span><span class="v11-when">Recorded 12h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, KnightDasCapital on Over 44.5"><span class="v11-tk"></span></a>
+</li>
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="stevet81, NFL profile"><span class="v11-disc">ST</span><span class="v11-name">stevet81</span></a>
+<span class="v11-met"><span class="v11-rec">61-66</span><span class="v11-money v11-neg">-$140</span><span class="v11-roi v11-neg">-5.5% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Covers</span><a class="v11-pchip" href="#" aria-label="Bet sheet, Over 44.5, no price, graded at -110">Over 44.5</a><span class="v11-price">no price, graded at -110</span><span class="v11-chip v11-l">L5 ❄️</span><span class="v11-when">Recorded 21h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, stevet81 on Over 44.5"><span class="v11-tk"></span></a>
+</li>
+</ul>
+</section>
+<section class="v11-group" id="v11-g-under">
+<div class="v11-gh"><span class="v11-gside">Under</span><span class="v11-gmk">total</span><span class="v11-gn">1 capper</span></div>
+<ul class="v11-rows">
+<li class="v11-row">
+<a class="v11-who" href="#" aria-label="thirdstring, NFL profile"><span class="v11-disc">TS</span><span class="v11-name">thirdstring</span></a>
+<span class="v11-met"><span class="v11-rec">58-61</span><span class="v11-money v11-neg">-$86</span><span class="v11-roi v11-neg">-3.6% ROI</span></span>
+<span class="v11-sub"><span class="v11-src">Covers</span><a class="v11-pchip" href="#" aria-label="Bet sheet, Under 44.5, no price, graded at -110">Under 44.5</a><span class="v11-price">no price, graded at -110</span><span class="v11-when">Recorded 21h before start</span></span>
+<a class="v11-slip" href="#" aria-label="Bet sheet, thirdstring on Under 44.5"><span class="v11-tk"></span></a>
+</li>
+</ul>
+</section>
+<p class="v11-legend">Name opens the NFL profile. Pick or ticket opens the bet sheet. Prices are each capper's recorded price, not a current line.</p>
+<p class="v11-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v11-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v11-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="12" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v12">
+<input type="checkbox" class="v12-f v12-f-more" id="v12-f-more">
+<input type="radio" name="v12f" class="v12-f v12-f-all" id="v12-f-all" checked>
+<input type="radio" name="v12f" class="v12-f v12-f-dal" id="v12-f-dal">
+<input type="radio" name="v12f" class="v12-f v12-f-chi" id="v12-f-chi">
+<input type="radio" name="v12f" class="v12-f v12-f-over" id="v12-f-over">
+<input type="radio" name="v12f" class="v12-f v12-f-under" id="v12-f-under">
+<div class="v12-head">
+<h2 class="v12-title">Who is on this game</h2>
+<p class="v12-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<div class="v12-railwrap">
+<div class="v12-rail" aria-label="Bet slips, swipe sideways for all 9">
+<a class="v12-slip v12-s-chi" href="#"><span class="v12-sp">CHI +1.5</span><span class="v12-spr">at -108</span><span class="v12-sn">OldSchool0909</span><span class="v12-sm v12-pos">+$212</span></a>
+<a class="v12-slip v12-s-dal" href="#"><span class="v12-sp">DAL ML</span><span class="v12-spr">at -118</span><span class="v12-sn">VeryLucky888</span><span class="v12-sm v12-pos">+$188</span></a>
+<a class="v12-slip v12-s-chi" href="#"><span class="v12-sp">CHI +1.5</span><span class="v12-spr">at -110</span><span class="v12-sn">RiverCityRick</span><span class="v12-sm v12-pos">+$96</span></a>
+<a class="v12-slip v12-s-over" href="#"><span class="v12-sp">Over 44.5</span><span class="v12-spr">at -105</span><span class="v12-sn">KnightDasCapital</span><span class="v12-sm v12-pos">+$61</span></a>
+<a class="v12-slip v12-s-dal" href="#"><span class="v12-sp">DAL ML</span><span class="v12-spr">at -125</span><span class="v12-sn">Brian Bitler</span><span class="v12-sm v12-pos">+$41</span></a>
+<a class="v12-slip v12-s-chi" href="#"><span class="v12-sp">CHI ML</span><span class="v12-spr">at +105</span><span class="v12-sn">HomeRunHazard</span><span class="v12-sm v12-pos">+$34</span></a>
+<a class="v12-slip v12-s-under" href="#"><span class="v12-sp">Under 44.5</span><span class="v12-spr">no price, graded at -110</span><span class="v12-sn">thirdstring</span><span class="v12-sm v12-neg">-$86</span></a>
+<a class="v12-slip v12-s-dal" href="#"><span class="v12-sp">DAL -1.5</span><span class="v12-spr">no price, graded at -110</span><span class="v12-sn">Mattcanter</span><span class="v12-sm v12-neg">-$118</span></a>
+<a class="v12-slip v12-s-over" href="#"><span class="v12-sp">Over 44.5</span><span class="v12-spr">no price, graded at -110</span><span class="v12-sn">stevet81</span><span class="v12-sm v12-neg">-$140</span></a>
+</div>
+</div>
+<p class="v12-hint"><span class="v12-swipe">Swipe for all 9 slips</span> Tap a slip for the bet sheet. Tap a name for the NFL profile.</p>
+<div class="v12-strip" role="group" aria-label="Filter by side">
+<label class="v12-tab v12-t-all" for="v12-f-all">All <b>9</b></label>
+<label class="v12-tab v12-t-dal" for="v12-f-dal">DAL <b>3</b></label>
+<label class="v12-tab v12-t-chi" for="v12-f-chi">CHI <b>3</b></label>
+<label class="v12-tab v12-t-over" for="v12-f-over">Over <b>2</b></label>
+<label class="v12-tab v12-t-under" for="v12-f-under">Under <b>1</b></label>
+</div>
+<ul class="v12-list">
+<li class="v12-row v12-s-chi"><a class="v12-link" href="#" aria-label="OldSchool0909, NFL profile"><span class="v12-disc">OS</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">OldSchool0909</span><span class="v12-src">Action Network</span></span><span class="v12-met"><span class="v12-rec">41-27</span><span class="v12-money v12-pos">+$212</span><span class="v12-roi v12-pos">+7.8% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 6h before start</span><span class="v12-chip v12-w">W5 🔥</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">CHI +1.5</span><span class="v12-price">at -108</span></a></li>
+<li class="v12-row v12-s-dal"><a class="v12-link" href="#" aria-label="VeryLucky888, NFL profile"><span class="v12-disc">VL</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">VeryLucky888</span><span class="v12-src">Polymarket</span></span><span class="v12-met"><span class="v12-rec">22-11</span><span class="v12-money v12-pos">+$188</span><span class="v12-roi v12-pos">+14.2% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 9h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">DAL ML</span><span class="v12-price">at -118</span></a></li>
+<li class="v12-row v12-s-chi"><a class="v12-link" href="#" aria-label="RiverCityRick, NFL profile"><span class="v12-disc">RR</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">RiverCityRick</span><span class="v12-src">Community</span></span><span class="v12-met"><span class="v12-rec">27-19</span><span class="v12-money v12-pos">+$96</span><span class="v12-roi v12-pos">+5.2% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 2h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">CHI +1.5</span><span class="v12-price">at -110</span></a></li>
+<li class="v12-row v12-s-over"><a class="v12-link" href="#" aria-label="KnightDasCapital, NFL profile"><span class="v12-disc">KD</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">KnightDasCapital</span><span class="v12-src">Polymarket</span></span><span class="v12-met"><span class="v12-rec">14-9</span><span class="v12-money v12-pos">+$61</span><span class="v12-roi v12-pos">+6.6% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 12h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">Over 44.5</span><span class="v12-price">at -105</span></a></li>
+<li class="v12-row v12-s-dal"><a class="v12-link" href="#" aria-label="Brian Bitler, NFL profile"><span class="v12-disc">BB</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">Brian Bitler</span><span class="v12-src">Action Network</span></span><span class="v12-met"><span class="v12-rec">33-30</span><span class="v12-money v12-pos">+$41</span><span class="v12-roi v12-pos">+1.6% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 3h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">DAL ML</span><span class="v12-price">at -125</span></a></li>
+<li class="v12-row v12-s-chi v12-hid"><a class="v12-link" href="#" aria-label="HomeRunHazard, NFL profile"><span class="v12-disc">HH</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">HomeRunHazard</span><span class="v12-src">Action Network</span></span><span class="v12-met"><span class="v12-rec">9-6</span><span class="v12-money v12-pos">+$34</span><span class="v12-roi v12-pos">+5.7% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 4h before start</span><span class="v12-chip">Small sample</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">CHI ML</span><span class="v12-price">at +105</span></a></li>
+<li class="v12-row v12-s-under v12-hid"><a class="v12-link" href="#" aria-label="thirdstring, NFL profile"><span class="v12-disc">TS</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">thirdstring</span><span class="v12-src">Covers</span></span><span class="v12-met"><span class="v12-rec">58-61</span><span class="v12-money v12-neg">-$86</span><span class="v12-roi v12-neg">-3.6% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 21h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">Under 44.5</span><span class="v12-price">no price,<br>graded at -110</span></a></li>
+<li class="v12-row v12-s-dal v12-hid"><a class="v12-link" href="#" aria-label="Mattcanter, NFL profile"><span class="v12-disc">MC</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">Mattcanter</span><span class="v12-src">Covers</span></span><span class="v12-met"><span class="v12-rec">45-52</span><span class="v12-money v12-neg">-$118</span><span class="v12-roi v12-neg">-6.1% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 20h before start</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">DAL -1.5</span><span class="v12-price">no price,<br>graded at -110</span></a></li>
+<li class="v12-row v12-s-over v12-hid"><a class="v12-link" href="#" aria-label="stevet81, NFL profile"><span class="v12-disc">ST</span><span class="v12-main"><span class="v12-ident"><span class="v12-name">stevet81</span><span class="v12-src">Covers</span></span><span class="v12-met"><span class="v12-rec">61-66</span><span class="v12-money v12-neg">-$140</span><span class="v12-roi v12-neg">-5.5% ROI</span></span><span class="v12-sub"><span class="v12-when">Recorded 21h before start</span><span class="v12-chip v12-l">L5 ❄️</span></span></span></a><a class="v12-bet" href="#"><span class="v12-pchip">Over 44.5</span><span class="v12-price">no price,<br>graded at -110</span></a></li>
+</ul>
+<label class="v12-more" for="v12-f-more"><span class="v12-mb-more">Show all 9</span><span class="v12-mb-less">Show fewer</span></label>
+<p class="v12-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v12-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v12-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="1" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v1">
+<input type="radio" name="v1f" class="v1-f v1-f-all" id="v1-f-all" checked>
+<input type="radio" name="v1f" class="v1-f v1-f-dal" id="v1-f-dal">
+<input type="radio" name="v1f" class="v1-f v1-f-chi" id="v1-f-chi">
+<input type="radio" name="v1f" class="v1-f v1-f-over" id="v1-f-over">
+<input type="radio" name="v1f" class="v1-f v1-f-under" id="v1-f-under">
+<div class="v1-head">
+<h2 class="v1-title">Who is on this game</h2>
+<p class="v1-count">9 cappers, 3 sources, freezes at kickoff</p>
+</div>
+<div class="v1-strip" role="group" aria-label="Filter by side">
+<label class="v1-tab v1-t-all" for="v1-f-all">All <b>9</b></label>
+<label class="v1-tab v1-t-dal" for="v1-f-dal">DAL <b>3</b></label>
+<label class="v1-tab v1-t-chi" for="v1-f-chi">CHI <b>3</b></label>
+<label class="v1-tab v1-t-over" for="v1-f-over">Over <b>2</b></label>
+<label class="v1-tab v1-t-under" for="v1-f-under">Under <b>1</b></label>
+</div>
+<div class="v1-slots">
+<span class="v1-slot"><span>DAL ML</span><b>2</b></span>
+<span class="v1-slot"><span>CHI ML</span><b>1</b></span>
+<span class="v1-slot"><span>DAL -1.5</span><b>1</b></span>
+<span class="v1-slot"><span>CHI +1.5</span><b>2</b></span>
+<span class="v1-slot"><span>Over 44.5</span><b>2</b></span>
+<span class="v1-slot"><span>Under 44.5</span><b>1</b></span>
+</div>
+<ul class="v1-list">
+<li class="v1-row v1-s-chi"><a class="v1-link" href="#" aria-label="OldSchool0909, NFL profile">
+<span class="v1-disc">OS</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">OldSchool0909</span><span class="v1-src">Action Network</span></span>
+<span class="v1-met"><span class="v1-rec">41-27</span><span class="v1-money v1-pos">+$212</span><span class="v1-roi v1-pos">+7.8% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 6h before start</span><span class="v1-chip v1-w">W5 🔥</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">CHI +1.5</span><span class="v1-price">at -108</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-dal"><a class="v1-link" href="#" aria-label="VeryLucky888, NFL profile">
+<span class="v1-disc">VL</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">VeryLucky888</span><span class="v1-src">Polymarket</span></span>
+<span class="v1-met"><span class="v1-rec">22-11</span><span class="v1-money v1-pos">+$188</span><span class="v1-roi v1-pos">+14.2% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 9h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">DAL ML</span><span class="v1-price">at -118</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-chi"><a class="v1-link" href="#" aria-label="RiverCityRick, NFL profile">
+<span class="v1-disc">RR</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">RiverCityRick</span><span class="v1-src">Community</span></span>
+<span class="v1-met"><span class="v1-rec">27-19</span><span class="v1-money v1-pos">+$96</span><span class="v1-roi v1-pos">+5.2% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 2h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">CHI +1.5</span><span class="v1-price">at -110</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-over"><a class="v1-link" href="#" aria-label="KnightDasCapital, NFL profile">
+<span class="v1-disc">KD</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">KnightDasCapital</span><span class="v1-src">Polymarket</span></span>
+<span class="v1-met"><span class="v1-rec">14-9</span><span class="v1-money v1-pos">+$61</span><span class="v1-roi v1-pos">+6.6% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 12h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">Over 44.5</span><span class="v1-price">at -105</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-dal"><a class="v1-link" href="#" aria-label="Brian Bitler, NFL profile">
+<span class="v1-disc">BB</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">Brian Bitler</span><span class="v1-src">Action Network</span></span>
+<span class="v1-met"><span class="v1-rec">33-30</span><span class="v1-money v1-pos">+$41</span><span class="v1-roi v1-pos">+1.6% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 3h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">DAL ML</span><span class="v1-price">at -125</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-chi"><a class="v1-link" href="#" aria-label="HomeRunHazard, NFL profile">
+<span class="v1-disc">HH</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">HomeRunHazard</span><span class="v1-src">Action Network</span></span>
+<span class="v1-met"><span class="v1-rec">9-6</span><span class="v1-money v1-pos">+$34</span><span class="v1-roi v1-pos">+5.7% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 4h before start</span><span class="v1-chip">Small sample</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">CHI ML</span><span class="v1-price">at +105</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-under"><a class="v1-link" href="#" aria-label="thirdstring, NFL profile">
+<span class="v1-disc">TS</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">thirdstring</span><span class="v1-src">Covers</span></span>
+<span class="v1-met"><span class="v1-rec">58-61</span><span class="v1-money v1-neg">-$86</span><span class="v1-roi v1-neg">-3.6% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 21h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">Under 44.5</span><span class="v1-price">no price,<br>graded at -110</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-dal"><a class="v1-link" href="#" aria-label="Mattcanter, NFL profile">
+<span class="v1-disc">MC</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">Mattcanter</span><span class="v1-src">Covers</span></span>
+<span class="v1-met"><span class="v1-rec">45-52</span><span class="v1-money v1-neg">-$118</span><span class="v1-roi v1-neg">-6.1% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 20h before start</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">DAL -1.5</span><span class="v1-price">no price,<br>graded at -110</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+<li class="v1-row v1-s-over"><a class="v1-link" href="#" aria-label="stevet81, NFL profile">
+<span class="v1-disc">ST</span>
+<span class="v1-main">
+<span class="v1-ident"><span class="v1-name">stevet81</span><span class="v1-src">Covers</span></span>
+<span class="v1-met"><span class="v1-rec">61-66</span><span class="v1-money v1-neg">-$140</span><span class="v1-roi v1-neg">-5.5% ROI</span></span>
+<span class="v1-sub"><span class="v1-when">Recorded 21h before start</span><span class="v1-chip v1-l">L5 ❄️</span></span>
+</span>
+<span class="v1-pick"><span class="v1-pchip">Over 44.5</span><span class="v1-price">no price,<br>graded at -110</span></span>
+<span class="v1-chev" aria-hidden="true"></span>
+</a></li>
+</ul>
+<p class="v1-empty">No cappers on this side</p>
+<p class="v1-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<p class="v1-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v1-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div>
+<div class="screen-body" data-v="6" hidden>
+<div class="gh">
+  <div class="gh-top"><span class="gh-sport">NFL · Sun 1:00 PM ET · Soldier Field</span><span class="gh-live">Pregame</span></div>
+  <div class="gh-teams">
+    <div class="gh-team"><div class="mark" style="background:#0a2a5c;color:#fff">DAL</div><div class="gh-name">Cowboys</div><div class="gh-rec">1-1</div></div>
+    <div class="gh-at">at</div>
+    <div class="gh-team"><div class="mark" style="background:#c83803;color:#fff">CHI</div><div class="gh-name">Bears</div><div class="gh-rec">1-1</div></div>
+  </div>
+  <div class="gh-lines"><span>Spread DAL -1.5</span><span>ML DAL -125 / CHI +105</span><span>Total 44.5</span></div>
+  <div class="gh-tabs"><span class="on">CAPPERS</span><span>LINES</span><span>BETTING</span><span>FORM</span><span>INJURIES</span></div>
+</div><div class="v v6">
+<input type="radio" name="v6f" id="v6f-all" class="v6-f v6-f-all" checked>
+<input type="radio" name="v6f" id="v6f-dal" class="v6-f v6-f-dal">
+<input type="radio" name="v6f" id="v6f-chi" class="v6-f v6-f-chi">
+<input type="radio" name="v6f" id="v6f-over" class="v6-f v6-f-over">
+<input type="radio" name="v6f" id="v6f-under" class="v6-f v6-f-under">
+<header class="v6-head">
+<h2 class="v6-title">Who is on this game</h2>
+<p class="v6-count">9 cappers, 3 sources, freezes at kickoff</p>
+<p class="v6-game">DAL at CHI</p>
+</header>
+<ul class="v6-slots">
+<li class="sl-dal"><span class="v6-sl">DAL ML</span><span class="v6-sn">2</span></li>
+<li class="sl-chi"><span class="v6-sl">CHI ML</span><span class="v6-sn">1</span></li>
+<li class="sl-dal"><span class="v6-sl">DAL -1.5</span><span class="v6-sn">1</span></li>
+<li class="sl-chi"><span class="v6-sl">CHI +1.5</span><span class="v6-sn">2</span></li>
+<li class="sl-over"><span class="v6-sl">Over 44.5</span><span class="v6-sn">2</span></li>
+<li class="sl-under"><span class="v6-sl">Under 44.5</span><span class="v6-sn">1</span></li>
+</ul>
+<p class="v6-note">Counts are counts. In our data, more cappers on a side has not meant more wins.</p>
+<nav class="v6-filter" aria-label="Filter slips">
+<label for="v6f-all" class="v6-fl v6-fl-all">All</label>
+<label for="v6f-dal" class="v6-fl v6-fl-dal">DAL</label>
+<label for="v6f-chi" class="v6-fl v6-fl-chi">CHI</label>
+<label for="v6f-over" class="v6-fl v6-fl-over">Over</label>
+<label for="v6f-under" class="v6-fl v6-fl-under">Under</label>
+<span class="v6-fs">by NFL money</span>
+</nav>
+<div class="v6-list">
+<a class="v6-slip s-chi" href="#">
+<div class="v6-hd"><span class="v6-av">OS</span><span class="v6-who"><span class="v6-name">OldSchool0909</span><span class="v6-src">Action Network</span></span><span class="v6-chip v6-w">W5 🔥</span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">CHI +1.5</span><span class="v6-price">at -108</span><span class="v6-when">recorded 6h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>41-27</b><i>NFL</i></span><span class="v6-st pos"><b>+$212</b><i>money</i></span><span class="v6-st pos"><b>+7.8%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-dal" href="#">
+<div class="v6-hd"><span class="v6-av">VL</span><span class="v6-who"><span class="v6-name">VeryLucky888</span><span class="v6-src">Polymarket</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">DAL ML</span><span class="v6-price">at -118</span><span class="v6-when">recorded 9h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>22-11</b><i>NFL</i></span><span class="v6-st pos"><b>+$188</b><i>money</i></span><span class="v6-st pos"><b>+14.2%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-chi" href="#">
+<div class="v6-hd"><span class="v6-av">RR</span><span class="v6-who"><span class="v6-name">RiverCityRick</span><span class="v6-src">Community</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">CHI +1.5</span><span class="v6-price">at -110</span><span class="v6-when">recorded 2h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>27-19</b><i>NFL</i></span><span class="v6-st pos"><b>+$96</b><i>money</i></span><span class="v6-st pos"><b>+5.2%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-over" href="#">
+<div class="v6-hd"><span class="v6-av">KD</span><span class="v6-who"><span class="v6-name">KnightDasCapital</span><span class="v6-src">Polymarket</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">Over 44.5</span><span class="v6-price">at -105</span><span class="v6-when">recorded 12h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>14-9</b><i>NFL</i></span><span class="v6-st pos"><b>+$61</b><i>money</i></span><span class="v6-st pos"><b>+6.6%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-dal" href="#">
+<div class="v6-hd"><span class="v6-av">BB</span><span class="v6-who"><span class="v6-name">Brian Bitler</span><span class="v6-src">Action Network</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">DAL ML</span><span class="v6-price">at -125</span><span class="v6-when">recorded 3h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>33-30</b><i>NFL</i></span><span class="v6-st pos"><b>+$41</b><i>money</i></span><span class="v6-st pos"><b>+1.6%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-chi" href="#">
+<div class="v6-hd"><span class="v6-av">HH</span><span class="v6-who"><span class="v6-name">HomeRunHazard</span><span class="v6-src">Action Network</span></span><span class="v6-chip v6-ss">Small sample</span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">CHI ML</span><span class="v6-price">at +105</span><span class="v6-when">recorded 4h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>9-6</b><i>NFL</i></span><span class="v6-st pos"><b>+$34</b><i>money</i></span><span class="v6-st pos"><b>+5.7%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-under" href="#">
+<div class="v6-hd"><span class="v6-av">TS</span><span class="v6-who"><span class="v6-name">thirdstring</span><span class="v6-src">Covers</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">Under 44.5</span><span class="v6-price v6-np">no price, graded at -110</span><span class="v6-when">recorded 21h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>58-61</b><i>NFL</i></span><span class="v6-st neg"><b>-$86</b><i>money</i></span><span class="v6-st neg"><b>-3.6%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-dal" href="#">
+<div class="v6-hd"><span class="v6-av">MC</span><span class="v6-who"><span class="v6-name">Mattcanter</span><span class="v6-src">Covers</span></span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">DAL -1.5</span><span class="v6-price v6-np">no price, graded at -110</span><span class="v6-when">recorded 20h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>45-52</b><i>NFL</i></span><span class="v6-st neg"><b>-$118</b><i>money</i></span><span class="v6-st neg"><b>-6.1%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+<a class="v6-slip s-over" href="#">
+<div class="v6-hd"><span class="v6-av">ST</span><span class="v6-who"><span class="v6-name">stevet81</span><span class="v6-src">Covers</span></span><span class="v6-chip v6-l">L5 ❄️</span><span class="v6-go" aria-hidden="true">›</span></div>
+<div class="v6-tear"></div>
+<div class="v6-body"><span class="v6-pick">Over 44.5</span><span class="v6-price v6-np">no price, graded at -110</span><span class="v6-when">recorded 21h before start</span></div>
+<div class="v6-foot"><span class="v6-st"><b>61-66</b><i>NFL</i></span><span class="v6-st neg"><b>-$140</b><i>money</i></span><span class="v6-st neg"><b>-5.5%</b><i>ROI</i></span></div>
+<span class="v6-sr">Open NFL profile</span>
+</a>
+</div>
+<p class="v6-unq">4 more cappers we track have not qualified in NFL yet</p>
+<p class="v6-grade">Graded by CappingAlpha from picks we captured at the line we recorded. Not the handicapper's own record. Coverage may be partial. $10 per pick.</p>
+</div>
+<div class="next-stub">
+  <div class="ns-h"><span>Lines · all bet types</span><span class="ns-tabs"><b>SPREAD</b>WIN · TOTAL</span></div>
+  <div class="ns-row"><span>DraftKings</span><span>DAL -1.5 (-110)</span><span>CHI +1.5 (-110)</span></div>
+  <div class="ns-row"><span>FanDuel</span><span>DAL -1.5 (-108)</span><span>CHI +1.5 (-112)</span></div>
+  <div class="ns-h" style="margin-top:14px"><span>Public betting</span><span class="ns-tabs">tickets · money</span></div>
+  <div class="ns-row"><span>Spread</span><span>DAL 61% · CHI 39%</span><span>$ 58 / 42</span></div>
+</div></div></div>
+        <div class="tabbar"><button class="tb">Home</button><button class="tb">Sports</button><button class="tb on">Cappers</button><button class="tb">Socials</button><button class="tb">Tracking</button></div>
+        <div class="homebar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var pills=document.querySelectorAll('.mpill');
+  function show(n){
+    pills.forEach(function(p){p.classList.toggle('on',p.dataset.v===n)});
+    document.querySelectorAll('.screen-body').forEach(function(s){s.hidden=s.dataset.v!==n});
+    document.querySelectorAll('.vnote').forEach(function(s){s.hidden=s.dataset.v!==n});
+    document.getElementById('appbody').scrollTop=0;
+    try{localStorage.setItem('ca_backers_lab_v',n)}catch(e){}
+  }
+  pills.forEach(function(p){p.addEventListener('click',function(){show(p.dataset.v)})});
+  var q=new URLSearchParams(location.search);
+  if(q.get('review')==='1')document.documentElement.classList.add('review');
+  var want=q.get('v');
+  var saved=null; try{saved=localStorage.getItem('ca_backers_lab_v')}catch(e){}
+  if(want&&document.querySelector('.screen-body[data-v="'+want+'"]'))show(want);
+  else if(saved&&document.querySelector('.screen-body[data-v="'+saved+'"]'))show(saved);
+})();
+</script>

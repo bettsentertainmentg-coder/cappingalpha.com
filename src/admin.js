@@ -1630,6 +1630,45 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <td>${recAge(b.ageMin)}</td>
     </tr>`).join('');
 
+  // ── V2 Database tab data (docs/V2_DATABASE_PLAN.md 6b) ──────────────────────
+  let v2 = { summary: {}, nextUp: [], pool: [], mode: 'v1', preview: false, bar: {} };
+  try {
+    const cv2 = require('./capper_v2');
+    v2.summary = cv2.getPoolSummary();
+    v2.nextUp = cv2.getNextUp(15);
+    v2.bar = cv2.barSettings();
+    v2.mode = db.getSetting('product_mode', 'v1');
+    v2.preview = !!req.session.v2_preview;
+    v2.freePending = db.getSetting('v2_free_pending', '0') === '1';
+    v2.pool = db.prepare(`
+      SELECT r.canonical_name, r.graded, r.wins, r.losses, r.pushes, r.units, r.roi, r.sample_tier, r.meets_bar, r.rank_money, r.active_14d, r.last_pick,
+             g.slug, g.alias_name, g.name_mode, g.primary_source, g.hidden, g.live_at,
+             (SELECT qualified_at FROM capper_qualifications q WHERE q.canonical_name = r.canonical_name) AS qualified_at
+      FROM capper_ratings_v2 r LEFT JOIN capper_registry g ON g.canonical_name = r.canonical_name
+      WHERE r.scope = 'overall' AND r.window = 'all'
+      ORDER BY (qualified_at IS NULL), r.units DESC LIMIT 60
+    `).all();
+  } catch (err) { v2.error = err.message; }
+  const v2Money = (u) => { const v = Math.round(Number(u) || 0); return `<span style="color:${v >= 0 ? '#22c55e' : '#ef4444'}">${v >= 0 ? '+$' : '-$'}${Math.abs(v)}</span>`; };
+  const v2Rows = v2.pool.map((r) => `
+      <tr style="${r.hidden ? 'opacity:.45' : ''}">
+        <td>${r.qualified_at ? '<span class="badge" style="background:#14532d;color:#86efac">LIVE</span>' : '<span class="badge" style="background:#1e2330;color:#8892a4">NOT YET</span>'}</td>
+        <td><b>${escHtml(r.alias_name && (r.name_mode === 'alias' || (r.name_mode === 'auto' && ['discord','bettingpros'].includes(r.primary_source || ''))) ? r.alias_name : (r.canonical_name || ''))}</b>
+            ${r.alias_name && (r.name_mode === 'alias' || (r.name_mode === 'auto' && ['discord','bettingpros'].includes(r.primary_source || ''))) ? `<span class="badge" style="background:#7f1d1d;color:#fecaca;margin-left:6px">FAKE</span> <span style="color:#8892a4;font-size:11px">${escHtml(r.canonical_name)}</span>` : ''}
+            ${r.qualified_at ? `<a href="/capper/${encodeURIComponent(r.slug || '')}?mode=v2" target="_blank" style="margin-left:6px;font-size:11px">profile</a>` : ''}</td>
+        <td>${escHtml(r.primary_source || '')}</td>
+        <td style="white-space:nowrap">${r.wins}-${r.losses}${r.pushes ? '-' + r.pushes : ''}</td>
+        <td>${v2Money(r.units)}</td>
+        <td>${r.roi == null ? '' : (r.roi * 100).toFixed(1) + '%'}</td>
+        <td>${r.graded} <span style="color:#8892a4">${r.sample_tier}</span></td>
+        <td>${r.meets_bar ? 'yes' : 'no'}</td>
+        <td>${r.rank_money || ''}</td>
+        <td>${escHtml(r.last_pick || '')}</td>
+      </tr>`).join('');
+  const v2NextRows = v2.nextUp.map((r) => `
+      <tr><td><b>${escHtml(r.canonical_name)}</b></td><td>${escHtml(r.primary_source || '')}</td><td>${r.wins}-${r.losses}${r.pushes ? '-' + r.pushes : ''}</td><td>${v2Money(r.units)}</td>
+      <td>${r.picks_short} picks${r.dollars_short != null ? `, $${Math.round(r.dollars_short)}` : r.roi_short != null ? `, ${r.roi_short.toFixed(1)}% ROI` : ''} short</td></tr>`).join('');
+
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
 
@@ -1639,6 +1678,7 @@ router.get('/dashboard', requireAuth, (req, res) => {
     </div>
 
     <div class="atabs">
+      <button class="atab${ta('v2')}" data-tab="v2" onclick="adminTab('v2')" style="border-color:#3b82f6">V2 Database</button>
       <button class="atab${ta('picks')}" data-tab="picks" onclick="adminTab('picks')">Today's Picks</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
       <button class="atab${ta('messages')}" data-tab="messages" onclick="adminTab('messages')">Messages</button>
@@ -1658,6 +1698,51 @@ router.get('/dashboard', requireAuth, (req, res) => {
     </div>
 
     <!-- PLAYBOOK PANEL -->
+    <div class="apanel${ta('v2')}" id="panel-v2">
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;">Product switch</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
+          <div>Public product: <b id="v2-mode-label" style="color:${v2.mode === 'v2' ? '#22c55e' : '#fbbf24'}">${v2.mode === 'v2' ? 'V2 capper database' : 'V1 rankings'}</b></div>
+          <button class="btn" onclick="v2SetMode('${v2.mode === 'v2' ? 'v1' : 'v2'}')">${v2.mode === 'v2' ? 'Switch public site back to V1' : 'Switch public site to V2'}</button>
+          <div style="border-left:1px solid #252c3b;padding-left:16px;">This browser preview: <b>${v2.preview ? 'V2' : 'off'}</b>
+            <button class="btn btn-sm" style="margin-left:8px" onclick="v2SetPreview(${v2.preview ? 'false' : 'true'})">${v2.preview ? 'Turn preview off' : 'Preview V2 in this browser'}</button>
+            <span style="color:#8892a4;font-size:12px;margin-left:8px">or add ?mode=v2 / ?mode=v1 to any page while logged in here</span></div>
+        </div>
+        <div style="color:#8892a4;font-size:12px;margin-top:8px;">V1 stays in the code path. Under V1 nothing public changes; under V2 (or the preview) the game page shows the Capper Database, the section wheel moves to the bottom on phones, and the header gets a search button.</div>
+      </div>
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;">The bar (one-way door on the OVERALL record)</h3>
+        <form onsubmit="return v2SaveBar(event)" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
+          <label>Min graded picks<br><input type="number" id="v2-min-picks" value="${v2.bar.minPicks || 30}" min="1" style="width:90px"></label>
+          <label>Bar kind<br><select id="v2-bar-kind"><option value="units" ${v2.bar.kind === 'units' ? 'selected' : ''}>Dollars at $10 a pick</option><option value="roi" ${v2.bar.kind === 'roi' ? 'selected' : ''}>ROI %</option></select></label>
+          <label>Bar value<br><input type="number" id="v2-bar-value" value="${v2.bar.value ?? 100}" step="1" style="width:90px"></label>
+          <label>Streak from<br><input type="number" id="v2-streak-min" value="${v2.bar.streakMin || 5}" min="2" style="width:70px"></label>
+          <label style="display:flex;align-items:center;gap:6px;padding-bottom:8px"><input type="checkbox" id="v2-free-pending" ${v2.freePending ? 'checked' : ''}> pending picks free</label>
+          <button class="btn" type="submit">Save bar</button>
+          <button class="btn btn-sm" type="button" id="v2-recompute-btn" onclick="v2Recompute()">Recompute now</button>
+          <span id="v2-msg" style="color:#8892a4;font-size:12px"></span>
+        </form>
+        <div style="color:#8892a4;font-size:12px;margin-top:8px;">A capper goes live once their overall record crosses the bar; once live, never removed (hide is admin-only). Saving the bar recomputes. Last recompute: ${escHtml(v2.summary.last_recompute || 'never')}.</div>
+      </div>
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;">Pool</h3>
+        ${v2.error ? `<div style="color:#ef4444">${escHtml(v2.error)}</div>` : ''}
+        <div style="display:flex;flex-wrap:wrap;gap:18px;font-size:13px;">
+          <div>Cappers in pool <b>${v2.summary.pool ?? 0}</b></div>
+          <div>Live <b style="color:#22c55e">${v2.summary.live ?? 0}</b></div>
+          <div>Meet the bar today <b>${v2.summary.meets_bar_today ?? 0}</b></div>
+          <div>Live per sport: ${(v2.summary.per_sport || []).map((p) => `${escHtml(p.sport)} <b>${p.c}</b>`).join(' · ') || '—'}</div>
+        </div>
+      </div>
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;">Next up (closest to the bar)</h3>
+        <table><thead><tr><th>Capper</th><th>Source</th><th>Record</th><th>Money</th><th>Short by</th></tr></thead><tbody>${v2NextRows || '<tr><td colspan="5" style="color:#8892a4">Nobody close yet</td></tr>'}</tbody></table>
+      </div>
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;">
+        <h3 style="margin:0 0 10px;">Pool (top 60 by money overall, live first)</h3>
+        <table><thead><tr><th></th><th>Capper</th><th>Source</th><th>Record</th><th>Money</th><th>ROI</th><th>Picks</th><th>Bar today</th><th>Rank</th><th>Last pick</th></tr></thead><tbody>${v2Rows || '<tr><td colspan="10" style="color:#8892a4">Run a recompute</td></tr>'}</tbody></table>
+      </div>
+    </div>
     <div class="apanel${ta('playbook')}" id="panel-playbook">
       <h1>The CappingAlpha Score: Owner's Playbook</h1>
       <p style="color:#8892a4;font-size:13px;margin:-6px 0 12px;">The full interactive playbook, served live from docs/ALGO_PLAYBOOK.html. <a href="/admin/playbook" target="_blank" style="color:#3b82f6;">Open in its own tab</a></p>
@@ -2368,6 +2453,46 @@ router.get('/dashboard', requireAuth, (req, res) => {
       function closeMsgView() { document.getElementById('msg-view-modal').style.display = 'none'; }
 
       // ── Tab switching ──────────────────────────────────────────────────────────
+      // ── V2 Database tab ─────────────────────────────────────────────────────
+      async function v2Post(url, body) {
+        const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+        return r.json();
+      }
+      async function v2SetMode(mode) {
+        const word = mode === 'v2' ? 'Switch the PUBLIC site to V2 (the capper database)? V1 comes back with the other button.' : 'Switch the public site back to V1?';
+        if (!confirm(word)) return;
+        const d = await v2Post('/admin/api/v2/mode', { mode });
+        if (!d.ok) return alert(d.error || 'failed');
+        location.href = '/admin/dashboard?tab=v2';
+      }
+      async function v2SetPreview(on) {
+        const d = await v2Post('/admin/api/v2/preview', { on });
+        if (!d.ok) return alert(d.error || 'failed');
+        location.href = '/admin/dashboard?tab=v2';
+      }
+      async function v2SaveBar(e) {
+        e.preventDefault();
+        const msg = document.getElementById('v2-msg'); msg.textContent = 'saving + recomputing...';
+        const d = await v2Post('/admin/api/v2/settings', {
+          v2_min_picks: document.getElementById('v2-min-picks').value,
+          v2_bar_kind: document.getElementById('v2-bar-kind').value,
+          v2_bar_value: document.getElementById('v2-bar-value').value,
+          v2_streak_min: document.getElementById('v2-streak-min').value,
+          v2_free_pending: document.getElementById('v2-free-pending').checked ? '1' : '0',
+        });
+        if (!d.ok) { msg.textContent = d.error || 'failed'; return false; }
+        location.href = '/admin/dashboard?tab=v2';
+        return false;
+      }
+      async function v2Recompute() {
+        const btn = document.getElementById('v2-recompute-btn'); btn.disabled = true; btn.textContent = 'Recomputing...';
+        try {
+          const d = await v2Post('/admin/api/v2/recompute', {});
+          document.getElementById('v2-msg').textContent = d.ok ? (d.cappers + ' cappers, ' + d.live + ' live (+' + d.newly_live + '), ' + d.ms + 'ms') : (d.error || 'failed');
+          setTimeout(() => location.reload(), 900);
+        } catch (err) { btn.disabled = false; btn.textContent = 'Recompute now'; }
+      }
+
       function adminTab(name) {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
@@ -4675,6 +4800,44 @@ router.post('/api/fix-opposite-source-picks', adminLoginRateLimit, express.json(
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── V2 Database endpoints (docs/V2_DATABASE_PLAN.md 6b) ──────────────────────
+router.post('/api/v2/mode', requireAuth, express.json(), (req, res) => {
+  const { mode } = req.body || {};
+  if (!['v1', 'v2'].includes(mode)) return res.json({ ok: false, error: 'mode must be v1 or v2' });
+  db.setSetting('product_mode', mode);
+  console.log(`[admin] product_mode set to ${mode}`);
+  res.json({ ok: true, mode });
+});
+router.post('/api/v2/preview', requireAuth, express.json(), (req, res) => {
+  req.session.v2_preview = !!(req.body && req.body.on);
+  req.session.save(() => res.json({ ok: true, preview: req.session.v2_preview }));
+});
+router.post('/api/v2/settings', requireAuth, express.json(), (req, res) => {
+  const b = req.body || {};
+  const minPicks = parseInt(b.v2_min_picks, 10);
+  const barValue = parseFloat(b.v2_bar_value);
+  const streakMin = parseInt(b.v2_streak_min, 10);
+  if (!Number.isFinite(minPicks) || minPicks < 1) return res.json({ ok: false, error: 'min picks must be 1+' });
+  if (!Number.isFinite(barValue)) return res.json({ ok: false, error: 'bar value must be a number' });
+  if (!['units', 'roi'].includes(b.v2_bar_kind)) return res.json({ ok: false, error: 'bar kind must be units or roi' });
+  if (!Number.isFinite(streakMin) || streakMin < 2) return res.json({ ok: false, error: 'streak must be 2+' });
+  db.setSetting('v2_min_picks', String(minPicks));
+  db.setSetting('v2_bar_kind', b.v2_bar_kind);
+  db.setSetting('v2_bar_value', String(barValue));
+  db.setSetting('v2_streak_min', String(streakMin));
+  db.setSetting('v2_free_pending', b.v2_free_pending === '1' ? '1' : '0');
+  try { require('./capper_v2').recomputeCapperV2(); } catch (err) { return res.json({ ok: false, error: err.message }); }
+  res.json({ ok: true });
+});
+// Session OR header auth (x-admin-password) so the Mac can fire it post-deploy.
+router.post('/api/v2/recompute', adminLoginRateLimit, express.json(), (req, res) => {
+  const pw = req.headers['x-admin-password'];
+  const ok = req.session?.admin || (pw && process.env.ADMIN_PASSWORD && safeEqual(String(pw), process.env.ADMIN_PASSWORD));
+  if (!ok) return res.status(403).json({ error: 'Forbidden' });
+  try { res.json(require('./capper_v2').recomputeCapperV2()); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── POST /admin/api/recompute-ratings — on-demand capper ratings refresh ─────
