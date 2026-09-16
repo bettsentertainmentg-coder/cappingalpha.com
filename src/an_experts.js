@@ -154,9 +154,14 @@ async function pollAnExperts() {
       // every other source already does; unconstrained, a college "Tigers" side
       // could land on the Detroit Tigers and grade against the wrong final.
       const sport = sportForLeague(p.league_name || p.game?.league_name);
+      // The pick's own start time pins the board game: AN keeps a pick pending
+      // while its game is played, and without this every poll during a series
+      // game filed a second copy under the next game (THE SERIES GUARD).
+      const anStart = Date.parse(p.starts_at || p.game?.start_time || '');
       const opts = {
         pickType: mapped[0], side: mapped[1], line: p.value ?? null, odds: p.odds ?? null,
         source: 'actionnetwork', capper: ex.name || ex.username, sport,
+        startMs: Number.isFinite(anStart) ? anStart : null,
         picked: `${teams[0]?.abbr || teams[0]?.display_name || ''} vs ${teams[1]?.abbr || teams[1]?.display_name || ''}`,
       };
       const game = findGameByAbbrs(teams[0]?.abbr, teams[1]?.abbr, sport, opts)

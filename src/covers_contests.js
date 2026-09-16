@@ -101,6 +101,24 @@ const COVERS_SPORT = {
 // dates included), so a first-table-only parse drops every sport after the
 // first. Rows: <td>Away <br/> Home</td> ... <div data-market-id>PICK</div>
 // ... <td><div>UNITS</div></td>.
+// "Wednesday, September 16" (the <h3> over each pending table) -> '2026-09-16'.
+// The year is the one that puts the date nearest to now (a January page
+// listing a December game, and the reverse).
+const COVERS_MONTHS = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+function coversTableDate(label, nowMs = Date.now()) {
+  const m = String(label || '').toLowerCase().match(/([a-z]+)\s+(\d{1,2})\s*$/);
+  if (!m || !COVERS_MONTHS[m[1]]) return null;
+  const mo = COVERS_MONTHS[m[1]];
+  const day = parseInt(m[2], 10);
+  const now = new Date(nowMs);
+  let best = null;
+  for (const y of [now.getUTCFullYear() - 1, now.getUTCFullYear(), now.getUTCFullYear() + 1]) {
+    const d = Math.abs(Date.UTC(y, mo - 1, day, 16) - nowMs);
+    if (!best || d < best.d) best = { y, d };
+  }
+  return `${best.y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function parsePendingSections(html) {
   const heads = [...html.matchAll(/<h2>\s*([^<]{2,24}?)\s*<\/h2>/g)]
     .map((m) => ({ at: m.index, label: m[1].trim() }));
@@ -109,9 +127,20 @@ function parsePendingSections(html) {
     for (const h of heads) { if (h.at < idx) label = h.label; else break; }
     return label ? (COVERS_SPORT[label.toUpperCase()] || label) : null;
   };
+  // Every pending table sits under a date heading. The date pins the board
+  // game: the page keeps a pick listed while its game is being played, and
+  // without it each poll during a series game filed a copy under the next game.
+  const dates = [...html.matchAll(/<h3>\s*([A-Za-z]+,\s*[A-Za-z]+\s+\d{1,2})\s*<\/h3>/g)]
+    .map((m) => ({ at: m.index, date: coversTableDate(m[1]) }));
+  const dateAt = (idx) => {
+    let d = null;
+    for (const x of dates) { if (x.at < idx) d = x.date; else break; }
+    return d;
+  };
   const out = [];
   for (const tableM of html.matchAll(/cmg_contests_pendingpicks[\s\S]*?<\/table>/g)) {
     const sport = sportAt(tableM.index);
+    const date = dateAt(tableM.index);
     for (const row of tableM[0].split('<tr>').slice(1)) {
       const teamsM = row.match(/<td>\s*([^<]{2,30}?)\s*<br\s*\/?>\s*([^<]{2,30}?)\s*<\/td>/);
       if (!teamsM) continue;
@@ -128,7 +157,7 @@ function parsePendingSections(html) {
       pickTexts.forEach((pt, i) => {
         const parsed = parsePickText(pt);
         if (!parsed) return;
-        out.push({ sport, away: teamsM[1], home: teamsM[2], parsed, units: unitVals[i] ?? unitVals[0] ?? null });
+        out.push({ sport, date, away: teamsM[1], home: teamsM[2], parsed, units: unitVals[i] ?? unitVals[0] ?? null });
       });
     }
   }
@@ -146,6 +175,7 @@ function ingestPendingPage(html, capperName, handle, extraMeta) {
     const game = findGameByTeams(p.away, p.home, p.sport, {
       pickType: p.parsed?.pickType, line: p.parsed?.line ?? null, odds: p.parsed?.odds ?? null,
       side: null, source: 'covers', capper: capperName, sport: p.sport, picked: p.parsed?.picked || `${p.away} @ ${p.home}`,
+      startDate: p.date || null,
     });
     if (!game) continue;
     const side = p.parsed.picked ? sideOf(game, p.parsed.picked) : null;
@@ -265,7 +295,7 @@ async function pollCoversPicks() {
   };
 }
 
-module.exports = { refreshCoversContestants, pollCoversPicks };
+module.exports = { refreshCoversContestants, pollCoversPicks, parsePendingSections, coversTableDate };
 
 // CLI: node src/covers_contests.js
 if (require.main === module) {

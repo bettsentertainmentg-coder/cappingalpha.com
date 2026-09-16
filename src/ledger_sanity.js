@@ -53,8 +53,11 @@ const SIDE_PRICE_IMPOSSIBLE = 1000;   // restatement bar for rows already graded
 const ML_PRICE_MAX = 2500;
 // Jack, 2026-09-15: "if someone's placing a bet like -2000, ignore it." A
 // pregame moneyline at that price is not a read on the game; it is a free
-// win in a win-rate ladder (407 Polymarket rows at -2400 and beyond).
-const HEAVY_ML_REFUSE = 2000;
+// win in a win-rate ladder (407 Polymarket rows at -2400 and beyond). Set at
+// -1000 on 2026-09-16: BettingPros shows college favorites at -1900, -1567 and
+// -1329 (the sjoe36758 profile, 19-1 on them), the same free wins one notch
+// under the first cut.
+const HEAVY_ML_REFUSE = 1000;
 const ML_IMPLIED_TOL = 0.10;          // recorded vs market, in implied probability
 
 function sportKey(sport) {
@@ -113,7 +116,11 @@ function implausibleLedgerRow(row) {
     return null;
   }
   if (pt === 'ml') {
-    if (odds != null && odds <= -HEAVY_ML_REFUSE) return 'heavy_price';
+    // A moneyline with no price used to be graded at the -110 default, so a
+    // -2000 favorite's win paid +0.91 units (sjoe36758: six unpriced college
+    // favorites). No price, no grade.
+    if (odds == null || odds === 0) return 'ml_no_price';
+    if (odds <= -HEAVY_ML_REFUSE) return 'heavy_price';
     return null;
   }
   return null;
@@ -188,7 +195,18 @@ function checkSourcePick({ game, sport, pickType, side, line, odds, trustPrice =
     } else if (!plausible && O != null) {
       return { ok: false, reason: 'ml_price_implausible', line: null, odds: O, notes };
     }
-    if (O != null && O <= -HEAVY_ML_REFUSE) return { ok: false, reason: 'heavy_price', line: null, odds: O, notes };
+    if (O == null) {
+      // No price from the capper or the board. A deep favorite with no posted
+      // price is priced like one (storage.impliedHeavyMl, GRADING_RULES R12) and
+      // refused just below; anything else cannot be graded for money honestly,
+      // so it is not graded at all (never the -110 default).
+      const sp = side === 'home' ? (game && game.spread_home) : side === 'away' ? (game && game.spread_away) : null;
+      const priced = require('./storage').impliedHeavyMl(null, sp);
+      if (priced == null) return { ok: false, reason: 'ml_no_price', line: null, odds: null, notes };
+      notes.push({ price_from_spread: { spread: Number(sp), odds: priced } });
+      O = priced;
+    }
+    if (O <= -HEAVY_ML_REFUSE) return { ok: false, reason: 'heavy_price', line: null, odds: O, notes };
     return { ok: true, reason: null, line: null, odds: O, notes };
   }
   return { ok: false, reason: 'unsupported_type', line: L, odds: O, notes };
@@ -234,13 +252,27 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
 
   const upd = db.prepare(`UPDATE capper_history SET result_before_void = result, result = 'void', void_reason = ? WHERE id = ?`);
   const gameRow = db.prepare(`SELECT status, start_time, actual_start_at, sport, home_score, away_score FROM today_games WHERE espn_game_id = ?`);
+  const setOdds = db.prepare(`UPDATE capper_history SET odds = ?, odds_source = ? WHERE id = ?`);
 
   const changes = [];
   const bySource = {}, byReason = {}, bySport = {}, byCapper = {};
+  const backfill = { closing: 0, closing_spread: 0, board: 0, board_spread: 0 };
   let scanned = 0, withdrawn = 0, voided = 0;
   for (const r of rows) {
     scanned++;
-    const reason = Array.isArray(ids) ? listReason : (implausibleLedgerRow(r) || otherMarketFromProvenance(r));
+    // An unpriced moneyline gets the closing price for its side first (the
+    // median across the archived books, else a deep favorite priced from its
+    // spread), and is judged on that. Only one with no price anywhere voids.
+    let judged = r;
+    if (!Array.isArray(ids) && String(r.pick_type || '').toLowerCase() === 'ml' && (r.odds == null || Number(r.odds) === 0)) {
+      const p = archivedMlPrice(db, r);
+      if (p) {
+        backfill[p.source] = (backfill[p.source] || 0) + 1;
+        judged = { ...r, odds: p.odds };
+        if (!dryRun) setOdds.run(p.odds, p.source, r.id);
+      }
+    }
+    const reason = Array.isArray(ids) ? listReason : (implausibleLedgerRow(judged) || otherMarketFromProvenance(judged));
     if (!reason) continue;
     let action = 'void';
     if (r.result === 'pending' && r.espn_game_id) {
@@ -272,6 +304,7 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
     mode: Array.isArray(ids) ? 'list' : 'rules', ids_requested: Array.isArray(ids) ? ids.length : null, list_reason: listReason,
     rows_scanned: scanned, rows_flagged: changes.length,
     rows_voided: voided, rows_withdrawn: withdrawn,
+    ml_prices_backfilled: backfill,
     cappers_affected: Object.keys(byCapper).length,
     by_source: bySource, by_reason: byReason, by_sport: bySport,
     top_cappers: Object.entries(byCapper).sort((a, b) => b[1] - a[1]).slice(0, 25),
@@ -279,10 +312,41 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
   };
 }
 
+// The price a moneyline row should carry when its source gave none: the median
+// closing price for its side across every archived book, else a deep favorite
+// priced from its closing spread (R12), else the same two reads off today's
+// board for a game still on it. null when nothing is known.
+function archivedMlPrice(db, r) {
+  if (!r.espn_game_id || r.is_home_team == null) return null;
+  const home = Number(r.is_home_team) === 1;
+  const median = (xs) => { const s = xs.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); };
+  const { impliedHeavyMl } = require('./storage');
+  const read = (rows, tag) => {
+    const mls = rows.map(x => Number(home ? x.ml_home : x.ml_away)).filter(v => Number.isFinite(v) && v !== 0 && Math.abs(v) >= 100);
+    if (mls.length) return { odds: median(mls), source: tag };
+    const sps = rows.map(x => Number(home ? x.spread_home : x.spread_away)).filter(Number.isFinite);
+    if (sps.length) { const o = impliedHeavyMl(null, median(sps)); if (o != null) return { odds: o, source: tag + '_spread' }; }
+    return null;
+  };
+  try {
+    const closing = db.prepare(`SELECT ml_home, ml_away, spread_home, spread_away FROM book_lines_closing WHERE espn_game_id = ?`).all(r.espn_game_id);
+    const a = closing.length ? read(closing, 'closing') : null;
+    if (a) return a;
+    const board = db.prepare(`SELECT ml_home, ml_away, spread_home, spread_away FROM today_games WHERE espn_game_id = ?`).all(r.espn_game_id);
+    return board.length ? read(board, 'board') : null;
+  } catch (_) { return null; }
+}
+
 // Reverse one reason's voids (or all of them). Rows withdrawn pregame are gone
 // for good, which is why withdrawal is limited to rows that were never public.
+// reason 'prices' instead clears every backfilled moneyline price.
 function restoreLedger({ reason = null } = {}) {
   const db = require('./db');
+  if (reason === 'prices') {
+    const p = db.prepare(`UPDATE capper_history SET odds = NULL, odds_source = NULL
+                          WHERE odds_source IN ('closing','closing_spread','board','board_spread')`).run();
+    return { restored: p.changes, reason };
+  }
   const r = reason
     ? db.prepare(`UPDATE capper_history SET result = result_before_void, void_reason = NULL, result_before_void = NULL
                   WHERE result = 'void' AND void_reason = ? AND result_before_void IS NOT NULL`).run(reason)
@@ -294,7 +358,7 @@ function restoreLedger({ reason = null } = {}) {
 module.exports = {
   TOTAL_BAND, SPREAD_MAX, TOTAL_TOL, SPREAD_TOL, SIDE_PRICE_MAX, SIDE_PRICE_IMPOSSIBLE, ML_PRICE_MAX, HEAVY_ML_REFUSE,
   checkSourcePick, implausibleLedgerRow, otherMarketFromProvenance, marketLine, marketPrice,
-  sanitizeLedger, restoreLedger,
+  sanitizeLedger, restoreLedger, archivedMlPrice,
 };
 
 // CLI: node src/ledger_sanity.js [--apply]

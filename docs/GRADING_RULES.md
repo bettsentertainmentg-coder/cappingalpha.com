@@ -298,10 +298,12 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   markets, handicaps, exhibitions and every prop phrasing, on the live map
   and the holders backfill alike.
 - Heavy prices are not picks (Jack, 2026-09-15: "if someone's placing a bet
-  like -2000, ignore it"). A moneyline at -2000 or heavier is refused at
-  ingest (`heavy_price`) and the restatement voids the ones already graded
-  (386 on the prod export, nearly all Polymarket wallets at -2400 and beyond,
-  plus ten Covers -10000s). Spreads and totals past +-1000 were already out.
+  like -2000, ignore it"). A moneyline at -1000 or heavier is refused at
+  ingest (`heavy_price`) and the restatement voids the ones already graded.
+  The first cut was -2000 (386 rows, nearly all Polymarket wallets at -2400
+  and beyond, plus ten Covers -10000s); it moved to -1000 on 2026-09-16 after
+  the sjoe36758 profile went 19-1 on college favorites at -1900, -1567 and
+  -1329. Spreads and totals past +-1000 were already out.
 - Rows only the source's own market label can expose (a BettingPros "5th
   Inning Moneyline" carries an ordinary price and no line, so no band sees
   it) are voided in LIST mode: `{ ids, reason }` to the sanitize endpoint,
@@ -315,4 +317,50 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   as a decision, and the Wilson ladder that prices every pick is built on
   decisions.
 
-Current as of 2026-09-15.
+## R16. A source pick belongs to the game on the source's own date (2026-09-16)
+
+- The board carries several days of games (forward_games.js), so an MLB or
+  WNBA series puts the same two teams on it two to four times. Every source
+  keeps listing a pick as pending while its game is being played, and the
+  shared matcher (`source_ingest.resolveGameMatches`) dropped the started game
+  and handed the pick to the NEXT game of the series. The dedup key includes
+  the game, so the copy went in as a new row and was graded against a game the
+  capper never bet. Measured on the 2026-09-16 export: 15,198 rows (13,980
+  graded, 787 cappers), Covers 7,685, BettingPros 5,297, Action Network 1,805,
+  the article columns 411. 97% of the Covers copies were saved within 30
+  minutes of the real game's first pitch. Mike Spector's one Reds column was
+  graded three times across one series.
+- The rule: a source that knows when its game is passes it, and that alone
+  picks the board game, started or not (a started one is then refused as
+  in-play, never re-homed). BettingPros passes its event time, Action Network
+  its `starts_at`, Polymarket its market's `gameStartTime`, Covers the date
+  heading over each pending table, and an article its game date from the title
+  or URL, else its publish time (the first game of the matchup after it). A
+  source with no date (WagerTalk, CBS) is refused while an earlier game of the
+  same matchup started less than 8 hours ago (`SERIES_GUARD_MS`); polls repeat,
+  so a real pick on the later game still lands after the window.
+- BettingPros stamps are UTC (every NFL 1:00pm ET kickoff reads 17:00). They
+  were read as Eastern and shifted the wrong way, so every BettingPros time
+  came out four hours early. The started-game check hid it for a correct
+  match; with the series bug it let bets placed during a game through.
+- The copies were voided in list mode (`wrong_game_series`), keeping the
+  original row on the real game.
+
+## R17. A moneyline with no price is not graded (2026-09-16)
+
+- The ratings price an unpriced row at -110. For a moneyline that is badly
+  wrong: sjoe36758's six unpriced college favorites (BettingPros drops any
+  price past +-2000, so a missing price there usually IS an extreme favorite)
+  each paid +0.91 units on a win.
+- At ingest an unpriced moneyline takes the board's price for its side; a deep
+  favorite with no posted price is priced from its spread (R12) and then
+  refused as heavy; anything else is refused (`ml_no_price`).
+- The restatement first gives an unpriced row the median closing price for its
+  side across the archived books (`book_lines_closing`), else its spread-implied
+  price, else today's board, and records where it came from in
+  `capper_history.odds_source`. Only a row with no price anywhere is voided.
+  `{ restore: true, reason: 'prices' }` clears every backfilled price.
+- Spreads and totals with no juice (Covers, CBS) still settle at standard juice:
+  the line decides those bets, and the juice moves units a few cents.
+
+Current as of 2026-09-16.

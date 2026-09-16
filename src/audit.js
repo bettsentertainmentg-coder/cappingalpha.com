@@ -69,6 +69,8 @@ const _WHY = {
   spread_no_line:        'has no spread to grade against',
   spread_out_of_band:    'is past any real spread for the sport',
   side_price_impossible: 'carries a price no spread or total market quotes (an alternate line or a typo)',
+  ml_no_price:           'is a moneyline with no price anywhere, so it cannot be graded for money',
+  heavy_price:           'is a moneyline too heavy to count as a pick',
 };
 function _implausibleLine(row) {
   if (!Number.isFinite(Number(row.spread))) return null;

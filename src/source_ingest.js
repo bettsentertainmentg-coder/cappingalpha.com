@@ -22,10 +22,15 @@ const { hasGameStarted } = require('./pick_cutoff');
 const { checkSourcePick } = require('./ledger_sanity');
 
 // ── Multi-match resolver ──────────────────────────────────────────────────────
-// A team-name match can return several games:
-//   (a) a doubleheader: the SAME two teams twice (MLB). The source's pending
-//       pick is for the upcoming one, so the nearest unstarted game wins, as it
-//       always has. If every candidate has started the pick is ambiguous.
+// FIRST: when the source knows WHEN its game is (a BettingPros event time, an
+// Action Network starts_at, a Covers date table, an article's own date), that
+// alone decides, started or not. See THE SERIES GUARD below for why.
+//
+// Otherwise a team-name match can return several games:
+//   (a) the SAME two teams more than once: a doubleheader, or a series (the
+//       board carries several days of games). The nearest unstarted game wins
+//       ONLY when no earlier game of that matchup started recently; see the
+//       series guard.
 //   (b) DIFFERENT team pairs sharing a name fragment. This is the college case
 //       ("Texas" hits Texas, Texas A&M, Texas State and Texas Tech on one
 //       Saturday; "Tigers" hits five schools plus Detroit) and the cross-sport
@@ -42,6 +47,37 @@ const { checkSourcePick } = require('./ledger_sanity');
 //       pool and is very hard to unwind.
 const LINE_TOL = 4;      // points, spreads and totals (college lines move all week)
 const ML_TOL   = 60;     // American-odds distance for a moneyline confirmation
+
+// How far a source's own start time may sit from the board's. ESPN lists the
+// scheduled first pitch and sources agree to the minute, but split
+// doubleheaders run 3h+ apart, so the nearest game inside this window is the
+// one the source meant.
+const SOURCE_START_TOL_MS = 3 * 3600e3;
+
+// THE SERIES GUARD (Jack, 2026-09-16). forward_games.js keeps several days of
+// games on the board, so an MLB or WNBA series puts the same two teams on it
+// two to four times. Every source keeps listing a pick as pending while its
+// game is being played, and this resolver used to drop the started game and
+// hand the pick to the NEXT game of the series. The dedup key includes the
+// game, so the copy was inserted as a new row and graded against a game the
+// capper never bet: 15,198 ledger rows (13,980 graded, 787 cappers) on the
+// 2026-09-16 export, 97% of them saved within 30 minutes of the real game's
+// first pitch. A source that knows its game's date passes it and is matched
+// exactly. One that does not is refused while an earlier game of the same
+// matchup started less than this long ago; polls repeat, so a real pick on
+// the later game still lands once the window closes.
+const SERIES_GUARD_MS = 8 * 3600e3;
+
+function _etDate(ms) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(ms));
+}
+
+function _recentlyStarted(g, now) {
+  if (String(g.status || '').toLowerCase() === 'in') return true;
+  const s = gameStartMs(g);
+  return s != null && s <= now && now - s < SERIES_GUARD_MS;
+}
 
 function _pairKey(g) {
   return [String(g.home_team || '').toLowerCase(), String(g.away_team || '').toLowerCase()].sort().join('|');
@@ -76,7 +112,15 @@ function lineAgrees(g, opts) {
   return null;
 }
 
+// One line per (source, capper, pick, reason) per day. A pick refused by the
+// series guard is refused again on every poll until its game ends, and each
+// repeat says nothing new.
+const _loggedSkips = new Set();
 function logAmbiguous(cands, opts, why) {
+  const memo = `${opts.source || ''}|${opts.capper || ''}|${opts.picked || ''}|${opts.pickType || ''}|${why}|${_etDate(Date.now())}`;
+  if (_loggedSkips.has(memo)) return;
+  if (_loggedSkips.size > 20000) _loggedSkips.clear();
+  _loggedSkips.add(memo);
   const names = cands.map(g => `${g.sport} ${g.away_team} @ ${g.home_team} (${g.espn_game_id})`).join(' | ');
   console.warn(`[source_ingest] refused ${opts.source || 'source'} pick "${opts.picked || ''}" (${opts.pickType || '?'} ${opts.line ?? ''}): ${why}: ${names}`);
   try {
@@ -108,10 +152,64 @@ function logRefusal(pick, game, pt, v) {
   } catch (_) {}
 }
 
+// Different matchups left after every other filter: the pick's own number decides.
+function _byLine(cands, opts) {
+  const verdicts = cands.map(g => lineAgrees(g, opts));
+  const agree = cands.filter((_, i) => verdicts[i] === true);
+  if (agree.length === 1) return agree[0];
+  const why = agree.length > 1 ? 'several games agree with the line'
+            : verdicts.some(v => v === true || v === false) ? 'no game agrees with the line'
+            : 'ambiguous team match and no line to confirm';
+  logAmbiguous(cands, opts, why);
+  return null;
+}
+
+// opts.startMs      the source's own start time for its game (exact)
+// opts.startDate    the source's own ET date for its game (YYYY-MM-DD)
+// opts.firstAfterMs when the pick was published: it is for the FIRST game of
+//                   the matchup starting after that, never a later one
 function resolveGameMatches(rows, opts = {}) {
   if (!rows || rows.length === 0) return null;
-  if (rows.length === 1) return rows[0];
   const now = Date.now();
+  const num = (v) => (v != null && v !== '' && Number.isFinite(+v) ? +v : null);
+  const srcStart = num(opts.startMs);
+  const srcDate  = typeof opts.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(opts.startDate) ? opts.startDate : null;
+  const after    = num(opts.firstAfterMs);
+
+  // 1. The source says when its game is. That decides, started or not: a
+  //    started game is refused downstream as in-play, never re-homed.
+  if (srcStart != null || srcDate || after != null) {
+    let pool = rows.filter(g => {
+      const s = gameStartMs(g);
+      if (s == null) return false;
+      if (srcStart != null) return Math.abs(s - srcStart) <= SOURCE_START_TOL_MS;
+      if (srcDate) return _etDate(s) === srcDate;
+      return s > after - 15 * 60e3; // started after the post (15 min of clock slack)
+    });
+    if (!pool.length) { logAmbiguous(rows, opts, "no board game at the source's own date"); return null; }
+    if (srcStart != null) pool.sort((a, b) => Math.abs(gameStartMs(a) - srcStart) - Math.abs(gameStartMs(b) - srcStart));
+    else pool.sort((a, b) => gameStartMs(a) - gameStartMs(b));
+    if (srcStart == null && !srcDate) {
+      // publish time only: the first game of each matchup after it, never a later one
+      const first = new Map();
+      for (const g of pool) if (!first.has(_pairKey(g))) first.set(_pairKey(g), g);
+      pool = [...first.values()];
+    }
+    if (pool.length === 1) return pool[0];
+    if (new Set(pool.map(_pairKey)).size === 1) {
+      // The same matchup twice in the window: a doubleheader.
+      if (srcStart != null) return pool[0]; // nearest to the source's own time
+      if (pool.some(g => hasGameStarted(g))) {
+        logAmbiguous(pool, opts, 'doubleheader and the source gives no start time');
+        return null;
+      }
+      return pool[0];
+    }
+    return _byLine(pool, opts);
+  }
+
+  // 2. No date from the source.
+  if (rows.length === 1) return rows[0];
   const upcoming = rows
     .filter(g => {
       if (g.status === 'pre') return true;
@@ -120,21 +218,22 @@ function resolveGameMatches(rows, opts = {}) {
     })
     .sort((a, b) => (gameStartMs(a) || Infinity) - (gameStartMs(b) || Infinity));
   if (!upcoming.length) return null;
-  if (upcoming.length === 1) return upcoming[0];
 
-  // (a) doubleheader: one team pair, several games. Nearest unstarted, as before.
-  const pairs = new Set(upcoming.map(_pairKey));
-  if (pairs.size === 1) return upcoming[0];
+  // THE SERIES GUARD: never hand a pick to a later game of a matchup whose
+  // earlier game is under way or just ended.
+  const underway = rows.filter(g => !upcoming.includes(g) && _recentlyStarted(g, now));
+  const guarded = upcoming.filter(g => !underway.some(u => _pairKey(u) === _pairKey(g)));
+  if (!guarded.length) {
+    logAmbiguous(rows, opts, 'an earlier game of this matchup is under way or just ended');
+    return null;
+  }
+  if (guarded.length === 1) return guarded[0];
 
-  // (b) different pairs. Let the pick's own number decide.
-  const verdicts = upcoming.map(g => lineAgrees(g, opts));
-  const agree = upcoming.filter((_, i) => verdicts[i] === true);
-  if (agree.length === 1) return agree[0];
-  const why = agree.length > 1 ? 'several games agree with the line'
-            : verdicts.some(v => v === true || v === false) ? 'no game agrees with the line'
-            : 'ambiguous team match and no line to confirm';
-  logAmbiguous(upcoming, opts, why);
-  return null;
+  // (a) doubleheader: one matchup, several unstarted games. The nearest.
+  if (new Set(guarded.map(_pairKey)).size === 1) return guarded[0];
+
+  // (b) different matchups. Let the pick's own number decide.
+  return _byLine(guarded, opts);
 }
 
 // Fuzzy today_games matcher by two team names (the proven odds_api.js pattern).
@@ -142,7 +241,8 @@ function resolveGameMatches(rows, opts = {}) {
 // caller knows it ('Tennis' blends ATP+WTA); without it a bare city pair can
 // hit the wrong sport's game.
 // opts (optional): { pickType, side, line, odds, source, capper, picked } lets
-// the resolver confirm an ambiguous match against the pick's own number.
+// the resolver confirm an ambiguous match against the pick's own number, and
+// { startMs | startDate | firstAfterMs } pins the game to the source's own date.
 function findGameByTeams(teamA, teamB, sport, opts) {
   const t1 = (teamA || '').toLowerCase().trim();
   const t2 = (teamB || '').toLowerCase().trim();
@@ -478,4 +578,4 @@ function sportForLeague(name) {
   return null;
 }
 
-module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice, removeSourceEntry, findPendingOpposite, sportForLeague, LINE_TOL };
+module.exports = { recordSourcePick, findGameByTeams, findGameByAbbrs, sideOf, gameStartMs, americanFromPrice, removeSourceEntry, findPendingOpposite, sportForLeague, resolveGameMatches, LINE_TOL, SERIES_GUARD_MS };

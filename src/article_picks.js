@@ -93,15 +93,37 @@ function sportFromUrl(url) {
   return null;
 }
 
-function uniqueGame(teamA, teamB, sport) {
-  if (sport) return findGameByTeams(teamA, teamB, sport);
+// opts pins the game to the article's own date (see gameDateFrom). Without it a
+// column stays in the sitemap for days and was re-filed onto every later game
+// of the series: one Reds pick graded three times (THE SERIES GUARD).
+function uniqueGame(teamA, teamB, sport, opts) {
+  if (sport) return findGameByTeams(teamA, teamB, sport, opts);
   const hits = [];
   for (const s of CANDIDATE_SPORTS) {
-    const g = findGameByTeams(teamA, teamB, s);
+    const g = findGameByTeams(teamA, teamB, s, opts);
     if (g) hits.push(g);
     if (hits.length > 1) return null; // ambiguous across leagues — never guess
   }
   return hits[0] || null;
+}
+
+// "Dodgers vs Braves Prediction, Picks for August 26" -> '2026-08-26'. The year
+// comes from the publish time, and a date that is not within a day before to a
+// week after publication is ignored (a stray "May 3" in prose, a look back).
+const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+function gameDateFrom(str, publishedMs) {
+  const s = String(str || '').toLowerCase();
+  const m = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?[\s-]+(\d{1,2})(?:st|nd|rd|th)?\b/);
+  if (!m || !publishedMs) return null;
+  const mo = MONTHS[m[1]];
+  const day = parseInt(m[2], 10);
+  if (!mo || day < 1 || day > 31) return null;
+  let y = new Date(publishedMs).getUTCFullYear();
+  let t = Date.UTC(y, mo - 1, day, 16);
+  if (t - publishedMs > 180 * 864e5) { y -= 1; t = Date.UTC(y, mo - 1, day, 16); }
+  else if (publishedMs - t > 180 * 864e5) { y += 1; t = Date.UTC(y, mo - 1, day, 16); }
+  if (t < publishedMs - 36 * 3600e3 || t > publishedMs + 7 * 864e5) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 // "…/rangers-at-white-sox-odds-picks-and-predictions/9145…" or
@@ -325,7 +347,12 @@ async function pollArticlePicks() {
       if (!it.author) continue; // no byline, no capper
       const mu = matchupFrom(it.title) || matchupFrom(it.url);
       if (!mu) continue;
-      const game = uniqueGame(mu.a, mu.b, sportFromUrl(it.url));
+      // The article's own date: a game date in the title or URL, else the first
+      // game of the matchup after it was published. Never a later one.
+      const startDate = gameDateFrom(it.title, it.publishedMs) || gameDateFrom(it.url, it.publishedMs);
+      const dateOpts = startDate ? { startDate } : (it.publishedMs ? { firstAfterMs: it.publishedMs } : {});
+      const game = uniqueGame(mu.a, mu.b, sportFromUrl(it.url),
+        { ...dateOpts, source: site.source, capper: it.author, picked: `${mu.a} vs ${mu.b}` });
       if (!game) continue;
       let picks = [];
       try { picks = site.parse(it.text) || []; } catch (_) { continue; }
@@ -363,7 +390,7 @@ async function pollArticlePicks() {
 }
 
 module.exports = {
-  pollArticlePicks, matchupFrom, uniqueGame,
+  pollArticlePicks, matchupFrom, uniqueGame, gameDateFrom,
   parseSportsbookWire, parseTheSpread, parseSbd, parseSbr,
 };
 

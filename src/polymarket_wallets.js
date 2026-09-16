@@ -123,7 +123,17 @@ async function buildMarketMap() {
       if (parts.length !== 2) continue;
       // Constrain the match to the tag's sport — a bare city pair ("Toronto vs
       // Miami") exists in several leagues at once.
-      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null, { source: 'polymarket', sport: TAG_SPORT[tag] || null, picked: title });
+      // The market's own game start pins the board game across a series (THE
+      // SERIES GUARD in source_ingest.js). gamma prints '... 18:35:00+00'.
+      let evStart = null;
+      const gst = (ev.markets || []).map((m) => m.gameStartTime).find(Boolean);
+      if (gst) {
+        let t = String(gst).replace(' ', 'T');
+        if (/[+-]\d{2}$/.test(t)) t += ':00';
+        const ms = new Date(t).getTime();
+        if (Number.isFinite(ms)) evStart = ms;
+      }
+      const game = findGameByTeams(parts[0], parts[1], TAG_SPORT[tag] || null, { source: 'polymarket', sport: TAG_SPORT[tag] || null, picked: title, startMs: evStart });
       if (!game) continue;
       for (const mkt of (ev.markets || [])) {
         const cid = mkt.conditionId || mkt.condition_id;
@@ -547,7 +557,9 @@ async function walkWalletHistory(ledgers, cfg) {
     }
     // Same number gate as every live ingest (src/ledger_sanity.js): a set
     // total or a games handicap must never be filed as a match total or spread.
-    const gate = checkSourcePick({ game: null, sport: slugSport(c.L.slug), pickType, side: null, line, odds: null });
+    // The price rides along so a -2400 favorite is refused here too.
+    const avgPrice = held.o.cost / held.o.bought;
+    const gate = checkSourcePick({ game: null, sport: slugSport(c.L.slug), pickType, side: null, line, odds: americanFromPrice(avgPrice) });
     if (!gate.ok) continue;
     const dupeKey = `${c.L.slug}|${pickType}`;
     if (seen.has(dupeKey)) continue;
@@ -555,7 +567,6 @@ async function walkWalletHistory(ledgers, cfg) {
     pregame++;
 
     const won = prices[held.idx] === 1;
-    const avgPrice = held.o.cost / held.o.bought;
     rows.push({
       sport: slugSport(c.L.slug),
       pickType, team, line,

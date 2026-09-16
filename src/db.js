@@ -1524,6 +1524,10 @@ try { db.exec(`ALTER TABLE capper_history ADD COLUMN sources_json TEXT`); } catc
 // spread_out_of_band, side_price_impossible, other_market, ...).
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN void_reason TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE capper_history ADD COLUMN result_before_void TEXT`); } catch (_) {}
+// Where a moneyline price came from when the source gave none (2026-09-16,
+// ledger_sanity.archivedMlPrice): 'closing' / 'closing_spread' / 'board' /
+// 'board_spread'. NULL = the source's own price.
+try { db.exec(`ALTER TABLE capper_history ADD COLUMN odds_source TEXT`); } catch (_) {}
 
 // Per-mention capper attribution (quality-weighted consensus needs to know WHO
 // each mention came from, not just the author/channel)

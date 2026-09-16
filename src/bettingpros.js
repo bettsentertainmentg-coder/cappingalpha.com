@@ -144,15 +144,17 @@ function etDate(ms) {
   return `${g('year')}-${g('month')}-${g('day')}`;
 }
 
-// "2026-08-25 17:10:00" (ET, no zone) -> ms
+// "2026-09-13 17:00:00" (UTC, no zone) -> ms.
+// UTC, verified 2026-09-16: every NFL 1:00pm ET kickoff reads 17:00:00 and
+// Sunday Night Football reads 00:20 the next day. This used to be read as
+// Eastern and then shifted the wrong way, so every BettingPros time came out
+// four hours EARLY, which let bets placed during a game pass as pregame.
 function bpTimeMs(s) {
   if (!s) return null;
   const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
   if (!m) return null;
   const [, y, mo, d, h, mi, se] = m.map(Number);
-  // ET is UTC-4 in season, UTC-5 in winter; cycle.js owns the DST rule.
-  const { ET_OFFSET_MS } = require('./cycle');
-  return Date.UTC(y, mo - 1, d, h, mi, se) - ET_OFFSET_MS;
+  return Date.UTC(y, mo - 1, d, h, mi, se);
 }
 
 function participantsOf(ev) {
@@ -164,10 +166,15 @@ function participantsOf(ev) {
   })).filter((p) => p.abbr || p.name);
 }
 
+// The event's own scheduled time pins the board game. Without it, a series put
+// every pick polled during tonight's game onto tomorrow's (THE SERIES GUARD in
+// source_ingest.js).
 function matchGame(ev, sport) {
   const ps = participantsOf(ev);
   if (ps.length !== 2) return null;
-  const opts = { source: 'bettingpros', sport, picked: `${ps[0].abbr || ps[0].name} vs ${ps[1].abbr || ps[1].name}` };
+  const startMs = bpTimeMs(ev.scheduled);
+  if (startMs == null) return null;
+  const opts = { source: 'bettingpros', sport, startMs, picked: `${ps[0].abbr || ps[0].name} vs ${ps[1].abbr || ps[1].name}` };
   return findGameByAbbrs(ps[0].abbr, ps[1].abbr, sport, opts)
     || findGameByTeams(ps[0].name, ps[1].name, sport, opts)
     || findGameByTeams(ps[0].short, ps[1].short, sport, opts);
@@ -285,7 +292,7 @@ async function pollBettingPros() {
   return inserted;
 }
 
-module.exports = { pollBettingPros, apiKey, sanePrice, fullGameMarket, keyFromChunk };
+module.exports = { pollBettingPros, apiKey, sanePrice, fullGameMarket, keyFromChunk, bpTimeMs };
 
 // CLI: node src/bettingpros.js
 if (require.main === module) pollBettingPros().then(() => process.exit(0));
