@@ -2583,3 +2583,25 @@ html.ca-app.ca-v2 .ca-nav-search { display: flex !important; }
   html.ca-v2 .ca-hist-summary { margin-left: -14px; margin-right: -14px; border-radius: 0; border-right: none; padding: 15px 14px; }
   html.ca-v2 .ca-tf-blocktoggle, html.ca-v2 .ca-hist-toggle { margin-left: 0; margin-right: 0; }
 }
+
+/* ── V2 phone titles (Jack 2026-09-16, round 2): every section title reads like
+      Team History (accent bar + 18px), inset by the 14px gutter; the Capper
+      Report keeps its own title. Dead space trimmed above and below sections. */
+@media (max-width: 768px) {
+  html.ca-v2 .ca-content .ca-section:not(.ca-section--cdb) { padding-top: 14px; padding-bottom: 18px; }
+  html.ca-v2 .ca-section--cdb { padding-bottom: 2px; }
+  html.ca-v2 .cdb .cdb-foot { padding: 2px 14px 0; }
+  html.ca-v2 .cdb .cdb-more { margin-bottom: 0; }
+  html.ca-v2 .ca-section-header { margin-bottom: 12px; align-items: center; }
+  html.ca-v2 .ca-section:not(.ca-section--cdb) .ca-section-h2 {
+    font-size: 18px; color: var(--text); letter-spacing: 0.4px;
+    display: inline-flex; align-items: center; gap: 9px;
+  }
+  html.ca-v2 .ca-section:not(.ca-section--cdb) .ca-section-h2::before {
+    content: ''; width: 4px; height: 18px; border-radius: 2px; background: var(--accent); flex: 0 0 4px;
+  }
+  html.ca-v2 .ca-tf-sub { margin: 0 0 12px; }
+  html.ca-v2 .ca-chat { margin-top: 14px; padding-top: 12px; }
+  html.ca-v2 .ca-sentiment-footer { margin-top: 10px; }
+  html.ca-v2 .ca-cmty-sub-hdr { margin-bottom: 10px; }
+}
