@@ -2498,3 +2498,28 @@ html.ca-app.ca-v2 .ca-nav-search { display: flex !important; }
   html.ca-v2 .ca-mobile-tabs.is-stuck .ca-mtab.active { border-bottom-width: 2px; }
   html.ca-v2 .ca-content { padding-bottom: 44px; }
 }
+
+/* ── V2 phone layout (Jack 2026-09-16): no dead space under the game header,
+      and every section's cards run edge to edge like the Capper Report. The
+      section keeps zero side padding; text-only content gets the same 14px
+      inner gutter the report rows use. V1 untouched (html.ca-v2 only). ───── */
+@media (max-width: 768px) {
+  html.ca-v2 .ca-game-header { padding-bottom: 10px; }
+  html.ca-v2 .ca-gh-meta-row { margin-bottom: 10px; }
+  html.ca-v2 .ca-section--cdb { padding-top: 8px; }
+  html.ca-v2 .ca-content .ca-section:not(.ca-section--cdb) { padding-left: 0; padding-right: 0; }
+  html.ca-v2 .ca-section-header, html.ca-v2 .ca-sentiment-footer, html.ca-v2 .ca-cmty-sub-hdr,
+  html.ca-v2 .ca-chat, html.ca-v2 .ca-two-col, html.ca-v2 .ca-tf-sub, html.ca-v2 .ca-tf-body,
+  html.ca-v2 .ca-hist-body, html.ca-v2 .ca-hist-header, html.ca-v2 .ca-inj-empty { padding-left: 14px; padding-right: 14px; }
+  html.ca-v2 .ca-section-header--picks { padding: 0; }
+  /* cards: full bleed, square sides, borders only top and bottom */
+  html.ca-v2 .ca-lines-table-wrap, html.ca-v2 .ca-lines-toggle, html.ca-v2 .ca-empty-card {
+    border-radius: 0; border-left: none; border-right: none;
+  }
+  html.ca-v2 .ca-lines-toggle { margin-bottom: 1px; }
+  html.ca-v2 .ca-context-grid { grid-template-columns: 1fr; gap: 1px; }
+  html.ca-v2 .ca-ctx-card { border-radius: 0; border-left: none; border-right: none; padding: 14px; }
+  html.ca-v2 .ca-ctx-card--span { grid-column: auto; }
+  html.ca-v2 .ca-hist-summary { margin-left: -14px; margin-right: -14px; border-radius: 0; border-right: none; padding: 15px 14px; }
+  html.ca-v2 .ca-tf-blocktoggle, html.ca-v2 .ca-hist-toggle { margin-left: 0; margin-right: 0; }
+}

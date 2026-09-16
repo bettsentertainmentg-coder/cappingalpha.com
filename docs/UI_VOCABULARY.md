@@ -117,7 +117,7 @@ Game Tile (`.ca-tg-tile`), #1 Pick Card (`.ca-top-pick-card` with live/won/lost 
 | Follow Pill | Outline accent button, "Following" muted state |
 | Tier Badge | free/paid chip |
 
-### V2 Capper Database (game page section, 2026-09-16; docs/V2_DATABASE_PLAN.md 7b)
+### V2 Capper Report (game page section, 2026-09-16; docs/V2_DATABASE_PLAN.md 7b; heading renamed from Capper Database the same day)
 Server-rendered by `src/capper_db_section.js` from the `backers` payload (`src/game_backers.js`); a literal port of `docs/mockups/v2_game_backers_v18.json` (scope `.v18` -> `.cdb`). Only under `html.ca-v2` (settings `product_mode` = v2, or the admin preview).
 | Name | Notes |
 |---|---|
@@ -131,6 +131,7 @@ Server-rendered by `src/capper_db_section.js` from the `backers` payload (`src/g
 | Show more | `.cdb-more` label on a hidden checkbox: 4.5 rows + fade -> ~7.5-row contained scroller, up-arrow (no words) collapses; hidden with 3 or fewer cappers (`.cdb-short`) |
 | Info Dot | `.cdb-info` round (i) bottom right, `<details>` holding the grading note (the only explanatory copy in the section) |
 | Section Wheel (bottom) | `html.ca-v2 .ca-mobile-tabs` fixed flush above the Tab Bar on phones (`--cdb-tabbar-h` measured by `initBottomWheel()` in game-detail.js), scroll spy unchanged; first tab reads CAPPERS |
+| Edge-to-edge sections | Under `html.ca-v2` on phones every section drops its side padding; cards (`.ca-lines-table-wrap`, `.ca-lines-toggle`, `.ca-ctx-card`, `.ca-hist-summary`, `.ca-empty-card`) bleed with square sides; text content keeps the 14px gutter |
 | Header Search | `.ca-nav-search` magnifier after the hamburger, left of the wordmark, same style as the hamburger; opens the Sports tab game search (`sessionStorage.ca_open_search`) until Global Search lands |
 
 ### Socials tab (Clubhouse direction, 2026-07-17)
