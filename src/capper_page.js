@@ -72,7 +72,7 @@ function buildCapperPageHtml(req, slug, sportWanted) {
   <meta name="robots" content="noindex" />
   <link rel="icon" href="/favicon.ico" sizes="any" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=12" />
+  <link rel="stylesheet" href="/game-detail.css?v=13" />
   <style>
     .cp-page { max-width: 720px; margin: 0 auto; padding: 14px 0 40px; color: var(--text); font-variant-numeric: tabular-nums; }
     .cp-head { display: flex; align-items: center; gap: 12px; padding: 6px 14px 12px; }
