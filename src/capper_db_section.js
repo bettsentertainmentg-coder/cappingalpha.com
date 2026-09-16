@@ -16,7 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const HEADING_LABEL = 'Capper Database';
+const HEADING_LABEL = 'Capper Report';   // Jack 2026-09-16 (was Capper Database)
 const STAKE_LABEL = '$10 a pick';
 
 function esc(str) {
