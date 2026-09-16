@@ -410,7 +410,7 @@ function _renderSidebarGames(sport) {
       ? `${f(g.away_flag)}${tennisDisplayName(g.away_team) || away} @ ${f(g.home_flag)}${tennisDisplayName(g.home_team) || home}`
       : `${away} @ ${home}`;
 
-    return `<div class="ca-sidebar-game-row" onclick="window.location.href='/game/${g.espn_game_id}'">
+    return `<div class="ca-sidebar-game-row" onclick="goGame('${g.espn_game_id}')">
       <span class="ca-sidebar-game-matchup">${matchupHtml}</span>
       <span class="ca-sidebar-game-time">${timeOrScore}</span>
     </div>`;

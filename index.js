@@ -176,7 +176,7 @@ const CSP = [
   "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com",
   "img-src 'self' data: https:",
   "connect-src 'self' https://us.i.posthog.com https://*.posthog.com https://accounts.google.com",
-  "frame-src https://accounts.google.com",
+  "frame-src 'self' https://accounts.google.com",
   "worker-src 'self'",
   "manifest-src 'self'",
   "object-src 'none'",
@@ -184,6 +184,15 @@ const CSP = [
   "form-action 'self'",
   "frame-ancestors 'self'",
 ].join('; ');
+// The app shell pushes /game/:id into a frame (public/modules/page_stack.js,
+// ?embed=app). The bundled shell's origin is capacitor://localhost (iOS) or
+// https://localhost (Android), so that one page relaxes frame-ancestors to the
+// app origins. frame-ancestors overrides X-Frame-Options wherever CSP is
+// understood, so the legacy header is simply dropped on it.
+const CSP_EMBED = CSP.replace("frame-ancestors 'self'", "frame-ancestors 'self' capacitor://localhost https://localhost http://localhost");
+// Any page fetched with ?embed=app (the /game/:id redirect carries it onto the
+// canonical /:sport/:slug URL).
+const isEmbedPage = (req) => req.method === 'GET' && req.query && req.query.embed === 'app';
 // CORS for the native app shell ONLY (Phase 7b). The Capacitor webview serves the
 // bundled frontend from capacitor://localhost (iOS) / https://localhost (Android),
 // so its API calls are cross-origin. Auth rides a bearer token, not cookies, so
@@ -191,11 +200,16 @@ const CSP = [
 const APP_ORIGINS = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost']);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  const embed = isEmbedPage(req);
+  if (!embed) res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-XSS-Protection', '0'); // modern guidance: disable the legacy auditor
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
-  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('Content-Security-Policy', embed ? CSP_EMBED : CSP);
+  // Embedded documents may sit in the browser cache briefly: the shell
+  // prefetches a page on touchstart so the frame's navigation a moment later
+  // hits the cache (private: never a shared cache, the render is per-session).
+  if (embed) res.setHeader('Cache-Control', 'private, max-age=15');
   if (process.env.SESSION_SECURE) {
     res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
   }
@@ -3021,7 +3035,12 @@ async function renderGameDetail(req, res, game, opts = {}) {
 app.get('/game/:espn_game_id', async (req, res) => {
   const id = req.params.espn_game_id;
   const live = db.prepare(`SELECT * FROM today_games WHERE espn_game_id = ?`).get(id);
-  if (live) return res.redirect(301, makeDetailUrl(live));
+  if (live) {
+    // Keep the query string: ?slot= deep links and the app shell's ?embed=app
+    // (page_stack.js) both ride through to the canonical slug URL.
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    return res.redirect(301, makeDetailUrl(live) + qs);
+  }
 
   const hist = resolveHistoricalGame(id);
   if (hist) {

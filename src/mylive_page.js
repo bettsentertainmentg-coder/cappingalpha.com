@@ -4,7 +4,7 @@
 // stay open on a phone next to the TV. Server renders the shell only; all data
 // arrives via the API so the page is cheap and session-aware.
 
-const { buildNav, esc } = require('./detail_page');
+const { buildNav, esc, EMBED_STAMP, EMBED_CHILD } = require('./detail_page');
 
 const CSS = `
 .ml-wrap { max-width: 980px; margin: 0 auto; padding: 24px 14px 64px; }
@@ -122,7 +122,9 @@ function buildMyLivePageHtml(user) {
   <meta name="robots" content="noindex" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=7" />
+  ${EMBED_STAMP}
+  ${EMBED_CHILD}
   <style>${CSS}</style>
 </head>
 <body>

@@ -1,6 +1,7 @@
 {
   "appId": "com.cappingalpha.app",
   "appName": "CappingAlpha",
+  "backgroundColor": "#0f1117",
   "webDir": "public",
   "server": {
     "url": "http://localhost:3013",

@@ -1234,7 +1234,7 @@ function bindEvents() {
     if (cl) {
       e.stopPropagation();
       const card = cl.closest('.nx-card');
-      if (card && card.dataset.id) window.location.href = `/game/${card.dataset.id}`;
+      if (card && card.dataset.id) window.goGame(card.dataset.id);
       return;
     }
 
@@ -1247,7 +1247,7 @@ function bindEvents() {
     // Anywhere else on the card — expansion body included — goes to the game
     // page (Jack 2026-07-30: only the chevron and real buttons do anything else).
     const card = e.target.closest('.nx-card');
-    if (card && card.dataset.id) window.location.href = `/game/${card.dataset.id}`;
+    if (card && card.dataset.id) window.goGame(card.dataset.id);
   });
 
   // Search: icon-expanding pill; Escape / X restores the board exactly.

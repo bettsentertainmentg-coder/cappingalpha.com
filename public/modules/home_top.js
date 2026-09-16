@@ -215,7 +215,7 @@ function _gameTile(g) {
   const basesHtml = _hasBases(g)
     ? `<div class="ca-tg-bases">${basesDiamond(g.live_bases)}</div>`
     : '';
-  return `<div class="ca-tg-tile" onclick="location.href='/game/${g.espn_game_id}'" title="${away} @ ${home}${pickTitle}">
+  return `<div class="ca-tg-tile" onclick="goGame('${g.espn_game_id}')" title="${away} @ ${home}${pickTitle}">
     <div class="ca-tg-head">
       ${sportBadge(g.sport)}
       ${_cornerCluster(g)}

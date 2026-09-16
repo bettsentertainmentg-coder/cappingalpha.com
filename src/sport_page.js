@@ -6,7 +6,7 @@
 // Called from the per-slug routes registered in index.js (above /:sport/:slug).
 
 const db = require('./db');
-const { buildNav, esc } = require('./detail_page');
+const { buildNav, esc, EMBED_STAMP, EMBED_CHILD } = require('./detail_page');
 const { getLinesForGame } = require('./lines_scraper');
 const { americanToDecimal } = require('./odds_math');
 const { getSportHeadlines } = require('./headlines');
@@ -622,7 +622,9 @@ async function buildSportPageHtml(pageDef, opts = {}) {
   <meta name="twitter:image" content="https://cappingalpha.com/ca-logo.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=2" />
+  <link rel="stylesheet" href="/game-detail.css?v=7" />
+  ${EMBED_STAMP}
+  ${EMBED_CHILD}
   <style>${PAGE_CSS}</style>
   <script type="application/ld+json">${jsonLd}</script>
 </head>

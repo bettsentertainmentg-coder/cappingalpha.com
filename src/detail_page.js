@@ -3,6 +3,24 @@
 // Server-renders: <head> SEO tags, nav, breadcrumb, game header, sidebar.
 // Client-renders: slot picker, detail panel, lines, sentiment, injuries, context.
 
+// Pushed page inside the app (public/modules/page_stack.js): the shell loads a
+// server page in a frame with ?embed=app&top=<status bar inset> and owns the
+// chrome around it. Stamped pre-paint so html.ca-embed CSS applies on first
+// paint; the inset becomes --ca-embed-top so the page can draw its own header
+// under the status bar (env() reads 0 inside a frame). Every framed page
+// includes EMBED_STAMP; pages without their own embed logic also include
+// EMBED_CHILD (the game page has its own in game-detail.js).
+const EMBED_STAMP = `<script>
+    try {
+      if (window.parent !== window && /[?&]embed=app(?:&|$)/.test(location.search)) {
+        document.documentElement.classList.add('ca-embed');
+        var t = /[?&]top=(\\d+)/.exec(location.search);
+        if (t) document.documentElement.style.setProperty('--ca-embed-top', t[1] + 'px');
+      }
+    } catch (e) {}
+  </script>`;
+const EMBED_CHILD = `<script src="/modules/embed_child.js?v=1"></script>`;
+
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -432,7 +450,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
   <meta name="twitter:image" content="https://cappingalpha.com/og/game/${encodeURIComponent(game.espn_game_id)}.png" />
   <link href="/vendor/fonts/fonts.css?v=1" rel="stylesheet" />
   <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
-  <link rel="stylesheet" href="/game-detail.css?v=6" />
+  <link rel="stylesheet" href="/game-detail.css?v=7" />
   <link rel="stylesheet" href="/gauge.css?v=1" />
   <link rel="stylesheet" href="/track-sheet.css?v=4" />
   <script src="/vendor/chartjs/chart.umd.min.js"></script>
@@ -446,6 +464,7 @@ function buildDetailPageHtml({ title, desc, canonical, payload, game, away, home
       }
     } catch (e) {}
   </script>
+  ${EMBED_STAMP}
   <script type="application/ld+json">${jsonLd}</script>
 </head>
 <body>
@@ -662,7 +681,7 @@ ${buildAuthModals()}
 </div>
 
 <script>window.__GAME_DATA__ = ${safeJson};</script>
-<script type="module" src="/game-detail.js?v=10"></script>
+<script type="module" src="/game-detail.js?v=11"></script>
 <!-- Track-a-Bet sheet: voting on this page opens the betslip at the tapped line.
      Loaded after game-detail.js so track.js's window globals (showToast etc.) win. -->
 <script type="module" src="/modules/track.js?v=53"></script>
@@ -672,4 +691,4 @@ ${buildAuthModals()}
 
 // buildNav + esc + SPORT_PAGES are shared with src/sport_page.js so the sport
 // pages carry the exact same top nav (including the Sports dropdown) for free.
-module.exports = { buildDetailPageHtml, buildNav, esc, SPORT_PAGES };
+module.exports = { buildDetailPageHtml, buildNav, esc, SPORT_PAGES, EMBED_STAMP, EMBED_CHILD };

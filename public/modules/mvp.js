@@ -6,7 +6,7 @@ import { pickLabel, sportBadge, matchupLabel, scoreDisplay, teamNickname, gameTi
 import { renderPicks } from './picks.js';
 import { haptic } from './native.js?v=2';
 import { unlockCtaHtml, inlinePaywallHtml, lockedRankingsBoxHtml } from './paywall.js';
-import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=26';
+import { renderSportRail, displaySport, railUsedFallback, railMockActive, caPickRowHtml } from './sport_cards.js?v=27';
 
 let mvpChart  = null;
 let homeChart = null;

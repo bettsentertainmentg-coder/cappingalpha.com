@@ -80,10 +80,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
 
     const clickable = !locked && p.espn_game_id;
     const slotKey   = clickable ? pickSlotKey(p) : '';
-    const destUrl   = clickable
-      ? `/game/${p.espn_game_id}${slotKey ? '?slot=' + slotKey : ''}`
-      : '';
-    const clickAttr = clickable ? ` onclick="window.location.href='${destUrl}'"` : '';
+    const clickAttr = clickable ? ` onclick="goGame('${p.espn_game_id}'${slotKey ? `, '${slotKey}'` : ''})"` : '';
     const cursorStyle = clickable ? ' cursor:pointer;' : '';
 
     const scoreHidden  = !isPaying() && rank > 1 && rank <= MAX;
@@ -116,10 +113,7 @@ export function renderPicks(picks, targetId = 'picks-body', globalRanks = null) 
   const makePushRow = (p) => {
     const clickable = p.espn_game_id;
     const slotKey   = clickable ? pickSlotKey(p) : '';
-    const destUrl   = clickable
-      ? `/game/${p.espn_game_id}${slotKey ? '?slot=' + slotKey : ''}`
-      : '';
-    const clickAttr = clickable ? ` onclick="window.location.href='${destUrl}'"` : '';
+    const clickAttr = clickable ? ` onclick="goGame('${p.espn_game_id}'${slotKey ? `, '${slotKey}'` : ''})"` : '';
     return `
       <tr style="opacity:0.45;${clickable ? 'cursor:pointer;' : ''}"${clickAttr}>
         <td class="rank" style="color:var(--muted);">—<span class="rank-score-mobile">${p.score ?? '—'}</span></td>

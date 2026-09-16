@@ -48,6 +48,42 @@ This build talks to the live Railway server exactly like the shipped app.
 
 **Rule: always `npm run app:prod` before any Archive or TestFlight upload.** `capacitor.config.json` carries a loud `__DEV_SERVER__` marker whenever the dev state is active.
 
+## Pushed pages (page_stack.js)
+
+In the shell a game row does not navigate. `window.goGame(id, slot)` and
+`window.goPage(href)` push `public/modules/page_stack.js`: the page slides in
+from the right over what is underneath (which parallaxes left under a dim), the
+CA marquee pulses until the page reports ready, and Back / left-edge swipe /
+hardware back slide it away to exactly what was there. Pages stack: a link
+inside a pushed page pushes another one on top (game -> sport page -> game).
+Pushable: `/game/:id`, `/mylive`, and the sport pages (`/mlb`, `/nfl`, ...).
+Every game row, pick row, and same-origin `<a>` to one of those goes through it;
+on the website they stay plain navigations.
+
+Each page is the normal server-rendered document in a frame with
+`?embed=app&top=<status bar inset>`. `html.ca-embed` (stamped pre-paint by
+`EMBED_STAMP` from detail_page.js) hides the page's own nav, tab bar and
+footer, and the page draws its header under the status bar using
+`--ca-embed-top`. The game page has its own embed logic in game-detail.js;
+/mylive and the sport pages include `public/modules/embed_child.js`, which adds
+the slim Back bar, forwards links and login to the shell, and hands the shell's
+bearer token to their API calls. Messages both ways are `ca:embed-*`.
+
+- Preload: the document is prefetched on touchstart (embed documents carry
+  `Cache-Control: private, max-age=15`), so the frame's navigation on the tap
+  usually hits the cache. Nothing may touch the DOM during the touch: inserting
+  a frame mid-touch makes WebKit drop the click (learned the hard way).
+- Preview in a desktop browser: `localStorage.ca_stack = '1'`, reload. CSS
+  transitions do not run while the Browser pane is hidden, so judge motion on
+  the simulator.
+- Server side (index.js): `frame-src 'self'` in the CSP; `?embed=app` responses
+  relax `frame-ancestors` to the shell origins, drop X-Frame-Options, and get the
+  short cache header. Those must be on master (Railway) before a release build
+  can open a page. The `/game/:id` redirect to the slug URL keeps the query
+  string now (it used to drop `?slot=` deep links too).
+- Header option B (velvet band under the status bar) is one CSS swap:
+  `html.ca-embed { --ca-embed-cover: ... }` in game-detail.css.
+
 ## Making changes to the app ONLY (not the website)
 
 Three tiers, use the lightest one that fits:

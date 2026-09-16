@@ -2297,3 +2297,48 @@ html.ca-app .ca-mobile-tabs { top: calc(46px + var(--ca-safe-top)); }
 html.ca-app .nav-unlock-m { display: none !important; }
 html.ca-app { -webkit-tap-highlight-color: transparent; }
 html.ca-app nav, html.ca-app .ca-tabbar, html.ca-app .track-fab { -webkit-user-select: none; user-select: none; }
+
+/* ── Embedded in the app's pushed page (html.ca-embed: ?embed=app inside a frame,
+   stamped pre-paint in detail_page.js). The shell around the frame owns the
+   status-bar inset, the tab bar and Back, so this document sheds its own chrome
+   and the section tabs pin to the very top of the frame. overscroll-behavior
+   keeps a scroll that hits the end from chaining into the shell underneath. */
+html.ca-embed nav:not(.ca-tabbar), html.ca-embed .ca-tabbar, html.ca-embed footer,
+html.ca-embed .ca-drawer, html.ca-embed .ca-cookie-banner, html.ca-embed .nav-unlock-m { display: none !important; }
+html.ca-embed { --ca-embed-top: 0px; --ca-embed-cover: #161a24; }   /* inset set inline pre-paint */
+/* The game header starts under the status bar; a fixed cover in the same tone
+   keeps that band solid once the header scrolls away under it. */
+html.ca-embed .ca-game-header { padding-top: calc(var(--ca-embed-top) + 14px); }
+html.ca-embed .ca-embed-statusbar { position: fixed; top: 0; left: 0; right: 0; height: var(--ca-embed-top); background: var(--ca-embed-cover); z-index: 200; pointer-events: none; }
+html.ca-embed .ca-sticky-top { top: var(--ca-embed-top); }
+html.ca-embed .ca-mobile-tabs { top: var(--ca-embed-top) !important; }
+html.ca-embed body { padding-bottom: 24px !important; }
+/* Pages without their own header (My Action Live, sport pages) get a slim bar
+   from embed_child.js: status-bar cover + Back + the page title. */
+html.ca-embed .ca-embed-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  display: flex; align-items: center; gap: 6px;
+  height: calc(var(--ca-embed-top) + 44px); padding: var(--ca-embed-top) 10px 0 4px;
+  background: var(--ca-embed-cover); border-bottom: 1px solid var(--border);
+}
+html.ca-embed .ca-embed-bar-back {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  background: none; border: none; color: var(--muted); font-family: inherit;
+  font-size: 13px; font-weight: 700; padding: 8px 10px; cursor: pointer;
+}
+html.ca-embed .ca-embed-bar-title { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html.ca-embed body.ca-embed-has-bar { padding-top: calc(var(--ca-embed-top) + 44px); }
+html.ca-embed .track-fab { bottom: 16px; }
+html.ca-embed, html.ca-embed body { overscroll-behavior: contain; }
+html.ca-embed { -webkit-tap-highlight-color: transparent; }
+/* Back inside the pinned section strip (added by game-detail.js in embed mode):
+   sticky at the left edge of the horizontally scrolling strip, visible only once
+   the strip is stuck to the top and the header's own Back has scrolled away. */
+.ca-embed-back { display: none; }
+html.ca-embed .ca-mobile-tabs.is-stuck .ca-embed-back {
+  display: inline-flex; align-items: center; justify-content: center;
+  position: sticky; left: 0; z-index: 2; flex: 0 0 auto;
+  width: 40px; height: 46px; margin-left: -16px; margin-right: 2px;
+  background: var(--bg); border: none; border-right: 1px solid var(--border);
+  color: var(--text); cursor: pointer;
+}

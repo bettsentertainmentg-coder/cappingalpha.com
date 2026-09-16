@@ -173,7 +173,7 @@ export function caPickRowHtml(p, opts = {}) {
   }
 
   const rank = opts.rank ? `<span class="ca-row-rank${opts.rank === 1 ? ' rk1' : ''}">${opts.rank}</span>` : '';
-  const click = !opts.locked && p.espn_game_id ? ` onclick="location.href='/game/${p.espn_game_id}'" style="cursor:pointer;"` : '';
+  const click = !opts.locked && p.espn_game_id ? ` onclick="goGame('${p.espn_game_id}')" style="cursor:pointer;"` : '';
   return `<div class="${rowCls}"${click}>${rank}${ring}${main}${end}</div>`;
 }
 

@@ -3,10 +3,11 @@
 import { state, REFRESH_MS } from './modules/state.js';
 import { setHeatScale } from './modules/utils.js?v=7';
 import { isNative, initNative, hideSplash, onNotificationTap, haptic } from './modules/native.js?v=2';
+import { initPageStack } from './modules/page_stack.js?v=1';
 import { checkAuth, isPaying, syncNavUnlock } from './modules/auth.js';
 import { loadPicks } from './modules/picks.js';
-import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=43';
-import { loadSports } from './modules/sports.js?v=31';
+import { loadMvp, loadMvpPublic, loadHomeMvp } from './modules/mvp.js?v=44';
+import { loadSports } from './modules/sports.js?v=32';
 import { renderEsports } from './modules/esports.js';
 import { loadLeaderboard } from './modules/leaderboard.js?v=17';
 import { loadSocials } from './modules/socials.js?v=8';
@@ -16,12 +17,13 @@ import './modules/books.js?v=2';
 import './modules/modal.js?v=12';
 import './modules/member_profile.js?v=25';
 import { resumePendingCheckout } from './modules/paywall.js';
-import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=12';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=13';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { loadHomeScores } from './modules/home_scores.js?v=4';
 import './modules/calcs.js?v=1';
 import { renderUnlock } from './modules/unlock.js';
 import { maybeStartOnboarding } from './modules/onboarding.js?v=3';
+
 
 // ── Referral capture ──────────────────────────────────────────────────────────
 // A ?ref=CODE share link stores the code; doSignup() redeems it right after the
@@ -484,6 +486,9 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
   // browser, the next foreground event re-checks /auth/me and reacts to the
   // tier flip (banner, surface re-sync, onboarding completion).
   initNative({ onCheckoutReturn: handleCheckoutReturn });
+  // Game rows call window.goGame: a pushed page in the app shell (page_stack.js),
+  // a plain navigation to /game/:id on the web.
+  initPageStack();
 
   // Notification taps (native push, Phase 7e): map the payload's data.type to
   // in-app navigation. Registered immediately after initNative — the earliest
@@ -499,6 +504,7 @@ Object.assign(window, { toggleAccountMenu, closeAccountMenu, getTheme, setTheme 
         if (type === 'game_start' || type === 'steam' || type === 'swing') {
           // The game modal when we know the game; the live dashboard otherwise.
           if (gameId && window.openGameModal) window.openGameModal(gameId);
+          else if (window.goPage) window.goPage('/mylive');
           else window.location.href = '/mylive';
         }
         else if (type === 'grades')   switchTab('mvp');

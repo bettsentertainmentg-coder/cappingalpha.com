@@ -11,6 +11,72 @@ import { cappingGauge } from '/modules/gauge.js';
 import { drawPickTimeline, drawLockedTeaser, destroyPickTimeline } from '/modules/score_timeline.js';
 import { mountLiveCommand, unmountLiveCommand } from '/modules/live_tracker.js?v=3';
 
+// ── Embedded in the app's pushed page (public/modules/page_stack.js) ──────────
+// ?embed=app inside a frame: the shell hides the site chrome (html.ca-embed,
+// stamped pre-paint in detail_page.js); Back, links that leave the page, and
+// login are forwarded to the parent; the bundled shell hands its bearer token
+// across because the frame is cross-origin there and carries no session cookie.
+// Messages both ways are 'ca:embed-*'. Everything here is inert on the web.
+const EMBED = (() => {
+  try { return new URLSearchParams(location.search).get('embed') === 'app' && window.parent !== window; }
+  catch (_) { return false; }
+})();
+const EMBED_PARENTS = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost', location.origin]);
+function embedPost(type, extra) {
+  if (!EMBED) return;
+  try { window.parent.postMessage(Object.assign({ type }, extra || {}), '*'); } catch (_) {}
+}
+function embedTop() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ca-embed-top')) || 0;
+}
+function waitForEmbedAuth(ms) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; window.removeEventListener('message', on); resolve(v); };
+    const on = (e) => {
+      if (e.source !== window.parent || !EMBED_PARENTS.has(e.origin)) return;
+      const m = e.data;
+      if (!m || m.type !== 'ca:embed-auth') return;
+      finish(m.token || null);
+    };
+    window.addEventListener('message', on);
+    setTimeout(() => finish(null), ms);
+  });
+}
+// Bearer on every relative /api/ + /auth/ call (the native.js interceptor is
+// inert here: a frame has no Capacitor bridge).
+function installEmbedAuth(token) {
+  if (!token || window.__caEmbedAuth) return;
+  window.__caEmbedAuth = true;
+  const orig = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === 'string' ? input : (input instanceof URL) ? input.href : (input && input.url) || '';
+      if (url.startsWith('/api/') || url.startsWith('/auth/')) {
+        const opts = Object.assign({}, init);
+        const headers = new Headers(opts.headers || (input instanceof Request ? input.headers : undefined));
+        if (!headers.has('Authorization')) headers.set('Authorization', 'Bearer ' + token);
+        opts.headers = headers;
+        return orig(input, opts);
+      }
+    } catch (_) {}
+    return orig(input, init);
+  };
+}
+// The server rendered a cross-origin frame logged out; with the bearer in hand,
+// pull the tier-correct payload before the first render.
+async function refetchEmbedPayload() {
+  try {
+    const r = await fetch(`/api/game/${encodeURIComponent(_data.game.espn_game_id)}`);
+    if (!r.ok) return;
+    const fresh = await r.json();
+    if (!fresh || !fresh.game) return;
+    if (fresh.heatScale == null) fresh.heatScale = _data.heatScale;
+    _data = fresh;
+    window.__GAME_DATA__ = fresh;
+  } catch (_) {}
+}
+
 function formatActualStart(actualIso, scheduledIso) {
   if (!actualIso) return '';
   const iso = actualIso.includes('T') ? actualIso : actualIso.replace(' ', 'T') + 'Z';
@@ -94,11 +160,51 @@ let _gdMyBooks   = null;      // Settings -> My Sportsbooks keys; pins those row
 const _gdGroupOpen = {};      // lines-table group id -> user-toggled open/closed
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+// Inline handlers that leave the page go through gdGo so the embedded frame can
+// hand them to the app instead of navigating inside itself.
+window.gdGo = (href) => { if (EMBED) embedPost('ca:embed-nav', { href }); else location.href = href; };
+if (EMBED) {
+  window.openLogin  = () => embedPost('ca:embed-login');
+  window.openSignup = () => embedPost('ca:embed-signup');
+  // Same for real links: tabs and other games go to the shell, anything
+  // external (or target=_blank) opens in the system browser via the shell.
+  document.addEventListener('click', (e) => {
+    const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (!a) return;
+    const href = a.getAttribute('href') || '';
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+    let u;
+    try { u = new URL(href, location.href); } catch (_) { return; }
+    e.preventDefault();
+    e.stopPropagation();
+    if (u.origin !== location.origin || a.target === '_blank') embedPost('ca:embed-nav', { href: u.href, external: true });
+    else embedPost('ca:embed-nav', { href: u.pathname + u.search + u.hash });
+  }, true);
+  // The page draws its header under the status bar (--ca-embed-top from the
+  // shell); this fixed cover keeps that band solid once the header scrolls away.
+  const cover = document.createElement('div');
+  cover.className = 'ca-embed-statusbar';
+  document.body.prepend(cover);
+  // The header's Back scrolls away with the matchup; once the section strip
+  // pins to the top it carries its own Back (CSS shows it only while stuck).
+  const strip = document.querySelector('.ca-mobile-tabs');
+  if (strip) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ca-embed-back';
+    b.setAttribute('aria-label', 'Back');
+    b.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 2L3.5 6L7.5 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); doBack(); });
+    strip.prepend(b);
+  }
+}
+
 async function init() {
   _data = window.__GAME_DATA__;
   if (!_data || !_data.game) {
     document.querySelector('.ca-section')?.insertAdjacentHTML('beforebegin',
       '<div style="padding:48px;text-align:center;color:#8892a4;">Game data unavailable.</div>');
+    embedPost('ca:embed-ready');
     return;
   }
   // Calibrate the heat gradient / 🔥 line to the live score scale (server-injected).
@@ -109,6 +215,14 @@ async function init() {
     const r = await fetch('/team_colors.json');
     _teamColors = await r.json();
   } catch (_) { _teamColors = {}; }
+
+  // Pushed page inside the app: ask the shell for its bearer first, then pull a
+  // tier-correct payload when this frame was rendered logged out.
+  if (EMBED) {
+    embedPost('ca:embed-hello');
+    const token = await waitForEmbedAuth(1500);
+    if (token) { installEmbedAuth(token); if (!_data.user) await refetchEmbedPayload(); }
+  }
 
   // Auth state. Seed from the server-rendered session first so a logged-in /
   // subscribed user is recognized on first paint (no flash of Login/Get Access,
@@ -168,6 +282,9 @@ async function init() {
   // Countdown for pre-game
   if (_data.game.status === 'pre') startCountdown();
 
+  // First meaningful paint: the shell fades its loader out on this.
+  embedPost('ca:embed-ready');
+
   // The payload status can lag ESPN (it's mirrored from prod in local dev, and on
   // a fresh start the cron hasn't flipped 'pre' -> 'in' yet). Probe the live
   // endpoint and activate the live treatment the moment ESPN says it's in progress.
@@ -198,6 +315,7 @@ async function _maybeActivateLive() {
 
 // ── Back navigation ───────────────────────────────────────────────────────────
 function doBack() {
+  if (EMBED) { embedPost('ca:embed-back'); return; }
   try {
     if (document.referrer && new URL(document.referrer).origin === location.origin && history.length > 1) {
       history.back();
@@ -967,7 +1085,7 @@ function renderDetailPanel() {
   // Live games drop the bottom paywall banner in favor of a clickable unlock badge in
   // the header (top-right), for logged-out / non-paid users.
   const liveUnlockBadge = (liveNow && !isPaying() && scoreHidden)
-    ? `<div class="ca-dp-hdr-unlock" onclick="location.href='/#unlock'" title="Unlock CappingAlpha">
+    ? `<div class="ca-dp-hdr-unlock" onclick="gdGo('/#unlock')" title="Unlock CappingAlpha">
          <span class="ca-dp-hdr-unlock-1"><i class="fa-solid fa-lock"></i> Members only</span>
          <span class="ca-dp-hdr-unlock-2">Unlock full scores + the live value pulse</span>
          <span class="ca-dp-hdr-unlock-3">Get access from $1</span>
@@ -1904,7 +2022,7 @@ function _buildVoteLead(votable) {
 // otherwise cast it (POST). Re-renders the community section either way.
 async function castVote(slot) {
   if (!_data?.game?.espn_game_id) return;
-  if (isViewer()) { openLogin(); return; }
+  if (isViewer()) { window.openLogin(); return; }
   const already = !!(_data.userVote && _data.userVote[slot]);
   const method  = already ? 'DELETE' : 'POST';
   try {
@@ -1913,7 +2031,7 @@ async function castVote(slot) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ slot }),
     });
-    if (res.status === 401) { openLogin(); return; }
+    if (res.status === 401) { window.openLogin(); return; }
     if (res.status === 409) { alert('Voting is closed. Game has started.'); return; }
     if (method === 'DELETE') {
       // DELETE returns { ok }, not fresh tallies — update local state by hand.
@@ -3328,7 +3446,7 @@ function initStickyTabs() {
   let ticking = false;
   const update = () => {
     ticking = false;
-    const navH = document.querySelector('nav')?.offsetHeight || 56;
+    const navH = EMBED ? embedTop() : (document.querySelector('nav')?.offsetHeight || 56);
     tabs.classList.toggle('is-stuck', tabs.getBoundingClientRect().top <= navH + 0.5);
   };
   window.addEventListener('scroll', () => {
@@ -3397,4 +3515,4 @@ function esc(s) {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-init().catch(err => console.error('[game-detail] init error:', err));
+init().catch(err => { console.error('[game-detail] init error:', err); embedPost('ca:embed-ready'); });
