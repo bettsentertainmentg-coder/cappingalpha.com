@@ -9,7 +9,7 @@ const db = require('./db');
 const { buildNav, esc } = require('./detail_page');
 const { getLinesForGame } = require('./lines_scraper');
 const { americanToDecimal } = require('./odds_math');
-const { getSportHeadlines } = require('./headlines');
+const { getSportHeadlines, safeHttpUrl } = require('./headlines');
 const { OFFSHORE_BOOKS } = require('./odds_ingest');
 const { ET_OFFSET_MS } = require('./cycle');
 
@@ -488,8 +488,12 @@ function infoSectionHtml(label, info) {
 }
 
 function headlinesSectionHtml(label, headlines) {
-  if (!headlines.length) return '';
-  const items = headlines.slice(0, 6).map(h => `<a class="sp-headline" href="${esc(h.url)}" target="_blank" rel="noopener nofollow">
+  // Third-party links: only absolute http(s) hrefs render (no javascript: etc.).
+  const safe = headlines
+    .map(h => ({ ...h, url: safeHttpUrl(h.url) }))
+    .filter(h => h.url && h.title);
+  if (!safe.length) return '';
+  const items = safe.slice(0, 6).map(h => `<a class="sp-headline" href="${esc(h.url)}" target="_blank" rel="noopener nofollow">
     <div class="sp-headline-title">${esc(h.title)}</div>
     <div class="sp-headline-meta">${esc(h.source || 'News')}${relTime(h.publishedAt) ? ' · ' + esc(relTime(h.publishedAt)) : ''}</div>
   </a>`).join('\n');

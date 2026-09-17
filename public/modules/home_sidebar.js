@@ -466,6 +466,20 @@ function _sourceBadgeStyle(name) {
 }
 
 // ── Headlines ─────────────────────────────────────────────────────────────────
+// Headlines are third-party text (Reddit post titles, Google News, ESPN), so
+// every field is escaped and only absolute http(s) links render. In the app
+// shell this page holds a bearer token, so markup injection here is a takeover.
+const _esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function _safeHref(raw) {
+  try {
+    const u = new URL(String(raw ?? '').trim());
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
 export async function loadHeadlines() {
   const el = document.getElementById('ca-headlines-list');
   if (!el) return;
@@ -474,17 +488,20 @@ export async function loadHeadlines() {
   try {
     const res = await fetch('/api/headlines');
     if (!res.ok) throw new Error('fetch failed');
-    const items = await res.json();
-    if (!items || items.length === 0) {
+    const raw = await res.json();
+    const items = (Array.isArray(raw) ? raw : [])
+      .map(h => ({ ...h, href: _safeHref(h?.url), source: String(h?.source || 'News') }))
+      .filter(h => h.href && h.title);
+    if (items.length === 0) {
       el.innerHTML = `<div style="padding:16px;color:var(--muted);font-size:13px;">No headlines available.</div>`;
       return;
     }
     el.innerHTML = items.map(h => {
       const label = _sourceShort(h.source);
       const style = _sourceBadgeStyle(h.source);
-      return `<a class="ca-headline-row" href="${h.url}" target="_blank" rel="noopener noreferrer">
-        <span class="ca-headline-source-badge" style="${style}">${label}</span>
-        <span class="ca-headline-title">${h.title}</span>
+      return `<a class="ca-headline-row" href="${_esc(h.href)}" target="_blank" rel="noopener noreferrer">
+        <span class="ca-headline-source-badge" style="${style}">${_esc(label)}</span>
+        <span class="ca-headline-title">${_esc(h.title)}</span>
       </a>`;
     }).join('');
   } catch (_) {

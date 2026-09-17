@@ -15,7 +15,7 @@ import './modules/books.js?v=2';
 import './modules/modal.js?v=14';
 import './modules/member_profile.js?v=28';
 import { resumePendingCheckout } from './modules/paywall.js';
-import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=16';
+import { loadHomeSidebar, loadHeadlines } from './modules/home_sidebar.js?v=17';
 import { loadTopGames, loadMySports } from './modules/home_top.js';
 import { renderUnlock } from './modules/unlock.js';
 

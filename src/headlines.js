@@ -16,6 +16,41 @@ function _decodeEntities(str) {
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
 }
 
+// ── Ingest sanitizing ─────────────────────────────────────────────────────────
+// Every field here is third-party text (a Reddit post title is anyone's input),
+// and _decodeEntities turns "&lt;script&gt;" back into live markup. Renderers
+// still escape; this is the second fence so nothing tag-shaped or scriptable
+// is ever cached or served from /api/headlines.
+
+// Absolute http(s) URL or '' (javascript:, data:, relative, junk all rejected).
+function safeHttpUrl(raw) {
+  try {
+    const u = new URL(String(raw || '').trim());
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+// Plain text only: tags stripped, control chars dropped, whitespace collapsed.
+function _plainText(raw, max = 300) {
+  return String(raw == null ? '' : raw)
+    .replace(/<[^>]*>/g, '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function _cleanItem(h) {
+  return {
+    title:       _plainText(h.title),
+    url:         safeHttpUrl(h.url),
+    source:      _plainText(h.source, 60) || 'News',
+    publishedAt: h.publishedAt,
+  };
+}
+
 // ── Google News RSS ───────────────────────────────────────────────────────────
 // Accepts a search query so the per-sport pages can reuse the same fetcher +
 // parser. Default query keeps getHeadlines() behavior identical (same URL).
@@ -61,14 +96,14 @@ async function _fetchGoogleNews(query = 'sports betting') {
         if (title.endsWith(suffix)) title = title.slice(0, -suffix.length).trim();
       }
 
-      items.push({
+      items.push(_cleanItem({
         title,
-        url:         link.trim(),
+        url:         _decodeEntities(link),
         source,
         publishedAt: pub ? new Date(pub).toISOString() : new Date().toISOString(),
-      });
+      }));
     }
-    return items.slice(0, 15);
+    return items.filter(h => h.title && h.url).slice(0, 15);
   } catch (err) {
     console.warn('[headlines] Google News fetch failed:', err.message);
     return [];
@@ -84,7 +119,7 @@ async function _fetchReddit() {
       headers: { 'User-Agent': 'CappingAlpha/1.0 (sports betting research)' },
     });
     const children = resp.data?.data?.children || [];
-    return children.map(c => ({
+    return children.map(c => _cleanItem({
       title:       c.data.title,
       url:         c.data.url,
       source:      'Reddit',
@@ -103,7 +138,7 @@ async function _fetchEspn() {
     const resp = await axios.get(url, { timeout: 8000 });
     const articles = resp.data?.articles || [];
     return articles
-      .map(a => ({
+      .map(a => _cleanItem({
         title:       a.headline || a.title || '',
         url:         a.links?.web?.href || a.links?.api?.news?.href || '',
         source:      'ESPN',
@@ -179,4 +214,4 @@ async function getSportHeadlines(sportLabel) {
   return items;
 }
 
-module.exports = { getHeadlines, getSportHeadlines };
+module.exports = { getHeadlines, getSportHeadlines, safeHttpUrl };
