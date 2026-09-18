@@ -53,11 +53,12 @@ const SIDE_PRICE_IMPOSSIBLE = 1000;   // restatement bar for rows already graded
 const ML_PRICE_MAX = 2500;
 // Jack, 2026-09-15: "if someone's placing a bet like -2000, ignore it." A
 // pregame moneyline at that price is not a read on the game; it is a free
-// win in a win-rate ladder (407 Polymarket rows at -2400 and beyond). Set at
-// -1000 on 2026-09-16: BettingPros shows college favorites at -1900, -1567 and
-// -1329 (the sjoe36758 profile, 19-1 on them), the same free wins one notch
-// under the first cut.
-const HEAVY_ML_REFUSE = 1000;
+// win in a win-rate ladder (407 Polymarket rows at -2400 and beyond).
+// Jack, 2026-09-18: the line is -2000 (a -1000 cut on 2026-09-16 was undone),
+// and a heavy pick is still SHOWN: it is recorded, visible on the profile as
+// the capper said it, and voided from the record (void_reason 'heavy_price').
+// It is never refused and never scores on the board.
+const HEAVY_ML_REFUSE = 2000;
 const ML_IMPLIED_TOL = 0.10;          // recorded vs market, in implied probability
 
 function sportKey(sport) {
@@ -206,7 +207,7 @@ function checkSourcePick({ game, sport, pickType, side, line, odds, trustPrice =
       notes.push({ price_from_spread: { spread: Number(sp), odds: priced } });
       O = priced;
     }
-    if (O <= -HEAVY_ML_REFUSE) return { ok: false, reason: 'heavy_price', line: null, odds: O, notes };
+    if (O <= -HEAVY_ML_REFUSE) return { ok: true, reason: null, voidReason: 'heavy_price', line: null, odds: O, notes };
     return { ok: true, reason: null, line: null, odds: O, notes };
   }
   return { ok: false, reason: 'unsupported_type', line: L, odds: O, notes };
@@ -398,8 +399,17 @@ function sanitizeBothSides({ dryRun = true, sources = null } = {}) {
 // Reverse one reason's voids (or all of them). Rows withdrawn pregame are gone
 // for good, which is why withdrawal is limited to rows that were never public.
 // reason 'prices' instead clears every backfilled moneyline price.
-function restoreLedger({ reason = null } = {}) {
+// minOdds (optional): restore only rows priced above it. The -1000 heavy cut
+// of 2026-09-16 is undone with { reason: 'heavy_price', minOdds: -2000 }: the
+// -1000..-1999 rows come back, anything at -2000 or heavier stays void.
+function restoreLedger({ reason = null, minOdds = null } = {}) {
   const db = require('./db');
+  if (reason && minOdds != null && Number.isFinite(+minOdds)) {
+    const r = db.prepare(`UPDATE capper_history SET result = result_before_void, void_reason = NULL, result_before_void = NULL
+                          WHERE result = 'void' AND void_reason = ? AND result_before_void IS NOT NULL
+                            AND odds IS NOT NULL AND odds > ?`).run(reason, +minOdds);
+    return { restored: r.changes, reason, min_odds: +minOdds };
+  }
   if (reason === 'prices') {
     const p = db.prepare(`UPDATE capper_history SET odds = NULL, odds_source = NULL
                           WHERE odds_source IN ('quoted','closing','closing_spread','board','board_spread')`).run();

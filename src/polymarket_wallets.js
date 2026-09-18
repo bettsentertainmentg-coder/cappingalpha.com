@@ -567,11 +567,13 @@ async function walkWalletHistory(ledgers, cfg) {
     pregame++;
 
     const won = prices[held.idx] === 1;
+    const voidReason = gate.voidReason || null; // heavy favorite: kept, shown, voided (R17)
     rows.push({
       sport: slugSport(c.L.slug),
       pickType, team, line,
       gameDate: (startIso || '').slice(0, 10) || null,
-      result: won ? 'win' : 'loss',
+      result: voidReason ? 'void' : (won ? 'win' : 'loss'),
+      voidReason,
       odds: americanFromPrice(avgPrice),
       provenance: JSON.stringify([{
         source: 'polymarket', at: new Date().toISOString(), backfill: true,
@@ -586,12 +588,12 @@ function insertBackfillRows(canonical, rows) {
   const ins = db.prepare(`
     INSERT INTO capper_history
       (capper_name, sport, pick_type, team, spread, espn_game_id, game_date,
-       channel, score, result, pick_id, odds, source, is_home_team, sources_json)
-    VALUES (?, ?, ?, ?, ?, NULL, ?, 'polymarket', NULL, ?, NULL, ?, 'polymarket', NULL, ?)
+       channel, score, result, pick_id, odds, source, is_home_team, sources_json, void_reason)
+    VALUES (?, ?, ?, ?, ?, NULL, ?, 'polymarket', NULL, ?, NULL, ?, 'polymarket', NULL, ?, ?)
   `);
   let n = 0;
   for (const r of rows) {
-    try { ins.run(canonical, r.sport, r.pickType, r.team, r.line, r.gameDate, r.result, r.odds, r.provenance); n++; } catch (_) {}
+    try { ins.run(canonical, r.sport, r.pickType, r.team, r.line, r.gameDate, r.result, r.odds, r.provenance, r.voidReason || null); n++; } catch (_) {}
   }
   return n;
 }

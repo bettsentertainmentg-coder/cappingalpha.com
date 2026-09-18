@@ -382,6 +382,10 @@ function recordSourcePick(pick) {
   }
   const line = verdict.line;
   const odds = verdict.odds;
+  // A pick the gate keeps on the record as the capper said it but voids
+  // (a moneyline at -2000 or heavier, R17): stored, visible, never graded,
+  // never a board mention.
+  const voidReason = verdict.voidReason || null;
   const meta = { ...(pick.meta || {}) };
   for (const n of verdict.notes) Object.assign(meta, n);
 
@@ -417,8 +421,8 @@ function recordSourcePick(pick) {
     const r = db.prepare(`
       INSERT INTO capper_history
         (capper_name, sport, pick_type, team, spread, espn_game_id, game_date,
-         channel, score, result, pick_id, odds, source, is_home_team, sources_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NULL, ?, ?, ?, ?)
+         channel, score, result, pick_id, odds, source, is_home_team, sources_json, void_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?)
     `).run(
       canonical,
       game.sport ?? null,
@@ -428,10 +432,12 @@ function recordSourcePick(pick) {
       game.espn_game_id,
       gameDate,
       source,
+      voidReason ? 'void' : 'pending',
       odds,
       source,
       isTotal ? 0 : (pick.side === 'home' ? 1 : 0),
-      provenance
+      provenance,
+      voidReason
     );
     historyId = r.lastInsertRowid;
   } catch (err) {
@@ -445,7 +451,7 @@ function recordSourcePick(pick) {
   // capper per slot) and updateSlot's message_id / author+channel checks.
   // Gates: source_board_points is the master switch; source_board_<source>
   // (e.g. source_board_polymarket) turns one system off on its own.
-  if (!live
+  if (!live && !voidReason
       && db.getSetting('scoring_version', 'v2') === 'v3'
       && db.getSetting('source_board_points', '1') === '1'
       && db.getSetting(`source_board_${source}`, '1') === '1') {

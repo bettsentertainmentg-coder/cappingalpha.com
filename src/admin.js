@@ -5105,7 +5105,8 @@ router.post('/api/sanitize-ledger', adminLoginRateLimit, express.json(), (req, r
       return res.json(out);
     }
     if (req.body?.restore === true) {
-      const out = restoreLedger({ reason: typeof req.body.reason === 'string' ? req.body.reason : null });
+      const minOdds = req.body?.min_odds != null && Number.isFinite(+req.body.min_odds) ? +req.body.min_odds : null;
+      const out = restoreLedger({ reason: typeof req.body.reason === 'string' ? req.body.reason : null, minOdds });
       console.log(`[sanitize-ledger] RESTORED ${out.restored} row(s)${out.reason ? ' for ' + out.reason : ''}`);
       if (out.restored) recompute();
       return res.json(out);

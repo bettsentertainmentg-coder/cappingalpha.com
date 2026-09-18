@@ -297,13 +297,13 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   `competitor_id`; Polymarket's market screen (`SKIP_Q`) now excludes set
   markets, handicaps, exhibitions and every prop phrasing, on the live map
   and the holders backfill alike.
-- Heavy prices are not picks (Jack, 2026-09-15: "if someone's placing a bet
-  like -2000, ignore it"). A moneyline at -1000 or heavier is refused at
-  ingest (`heavy_price`) and the restatement voids the ones already graded.
-  The first cut was -2000 (386 rows, nearly all Polymarket wallets at -2400
-  and beyond, plus ten Covers -10000s); it moved to -1000 on 2026-09-16 after
-  the sjoe36758 profile went 19-1 on college favorites at -1900, -1567 and
-  -1329. Spreads and totals past +-1000 were already out.
+- Heavy prices are shown, never counted (Jack, 2026-09-15 and 2026-09-18).
+  A moneyline at -2000 or heavier is recorded as the capper said it, visible
+  on the profile, and voided from the record (`heavy_price`); it never scores
+  on the board. 386 such rows on the first pass, nearly all Polymarket wallets
+  at -2400 and beyond, plus ten Covers -10000s. A -1000 cut tried on
+  2026-09-16 was undone on 2026-09-18 at Jack's call; its -1000..-1999 rows
+  were restored. Spreads and totals past +-1000 were already out.
 - Rows only the source's own market label can expose (a BettingPros "5th
   Inning Moneyline" carries an ordinary price and no line, so no band sees
   it) are voided in LIST mode: `{ ids, reason }` to the sanitize endpoint,
@@ -396,4 +396,4 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
 - Different markets on one game (a moneyline and a spread) are not a pair, and
   neither is the same side twice.
 
-Current as of 2026-09-17.
+Current as of 2026-09-18.
