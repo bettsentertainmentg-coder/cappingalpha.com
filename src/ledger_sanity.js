@@ -373,11 +373,12 @@ function sanitizeBothSides({ dryRun = true, sources = null } = {}) {
     groups.get(k).push({ ...r, _market: market });
   }
   const upd = db.prepare(`UPDATE capper_history SET result_before_void = result, result = 'void', void_reason = 'both_sides' WHERE id = ?`);
-  const bySource = {}, byMarket = {}; const sample = []; const ids = [];
+  const bySource = {}, byMarket = {}; const sample = []; const ids = []; const pairKeys = new Set();
   for (const [k, v] of groups) {
     const market = v[0]._market;
     const sides = new Set(v.map(x => (market === 'total' ? String(x.pick_type).toLowerCase() : String(x.team).toLowerCase())));
     if (sides.size < 2) continue;
+    pairKeys.add(k);
     for (const r of v) {
       ids.push(r.id);
       const src = r.source || 'discord';
@@ -389,7 +390,7 @@ function sanitizeBothSides({ dryRun = true, sources = null } = {}) {
   if (!dryRun) { const tx = db.transaction(() => { for (const id of ids) upd.run(id); }); tx(); }
   return {
     started: new Date().toISOString(), dry_run: dryRun, mode: 'both_sides',
-    pairs: ids.length ? new Set(sample.map(s => s.capper + '|' + s.game)).size : 0,
+    pairs: pairKeys.size,
     rows_voided: ids.length, by_source: bySource, by_market: byMarket, sample: sample.slice(0, 40),
   };
 }
