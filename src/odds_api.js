@@ -54,6 +54,17 @@ async function fetchOddsForSport(sportKey) {
 // ── Match an Odds API game to a today_games row ───────────────────────────────
 // Odds API gives us home_team/away_team as full display names.
 // We match against today_games using the same fuzzy logic as the scanner.
+//
+// THE EVENT'S OWN START TIME DECIDES (Jack, 2026-09-17). This matched on the
+// NICKNAME with no date and took the first row: "Maine Black Bears @ Boston
+// College Eagles" is a Bears and an Eagles, and so are three other college
+// games in the same week, because the board now carries a full week of them.
+// The 4pm refresh wrote another game's numbers onto that row — spread 1.5 and
+// total 47.5 against every book's -38.5 and 53.5 — and storeBookLines put the
+// wrong moneyline on the DraftKings row too. Seven of 99 board games carried a
+// line no book agreed with when this was found.
+const ODDS_START_TOL_MS = 3 * 3600e3;
+
 function findTodayGame(oddsGame) {
   // Odds API home/away can be opposite of ESPN — match by finding both teams anywhere
   const t1 = (oddsGame.home_team || '').toLowerCase();
@@ -63,7 +74,7 @@ function findTodayGame(oddsGame) {
   const n1 = t1.split(' ').pop();
   const n2 = t2.split(' ').pop();
 
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT * FROM today_games
     WHERE status = 'pre'
       AND (
@@ -74,8 +85,36 @@ function findTodayGame(oddsGame) {
         LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
         OR LOWER(home_team) LIKE '%' || ? || '%' OR LOWER(away_team) LIKE '%' || ? || '%'
       )
-    LIMIT 1
-  `).get(n1, n1, t1, t1, n2, n2, t2, t2);
+  `).all(n1, n1, t1, t1, n2, n2, t2, t2);
+  if (!rows.length) return null;
+
+  // Both FULL names on the board row beat a nickname that merely fits.
+  const full = rows.filter((g) => {
+    const h = String(g.home_team || '').toLowerCase();
+    const a = String(g.away_team || '').toLowerCase();
+    const fits = (t) => h.includes(t) || a.includes(t) || t.includes(h) || t.includes(a);
+    return fits(t1) && fits(t2);
+  });
+  const pool = full.length ? full : rows;
+  if (pool.length === 1) return pool[0];
+
+  const start = Date.parse(oddsGame.commence_time || '');
+  if (!Number.isFinite(start)) {
+    console.warn(`[odds_api] ${oddsGame.away_team} @ ${oddsGame.home_team}: ${pool.length} board games fit and the event carries no start time — skipped`);
+    return null;
+  }
+  const near = pool
+    .map((g) => {
+      const iso = String(g.start_time || '').includes('T') ? g.start_time : String(g.start_time || '').replace(' ', 'T') + 'Z';
+      return { g, d: Math.abs(Date.parse(iso) - start) };
+    })
+    .filter((x) => Number.isFinite(x.d) && x.d <= ODDS_START_TOL_MS)
+    .sort((a, b) => a.d - b.d);
+  if (!near.length) {
+    console.warn(`[odds_api] ${oddsGame.away_team} @ ${oddsGame.home_team}: no board game within 3h of ${oddsGame.commence_time} — skipped`);
+    return null;
+  }
+  return near[0].g;
 }
 
 // ── Extract best available line from Odds API bookmakers ─────────────────────
@@ -200,4 +239,4 @@ async function refreshOdds() {
   return updated;
 }
 
-module.exports = { refreshOdds };
+module.exports = { refreshOdds, findTodayGame };

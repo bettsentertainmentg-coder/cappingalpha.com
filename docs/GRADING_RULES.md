@@ -363,4 +363,22 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
 - Spreads and totals with no juice (Covers, CBS) still settle at standard juice:
   the line decides those bets, and the juice moves units a few cents.
 
-Current as of 2026-09-16.
+## R18. A board line must belong to the game it sits on (2026-09-17)
+
+- `odds_api.findTodayGame` matched an Odds API event to a board game on the
+  NICKNAME with no date, and took the first row. The board now carries a full
+  week of college football, so "Maine Black Bears @ Boston College Eagles" is
+  a Bears and an Eagles and so are three other games that week: the 4pm
+  refresh wrote another game's numbers onto that row (spread 1.5 and total
+  47.5 against every book's -38.5 and 53.5) and `storeBookLines` put the wrong
+  moneyline on its DraftKings row. Seven of 99 board games carried a line no
+  book agreed with.
+- The rule: both full team names must fit the board row, and when several
+  rows still fit, the event's own `commence_time` picks the one within 3
+  hours. Otherwise the event is skipped and logged, never written to a guess.
+- Why it matters beyond display: the board line is what the market gate
+  (R15) measures a source pick against, so a wrong board number refuses real
+  picks. The CA official line itself locks from `book_lines` (R1), which is
+  why grading was not hit.
+
+Current as of 2026-09-17.
