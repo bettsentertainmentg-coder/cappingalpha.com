@@ -256,7 +256,7 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
 
   const changes = [];
   const bySource = {}, byReason = {}, bySport = {}, byCapper = {};
-  const backfill = { closing: 0, closing_spread: 0, board: 0, board_spread: 0 };
+  const backfill = { quoted: 0, closing: 0, closing_spread: 0, board: 0, board_spread: 0 };
   let scanned = 0, withdrawn = 0, voided = 0;
   for (const r of rows) {
     scanned++;
@@ -312,11 +312,19 @@ function sanitizeLedger({ dryRun = true, since = '2026-01-01', until = '2099-12-
   };
 }
 
-// The price a moneyline row should carry when its source gave none: the median
-// closing price for its side across every archived book, else a deep favorite
-// priced from its closing spread (R12), else the same two reads off today's
-// board for a game still on it. null when nothing is known.
+// The price a moneyline row should carry when its odds column is empty: the
+// capper's own quoted price when the reader parked it in the line column (the
+// v2 Discord path stored "Astros +119" as a line), else the median closing
+// price for its side across every archived book, else a deep favorite priced
+// from its closing spread (R12), else the same two reads off today's board for
+// a game still on it. null when nothing is known.
 function archivedMlPrice(db, r) {
+  // |line| >= 100 on a moneyline is American odds, never a line (storage's
+  // own correctPickType rule).
+  const quoted = Number(r.spread);
+  if (Number.isFinite(quoted) && Math.abs(quoted) >= 100 && Math.abs(quoted) <= ML_PRICE_MAX) {
+    return { odds: Math.round(quoted), source: 'quoted' };
+  }
   if (!r.espn_game_id || r.is_home_team == null) return null;
   const home = Number(r.is_home_team) === 1;
   const median = (xs) => { const s = xs.slice().sort((a, b) => a - b); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2); };
@@ -344,7 +352,7 @@ function restoreLedger({ reason = null } = {}) {
   const db = require('./db');
   if (reason === 'prices') {
     const p = db.prepare(`UPDATE capper_history SET odds = NULL, odds_source = NULL
-                          WHERE odds_source IN ('closing','closing_spread','board','board_spread')`).run();
+                          WHERE odds_source IN ('quoted','closing','closing_spread','board','board_spread')`).run();
     return { restored: p.changes, reason };
   }
   const r = reason
