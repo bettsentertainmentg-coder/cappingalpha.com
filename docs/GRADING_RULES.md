@@ -381,4 +381,19 @@ FOR ANY PICK EVER. NOTHING IS TRACKED PAST THAT."
   picks. The CA official line itself locks from `book_lines` (R1), which is
   why grading was not hit.
 
+## R19. One capper, one side of a market (2026-09-17)
+
+- A capper cannot hold both sides of the same market on the same game as a
+  pick. Where the ledger has both, it is a reader artifact (a Discord message
+  naming both teams graded onto both slots, an NRFI stored once per team) or a
+  wallet hedging, which is a trade and not a read. Either way the pair is a
+  guaranteed 1-1 that inflates the volume the Wilson ladder rewards.
+- Both rows void (`both_sides`, reversible); there is no way to tell which
+  side was meant. 1,261 pairs on the 2026-09-17 export: Polymarket 946, then
+  Covers 137, BettingPros 130, Discord 22, Action Network 20.
+- Live hedges and flips are already withdrawn pregame by
+  `source_ingest.removeSourceEntry`. This is the history that rule never saw.
+- Different markets on one game (a moneyline and a spread) are not a pair, and
+  neither is the same side twice.
+
 Current as of 2026-09-17.

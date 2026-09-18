@@ -345,6 +345,55 @@ function archivedMlPrice(db, r) {
   } catch (_) { return null; }
 }
 
+// ── Both sides of one market, one capper, one game ──────────────────────────
+// A capper cannot hold both sides of a market as a pick: the pair is a reader
+// artifact (a Discord message naming both teams graded onto both slots, an
+// NRFI stored once per team), or a wallet hedging, which is a trade and not a
+// read. Either way the pair is a guaranteed 1-1 that inflates volume, and the
+// Wilson ladder rewards volume. Both rows void; there is no way to tell which
+// side was meant. 1,261 pairs on the 2026-09-17 export (Polymarket 946, the
+// rest reader artifacts). Live hedges are already withdrawn pregame by
+// source_ingest.removeSourceEntry; this is the history it never saw.
+function sanitizeBothSides({ dryRun = true, sources = null } = {}) {
+  const db = require('./db');
+  const rows = db.prepare(`
+    SELECT id, capper_name, source, sport, pick_type, team, spread, odds, espn_game_id, game_date, result
+    FROM capper_history
+    WHERE result IN ('win','loss','push') AND espn_game_id IS NOT NULL AND capper_name IS NOT NULL
+  `).all();
+  const want = Array.isArray(sources) && sources.length ? new Set(sources) : null;
+  const groups = new Map();
+  for (const r of rows) {
+    const src = r.source || 'discord';
+    if (want && !want.has(src)) continue;
+    const pt = String(r.pick_type || '').toLowerCase();
+    const market = (pt === 'over' || pt === 'under') ? 'total' : pt;
+    const k = `${r.capper_name}|${r.espn_game_id}|${market}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push({ ...r, _market: market });
+  }
+  const upd = db.prepare(`UPDATE capper_history SET result_before_void = result, result = 'void', void_reason = 'both_sides' WHERE id = ?`);
+  const bySource = {}, byMarket = {}; const sample = []; const ids = [];
+  for (const [k, v] of groups) {
+    const market = v[0]._market;
+    const sides = new Set(v.map(x => (market === 'total' ? String(x.pick_type).toLowerCase() : String(x.team).toLowerCase())));
+    if (sides.size < 2) continue;
+    for (const r of v) {
+      ids.push(r.id);
+      const src = r.source || 'discord';
+      bySource[src] = (bySource[src] || 0) + 1;
+      byMarket[market] = (byMarket[market] || 0) + 1;
+      if (sample.length < 200) sample.push({ id: r.id, capper: r.capper_name, source: src, sport: r.sport, game: r.espn_game_id, pick: `${r.team} ${r.pick_type}${r.spread != null ? ' ' + r.spread : ''}`, odds: r.odds, result: r.result });
+    }
+  }
+  if (!dryRun) { const tx = db.transaction(() => { for (const id of ids) upd.run(id); }); tx(); }
+  return {
+    started: new Date().toISOString(), dry_run: dryRun, mode: 'both_sides',
+    pairs: ids.length ? new Set(sample.map(s => s.capper + '|' + s.game)).size : 0,
+    rows_voided: ids.length, by_source: bySource, by_market: byMarket, sample: sample.slice(0, 40),
+  };
+}
+
 // Reverse one reason's voids (or all of them). Rows withdrawn pregame are gone
 // for good, which is why withdrawal is limited to rows that were never public.
 // reason 'prices' instead clears every backfilled moneyline price.
@@ -366,7 +415,7 @@ function restoreLedger({ reason = null } = {}) {
 module.exports = {
   TOTAL_BAND, SPREAD_MAX, TOTAL_TOL, SPREAD_TOL, SIDE_PRICE_MAX, SIDE_PRICE_IMPOSSIBLE, ML_PRICE_MAX, HEAVY_ML_REFUSE,
   checkSourcePick, implausibleLedgerRow, otherMarketFromProvenance, marketLine, marketPrice,
-  sanitizeLedger, restoreLedger, archivedMlPrice,
+  sanitizeLedger, sanitizeBothSides, restoreLedger, archivedMlPrice,
 };
 
 // CLI: node src/ledger_sanity.js [--apply]

@@ -33,9 +33,15 @@ const { evaluatePick, fetchGameResult } = require('./results');
 const { implausibleLine } = require('./audit');
 
 const LINE_MARKETS = ['spread', 'over', 'under', 'set_spread'];
+// markets:'all' adds moneylines. A moneyline carries no line, so the wrong-line
+// bug could never reach one — but a grade written before a guard existed can
+// still be wrong, and 7 tennis matches held rows graded win AND loss on the
+// same side, with impossible pushes among them (2026-09-17).
+const ALL_MARKETS = [...LINE_MARKETS, 'ml', 'set_ml'];
 
 // Every game holding at least one settled ledger row that carries a line.
-function candidateGames({ since, until, sports }) {
+function candidateGames({ since, until, sports, markets = 'lines' }) {
+  const mk = markets === 'all' ? ALL_MARKETS : LINE_MARKETS;
   const params = [since, until];
   let sportFilter = '';
   if (Array.isArray(sports) && sports.length) {
@@ -47,13 +53,13 @@ function candidateGames({ since, until, sports }) {
     FROM capper_history
     WHERE result IN ('win','loss','push')
       AND espn_game_id IS NOT NULL
-      AND spread IS NOT NULL
+      ${markets === 'all' ? '' : 'AND spread IS NOT NULL'}
       AND game_date >= ? AND game_date <= ?
-      AND LOWER(COALESCE(pick_type,'')) IN (${LINE_MARKETS.map(() => '?').join(',')})
+      AND LOWER(COALESCE(pick_type,'')) IN (${mk.map(() => '?').join(',')})
       ${sportFilter}
     GROUP BY espn_game_id
     ORDER BY game_date DESC, espn_game_id DESC
-  `).all(...params.slice(0, 2), ...LINE_MARKETS, ...params.slice(2));
+  `).all(...params.slice(0, 2), ...mk, ...params.slice(2));
 }
 
 // The final for one game: the live board row while it is still there (free),
@@ -71,10 +77,11 @@ async function truthFor(game, cache) {
 
 async function regradeLedger({
   since = '2026-01-01', until = '2099-12-31', dryRun = true,
-  maxGames = 400, sports = null, gameIds = null,
+  maxGames = 400, sports = null, gameIds = null, markets = 'lines',
 } = {}) {
   const started = new Date().toISOString();
-  let games = candidateGames({ since, until, sports });
+  const MARKETS = markets === 'all' ? ALL_MARKETS : LINE_MARKETS;
+  let games = candidateGames({ since, until, sports, markets });
   if (Array.isArray(gameIds) && gameIds.length) {
     const want = new Set(gameIds.map(String));
     games = games.filter(g => want.has(String(g.espn_game_id)));
@@ -90,8 +97,9 @@ async function regradeLedger({
 
   const rowsFor = db.prepare(`
     SELECT * FROM capper_history
-    WHERE espn_game_id = ? AND result IN ('win','loss','push') AND spread IS NOT NULL
-      AND LOWER(COALESCE(pick_type,'')) IN (${LINE_MARKETS.map(() => '?').join(',')})
+    WHERE espn_game_id = ? AND result IN ('win','loss','push')
+      ${markets === 'all' ? '' : 'AND spread IS NOT NULL'}
+      AND LOWER(COALESCE(pick_type,'')) IN (${MARKETS.map(() => '?').join(',')})
   `);
   const upd = db.prepare(`UPDATE capper_history SET result = ? WHERE id = ?`);
 
@@ -102,7 +110,7 @@ async function regradeLedger({
     if (!oldestExamined || (g.game_date && g.game_date < oldestExamined)) oldestExamined = g.game_date;
 
     const game = { ...truth, status: 'post', sport: truth.sport || g.sport };
-    for (const row of rowsFor.all(g.espn_game_id, ...LINE_MARKETS)) {
+    for (const row of rowsFor.all(g.espn_game_id, ...MARKETS)) {
       rowsChecked++;
       // A row whose quoted number cannot be a full-game line for its sport is a
       // team total, a prop, or a wrong-game match (R14). Regrading it at that
@@ -136,7 +144,7 @@ async function regradeLedger({
     (c.from === 'win' && c.to === 'loss') || (c.from === 'loss' && c.to === 'win')).length;
 
   return {
-    started, since, until, dry_run: dryRun,
+    started, since, until, dry_run: dryRun, markets,
     games_candidate: candidates,
     games_examined: examined,
     games_unresolved: unresolved,

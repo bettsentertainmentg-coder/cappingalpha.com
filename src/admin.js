@@ -5052,7 +5052,8 @@ router.post('/api/regrade-ledger', adminLoginRateLimit, express.json(), async (r
   const maxGames = Math.min(Math.max(parseInt(req.body?.max_games, 10) || 400, 1), 2000);
   try {
     const { regradeLedger } = require('./ledger_regrade');
-    const report = await regradeLedger({ since, until, dryRun, sports, gameIds, maxGames });
+    const markets = req.body?.markets === 'all' ? 'all' : 'lines';
+    const report = await regradeLedger({ since, until, dryRun, sports, gameIds, maxGames, markets });
     console.log(`[regrade-ledger] ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${report.rows_changed} row(s) ` +
                 `(${report.win_loss_flips} win/loss flips) across ${report.games_examined} game(s) ${since}..${until}`);
     // The Wilson ladder is materialized from capper_history, so a real run has
@@ -5095,7 +5096,14 @@ router.post('/api/sanitize-ledger', adminLoginRateLimit, express.json(), (req, r
     catch (e) { console.warn('[sanitize-ledger] ratings recompute failed:', e.message); }
   };
   try {
-    const { sanitizeLedger, restoreLedger } = require('./ledger_sanity');
+    const { sanitizeLedger, sanitizeBothSides, restoreLedger } = require('./ledger_sanity');
+    if (req.body?.mode === 'both_sides') {
+      const srcs = Array.isArray(req.body?.sources) ? req.body.sources.map(String) : null;
+      const out = sanitizeBothSides({ dryRun, sources: srcs });
+      console.log(`[sanitize-ledger] both_sides ${dryRun ? 'DRY RUN' : 'APPLIED'}: ${out.rows_voided} row(s)`);
+      if (!dryRun && out.rows_voided) recompute();
+      return res.json(out);
+    }
     if (req.body?.restore === true) {
       const out = restoreLedger({ reason: typeof req.body.reason === 'string' ? req.body.reason : null });
       console.log(`[sanitize-ledger] RESTORED ${out.restored} row(s)${out.reason ? ' for ' + out.reason : ''}`);
