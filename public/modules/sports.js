@@ -19,7 +19,7 @@ import {
   SPORT_THEMES, flatUnitReturn, isSuspendedGame, suspendedLabel,
 } from './utils.js?v=10';
 import { isPaying } from './auth.js';
-import { TEAM_COLORS } from './modal.js?v=13';
+import { TEAM_COLORS } from './modal.js?v=15';
 
 // Escape everything that reaches innerHTML (team/tournament/player names are
 // scraped third-party text).

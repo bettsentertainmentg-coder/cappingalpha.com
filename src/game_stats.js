@@ -338,8 +338,15 @@ async function getGameStats(espn_game_id, sport, leaguePathOverride = null) {
   const att = summary?.gameInfo?.attendance;
   if (att != null && att > 0) result.attendance = att;
 
-  // Recap / preview headline — ESPN's own write-up for the game.
-  const headline = summary?.article?.headline || summary?.article?.shortLinkText || null;
+  // Recap / preview headline — ESPN's own write-up for the game. Third-party
+  // text: keep it plain (tags stripped, control chars dropped). Renderers still esc().
+  const rawHeadline = summary?.article?.headline || summary?.article?.shortLinkText || '';
+  const headline = String(rawHeadline)
+    .replace(/<[^>]*>/g, '')
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300) || null;
   if (headline) {
     result.recap = {
       headline,

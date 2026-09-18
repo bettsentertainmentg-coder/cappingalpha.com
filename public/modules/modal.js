@@ -792,7 +792,7 @@ function renderGameData(data) {
   if (stats?.recap?.headline) {
     sections.push(`<div>
       <div class="game-data-heading">${stats.recap.type === 'Recap' ? 'Recap' : 'Preview'}</div>
-      <div class="game-data-row" style="line-height:1.4;">${stats.recap.headline}</div>
+      <div class="game-data-row" style="line-height:1.4;">${esc(stats.recap.headline)}</div>
     </div>`);
   }
 
