@@ -44,6 +44,17 @@ function requireAuth(req, res, next) {
   res.redirect('/admin/login');
 }
 
+// Admin chrome is which admin Jack is looking at (V1 museum vs V2 launch).
+// Separate from settings.product_mode, which is what the public site shows.
+const V2_CHROME_TABS = new Set(['ledger', 'v2', 'sourcefeed', 'receptions', 'codes', 'users']);
+const V1_CHROME_TABS = new Set([
+  'picks', 'cappers', 'messages', 'sourcefeed', 'mvp', 'history', 'codes', 'users',
+  'usage', 'archive', 'reader', 'dummy', 'receptions', 'playbook', 'v2',
+]);
+function adminChrome(req) {
+  return req.session && req.session.admin_chrome === 'v1' ? 'v1' : 'v2';
+}
+
 // Constant-time password compare. Hash both sides to a fixed length first so
 // timingSafeEqual never throws on length mismatch and no length is leaked.
 function safeEqual(a, b) {
@@ -82,7 +93,7 @@ function page(title, body) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title} — CapperBoss Admin</title>
+  <title>${title} - CappingAlpha Admin</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #0f1117; color: #e2e8f0; font-size: 14px; padding: 24px; }
@@ -124,6 +135,22 @@ function page(title, body) {
     .atab-logout:hover { color:#e2e8f0; background:#1e2330; text-decoration:none; }
     .apanel { display:none; }
     .apanel.active { display:block; }
+    /* ── Admin chrome (V1 museum vs V2 launch). Not the public product_mode switch. ── */
+    .admin-head { display:flex; align-items:center; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+    .logo { font-size:22px; font-weight:700; letter-spacing:-0.02em; }
+    .chrome-switch { display:inline-flex; border:1px solid #3b4560; border-radius:8px; overflow:hidden; }
+    .chrome-opt { padding:7px 16px; font-size:13px; font-weight:700; color:#8892a4; text-decoration:none; background:#171b24; }
+    .chrome-opt:hover { text-decoration:none; color:#e2e8f0; background:#1e2330; }
+    .chrome-opt.on { background:#3b82f6; color:#fff; }
+    .public-site { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-left:auto; font-size:13px; color:#8892a4; max-width:640px; }
+    .ld-counts { display:flex; flex-wrap:wrap; gap:18px; font-size:13px; background:#171b24; border:1px solid #252c3b; border-radius:10px; padding:14px; margin-bottom:14px; }
+    .ld-filters { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:14px; }
+    .ld-filters label { margin:0; }
+    .ld-sort { cursor:pointer; }
+    .ld-sort.on { color:#e2e8f0; }
+    .ld-open { color:#93c5fd; cursor:pointer; font-weight:600; }
+    .badge-blocked { background:#7f1d1d; color:#fecaca; border:1px solid #991b1b; }
+    .badge-hidden { background:#1e2330; color:#fbbf24; border:1px solid #3b4560; }
     /* ── Users ── */
     .users-search-bar { display:flex; gap:10px; margin-bottom:20px; }
     .users-search-bar input { flex:1; max-width:380px; }
@@ -321,6 +348,7 @@ router.get('/preview', requireAuth, (_req, res) => {
     <span class="pv-note">Live site, real data &mdash; a 1:1 mirror of the phone UI. Hit Reload after you change anything.</span>
     <div class="pv-sizes" id="pv-sizes"></div>
     <button class="pv-reload" onclick="document.getElementById('pv-frame').contentWindow.location.reload()">&#8635; Reload</button>
+    <button class="pv-size" id="pv-onboard" onclick="toggleOnboard()" title="Preview the 9-screen first-run onboarding (?onboard=1)">Onboarding</button>
     <a class="pv-back" href="/admin/dashboard">&larr; Admin</a>
   </div>
   <div class="pv-stage">
@@ -336,6 +364,15 @@ router.get('/preview', requireAuth, (_req, res) => {
     function setSize(i){var s=SIZES[i];phone.style.width=s.w+'px';phone.style.height=s.h+'px';dim.textContent=s.label+' \\u2014 '+s.w+' \\u00d7 '+s.h;Array.prototype.forEach.call(bar.children,function(b,j){b.classList.toggle('active',j===i);});}
     SIZES.forEach(function(s,i){var b=document.createElement('button');b.className='pv-size';b.textContent=s.label;b.onclick=function(){setSize(i);};bar.appendChild(b);});
     setSize(0);
+    // Onboarding preview: swap the iframe between the live site and /?onboard=1
+    // (the 9-screen first-run flow). Each flip is a fresh load of that URL.
+    var obOn=false;
+    function toggleOnboard(){
+      obOn=!obOn;
+      document.getElementById('pv-frame').src=obOn?'/?onboard=1':'/';
+      document.getElementById('pv-onboard').classList.toggle('active',obOn);
+    }
+    window.toggleOnboard=toggleOnboard;
   </script>
 </body></html>`);
 });
@@ -345,7 +382,26 @@ router.get('/', requireAuth, (_req, res) => res.redirect('/admin/dashboard'));
 
 // ── GET /admin/dashboard — unified 4-tab dashboard ───────────────────────────
 router.get('/dashboard', requireAuth, (req, res) => {
-  const activeTab = req.query.tab || 'picks';
+  const wantChrome = req.query.chrome;
+  if (wantChrome === 'v1' || wantChrome === 'v2') {
+    req.session.admin_chrome = wantChrome;
+    const nextTab = req.query.tab;
+    return req.session.save(() => {
+      const params = new URLSearchParams();
+      if (nextTab) params.set('tab', nextTab);
+      const q = params.toString();
+      res.redirect('/admin/dashboard' + (q ? '?' + q : ''));
+    });
+  }
+  if (req.session.admin_chrome !== 'v1' && req.session.admin_chrome !== 'v2') {
+    req.session.admin_chrome = 'v2';
+  }
+  const chrome = adminChrome(req);
+  const requestedTab = req.query.tab;
+  const allowed = chrome === 'v2' ? V2_CHROME_TABS : V1_CHROME_TABS;
+  const activeTab = requestedTab && allowed.has(requestedTab)
+    ? requestedTab
+    : (chrome === 'v2' ? 'ledger' : 'picks');
   const today = getCycleDate();
   const v3Now = db.getSetting('scoring_version', 'v2') === 'v3';
   const MVP_LINE = v3Now ? 100 : MVP_THRESHOLD; // gold line on the active scale
@@ -1671,13 +1727,36 @@ router.get('/dashboard', requireAuth, (req, res) => {
 
   // ── Active tab helper ─────────────────────────────────────────────────────────
   const ta = n => activeTab === n ? ' active' : '';
-
-  res.send(page('Dashboard', `
-    <div style="display:flex;align-items:center;margin-bottom:20px;">
-      <span class="logo">CappingAlpha Admin</span>
-    </div>
-
-    <div class="atabs">
+  const publicSiteHtml = `
+        <div class="public-site">
+          <span>Public site: <b id="v2-mode-label" style="color:${v2.mode === 'v2' ? '#22c55e' : '#fbbf24'}">${v2.mode === 'v2' ? 'V2 capper database' : 'V1 rankings'}</b></span>
+          <button class="btn btn-sm" onclick="v2SetMode('${v2.mode === 'v2' ? 'v1' : 'v2'}')">${v2.mode === 'v2' ? 'Switch public site back to V1' : 'Switch public site to V2'}</button>
+          <span>This browser: <b>${v2.preview ? 'V2 preview' : 'follows public'}</b>
+            <button class="btn btn-sm" style="margin-left:6px" onclick="v2SetPreview(${v2.preview ? 'false' : 'true'})">${v2.preview ? 'Turn preview off' : 'Preview V2 in this browser'}</button>
+          </span>
+        </div>`;
+  const tabsV2 = `
+      <button class="atab${ta('ledger')}" data-tab="ledger" onclick="adminTab('ledger');ledgerLoad()">Ledger</button>
+      <button class="atab${ta('v2')}" data-tab="v2" onclick="adminTab('v2')">Pool</button>
+      <button class="atab${ta('sourcefeed')}" data-tab="sourcefeed" onclick="adminTab('sourcefeed')">Source Feed</button>
+      <button class="atab${ta('receptions')}" data-tab="receptions" onclick="adminTab('receptions')">CA Ops Receptions</button>
+      <button class="atab${ta('codes')}" data-tab="codes" onclick="adminTab('codes')">Access Codes</button>
+      <button class="atab${ta('users')}" data-tab="users" onclick="adminTab('users')">Users</button>
+      <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
+      <a href="/admin/logout" class="atab-logout">Log out</a>`;
+  const productSwitchBox = chrome === 'v1' ? `
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
+        <h3 style="margin:0 0 10px;">Product switch</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
+          <div>Public product: <b style="color:${v2.mode === 'v2' ? '#22c55e' : '#fbbf24'}">${v2.mode === 'v2' ? 'V2 capper database' : 'V1 rankings'}</b></div>
+          <button class="btn" onclick="v2SetMode('${v2.mode === 'v2' ? 'v1' : 'v2'}')">${v2.mode === 'v2' ? 'Switch public site back to V1' : 'Switch public site to V2'}</button>
+          <div style="border-left:1px solid #252c3b;padding-left:16px;">This browser preview: <b>${v2.preview ? 'V2' : 'off'}</b>
+            <button class="btn btn-sm" style="margin-left:8px" onclick="v2SetPreview(${v2.preview ? 'false' : 'true'})">${v2.preview ? 'Turn preview off' : 'Preview V2 in this browser'}</button>
+            <span style="color:#8892a4;font-size:12px;margin-left:8px">or add ?mode=v2 / ?mode=v1 to any page while logged in here</span></div>
+        </div>
+        <div style="color:#8892a4;font-size:12px;margin-top:8px;">V1 stays in the code path. Under V1 nothing public changes; under V2 (or the preview) the game page shows the Capper Database, the section wheel moves to the bottom on phones, and the header gets a search button.</div>
+      </div>` : '';
+  const tabsV1 = `
       <button class="atab${ta('v2')}" data-tab="v2" onclick="adminTab('v2')" style="border-color:#3b82f6">V2 Database</button>
       <button class="atab${ta('picks')}" data-tab="picks" onclick="adminTab('picks')">Today's Picks</button>
       <button class="atab${ta('cappers')}" data-tab="cappers" onclick="adminTab('cappers')">Cappers</button>
@@ -1694,22 +1773,58 @@ router.get('/dashboard', requireAuth, (req, res) => {
       <button class="atab${ta('receptions')}" data-tab="receptions" onclick="adminTab('receptions')">CA Ops Receptions</button>
       <button class="atab${ta('playbook')}" data-tab="playbook" onclick="adminTab('playbook')">Playbook</button>
       <a href="/admin/preview" class="atab" style="color:#3b82f6;text-decoration:none;">UI Preview</a>
-      <a href="/admin/logout" class="atab-logout">Log out</a>
+      <a href="/admin/logout" class="atab-logout">Log out</a>`;
+
+  res.send(page('Dashboard', `
+    <div class="admin-head">
+      <span class="logo">CappingAlpha Admin</span>
+      <div class="chrome-switch" role="group" aria-label="Admin chrome">
+        <a class="chrome-opt${chrome === 'v1' ? ' on' : ''}" href="/admin/dashboard?chrome=v1&tab=picks">V1</a>
+        <a class="chrome-opt${chrome === 'v2' ? ' on' : ''}" href="/admin/dashboard?chrome=v2&tab=ledger">V2</a>
+      </div>
+      ${chrome === 'v2' ? publicSiteHtml : ''}
     </div>
 
-    <!-- PLAYBOOK PANEL -->
-    <div class="apanel${ta('v2')}" id="panel-v2">
-      <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
-        <h3 style="margin:0 0 10px;">Product switch</h3>
-        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
-          <div>Public product: <b id="v2-mode-label" style="color:${v2.mode === 'v2' ? '#22c55e' : '#fbbf24'}">${v2.mode === 'v2' ? 'V2 capper database' : 'V1 rankings'}</b></div>
-          <button class="btn" onclick="v2SetMode('${v2.mode === 'v2' ? 'v1' : 'v2'}')">${v2.mode === 'v2' ? 'Switch public site back to V1' : 'Switch public site to V2'}</button>
-          <div style="border-left:1px solid #252c3b;padding-left:16px;">This browser preview: <b>${v2.preview ? 'V2' : 'off'}</b>
-            <button class="btn btn-sm" style="margin-left:8px" onclick="v2SetPreview(${v2.preview ? 'false' : 'true'})">${v2.preview ? 'Turn preview off' : 'Preview V2 in this browser'}</button>
-            <span style="color:#8892a4;font-size:12px;margin-left:8px">or add ?mode=v2 / ?mode=v1 to any page while logged in here</span></div>
-        </div>
-        <div style="color:#8892a4;font-size:12px;margin-top:8px;">V1 stays in the code path. Under V1 nothing public changes; under V2 (or the preview) the game page shows the Capper Database, the section wheel moves to the bottom on phones, and the header gets a search button.</div>
+    <div class="atabs">
+      ${chrome === 'v2' ? tabsV2 : tabsV1}
+    </div>
+
+    <div class="apanel${ta('ledger')}" id="panel-ledger">
+      <h1>Ledger</h1>
+      <p style="color:#8892a4;font-size:13px;margin:-6px 0 16px;">Earnings ranking at $10 a pick. Same numbers as the last V2 recompute. Filter source to bettingpros to audit rows blocked from the public site.</p>
+      <div class="ld-counts" id="ld-counts"><span style="color:#8892a4">Loading counts...</span></div>
+      <div class="ld-filters">
+        <label>Sport<br><select id="ld-sport" onchange="ledgerLoad()"><option value="overall">All sports</option></select></label>
+        <label>Window<br><select id="ld-window" onchange="ledgerLoad()">
+          <option value="all">All time</option>
+          <option value="30d">30 days</option>
+          <option value="7d">7 days</option>
+        </select></label>
+        <label>Source<br><select id="ld-source" onchange="ledgerLoad()"><option value="">All sources</option></select></label>
+        <label>Status<br><select id="ld-status" onchange="ledgerLoad()">
+          <option value="all">All</option>
+          <option value="live">Live</option>
+          <option value="pool">Not yet</option>
+          <option value="hidden">Hidden</option>
+        </select></label>
+        <label>Search<br><input type="text" id="ld-q" placeholder="Capper name" onkeydown="if(event.key==='Enter')ledgerLoad()"></label>
+        <button class="btn btn-sm btn-primary" type="button" onclick="ledgerLoad()">Apply</button>
       </div>
+      <div id="ld-table"><p class="empty">Loading ledger...</p></div>
+    </div>
+    <div id="ledger-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:2000;align-items:center;justify-content:center;" onclick="if(event.target===this)closeLedgerCapper()">
+      <div style="background:#171b24;border:1px solid #252c3b;border-radius:12px;padding:22px;max-width:860px;width:94%;max-height:86vh;display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div id="ledger-modal-title" style="font-weight:700;font-size:16px;"></div>
+          <button onclick="closeLedgerCapper()" style="background:none;border:none;color:#8892a4;font-size:20px;cursor:pointer;line-height:1;">×</button>
+        </div>
+        <div id="ledger-modal-body" style="overflow:auto;"></div>
+      </div>
+    </div>
+
+    <!-- V2 POOL PANEL (V1 chrome labels this V2 Database) -->
+    <div class="apanel${ta('v2')}" id="panel-v2">
+      ${productSwitchBox}
       <div style="background:#171b24;border:1px solid #252c3b;border-radius:10px;padding:14px;margin-bottom:14px;">
         <h3 style="margin:0 0 10px;">The bar (one-way door on the OVERALL record)</h3>
         <form onsubmit="return v2SaveBar(event)" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
@@ -2458,17 +2573,20 @@ router.get('/dashboard', requireAuth, (req, res) => {
         const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
         return r.json();
       }
+      function adminStayTab() {
+        return new URLSearchParams(location.search).get('tab') || 'ledger';
+      }
       async function v2SetMode(mode) {
         const word = mode === 'v2' ? 'Switch the PUBLIC site to V2 (the capper database)? V1 comes back with the other button.' : 'Switch the public site back to V1?';
         if (!confirm(word)) return;
         const d = await v2Post('/admin/api/v2/mode', { mode });
         if (!d.ok) return alert(d.error || 'failed');
-        location.href = '/admin/dashboard?tab=v2';
+        location.href = '/admin/dashboard?tab=' + encodeURIComponent(adminStayTab());
       }
       async function v2SetPreview(on) {
         const d = await v2Post('/admin/api/v2/preview', { on });
         if (!d.ok) return alert(d.error || 'failed');
-        location.href = '/admin/dashboard?tab=v2';
+        location.href = '/admin/dashboard?tab=' + encodeURIComponent(adminStayTab());
       }
       async function v2SaveBar(e) {
         e.preventDefault();
@@ -2497,7 +2615,162 @@ router.get('/dashboard', requireAuth, (req, res) => {
         document.querySelectorAll('.atab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
         document.querySelectorAll('.apanel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
         history.replaceState(null, '', '/admin/dashboard?tab=' + name);
+        if (name === 'ledger') ledgerLoad();
       }
+
+      // ── V2 Ledger ──────────────────────────────────────────────────────────
+      let ldSort = 'units';
+      let ldSportsFilled = false;
+      function ldEsc(s) {
+        return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+      }
+      function ldMoney(u) {
+        const v = Math.round(Number(u) || 0);
+        return '<span style="color:' + (v >= 0 ? '#22c55e' : '#ef4444') + '">' + (v >= 0 ? '+$' : '-$') + Math.abs(v) + '</span>';
+      }
+      function ldMoneyCents(u) {
+        const v = Math.round((Number(u) || 0) * 100) / 100;
+        const sign = v > 0 ? '+' : v < 0 ? '-' : '';
+        return '<span style="color:' + (v > 0 ? '#22c55e' : v < 0 ? '#ef4444' : '#8892a4') + '">' + sign + '$' + Math.abs(v).toFixed(2) + '</span>';
+      }
+      function fillSelect(id, values, current, blankLabel) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const keep = el.value || current || '';
+        const first = el.querySelector('option');
+        el.innerHTML = '';
+        if (blankLabel != null) {
+          const o = document.createElement('option');
+          o.value = ''; o.textContent = blankLabel;
+          el.appendChild(o);
+        } else if (first) el.appendChild(first);
+        (values || []).forEach(function(v) {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = v;
+          el.appendChild(o);
+        });
+        if (keep) el.value = keep;
+      }
+      async function ledgerLoad() {
+        const box = document.getElementById('ld-table');
+        const countsEl = document.getElementById('ld-counts');
+        if (!box) return;
+        const sport = (document.getElementById('ld-sport') || {}).value || 'overall';
+        const win = (document.getElementById('ld-window') || {}).value || 'all';
+        const source = (document.getElementById('ld-source') || {}).value || '';
+        const status = (document.getElementById('ld-status') || {}).value || 'all';
+        const q = (document.getElementById('ld-q') || {}).value || '';
+        const params = new URLSearchParams({ sport: sport, window: win, source: source, status: status, sort: ldSort, q: q });
+        box.innerHTML = '<p class="empty">Loading ledger...</p>';
+        try {
+          const r = await fetch('/admin/api/v2/ledger?' + params.toString());
+          const d = await r.json();
+          if (!d.ok) { box.innerHTML = '<p class="empty">' + (d.error || 'Ledger failed') + '</p>'; return; }
+          if (!ldSportsFilled) {
+            const sportSel = document.getElementById('ld-sport');
+            if (sportSel && sportSel.options.length <= 1) {
+              (d.sports || []).forEach(function(s) {
+                const o = document.createElement('option'); o.value = s; o.textContent = s; sportSel.appendChild(o);
+              });
+            }
+            fillSelect('ld-source', d.sources || [], source, 'All sources');
+            ldSportsFilled = true;
+          }
+          const c = d.counts || {};
+          const ex = c.excluded || {};
+          countsEl.innerHTML =
+            '<div>Pool <b>' + (c.pool || 0) + '</b></div>' +
+            '<div>Live <b style="color:#22c55e">' + (c.live || 0) + '</b></div>' +
+            '<div>Hidden <b>' + (c.hidden || 0) + '</b></div>' +
+            '<div>Rows excluded from V2 public <b>' + (c.excluded_total || 0) + '</b>' +
+              '<span style="color:#8892a4;font-size:12px;margin-left:8px">in-play ' + (ex.live || 0) +
+              ' · backfill ' + (ex.backfill || 0) +
+              ' · corrupt price ' + (ex.corrupt_price || 0) +
+              ' · implausible ' + (ex.implausible || 0) +
+              ' · blocked source ' + (ex.blocked_source || 0) +
+              ' · polymarket screen ' + (ex.pm_screen || 0) + '</span></div>' +
+            '<div style="color:#8892a4;font-size:12px">Last recompute: ' + (c.last_recompute || 'never') + ' · showing ' + (d.rows || []).length + ' of ' + (d.total || 0) + '</div>';
+          const th = function(key, label) {
+            return '<th class="ld-sort' + (ldSort === key ? ' on' : '') + '" onclick="ldSort=\'' + key + '\';ledgerLoad()">' + label + (ldSort === key ? ' ▼' : '') + '</th>';
+          };
+          const rows = (d.rows || []).map(function(r) {
+            const rec = (r.wins || 0) + '-' + (r.losses || 0) + (r.pushes ? '-' + r.pushes : '');
+            const roi = r.roi == null ? '' : ((r.roi * 100).toFixed(1) + '%');
+            const chips =
+              (r.blocked ? '<span class="badge badge-blocked">BLOCKED</span> ' : '') +
+              (r.hidden ? '<span class="badge badge-hidden">HIDDEN</span> ' : '') +
+              (r.live ? '<span class="badge" style="background:#14532d;color:#86efac">LIVE</span>' : '<span class="badge" style="background:#1e2330;color:#8892a4">NOT YET</span>');
+            const fake = r.aliased ? ' <span class="badge" style="background:#7f1d1d;color:#fecaca;margin-left:6px">FAKE</span> <span style="color:#8892a4;font-size:11px">' + ldEsc(r.canonical_name) + '</span>' : '';
+            const name = ldEsc(r.display || r.canonical_name);
+            return '<tr style="' + (r.hidden ? 'opacity:.45' : '') + '">' +
+              '<td>' + chips + '</td>' +
+              '<td><span class="ld-open" data-capper="' + ldEsc(r.canonical_name) + '" onclick="openLedgerCapper(this.getAttribute(\'data-capper\'))">' + name + '</span>' + fake + '</td>' +
+              '<td>' + ldEsc(r.primary_source) + '</td>' +
+              '<td style="white-space:nowrap">' + rec + '</td>' +
+              '<td>' + ldMoney(r.units) + '</td>' +
+              '<td>' + roi + '</td>' +
+              '<td>' + (r.graded || 0) + (r.sample_tier ? ' <span style="color:#8892a4">' + r.sample_tier + '</span>' : '') + '</td>' +
+              '<td>' + String(r.last_pick || '') + '</td>' +
+              '</tr>';
+          }).join('');
+          box.innerHTML = '<table><thead><tr>' +
+            '<th></th>' + th('name','Capper') + '<th>Source</th><th>W-L-P</th>' + th('units','Units') + th('roi','ROI') + th('graded','Graded') + th('last_pick','Last pick') +
+            '</tr></thead><tbody>' + (rows || '<tr><td colspan="8" style="color:#8892a4">No cappers for this filter. Run a recompute from Pool if the table is empty.</td></tr>') + '</tbody></table>';
+        } catch (err) {
+          box.innerHTML = '<p class="empty">Ledger failed to load.</p>';
+        }
+      }
+      async function openLedgerCapper(name) {
+        const modal = document.getElementById('ledger-modal');
+        const title = document.getElementById('ledger-modal-title');
+        const body = document.getElementById('ledger-modal-body');
+        modal.style.display = 'flex';
+        title.textContent = name;
+        body.innerHTML = '<p style="color:#8892a4">Loading...</p>';
+        try {
+          const r = await fetch('/admin/api/v2/ledger/' + encodeURIComponent(name));
+          const d = await r.json();
+          if (!d.ok) { body.innerHTML = '<p style="color:#ef4444">' + (d.error || 'failed') + '</p>'; return; }
+          const rec = d.rating ? ((d.rating.wins || 0) + '-' + (d.rating.losses || 0) + (d.rating.pushes ? '-' + d.rating.pushes : '')) : '-';
+          title.innerHTML = ldEsc(d.display || d.canonical_name) +
+            (d.aliased ? ' <span class="badge" style="background:#7f1d1d;color:#fecaca">FAKE</span> <span style="color:#8892a4;font-size:12px;font-weight:400">' + ldEsc(d.canonical_name) + '</span>' : '') +
+            (d.live ? ' <span class="badge" style="background:#14532d;color:#86efac">LIVE</span>' : ' <span class="badge" style="background:#1e2330;color:#8892a4">NOT YET</span>') +
+            (d.hidden ? ' <span class="badge badge-hidden">HIDDEN</span>' : '');
+          const head = '<div style="display:flex;flex-wrap:wrap;gap:16px;font-size:13px;margin-bottom:12px">' +
+            '<div>Source <b>' + ldEsc(d.primary_source || '-') + '</b></div>' +
+            '<div>Record <b>' + rec + '</b></div>' +
+            '<div>Units ' + (d.rating ? ldMoney(d.rating.units) : '-') + '</div>' +
+            '<div>ROI <b>' + (d.rating && d.rating.roi != null ? (d.rating.roi * 100).toFixed(1) + '%' : '-') + '</b></div>' +
+            '<div>Graded <b>' + (d.rating ? d.rating.graded : 0) + '</b></div>' +
+            '</div>' +
+            '<p style="color:#8892a4;font-size:12px;margin:0 0 10px">Recent graded rows at $10 a pick. BLOCKED means the source is kept out of V2 public.</p>';
+          const pickRows = (d.picks || []).map(function(p) {
+            const flags = (p.flags || []).map(function(f) {
+              return f === 'blocked' ? '<span class="badge badge-blocked">BLOCKED</span>' : '<span class="badge" style="background:#1e2330;color:#8892a4">' + f + '</span>';
+            }).join(' ');
+            const res = p.result || '';
+            const resColor = res === 'win' ? '#22c55e' : res === 'loss' ? '#ef4444' : '#8892a4';
+            const market = (p.pick_type || '') + (p.spread != null && p.pick_type && String(p.pick_type).toLowerCase() !== 'ml' ? ' ' + p.spread : '');
+            const price = p.odds != null ? (p.odds > 0 ? '+' + p.odds : String(p.odds)) : '-';
+            return '<tr>' +
+              '<td style="white-space:nowrap">' + (p.game_date || '') + '</td>' +
+              '<td>' + (p.sport || '') + '</td>' +
+              '<td>' + String(p.team || '').replace(/</g,'&lt;') + '</td>' +
+              '<td>' + String(market).replace(/</g,'&lt;') + '</td>' +
+              '<td>' + price + '</td>' +
+              '<td style="color:' + resColor + ';font-weight:700;text-transform:uppercase">' + res + '</td>' +
+              '<td>' + ldMoneyCents(p.units) + '</td>' +
+              '<td>' + String(p.source || '').replace(/</g,'&lt;') + ' ' + flags + '</td>' +
+              '</tr>';
+          }).join('');
+          body.innerHTML = head + '<table><thead><tr><th>Date</th><th>Sport</th><th>Team</th><th>Market</th><th>Price</th><th>Result</th><th>$ at $10</th><th>Source</th></tr></thead><tbody>' +
+            (pickRows || '<tr><td colspan="8" style="color:#8892a4">No graded rows.</td></tr>') + '</tbody></table>';
+        } catch (err) {
+          body.innerHTML = '<p style="color:#ef4444">Failed to load capper.</p>';
+        }
+      }
+      function closeLedgerCapper() { document.getElementById('ledger-modal').style.display = 'none'; }
+      if (document.getElementById('panel-ledger') && document.getElementById('panel-ledger').classList.contains('active')) ledgerLoad();
 
       // ── Dummy accounts ──────────────────────────────────────────────────────────
       async function saveDummy(id) {
@@ -4803,6 +5076,29 @@ router.post('/api/fix-opposite-source-picks', adminLoginRateLimit, express.json(
 });
 
 // ── V2 Database endpoints (docs/V2_DATABASE_PLAN.md 6b) ──────────────────────
+router.get('/api/v2/ledger', requireAuth, (req, res) => {
+  try {
+    res.json(require('./capper_v2').getLedger({
+      sport: req.query.sport,
+      window: req.query.window,
+      source: req.query.source,
+      status: req.query.status,
+      sort: req.query.sort,
+      q: req.query.q,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+router.get('/api/v2/ledger/:canonical', requireAuth, (req, res) => {
+  try {
+    res.json(require('./capper_v2').getLedgerCapper(decodeURIComponent(req.params.canonical), { limit: req.query.limit }));
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
 router.post('/api/v2/mode', requireAuth, express.json(), (req, res) => {
   const { mode } = req.body || {};
   if (!['v1', 'v2'].includes(mode)) return res.json({ ok: false, error: 'mode must be v1 or v2' });

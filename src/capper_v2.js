@@ -127,6 +127,7 @@ function eligibleRows(rows, resolve, pmOk, counts) {
     if (isBackfill(r)) { counts.backfill++; continue; }
     if (corruptPrice(r.odds)) { counts.corrupt_price++; continue; }
     try { if (implausibleLine(r)) { counts.implausible++; continue; } } catch (_) {}
+    if (r.source === 'bettingpros') { counts.blocked_source = (counts.blocked_source || 0) + 1; continue; }
     const canonical = resolve(r.capper_name, r.source);
     if (r.source === 'polymarket' && !pmOk.has(canonical)) { counts.pm_screen++; continue; }
     out.push(Object.assign(r, { canonical, scope: sportScope(r.sport), tkey: typeKey(r.pick_type) }));
@@ -159,7 +160,7 @@ function recomputeCapperV2() {
   const bar = barSettings();
   const resolve = buildResolver();
   const pmOk = pmScreenedCanonicals(resolve);
-  const counts = { live: 0, backfill: 0, corrupt_price: 0, implausible: 0, pm_screen: 0 };
+  const counts = { live: 0, backfill: 0, corrupt_price: 0, implausible: 0, pm_screen: 0, blocked_source: 0 };
 
   const raw = db.prepare(`
     SELECT id, capper_name, sport, pick_type, team, spread, espn_game_id, game_date, result, odds,
@@ -297,6 +298,7 @@ function recomputeCapperV2() {
       ratingRows++;
     }
     db.setSetting('v2_last_recompute', new Date().toISOString());
+    db.setSetting('v2_last_excluded', JSON.stringify(counts));
   });
   tx();
 
@@ -355,9 +357,338 @@ function getPoolSummary() {
   } catch (err) { return { error: err.message }; }
 }
 
+
+function lastExcluded() {
+  try {
+    const raw = db.getSetting('v2_last_excluded', '');
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return null;
+}
+
+function ledgerDisplay(reg) {
+  const primary = (reg && reg.primary_source) || '';
+  const aliased = !!(reg && reg.alias_name && (reg.name_mode === 'alias'
+    || (reg.name_mode === 'auto' && ['discord', 'bettingpros'].includes(primary))));
+  const canonical = (reg && reg.canonical_name) || '';
+  return {
+    display: aliased ? reg.alias_name : ((reg && reg.display_name) || canonical),
+    aliased,
+    canonical,
+  };
+}
+
+function cutoffForWindow(window) {
+  if (window === '30d') return new Date(Date.now() - 30 * 86400e3).toISOString().slice(0, 10);
+  if (window === '7d') return new Date(Date.now() - 7 * 86400e3).toISOString().slice(0, 10);
+  return null;
+}
+
+function ledgerCounts() {
+  const summary = getPoolSummary();
+  let hidden = 0;
+  try { hidden = db.prepare(`SELECT COUNT(*) c FROM capper_registry WHERE hidden = 1`).get().c; } catch (_) {}
+  let excluded = lastExcluded() || {};
+  if (excluded.blocked_source == null) {
+    try {
+      excluded = Object.assign({}, excluded, {
+        blocked_source: db.prepare(`SELECT COUNT(*) c FROM capper_history WHERE source = 'bettingpros' AND result IN ('win','loss','push')`).get().c,
+      });
+    } catch (_) { excluded.blocked_source = 0; }
+  }
+  const excluded_total = ['live', 'backfill', 'corrupt_price', 'implausible', 'pm_screen', 'blocked_source']
+    .reduce((n, k) => n + (Number(excluded[k]) || 0), 0);
+  return {
+    pool: summary.pool || 0,
+    live: summary.live || 0,
+    hidden,
+    meets_bar_today: summary.meets_bar_today || 0,
+    last_recompute: summary.last_recompute || null,
+    excluded,
+    excluded_total,
+  };
+}
+
+function ledgerSports() {
+  try {
+    return db.prepare(`
+      SELECT DISTINCT substr(scope, 7) AS sport FROM capper_ratings_v2
+      WHERE scope LIKE 'sport:%' AND window = 'all' ORDER BY sport
+    `).all().map((r) => r.sport).filter(Boolean);
+  } catch (_) { return []; }
+}
+
+function ledgerSources() {
+  const out = [];
+  const seen = new Set();
+  try {
+    for (const r of db.prepare(`
+      SELECT DISTINCT primary_source AS source FROM capper_registry
+      WHERE primary_source IS NOT NULL AND primary_source != ''
+      ORDER BY primary_source
+    `).all()) {
+      if (!seen.has(r.source)) { seen.add(r.source); out.push(r.source); }
+    }
+  } catch (_) {}
+  if (!seen.has('bettingpros')) out.push('bettingpros');
+  return out;
+}
+
+function blockedLedgerRows({ sport, window, q, sort }) {
+  const resolve = buildResolver();
+  const start = cutoffForWindow(window);
+  const wantSport = sport && sport !== 'all' && sport !== 'overall' ? sportScope(sport) : null;
+  let raw = [];
+  try {
+    raw = db.prepare(`
+      SELECT capper_name, sport, pick_type, team, spread, result, odds, game_date, source, sources_json, espn_game_id
+      FROM capper_history
+      WHERE source = 'bettingpros' AND result IN ('win','loss','push') AND capper_name IS NOT NULL
+    `).all();
+  } catch (_) { return []; }
+  const by = new Map();
+  for (const r of raw) {
+    if (start && r.game_date < start) continue;
+    if (wantSport && sportScope(r.sport) !== wantSport) continue;
+    const canonical = resolve(r.capper_name, r.source);
+    if (q) {
+      const needle = String(q).toLowerCase();
+      if (!String(canonical).toLowerCase().includes(needle) && !String(r.capper_name).toLowerCase().includes(needle)) continue;
+    }
+    let a = by.get(canonical);
+    if (!a) {
+      a = { canonical_name: canonical, graded: 0, wins: 0, losses: 0, pushes: 0, units: 0, last_pick: null, first_pick: null };
+      by.set(canonical, a);
+    }
+    const res = String(r.result).toLowerCase();
+    a.graded++;
+    if (res === 'win') a.wins++; else if (res === 'loss') a.losses++; else a.pushes++;
+    a.units += unitReturn(r);
+    if (!a.first_pick || r.game_date < a.first_pick) a.first_pick = r.game_date;
+    if (!a.last_pick || r.game_date > a.last_pick) a.last_pick = r.game_date;
+  }
+  const rows = [...by.values()].map((a) => {
+    let reg = null;
+    try { reg = db.prepare(`SELECT * FROM capper_registry WHERE canonical_name = ?`).get(a.canonical_name); } catch (_) {}
+    const named = ledgerDisplay(Object.assign({ canonical_name: a.canonical_name, primary_source: 'bettingpros' }, reg || {}));
+    return {
+      canonical_name: a.canonical_name,
+      display: named.display,
+      aliased: named.aliased,
+      primary_source: (reg && reg.primary_source) || 'bettingpros',
+      hidden: !!(reg && reg.hidden),
+      live: false,
+      blocked: true,
+      wins: a.wins,
+      losses: a.losses,
+      pushes: a.pushes,
+      units: Math.round(a.units * 100) / 100,
+      roi: a.graded ? a.units / (STAKE * a.graded) : null,
+      graded: a.graded,
+      last_pick: a.last_pick,
+      sample_tier: tierFor(a.graded),
+      slug: (reg && reg.slug) || null,
+      qualified_at: null,
+    };
+  });
+  const dir = sort === 'name' ? 1 : -1;
+  const key = sort === 'roi' ? 'roi' : sort === 'graded' ? 'graded' : sort === 'last_pick' ? 'last_pick' : sort === 'name' ? 'display' : 'units';
+  rows.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (av < bv) return -1 * dir;
+    if (av > bv) return 1 * dir;
+    return (b.graded || 0) - (a.graded || 0);
+  });
+  return rows;
+}
+
+function getLedger(opts = {}) {
+  const window = ['all', '30d', '7d'].includes(opts.window) ? opts.window : 'all';
+  const sort = ['units', 'roi', 'graded', 'last_pick', 'name'].includes(opts.sort) ? opts.sort : 'units';
+  const status = ['all', 'live', 'pool', 'hidden'].includes(opts.status) ? opts.status : 'all';
+  const source = String(opts.source || '').trim();
+  const sport = String(opts.sport || '').trim();
+  const q = String(opts.q || '').trim();
+  const limit = Math.min(500, Math.max(1, parseInt(opts.limit, 10) || 250));
+  const offset = Math.max(0, parseInt(opts.offset, 10) || 0);
+  const scope = (!sport || sport === 'all' || sport === 'overall') ? 'overall' : `sport:${sportScope(sport)}`;
+
+  const counts = ledgerCounts();
+  const sports = ledgerSports();
+  const sources = ledgerSources();
+
+  if (source === 'bettingpros') {
+    const all = blockedLedgerRows({ sport, window, q, sort });
+    return {
+      ok: true, window, sport: sport || 'overall', source, status, sort, scope,
+      counts, sports, sources,
+      total: all.length, rows: all.slice(offset, offset + limit),
+    };
+  }
+
+  const orderSql = {
+    units: 'r.units DESC, r.graded DESC',
+    roi: 'r.roi DESC, r.units DESC',
+    graded: 'r.graded DESC, r.units DESC',
+    last_pick: 'r.last_pick DESC',
+    name: 'r.canonical_name ASC',
+  }[sort];
+
+  const where = [`r.scope = ?`, `r.window = ?`];
+  const params = [scope, window];
+  if (source) { where.push(`g.primary_source = ?`); params.push(source); }
+  if (status === 'live') where.push(`q.qualified_at IS NOT NULL`);
+  if (status === 'pool') where.push(`q.qualified_at IS NULL`);
+  if (status === 'hidden') where.push(`COALESCE(g.hidden, 0) = 1`);
+  if (q) {
+    where.push(`(r.canonical_name LIKE ? OR IFNULL(g.alias_name,'') LIKE ? OR IFNULL(g.display_name,'') LIKE ?)`);
+    const like = `%${q.replace(/%/g, '')}%`;
+    params.push(like, like, like);
+  }
+
+  let rows = [];
+  let total = 0;
+  try {
+    const from = `
+      FROM capper_ratings_v2 r
+      LEFT JOIN capper_registry g ON g.canonical_name = r.canonical_name
+      LEFT JOIN capper_qualifications q ON q.canonical_name = r.canonical_name
+      WHERE ${where.join(' AND ')}`;
+    total = db.prepare(`SELECT COUNT(*) c ${from}`).get(...params).c;
+    rows = db.prepare(`
+      SELECT r.canonical_name, r.graded, r.wins, r.losses, r.pushes, r.units, r.roi, r.sample_tier,
+             r.meets_bar, r.rank_money, r.active_14d, r.last_pick, r.first_pick,
+             g.slug, g.alias_name, g.name_mode, g.primary_source, g.hidden, g.display_name,
+             q.qualified_at
+      ${from}
+      ORDER BY ${orderSql}
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+  } catch (err) {
+    return { ok: false, error: err.message, counts, sports, sources, rows: [], total: 0 };
+  }
+
+  const out = rows.map((r) => {
+    const named = ledgerDisplay(r);
+    return {
+      canonical_name: r.canonical_name,
+      display: named.display,
+      aliased: named.aliased,
+      primary_source: r.primary_source || '',
+      hidden: !!r.hidden,
+      live: !!r.qualified_at,
+      blocked: false,
+      wins: r.wins,
+      losses: r.losses,
+      pushes: r.pushes,
+      units: r.units,
+      roi: r.roi,
+      graded: r.graded,
+      last_pick: r.last_pick,
+      sample_tier: r.sample_tier,
+      meets_bar: !!r.meets_bar,
+      rank_money: r.rank_money,
+      slug: r.slug || null,
+      qualified_at: r.qualified_at || null,
+    };
+  });
+
+  return {
+    ok: true, window, sport: sport || 'overall', source, status, sort, scope,
+    counts, sports, sources, total, rows: out,
+  };
+}
+
+function namesForCanonical(canonical) {
+  const names = new Set([canonical]);
+  try {
+    for (const a of db.prepare(`SELECT alias FROM capper_aliases WHERE canonical_name = ?`).all(canonical)) {
+      if (a.alias) names.add(a.alias);
+    }
+  } catch (_) {}
+  try {
+    for (const h of db.prepare(`SELECT handle FROM capper_source_handles WHERE canonical_name = ?`).all(canonical)) {
+      if (h.handle) names.add(h.handle);
+    }
+  } catch (_) {}
+  return [...names];
+}
+
+function rowFlags(r) {
+  const flags = [];
+  if (r.source === 'bettingpros') flags.push('blocked');
+  if (isLiveRow(r)) flags.push('in_play');
+  if (isBackfill(r)) flags.push('backfill');
+  if (corruptPrice(r.odds)) flags.push('corrupt_price');
+  try { if (implausibleLine(r)) flags.push('implausible'); } catch (_) {}
+  return flags;
+}
+
+function getLedgerCapper(canonical, opts = {}) {
+  const name = String(canonical || '').trim();
+  if (!name) return { ok: false, error: 'missing capper' };
+  const limit = Math.min(200, Math.max(1, parseInt(opts.limit, 10) || 50));
+  let reg = null;
+  try { reg = db.prepare(`SELECT * FROM capper_registry WHERE canonical_name = ?`).get(name); } catch (_) {}
+  const named = ledgerDisplay(Object.assign({ canonical_name: name }, reg || {}));
+  let qualified_at = null;
+  try {
+    const q = db.prepare(`SELECT qualified_at FROM capper_qualifications WHERE canonical_name = ?`).get(name);
+    qualified_at = q ? q.qualified_at : null;
+  } catch (_) {}
+  const rating = getRating(name, 'overall', 'all');
+  const names = namesForCanonical(name);
+  const marks = names.map(() => '?').join(',');
+  let raw = [];
+  try {
+    raw = db.prepare(`
+      SELECT id, capper_name, sport, pick_type, team, spread, espn_game_id, game_date, result, odds, source, sources_json, saved_at
+      FROM capper_history
+      WHERE capper_name IN (${marks}) AND result IN ('win','loss','push')
+      ORDER BY game_date DESC, saved_at DESC, id DESC
+      LIMIT ?
+    `).all(...names, limit);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  const picks = raw.map((r) => {
+    const flags = rowFlags(r);
+    return {
+      id: r.id,
+      game_date: r.game_date,
+      sport: sportScope(r.sport),
+      team: r.team,
+      pick_type: r.pick_type,
+      spread: r.spread,
+      odds: r.odds,
+      result: String(r.result || '').toLowerCase(),
+      units: Math.round(unitReturn(r) * 100) / 100,
+      source: r.source || '',
+      flags,
+    };
+  });
+  return {
+    ok: true,
+    canonical_name: name,
+    display: named.display,
+    aliased: named.aliased,
+    primary_source: (reg && reg.primary_source) || '',
+    hidden: !!(reg && reg.hidden),
+    live: !!qualified_at,
+    qualified_at,
+    slug: (reg && reg.slug) || null,
+    rating,
+    picks,
+  };
+}
+
 module.exports = {
   recomputeCapperV2, getRating, getLiveSet, getNextUp, getPoolSummary, barSettings,
   sportScope, typeKey, unitReturn, corruptPrice, isBackfill, seasonStartISO, pmScreenedCanonicals, STAKE,
+  getLedger, getLedgerCapper, lastExcluded,
 };
 
 // CLI: node src/capper_v2.js
