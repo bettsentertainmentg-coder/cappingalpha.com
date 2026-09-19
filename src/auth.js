@@ -10,6 +10,14 @@ const router     = express.Router();
 const SALT_ROUNDS = 12;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Who is making this request. Session cookie on the website. The app's bearer
+// tokens are not on this origin/master tree yet; IAP still grants when a
+// session user is present.
+function userOf(req) {
+  return (req && req.bearerUser) || (req && req.session && req.session.user) || null;
+}
+
 function userPayload(row) {
   return { id: row.id, email: row.email, tier: row.subscription_tier, username: row.username || null };
 }
@@ -565,11 +573,19 @@ async function stripeWebhook(req, res) {
       // user's current access came from THIS subscription ('paid'). A separately
       // redeemed code/lifetime grant ('code') must survive the cancellation.
       const sub  = data.object;
-      const user = db.prepare(`SELECT id FROM users WHERE stripe_subscription_id=?`).get(sub.id);
+      let user;
+      try {
+        user = db.prepare(`SELECT id, subscription_expires, subscription_store FROM users WHERE stripe_subscription_id=?`).get(sub.id);
+      } catch (_) {
+        user = db.prepare(`SELECT id FROM users WHERE stripe_subscription_id=?`).get(sub.id);
+      }
       if (user) {
-        db.prepare(`UPDATE users SET subscription_tier='free', subscription_expires=NULL WHERE id=? AND subscription_tier='paid'`).run(user.id);
+        const appleLive = user.subscription_store === 'apple' && user.subscription_expires && Date.parse(user.subscription_expires) > Date.now();
+        if (!appleLive) {
+          db.prepare(`UPDATE users SET subscription_tier='free', subscription_expires=NULL WHERE id=? AND subscription_tier='paid'`).run(user.id);
+        }
         db.prepare(`UPDATE users SET stripe_subscription_id=NULL WHERE id=?`).run(user.id);
-        console.log(`[stripe] Subscription cancelled for user ${user.id}`);
+        console.log(`[stripe] Subscription cancelled for user ${user.id}${appleLive ? ' (apple entitlement kept)' : ''}`);
       }
     }
   } catch (err) {
@@ -782,3 +798,4 @@ module.exports.isAuthed           = isAuthed;
 module.exports.requirePaid        = requirePaid;
 module.exports.stripeWebhook      = stripeWebhook;
 module.exports.ensureReferralCode = ensureReferralCode;
+module.exports.userOf             = userOf;

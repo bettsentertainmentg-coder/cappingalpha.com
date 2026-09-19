@@ -495,6 +495,27 @@ try { db.exec(`ALTER TABLE users ADD COLUMN username TEXT`); } catch (_) {}
 try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username) WHERE username IS NOT NULL`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_customer_id TEXT`); } catch (_) {}
 try { db.exec(`ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT`); } catch (_) {}
+try { db.exec(`ALTER TABLE users ADD COLUMN subscription_store TEXT`); } catch (_) {}
+
+// Apple IAP (StoreKit 2). original_transaction_id is the durable Apple id we
+// re-link on Restore. Additive; Stripe rows on users are untouched.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS apple_transactions (
+      original_transaction_id TEXT PRIMARY KEY,
+      user_id                 INTEGER,
+      product_id              TEXT,
+      purchased_at            TEXT,
+      expires_at              TEXT,
+      status                  TEXT,
+      environment             TEXT,
+      last_notification_at    TEXT,
+      raw_json                TEXT
+    )
+  `);
+} catch (_) {}
+try { db.exec(`CREATE INDEX IF NOT EXISTS idx_apple_tx_user ON apple_transactions (user_id)`); } catch (_) {}
+
 
 // ── Leaderboard ───────────────────────────────────────────────────────────────
 // Per-user public/private flag (1 = visible on the public leaderboard, 0 = hidden).
