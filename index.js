@@ -262,10 +262,6 @@ app.use('/api/betslip', makeRateLimit({ max: 60, windowMs: 10 * 60 * 1000, msg: 
 app.use('/api/bets', require('./src/bets_router'));   // Phase B personal bet tracking
 app.use('/api/track', require('./src/track_schedule')); // bet-tracking week-ahead schedule (separate; custom-only, no Odds API)
 app.use('/api/betslip', require('./src/betslip_router')); // screenshot -> parsed bet -> the normal confirm slide
-// Apple IAP (StoreKit 2). Notifications V2 are JSON { signedPayload }.
-app.use('/api/iap/verify',  makeRateLimit({ max: 30, windowMs: 15 * 60 * 1000, msg: 'Too many purchase checks. Try again shortly.' }));
-app.use('/api/iap/restore', makeRateLimit({ max: 20, windowMs: 15 * 60 * 1000, msg: 'Too many restore attempts. Try again shortly.' }));
-app.use('/api/iap', require('./src/iap'));
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: false,
   lastModified: false,
@@ -298,7 +294,7 @@ if (MIRROR_URL) {
   // /api/leaderboard + /api/member join them so the whole Socials world reads ONE
   // local dataset — a prod board over local follows/feeds would split numbers the
   // same way the /api/friends + /api/mvp skips already guard against.
-  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/betslip', '/api/iap', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
+  const MIRROR_SKIP = ['/api/account', '/api/game-form', '/api/bets', '/api/betslip', '/api/push', '/api/track', '/api/friends', '/api/my', '/api/ca-profile', '/api/mvp', '/api/social', '/api/members', '/api/leaderboard', '/api/member'];
   app.use((req, res, next) => {
     // /results stays LOCAL for the same reason /api/mvp does: it renders the same
     // tracked record the (now-local) CA Rankings tab shows, so the two surfaces
@@ -579,7 +575,6 @@ app.get('/api/config', (req, res) => {
     google_client_id: process.env.GOOGLE_CLIENT_ID || null,
     product_mode: getProductMode(req),
     v2_preview: isPreview(req),
-    store: 'apple',
   });
 });
 
