@@ -35,7 +35,6 @@
 
 const express = require('express');
 const crypto = require('crypto');
-const { compactVerify, importX509 } = require('jose');
 const db = require('./db');
 const auth = require('./auth');
 function userOf(req) {
@@ -88,10 +87,15 @@ function fp256(cert) {
   return String(cert.fingerprint256 || '').replace(/:/g, '').toUpperCase();
 }
 
-async function verifyAgainstLeaf(jws, leaf, alg) {
-  const key = await importX509(leaf.toString(), alg);
-  const { payload } = await compactVerify(jws, key, { algorithms: [alg] });
-  return JSON.parse(new TextDecoder().decode(payload));
+function verifyAgainstLeaf(jws, leaf, alg) {
+  if (alg && alg !== 'ES256') throw new Error('unsupported alg ' + alg);
+  const parts = jws.split('.');
+  if (parts.length !== 3) throw new Error('invalid jws');
+  const signed = Buffer.from(parts[0] + '.' + parts[1]);
+  const sig = Buffer.from(parts[2], 'base64url');
+  const ok = crypto.verify('sha256', signed, { key: leaf.publicKey, dsaEncoding: 'ieee-p1363' }, sig);
+  if (!ok) throw new Error('jws signature invalid');
+  return b64urlJson(parts[1]);
 }
 
 // Full x5c chain to Apple Root CA G3, then ES256 verify of the JWS.
